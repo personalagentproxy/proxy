@@ -24,6 +24,9 @@ export type ConnectionRow = {
 	name: string | null;
 	// The actions agents get by default, one per row.
 	defaults: Array<{actionId: string}>;
+	// When the provider turned its credential down, so it needs signing in to again; null while it
+	// hasn't.
+	credentialRejectedAt: Date | null;
 };
 
 // Never the credential: only `getConnectionWithCredential`, `listConnectionsWithCredential` and
@@ -40,6 +43,7 @@ const connectionSelect = {
 	tools: true,
 	name: true,
 	defaults: {select: {actionId: true}},
+	credentialRejectedAt: true,
 } as const;
 
 // A connection as it is stored, where the owner's column still takes none (schema.prisma): one
@@ -328,15 +332,19 @@ export async function renewConnection(data: {
 }): Promise<Result<void, ApiError>> {
 	const {connectionId, ...renewed} = data;
 	const updated = await wrapDb(() =>
-		db.connection.update({where: {id: connectionId}, data: renewed, select: {id: true}}),
+		db.connection.update({
+			where: {id: connectionId},
+			data: {...renewed, credentialRejectedAt: null},
+			select: {id: true},
+		}),
 	);
 	return updated.map(() => undefined);
 }
 
 /**
- * Replaces a connection's encrypted credential, as when Granola hands out new tokens. With
- * `previous`, only while the credential is still that one, so two servers refreshing at once
- * don't overwrite each other: `Ok(false)` when it had already changed.
+ * Replaces a connection's encrypted credential, as when Granola hands out new tokens, a new one
+ * not turned down. With `previous`, only while the credential is still that one, so two servers
+ * refreshing at once don't overwrite each other: `Ok(false)` when it had already changed.
  */
 export async function updateConnectionCredential(data: {
 	connectionId: string;
@@ -346,9 +354,31 @@ export async function updateConnectionCredential(data: {
 	const {connectionId, credential, previous} = data;
 	const where =
 		previous === undefined ? {id: connectionId} : {id: connectionId, credential: previous};
-	return (await wrapDb(() => db.connection.updateMany({where, data: {credential}}))).map(
-		({count}) => count > 0,
-	);
+	return (
+		await wrapDb(() =>
+			db.connection.updateMany({where, data: {credential, credentialRejectedAt: null}}),
+		)
+	).map(({count}) => count > 0);
+}
+
+/**
+ * Notes that the provider turned a connection's credential down, so it needs signing in to again:
+ * only while the credential is still `credential`, so a sign-in that happened meanwhile isn't
+ * marked, and only the first time. `Ok(false)` when there was nothing to mark.
+ */
+export async function markCredentialRejected(data: {
+	connectionId: string;
+	credential: string;
+}): Promise<Result<boolean, ApiError>> {
+	const {connectionId, credential} = data;
+	return (
+		await wrapDb(() =>
+			db.connection.updateMany({
+				where: {id: connectionId, credential, credentialRejectedAt: null},
+				data: {credentialRejectedAt: new Date()},
+			}),
+		)
+	).map(({count}) => count > 0);
 }
 
 /**
@@ -530,7 +560,10 @@ export async function takeOverConnection(
 				]);
 				const moved = await move({...row, defaults, agentGrants, runs}, (credential) =>
 					wrapDb(async () => {
-						await tx.connection.update({where: {id: connectionId}, data: {credential}});
+						await tx.connection.update({
+							where: {id: connectionId},
+							data: {credential, credentialRejectedAt: null},
+						});
 					}),
 				);
 				if (moved.isErr()) {
@@ -549,7 +582,7 @@ export async function takeOverConnection(
 				} = moved.value;
 				await tx.connection.update({
 					where: {id: connectionId},
-					data: {integrationId, account, credential, tools: null},
+					data: {integrationId, account, credential, credentialRejectedAt: null, tools: null},
 				});
 				await tx.connectionDefault.deleteMany({where: {connectionId}});
 				await tx.connectionDefault.createMany({

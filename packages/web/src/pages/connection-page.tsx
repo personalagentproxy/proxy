@@ -195,6 +195,29 @@ function ConnectionDetail() {
 			/>
 			<div className="flex flex-col gap-4">
 				{added && <SuccessLine>Connection added successfully</SuccessLine>}
+				{renewReason === 'needed' && (
+					<SignInAgain
+						href={renew}
+						reason={renewReason}
+						onUseKey={integration.apiKey ? () => setReplacingKey(true) : undefined}
+						connectedBy={
+							connection.ownerUserId === human.user.id
+								? undefined
+								: (connection.owner ?? 'a former member')
+						}
+					/>
+				)}
+				{replacingKey && (
+					<ConnectWithKeyDialog
+						integrationId={integration.id}
+						connectionId={connection.id}
+						onClose={() => setReplacingKey(false)}
+						onConnected={async () => {
+							setReplacingKey(false);
+							await reload();
+						}}
+					/>
+				)}
 				<PageTabs tabs={tabs} chosen={tab} label="Connection" />
 				{tab === 'entries' && vaultEntries !== null && (
 					<VaultEntries
@@ -249,22 +272,11 @@ function ConnectionDetail() {
 								await reload();
 							}}
 						/>
-						{renew && renewReason && (
+						{renew && (renewReason === 'renew' || renewReason === 'unavailable') && (
 							<SignInAgain
 								href={renew}
 								reason={renewReason}
 								onUseKey={integration.apiKey ? () => setReplacingKey(true) : undefined}
-							/>
-						)}
-						{replacingKey && (
-							<ConnectWithKeyDialog
-								integrationId={integration.id}
-								connectionId={connection.id}
-								onClose={() => setReplacingKey(false)}
-								onConnected={async () => {
-									setReplacingKey(false);
-									await reload();
-								}}
 							/>
 						)}
 						{integration.form === 'bank' && mayChange && (

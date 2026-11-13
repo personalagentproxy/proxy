@@ -6,6 +6,7 @@ import type {Viewer} from '@proxy/db/viewer';
 import {findCollection, requiredAction, type Collection, type Integration} from '@proxy/integrations';
 import type {SourceSummary} from '@proxy/contracts/widgets';
 
+import type {StoredConnection} from '../connections/integration';
 import {unavailableActions, unavailableError} from '../connections/unavailable';
 import type {Capabilities, Capability} from '../records/capabilities';
 import {isRecordStore, type RecordStore, type RecordTarget} from '../records/connector';
@@ -68,7 +69,7 @@ export function findSources(viewer: Viewer, collectionId: string, request: strin
 }
 
 /** Whether the connection's sign-in covered `request` of the collection: `view` to read it, `create` to write to it, or a command's id. */
-export function covers(connection: {id: string; integrationId: string; credential: string | null}, collection: Collection, request: string): boolean {
+export function covers(connection: StoredConnection, collection: Collection, request: string): boolean {
 	const action = requiredAction(collection, request);
 	return action !== null && !unavailableActions(connection).includes(action);
 }

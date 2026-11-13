@@ -53,6 +53,7 @@ function run(command: string, values: Record<string, string>) {
 		tools: null,
 		name: null,
 		defaults: [],
+		credentialRejectedAt: null,
 		credential: 'v1.encrypted',
 	};
 	return runner({connection, collection}, values);

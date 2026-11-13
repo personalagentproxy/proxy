@@ -38,6 +38,26 @@ export function AgentHomePage() {
 					if (!integration) {
 						return null;
 					}
+					// One whose sign-in is gone stays listed, so the agent knows it is there, with nothing to open.
+					if (connection.signInNeeded) {
+						return (
+							<Section
+								key={connection.id}
+								title={
+									<>
+										<LogoBeforeTitle integration={integration} />
+										{connection.name ?? integration.name}
+									</>
+								}
+								detail={connectionDetail(connection)}
+							>
+								<p className="text-sm text-destructive">
+									Not signed in, so nothing can be done with it until whoever connected it signs in
+									again.
+								</p>
+							</Section>
+						);
+					}
 					if (integration.custom) {
 						const tools = connection.tools ?? [];
 						return (

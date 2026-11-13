@@ -4,7 +4,8 @@ import {Ok, type Result} from 'ts-results-es';
 import type {ApiError} from '@proxy/utils';
 import {findCollection, findIntegration, type Collection} from '@proxy/integrations';
 
-mock.module('@proxy/db/connection', () => ({updateConnectionCredential: mock(), getConnectionCredential: mock(async () => Ok(null))}));
+const markCredentialRejected = mock(async () => Ok(true));
+mock.module('@proxy/db/connection', () => ({markCredentialRejected, updateConnectionCredential: mock(), getConnectionCredential: mock(async () => Ok(null))}));
 
 mock.module('../observability/log', () => ({
 	log: {debug: mock(), info: mock(), warn: mock(), error: mock()},
@@ -41,6 +42,7 @@ const connection = {
 	tools: null,
 	name: null,
 	defaults: [],
+	credentialRejectedAt: null,
 	credential: `enc:${JSON.stringify(CREDENTIAL)}`,
 };
 

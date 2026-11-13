@@ -193,6 +193,18 @@ describe('handleMcpRoute', () => {
 		expect(await instructions()).not.toContain('Drives (Files)');
 	});
 
+	test('a connection with no sign-in is listed as one to be signed in to again, where, and nothing it can do', async () => {
+		const {agentInstructions} = await import('./tools');
+		const notes = {id: 'granola-1', integrationId: 'granola', account: 'alex@example.com', shared: true, actions: [], tools: null, name: null, signInNeeded: true};
+		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [{...mailbox, signInNeeded: false}, notes]}));
+
+		const told = (await agentInstructions(signedIn, 'Work.')).unwrap();
+		expect(told).toContain('- mail-1: Email (alex@example.com): Read, Archive');
+		expect(told).toContain(
+			'- granola-1: Granola (alex@example.com), shared: not signed in, so nothing can be done with it until whoever connected it signs in again at https://app.example.com/org-1/connections/granola-1. If the person asks for something from it, tell them so.',
+		);
+	});
+
 	test('in a conversation, what the agent makes goes in the folder it is given', async () => {
 		const {agentInstructions} = await import('./tools');
 		const own = {id: 'drive-1', integrationId: 'files', account: 'Acme', shared: false, actions: ['readFiles', 'createFiles'], tools: null, name: null};

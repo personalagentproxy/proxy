@@ -25,6 +25,7 @@ export function connectionSummary(connection: AgentConnection) {
 		account: connection.account,
 		shared: connection.shared,
 		can: describeActions(connection),
+		...(connection.signInNeeded ? {signInNeeded: true} : {}),
 	};
 }
 

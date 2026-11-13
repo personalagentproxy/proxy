@@ -47,6 +47,7 @@ function target(integrationId: 'postgres' | 'mysql', collectionId: string): Reco
 			tools: null,
 			name: null,
 			defaults: [],
+			credentialRejectedAt: null,
 			credential: 'stored',
 		},
 		collection,

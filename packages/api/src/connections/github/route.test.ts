@@ -8,7 +8,9 @@ const createConnection = mock();
 const renewConnection = mock();
 const getConnectionWithCredential = mock();
 
+const markCredentialRejected = mock(async () => Ok(true));
 mock.module('@proxy/db/connection', () => ({
+	markCredentialRejected,
 	getConnectionWithCredential,
 	findAccountConnection,
 	createConnection,

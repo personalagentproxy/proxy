@@ -175,6 +175,9 @@ export function agentInstructions(signedIn: SignedInAgent, flow: string, folder?
 		const lines = connections.map((connection) => {
 			const {integration, account, can} = connectionSummary(connection);
 			const called = connection.name === null ? `${integration} (${account})` : `${connection.name} (${integration}, ${account})`;
+			if (connection.signInNeeded) {
+				return `- ${connection.id}: ${called}${connection.shared ? ', shared' : ''}: not signed in, so nothing can be done with it until whoever connected it signs in again at ${appUrl}/${signedIn.orgSlug}/connections/${connection.id}. If the person asks for something from it, tell them so.`;
+			}
 			return `- ${connection.id}: ${called}${connection.shared ? ', shared' : ''}: ${can}`;
 		});
 		return [

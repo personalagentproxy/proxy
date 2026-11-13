@@ -25,7 +25,8 @@ mock.module('@proxy/db/task', () => ({
 
 const listConnectionsWithCredential = mock();
 
-mock.module('@proxy/db/connection', () => ({listConnectionsWithCredential, updateConnectionCredential: mock(), getConnectionCredential: mock(async () => Ok(null))}));
+const markCredentialRejected = mock(async () => Ok(true));
+mock.module('@proxy/db/connection', () => ({markCredentialRejected, listConnectionsWithCredential, updateConnectionCredential: mock(), getConnectionCredential: mock(async () => Ok(null))}));
 
 // Readable stand-ins for encryption, so a test can write the credential it means.
 mock.module('../utils/secret-crypto', () => ({
@@ -78,6 +79,7 @@ const vaultConnection = {
 	tools: null,
 	name: null,
 	defaults: [{actionId: 'readEntries'}],
+	credentialRejectedAt: null,
 	credential: null,
 };
 const emailConnection = {
@@ -92,6 +94,7 @@ const emailConnection = {
 	tools: null,
 	name: null,
 	defaults: [{actionId: 'read'}],
+	credentialRejectedAt: null,
 	credential: 'v1.x.y.z',
 };
 const notionConnection = {
@@ -102,6 +105,7 @@ const notionConnection = {
 	tools: null,
 	name: null,
 	defaults: [{actionId: 'read'}, {actionId: 'create'}],
+	credentialRejectedAt: null,
 	credential: 'v1.x.y.z',
 };
 
@@ -116,6 +120,7 @@ const googleConnection = {
 	account: 'alex@example.com',
 	createdAt: new Date(),
 	defaults: [{actionId: 'readFiles'}],
+	credentialRejectedAt: null,
 	credential: `enc:${JSON.stringify({accessToken: 'access-1', refreshToken: 'refresh-1', expiresAt: null, scopes: ['openid', 'https://www.googleapis.com/auth/userinfo.email'], email: 'alex@example.com'})}`,
 };
 
@@ -173,8 +178,25 @@ describe('listAgentConnections', () => {
 
 		expect(result.unwrap()).toEqual({
 			agent: {id: 'agent-1', providerId: 'dot', name: 'Dots'},
-			connections: [{id: 'vault-1', integrationId: 'vault', account: "Alex's Workspace", shared: false, actions: ['readEntries', 'writeEntries'], tools: null, name: null}],
+			connections: [{id: 'vault-1', integrationId: 'vault', account: "Alex's Workspace", shared: false, actions: ['readEntries', 'writeEntries'], tools: null, name: null, signInNeeded: false}],
 		});
+	});
+
+	test('lists one with no sign-in that it could use once signed in to again, with nothing it can do', async () => {
+		listConnectionsWithCredential.mockResolvedValue(Ok([vaultConnection, {...notionConnection, orgId: 'org-1', ownerUserId: 'user-1', sharedWithEveryone: false, shares: [], credential: null}]));
+		const {listAgentConnections} = await import('./tools');
+
+		expect((await listAgentConnections(signedIn)).unwrap().connections).toEqual([
+			{id: 'vault-1', integrationId: 'vault', account: "Alex's Workspace", shared: false, actions: ['readEntries', 'writeEntries'], tools: null, name: null, signInNeeded: false},
+			{id: 'notion-1', integrationId: 'notion', account: 'alex@example.com · Acme', shared: false, actions: [], tools: null, name: null, signInNeeded: true},
+		]);
+	});
+
+	test('leaves out one with no sign-in that it could do nothing with anyway', async () => {
+		listConnectionsWithCredential.mockResolvedValue(Ok([vaultConnection, {...emailConnection, credential: null}]));
+		const {listAgentConnections} = await import('./tools');
+
+		expect((await listAgentConnections(signedIn)).unwrap().connections.map((connection) => connection.id)).toEqual(['vault-1']);
 	});
 
 	test("reaches the organization's shared connections and its owner's own; a shared agent the shared ones alone", async () => {
@@ -232,6 +254,22 @@ describe("actions the connection's sign-in didn't cover", () => {
 		expect(result.unwrapErr()).toMatchObject({kind: 'validation_error', message: "Google didn't allow Read files at sign-in. Sign in to Google again to allow it."});
 		expect(connector.list).not.toHaveBeenCalled();
 		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({connectionId: 'google-1', collectionId: 'files', action: 'list', query: 'budget', outcome: 'denied'});
+	});
+
+	test('running one on a connection with no sign-in is refused without asking its service, and logged as denied', async () => {
+		const unsigned = {...notionConnection, orgId: 'org-1', ownerUserId: 'user-1', sharedWithEveryone: false, shares: [], credential: null};
+		loadConnection.mockResolvedValue(Ok({connection: unsigned, integration: integration('notion')}));
+
+		const {runAgentTool} = await import('./tools');
+		const result = await runAgentTool(caller, 'notion-1', 'pages_list', {});
+
+		expect(result.unwrapErr()).toMatchObject({
+			kind: 'validation_error',
+			message:
+				"Notion (alex@example.com · Acme) isn't signed in, so nothing was sent to it. Whoever connected it has to sign in again on its page in Personal Agent Proxy; trying again won't help until then.",
+		});
+		expect(connector.list).not.toHaveBeenCalled();
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({connectionId: 'notion-1', outcome: 'denied'});
 	});
 
 	test("one the agent's own setting turns off anyway is plainly forbidden", async () => {
@@ -482,6 +520,21 @@ describe('runAgentTool', () => {
 		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({action: 'archive', recordTitle: 'Invoice #20931', outcome: 'failed', error: 'not_found'});
 	});
 
+	test('a sign-in the provider turns down is noted on the connection with the credential used; any other failure is not', async () => {
+		useConnection(emailConnection);
+		getAgentById.mockResolvedValue(Ok(triage));
+		connector.list.mockResolvedValue(Err(ApiErr.credentialsRejected()));
+
+		const {runAgentTool} = await import('./tools');
+		expect((await runAgentTool(caller, 'mail-1', 'emails_list', {})).unwrapErr().kind).toBe('credentials_rejected');
+		expect(markCredentialRejected).toHaveBeenCalledWith({connectionId: 'mail-1', credential: 'v1.x.y.z'});
+
+		markCredentialRejected.mockClear();
+		connector.list.mockResolvedValue(Err(ApiErr.providerUnreachable(new Error('down'))));
+		expect((await runAgentTool(caller, 'mail-1', 'emails_list', {})).unwrapErr().kind).toBe('provider_unreachable');
+		expect(markCredentialRejected).not.toHaveBeenCalled();
+	});
+
 	test("a failure keeps the provider's HTTP status, and a read that failed before it had a record has no title", async () => {
 		const tooMany = ApiErr.providerUnreachable({kind: 'http', url: 'https://api.example.com', status: 429, body: 'Slow down, Alex'});
 		connector.get.mockResolvedValue(Err(tooMany));
@@ -564,6 +617,7 @@ describe('a field that needs an action of its own', () => {
 	const calendarConnection = {
 		...googleConnection,
 		defaults: [{actionId: 'readEvents'}, {actionId: 'writeEvents'}],
+		credentialRejectedAt: null,
 		credential: `enc:${JSON.stringify({accessToken: 'access-1', refreshToken: 'refresh-1', expiresAt: null, scopes: calendarScopes, email: 'alex@example.com'})}`,
 	};
 	const alone = {
@@ -647,6 +701,7 @@ describe('custom MCP servers', () => {
 		tools: JSON.stringify([search, publish]),
 		name: null,
 		defaults: [{actionId: 'search_docs'}],
+		credentialRejectedAt: null,
 		credential: 'v1.x.y.z',
 	};
 
@@ -660,7 +715,7 @@ describe('custom MCP servers', () => {
 		const {listAgentConnections, listAgentTools} = await import('./tools');
 
 		expect((await listAgentConnections(signedIn)).unwrap().connections).toEqual([
-			{id: 'mcp-1', integrationId: 'mcp', account: 'mcp.example.com/mcp', shared: false, actions: ['search_docs'], tools: [search], name: null},
+			{id: 'mcp-1', integrationId: 'mcp', account: 'mcp.example.com/mcp', shared: false, actions: ['search_docs'], tools: [search], name: null, signInNeeded: false},
 		]);
 		expect((await listAgentTools(signedIn, 'mcp-1')).unwrap().map((tool) => tool.name)).toEqual(['search_docs']);
 	});

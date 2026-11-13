@@ -1,6 +1,7 @@
 import type {Action} from '@proxy/integrations';
 import {useId, useRef, useState} from 'react';
 import {PillButton} from '@proxy/ui/components/pill-button';
+import {cn} from '@proxy/ui/lib/utils';
 import {Checkbox} from '@proxy/ui/components/checkbox';
 import {groupsOf, howManyOn} from '@/lib/access';
 import {onSignInClick} from '@/lib/desktop';
@@ -246,54 +247,77 @@ export function ConnectionAccess({
 	);
 }
 
-// Under a connection's permissions: when its sign-in didn't cover some actions (`unavailable`),
-// when it has none yet, as one moved over from a custom MCP server may not (`needed`), or, for an
-// integration that says nothing of who signed in, so only this page renews its connection, always
-// (`renew`). Signing in again, or a new API key where the integration takes one (`onUseKey`),
-// gives the same connection its new credential, its defaults and every agent's settings kept.
+// On a connection's page, or under the welcome flow's permissions: in red where agents can't use
+// the connection at all, as it has no sign-in, never signed in to or turned down by its service
+// (`needed`); quietly where its sign-in didn't cover some actions (`unavailable`), as when the
+// person unticked them at Google's consent screen, or for an integration that says nothing of who
+// signed in, so only this page renews its connection (`renew`). Signing in again, or a new API key
+// where the integration takes one (`onUseKey`), gives the same connection its new credential, its
+// defaults and every agent's settings kept. Only whoever connected it signs in to it again, so
+// another's account isn't put behind it: `connectedBy` names them where it isn't the person. Without
+// `href` its integration is connected on a form of its own, so it is connected again instead.
 export function SignInAgain({
 	href,
 	reason,
 	onUseKey,
+	connectedBy,
 }: {
-	href: string;
+	href: string | null;
 	reason: 'unavailable' | 'needed' | 'renew';
 	onUseKey?: () => void;
+	connectedBy?: string;
 }) {
-	const link = 'text-foreground underline underline-offset-4';
+	const link = 'font-medium underline underline-offset-4';
 	const useKey = onUseKey && (
 		<button type="button" onClick={onUseKey} className={link}>
 			use an API key
 		</button>
 	);
-	if (reason === 'needed') {
+	if (reason === 'needed' && connectedBy !== undefined) {
 		return (
-			<p className="text-sm text-muted-foreground">
-				This connection isn't signed in yet, so agents can't use it.{' '}
-				<a href={href} onClick={onSignInClick} className={link}>
-					Sign in
-				</a>
-				{useKey && <>, or {useKey},</>} to start.
+			<p className="text-sm text-destructive">
+				This connection isn't signed in, so agents can't use it until {connectedBy}, who connected
+				it, signs in again.
 			</p>
 		);
 	}
-	if (reason === 'renew') {
+	if (reason === 'needed') {
+		return (
+			<p className="text-sm text-destructive">
+				This connection isn't signed in, so agents can't use it.{' '}
+				{href === null ? (
+					'Disconnect it and connect it again.'
+				) : (
+					<>
+						<a href={href} onClick={onSignInClick} className={link}>
+							Sign in again
+						</a>
+						{useKey && <>, or {useKey},</>} to keep every agent's settings.
+					</>
+				)}
+			</p>
+		);
+	}
+	if (reason === 'renew' && href !== null) {
 		return (
 			<p className="text-sm text-muted-foreground">
-				<a href={href} onClick={onSignInClick} className={link}>
+				<a href={href} onClick={onSignInClick} className={cn(link, 'text-foreground')}>
 					Sign in again
 				</a>
 				{useKey && <>, or {useKey}</>}, keeping every agent's settings.
 			</p>
 		);
 	}
-	return (
-		<p className="text-sm text-muted-foreground">
-			Some actions weren't allowed when this account was signed in.{' '}
-			<a href={href} onClick={onSignInClick} className={link}>
-				Sign in again
-			</a>{' '}
-			to allow them.
-		</p>
-	);
+	if (reason === 'unavailable' && href !== null) {
+		return (
+			<p className="text-sm text-muted-foreground">
+				Some actions weren't allowed when this account was signed in.{' '}
+				<a href={href} onClick={onSignInClick} className={cn(link, 'text-foreground')}>
+					Sign in again
+				</a>{' '}
+				to allow them.
+			</p>
+		);
+	}
+	return null;
 }

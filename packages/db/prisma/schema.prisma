@@ -207,6 +207,11 @@ model Connection {
   providerAccountId String?
   // Encrypted with ENCRYPTION_KEY: an app password with its server settings. None for the vault.
   credential        String?
+  // When the provider turned the credential down, as after the sign-in was revoked: the connection
+  // needs signing in to again, and nothing is asked of the provider until it is. The credential is
+  // kept, as it holds what signing in again may need: a server's address, a mailbox's settings.
+  // Cleared with every new credential.
+  credentialRejectedAt DateTime?
   // A custom MCP server's tools as the server last listed them (`@proxy/integrations`' McpTool),
   // as JSON: what agents can be allowed with it. Null for every other integration.
   tools             String?

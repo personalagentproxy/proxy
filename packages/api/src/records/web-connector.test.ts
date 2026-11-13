@@ -39,6 +39,7 @@ function run(integrationId: 'exa' | 'parallel', command: 'run' | 'read', values:
 			tools: null,
 			name: null,
 			defaults: [],
+			credentialRejectedAt: null,
 			credential: 'v1.encrypted',
 		},
 		collection: collection(integrationId, command === 'run' ? 'searches' : 'pages'),

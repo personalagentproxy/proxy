@@ -35,6 +35,7 @@ const target = {
 		tools: null,
 		name: null,
 		defaults: [],
+		credentialRejectedAt: null,
 		credential: null,
 	},
 	collection: entries(),
