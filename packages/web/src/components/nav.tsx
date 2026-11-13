@@ -38,17 +38,14 @@ type Destination = {to: string; label: string; icon: LucideIcon};
 
 const CHAT = '/chat';
 
-// How many conversations have something unread, on Chat, at the row's end.
-// Before the chevron, where the row has one.
-function UnreadBadge({count, beforeChevron}: {count: number; beforeChevron: boolean}) {
+// How many conversations have something unread, on Chat, at the row's end, or before its
+// chevron while that shows (`DrillChevron`).
+function UnreadBadge({count}: {count: number}) {
 	return (
 		<span
 			role="status"
 			aria-label={`${count} unread`}
-			className={cn(
-				'pointer-events-none absolute top-1/2 flex h-4 min-w-4 -translate-y-1/2 items-center justify-center rounded-full bg-primary px-1 text-[10px] leading-none font-medium text-primary-foreground',
-				beforeChevron ? 'right-8' : 'right-2',
-			)}
+			className="pointer-events-none absolute top-1/2 right-2 flex h-4 min-w-4 -translate-y-1/2 items-center justify-center rounded-full bg-primary px-1 text-[10px] leading-none font-medium text-primary-foreground group-hover/menu-item:right-8 peer-focus-visible/menu-button:right-8 peer-data-active/menu-button:right-8"
 		>
 			{count}
 		</span>
@@ -160,16 +157,14 @@ export function AppSidebar() {
 												>
 													<destination.icon />
 													<span>{destination.label}</span>
-													{/* The open page's panel, gone back up from: a way back into it. */}
-													{opensPanel(destination.to) && (
-														<ChevronRightIcon className="ml-auto text-muted-foreground" />
+													{/* Chat opens into its agents, in the sidebar: said while it is pointed
+													    at, or open. */}
+													{destination.to === CHAT && (
+														<ChevronRightIcon className="ml-auto text-muted-foreground opacity-0 group-hover/menu-button:opacity-100 group-focus-visible/menu-button:opacity-100 group-data-active/menu-button:opacity-100" />
 													)}
 												</SidebarMenuButton>
 												{destination.to === CHAT && unread.unreadIds.size > 0 && (
-													<UnreadBadge
-														count={unread.unreadIds.size}
-														beforeChevron={opensPanel(destination.to)}
-													/>
+													<UnreadBadge count={unread.unreadIds.size} />
 												)}
 											</SidebarMenuItem>
 										))}
