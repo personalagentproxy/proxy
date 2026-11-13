@@ -171,7 +171,7 @@ describe('the worker', () => {
 		};
 		store.getJobThread.mockImplementation(async (threadId) => Ok(row(threadId)));
 		store.getChatThread.mockImplementation(async (_chatId, threadId) =>
-			Ok({...row(threadId), state: {kind: 'stopped'}, standing: {waitingForMember: false, summary: null, summarySeq: null}, entries: [said], attachments: []}),
+			Ok({...row(threadId), state: {kind: 'stopped'}, standing: {waitingForMember: false, summary: null, summarySeq: null, archived: false}, entries: [said], attachments: []}),
 		);
 
 		const worker = startHarnessWorker(store, harness, {key: 'sk-or-1', ask, timeoutMs: 20, retryMs: 1});
@@ -229,7 +229,7 @@ describe('the worker', () => {
 				harnessSession: null,
 				createdAt: now,
 				state: {kind: 'stopped'},
-				standing: {waitingForMember: false, summary: null, summarySeq: null},
+				standing: {waitingForMember: false, summary: null, summarySeq: null, archived: false},
 				entries: [{id: 'e1', seq: 1, kind: 'person', text: 'Move the pricing review', pending: false, toolCalls: null, isError: false, createdAt: now}],
 				attachments: [],
 			});

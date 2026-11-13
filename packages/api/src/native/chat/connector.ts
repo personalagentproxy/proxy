@@ -39,6 +39,7 @@ const STANDING_FILTERS: Array<{standing: ThreadStandingFilter; label: string}> =
 	{standing: 'in_progress', label: CHAT_STANDINGS.in_progress},
 	{standing: 'waiting', label: CHAT_STANDINGS.waiting},
 	{standing: 'done', label: CHAT_STANDINGS.done},
+	{standing: 'archived', label: CHAT_STANDINGS.archived},
 ];
 
 // The standing a list is narrowed to, by its word; null for none.
@@ -66,10 +67,14 @@ function pageStart(page: string | null): Result<number, ApiError> {
 }
 
 // Where the thread stands, in the Chat page's words: in progress while at work or asleep; once
-// stopped, waiting for the person where its turn's end said so, or done.
+// stopped, archived where the person archived it, else waiting for them where its turn's end said
+// so, or done.
 function standing(thread: Pick<MemberThreadRow, 'state' | 'standing'>): string {
 	if (thread.state.kind !== 'stopped') {
 		return CHAT_STANDINGS.in_progress;
+	}
+	if (thread.standing.archived) {
+		return CHAT_STANDINGS.archived;
 	}
 	return thread.standing.waitingForMember ? CHAT_STANDINGS.waiting : CHAT_STANDINGS.done;
 }
