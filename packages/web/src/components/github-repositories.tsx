@@ -9,7 +9,7 @@ import {formatAgo} from '@/lib/format';
 import type {GitHubReach} from '@/lib/github';
 
 /**
- * The Repositories part of a GitHub connection's page, the first of its tabs: the repositories
+ * The Repositories part of a GitHub connection's page, the tab after its Permissions: the repositories
  * the connection reaches, as GitHub decided them, grouped by the account the app is installed on,
  * each group saying whether the installation covers all of the account's repositories or a
  * selection, with the way to change that on GitHub. Personal Agent Proxy never picks repositories
