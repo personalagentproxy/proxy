@@ -76,8 +76,8 @@ export function createMissingChatConnection(data: {
 	});
 }
 
-/** Where a list of the member's threads is narrowed to: at work or asleep, waiting for them, or done. */
-export type ThreadStandingFilter = 'in_progress' | 'waiting' | 'done';
+/** Where a list of the member's threads is narrowed to: at work or asleep, waiting for them, done, or archived by them. */
+export type ThreadStandingFilter = 'in_progress' | 'waiting' | 'done' | 'archived';
 
 /**
  * One of the member's threads as a list of them has it: whose it is with, what it is up to, where
@@ -90,15 +90,20 @@ export type MemberThreadRow = {
 	title: string | null;
 	createdAt: Date;
 	state: ThreadState;
-	standing: {waitingForMember: boolean; summary: string | null; summarySeq: number | null};
+	standing: {
+		waitingForMember: boolean;
+		summary: string | null;
+		summarySeq: number | null;
+		archived: boolean;
+	};
 	last: {seq: number; pending: boolean; createdAt: Date} | null;
 };
 
 const OPEN_JOBS = {status: {in: ['queued', 'running']}} satisfies Prisma.AgentJobWhereInput;
 
 // The threads a standing picks: one with a job still to run or running is in progress, whatever
-// its last turn's end said; one with none waits for the member where that said so, and is done
-// otherwise.
+// its last turn's end said or whether it is archived; one with none is archived where the member
+// archived it, and otherwise waits for the member where that said so, and is done otherwise.
 function standingWhere(standing: ThreadStandingFilter | null): Prisma.AgentThreadWhereInput {
 	if (standing === null) {
 		return {};
@@ -106,7 +111,10 @@ function standingWhere(standing: ThreadStandingFilter | null): Prisma.AgentThrea
 	if (standing === 'in_progress') {
 		return {jobs: {some: OPEN_JOBS}};
 	}
-	return {jobs: {none: OPEN_JOBS}, waitingForMember: standing === 'waiting'};
+	if (standing === 'archived') {
+		return {jobs: {none: OPEN_JOBS}, archived: true};
+	}
+	return {jobs: {none: OPEN_JOBS}, archived: false, waitingForMember: standing === 'waiting'};
 }
 
 /**
@@ -145,6 +153,7 @@ export async function listMemberThreads(
 				waitingForMember: true,
 				summary: true,
 				summarySeq: true,
+				archived: true,
 				persona: {select: {name: true}},
 				jobs: {where: OPEN_JOBS, select: {kind: true, runAt: true}},
 				// What the member said, an event that came, or what the agent answered in words: the
@@ -163,11 +172,11 @@ export async function listMemberThreads(
 		return {
 			orgSlug: org.slug,
 			threads: threads.map(
-				({persona, jobs, entries, waitingForMember, summary, summarySeq, ...thread}) => ({
+				({persona, jobs, entries, waitingForMember, summary, summarySeq, archived, ...thread}) => ({
 					...thread,
 					personaName: persona.name,
 					state: threadState(jobs, now),
-					standing: {waitingForMember, summary, summarySeq},
+					standing: {waitingForMember, summary, summarySeq, archived},
 					last: entries[0] ?? null,
 				}),
 			),

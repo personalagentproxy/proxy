@@ -1,7 +1,7 @@
 import type {ChatAttachment, ThreadStanding} from '@proxy/contracts/harness';
 import {attachedParts} from '@proxy/utils/harness';
-import {CheckIcon, ClockIcon} from 'lucide-react';
-import {Fragment} from 'react';
+import {ArchiveIcon, CheckIcon, ClockIcon} from 'lucide-react';
+import {Fragment, type ReactNode} from 'react';
 import {SentChip} from '@/components/chat/attachments';
 import {RewriteText} from '@/components/chat/rewrite-text';
 import {Bubble, BubbleContent} from '@/components/chat/bubble';
@@ -39,6 +39,35 @@ export const DONE_LABEL = 'Mark done';
  */
 export function DoneButton({onDone}: {onDone: () => void}) {
 	return (
+		<RowButton label={DONE_LABEL} onClick={onDone}>
+			<CheckIcon className="size-3.5" />
+		</RowButton>
+	);
+}
+
+/** What archives a thread that is done, taking it out of the chat's list until something more comes into it. */
+export const ARCHIVE_LABEL = 'Archive';
+
+/** The archive button on a thread that is done in the chat's list, where the check is on one waiting for the person. */
+export function ArchiveButton({onArchive}: {onArchive: () => void}) {
+	return (
+		<RowButton label={ARCHIVE_LABEL} onClick={onArchive}>
+			<ArchiveIcon className="size-3.5" />
+		</RowButton>
+	);
+}
+
+// A small icon button in the line under a thread in the chat's list, its label in a tooltip.
+function RowButton({
+	label,
+	onClick,
+	children,
+}: {
+	label: string;
+	onClick: () => void;
+	children: ReactNode;
+}) {
+	return (
 		<Tooltip>
 			<TooltipTrigger
 				render={
@@ -46,15 +75,15 @@ export function DoneButton({onDone}: {onDone: () => void}) {
 						type="button"
 						variant="ghost"
 						icon
-						aria-label={DONE_LABEL}
-						onClick={onDone}
+						aria-label={label}
+						onClick={onClick}
 						className="size-5 text-muted-foreground"
 					/>
 				}
 			>
-				<CheckIcon className="size-3.5" />
+				{children}
 			</TooltipTrigger>
-			<TooltipContent>{DONE_LABEL}</TooltipContent>
+			<TooltipContent>{label}</TooltipContent>
 		</Tooltip>
 	);
 }

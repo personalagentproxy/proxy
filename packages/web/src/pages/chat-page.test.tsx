@@ -989,7 +989,90 @@ describe('ChatPage', () => {
 		expect(screen.getByText('Something went wrong. Try again.')).toBeTruthy();
 	});
 
+	test('a thread that is done has an archive button where the check is, which takes it out of the list, at once and on the server', async () => {
+		const done = thread('t5', {
+			title: 'Quarterly numbers',
+			standing: 'done',
+			summary: 'Sent the numbers.',
+		});
+		const waiting = thread('t4', {standing: 'waiting'});
+		renderChatPage({threads: [done, waiting]});
+
+		const chat = await screen.findByLabelText('Chat');
+		// One archive button, on the thread that is done; the one waiting has the check.
+		expect(within(chat).getAllByRole('button', {name: 'Archive'})).toHaveLength(1);
+		expect(within(chat).getAllByRole('button', {name: 'Mark done'})).toHaveLength(1);
+
+		await follow(within(chat).getByRole('button', {name: 'Archive'}));
+
+		expect(within(chat).queryByRole('link', {name: 'Quarterly numbers'})).toBeNull();
+		expect(within(chat).queryByText('Sent the numbers.')).toBeNull();
+		expect(within(chat).getByRole('button', {name: 'Mark done'})).toBeTruthy();
+		await waitFor(() =>
+			expect(
+				fetchMock.mock.calls.some(
+					([input, init]) =>
+						input.endsWith('/chat/personas/general/threads/t5/archive') && init?.method === 'POST',
+				),
+			).toBe(true),
+		);
+	});
+
+	test('a thread marked done can be archived next', async () => {
+		const waiting = thread('t4', {standing: 'waiting'});
+		renderChatPage({threads: [waiting]});
+
+		const chat = await screen.findByLabelText('Chat');
+		await follow(within(chat).getByRole('button', {name: 'Mark done'}));
+		await follow(within(chat).getByRole('button', {name: 'Archive'}));
+
+		expect(within(chat).queryByText('Done')).toBeNull();
+	});
+
+	test('where the server can’t archive a thread, it is back in the list, saying why', async () => {
+		const done = thread('t5', {title: 'Quarterly numbers', standing: 'done'});
+		answering((input) =>
+			input.endsWith('/threads/t5/archive')
+				? Promise.resolve(Response.json({error: 'Something went wrong'}, {status: 500}))
+				: null,
+		);
+		renderChatPage({threads: [done]});
+
+		const chat = await screen.findByLabelText('Chat');
+		await follow(within(chat).getByRole('button', {name: 'Archive'}));
+
+		await waitFor(() =>
+			expect(within(chat).getByRole('link', {name: 'Quarterly numbers'})).toBeTruthy(),
+		);
+		expect(screen.getByText('Something went wrong. Try again.')).toBeTruthy();
+	});
+
 	describe('a thread', () => {
+		test('done, has an archive button in the title bar, which archives it and closes it', async () => {
+			const done = thread('t5', {title: 'Quarterly numbers', standing: 'done'});
+			renderChatPage({
+				threads: [done],
+				views: {t5: view(done, [said('m1', 'person', 'Send me the quarterly numbers')])},
+				initial: '/acme/chat/general/threads/t5',
+			});
+
+			await screen.findByLabelText('Thread');
+			const banner = screen.getByRole('banner');
+			await follow(within(banner).getByRole('button', {name: 'Archive'}));
+
+			await waitFor(() => expect(screen.queryByLabelText('Thread')).toBeNull());
+			expect(
+				within(screen.getByLabelText('Chat')).queryByRole('link', {name: 'Quarterly numbers'}),
+			).toBeNull();
+			await waitFor(() =>
+				expect(
+					fetchMock.mock.calls.some(
+						([input, init]) => input.endsWith('/threads/t5/archive') && init?.method === 'POST',
+					),
+				).toBe(true),
+			);
+		});
+
 		test('opens beside the chat, named in the title bar, lit in the list, with what was said in it and the box to reply in focused', async () => {
 			const answer = view(pricing, [
 				said('m1', 'person', 'Move the pricing review'),

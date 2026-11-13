@@ -172,6 +172,11 @@ export function markThreadDone(org: string, personaId: string, threadId: string)
 	return apiSend('POST', `${orgApi(org)}/chat/personas/${personaId}/threads/${threadId}/done`);
 }
 
+/** Archives a thread: the chat's list no longer has it, until something more comes into it. */
+export function archiveThread(org: string, personaId: string, threadId: string) {
+	return apiSend('POST', `${orgApi(org)}/chat/personas/${personaId}/threads/${threadId}/archive`);
+}
+
 export function markRead(org: string, personaId: string, entryId: string) {
 	return apiSend('POST', `${orgApi(org)}/chat/personas/${personaId}/read`, {
 		entryId,

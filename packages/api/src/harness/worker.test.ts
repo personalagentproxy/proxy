@@ -56,10 +56,10 @@ describe('the worker', () => {
 		const claims = store.claimJob.mock.calls.length;
 		await settle();
 
-		expect(runInference).toHaveBeenCalledWith(store, harness, inference, expect.any(String), false);
+		expect(runInference).toHaveBeenCalledWith(store, expect.objectContaining(harness), inference, expect.any(String), false);
 		expect(runToolJob).toHaveBeenCalledWith(store, tool, expect.any(String));
 		// A wake-up after a sleep is a turn too, the harness told it is one.
-		expect(runInference).toHaveBeenCalledWith(store, harness, wake, expect.any(String), true);
+		expect(runInference).toHaveBeenCalledWith(store, expect.objectContaining(harness), wake, expect.any(String), true);
 		expect(runInference.mock.calls[0]?.[3]).toBe(runToolJob.mock.calls[0]?.[2]);
 		expect(store.claimJob.mock.calls.length).toBe(claims);
 		// A server without the SDK harness has no cap to keep: every claim is for any job.
@@ -94,7 +94,7 @@ describe('the worker', () => {
 		expect(during.slice(1).every((capped) => capped?.full === true)).toBe(true);
 		// The tool job ran beside the turn, and the job as the turn was given it is the queue's row alone.
 		expect(runToolJob).toHaveBeenCalledWith(store, tool, expect.any(String));
-		expect(runInference).toHaveBeenCalledWith(store, capped, inference, expect.any(String), false);
+		expect(runInference).toHaveBeenCalledWith(store, expect.objectContaining(capped), inference, expect.any(String), false);
 		// Once the turn has ended, there is room for one again.
 		expect(store.claimJob.mock.calls.at(-1)?.[2]).toEqual({harness: 'claude-agent-sdk', full: false});
 	});
@@ -176,7 +176,7 @@ describe('the worker', () => {
 				startedFromThreadId: null,
 				titleWritten: false,
 				state: {kind: 'stopped'},
-				standing: {waitingForMember: false, summary: null, summarySeq: null},
+				standing: {waitingForMember: false, summary: null, summarySeq: null, archived: false},
 				entries: [said],
 				attachments: [],
 			}),
@@ -239,7 +239,7 @@ describe('the worker', () => {
 				startedFromThreadId: null,
 				titleWritten: false,
 				state: {kind: 'stopped'},
-				standing: {waitingForMember: false, summary: null, summarySeq: null},
+				standing: {waitingForMember: false, summary: null, summarySeq: null, archived: false},
 				entries: [{id: 'e1', seq: 1, kind: 'person', text: 'Move the pricing review', pending: false, toolCalls: null, isError: false, createdAt: now}],
 				attachments: [],
 			});
@@ -254,7 +254,81 @@ describe('the worker', () => {
 		await worker.stop();
 
 		expect(written).toBe(true);
-		expect(store.writeThreadStanding).toHaveBeenCalledWith('t1', {summary: 'Moved it to Friday.', waitingForMember: false}, 1);
+		expect(store.writeThreadStanding).toHaveBeenCalledWith('t1', {summary: 'Moved it to Friday.', waitingForMember: false}, 1, false);
+	});
+
+	test('as a turn says its agent told the member something and went on, where the thread stands is written while the turn’s job still runs', async () => {
+		const {startHarnessWorker} = await import('./worker');
+		store.claimJob.mockResolvedValueOnce(Ok(claimed(inference))).mockResolvedValue(Ok(null));
+		let turnOver = false;
+		let writtenDuringTurn = false;
+		// The turn tells the member something, then goes on for a while.
+		runInference.mockImplementationOnce(async (_store, harnesses) => {
+			harnesses.told?.('t1');
+			await settle();
+			await settle();
+			turnOver = true;
+			return Ok(undefined);
+		});
+		store.getJobThread.mockResolvedValue(
+			Ok({
+				id: 't1',
+				orgId: 'org-1',
+				agentId: 'login-1',
+				personaId: 'persona-1',
+				userId: 'user-1',
+				parentThreadId: 'chat-1',
+				title: null,
+				taskId: null,
+				harness: null,
+				harnessSession: null,
+				createdAt: now,
+			}),
+		);
+		store.getChatThread.mockResolvedValue(
+			Ok({
+				id: 't1',
+				orgId: 'org-1',
+				agentId: 'login-1',
+				personaId: 'persona-1',
+				userId: 'user-1',
+				parentThreadId: 'chat-1',
+				title: null,
+				taskId: null,
+				harness: null,
+				harnessSession: null,
+				createdAt: now,
+				startedFromThreadId: null,
+				titleWritten: false,
+				state: {kind: 'working'},
+				standing: {waitingForMember: false, summary: null, summarySeq: null, archived: false},
+				entries: [
+					{id: 'e1', seq: 1, kind: 'person', text: 'Move the pricing review', pending: false, toolCalls: null, isError: false, createdAt: now},
+					{
+						id: 'e2',
+						seq: 2,
+						kind: 'assistant',
+						text: 'Looking at the calendar first.',
+						pending: false,
+						toolCalls: [{id: 'c1', name: 'script', arguments: '{"code":"return 1"}'}],
+						isError: false,
+						createdAt: now,
+					},
+				],
+				attachments: [],
+			}),
+		);
+		store.writeThreadStanding.mockImplementation(async () => {
+			writtenDuringTurn = !turnOver;
+			return Ok(true);
+		});
+		const model: StandingModel = {key: 'sk-or-1', ask: mock<StandingModel['ask']>(async () => Ok({summary: 'Checking the calendar before moving the review.', waitingForMember: false}))};
+
+		const worker = startHarnessWorker(store, harness, model);
+		await settle();
+		expect(writtenDuringTurn).toBe(true);
+		expect(store.writeThreadStanding).toHaveBeenCalledWith('t1', {summary: 'Checking the calendar before moving the review.'}, 2, true);
+		await worker.stop();
 	});
 
 	test('without a model to read it, where a thread stands is not read', async () => {

@@ -681,6 +681,37 @@ describe('runInference', () => {
 			claudeCredentialFor.mockResolvedValue(Ok({kind: 'setup_token', token: 'tok'}));
 		});
 
+		test('says the agent told the member something as each step the thread shows is written, its words or a message to them, and not for a step of calls alone', async () => {
+			const {runInference} = await import('./inference');
+			const told = mock<(threadId: string) => void>();
+			// What had been written of the turn each time it said so.
+			const writtenThen: number[] = [];
+			told.mockImplementation(() => {
+				writtenThen.push(appendTurnEntries.mock.calls.length);
+			});
+			fake.script([
+				{kind: 'text', text: 'Looking.'},
+				{kind: 'tool_call', id: 'c1', name: 'read', arguments: '{"a":1}'},
+				{kind: 'tool_result', callId: 'c1', text: 'one', isError: false},
+				// Calls alone show nothing.
+				{kind: 'tool_call', id: 'c2', name: 'read', arguments: '{"a":2}'},
+				{kind: 'tool_result', callId: 'c2', text: 'two', isError: false},
+				// A message to the person does, with no words beside it.
+				{kind: 'tool_call', id: 'c3', name: 'send_to_person', arguments: '{"text":"Two of three read."}'},
+				{kind: 'tool_result', callId: 'c3', text: 'Sent.', isError: false},
+				{kind: 'text', text: 'Three invoices.'},
+				ended(session),
+			]);
+
+			const result = await runInference(store, {...on(null, fake), told}, job, 'w1', false, clock);
+
+			expect(result.isOk()).toBe(true);
+			expect(told.mock.calls).toEqual([['thread-1'], ['thread-1']]);
+			// Each time once the step was in the log, for whoever reads the thread then: the first
+			// step and the third.
+			expect(writtenThen).toEqual([1, 3]);
+		});
+
 		test('writes each step as its first call is answered, the step’s words and calls then the result, the first step with the prompt, and the last step as the job ends, the session kept', async () => {
 			const {runInference} = await import('./inference');
 			fake.script([

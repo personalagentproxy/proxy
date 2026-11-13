@@ -73,6 +73,7 @@ export type ChatStore = Pick<
 	| 'getChatThread'
 	| 'hasChatThread'
 	| 'markThreadDone'
+	| 'archiveThread'
 >;
 
 /** What the routes need of where a chat's files are kept: putting one there, naming those attached, and showing one; reading a picture for a model is the worker's. */
@@ -529,6 +530,19 @@ function handleMarkThreadDoneRoute(store: ChatStore, request: AuthenticatedReque
 	});
 }
 
+/** `POST /api/orgs/:org/chat/personas/:personaId/threads/:threadId/archive`: the viewer archives a thread of their chat with the persona: the chat's list no longer has it, until they reply in it or an alert takes it up. */
+function handleArchiveThreadRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
+	return Do(async ($) => {
+		const viewer = $(await requireViewer(request));
+		const threadId = request.params.threadId ?? '';
+		const persona = $(await requirePersona(store, viewer, request));
+		const chat = $(await requireChat(store, viewer, persona, threadId));
+		if (!$(await store.archiveThread(chat.id, threadId))) {
+			return $(Err(ApiErr.notFound('thread', threadId)));
+		}
+	});
+}
+
 /** The Chat page's routes, on the store, the harnesses the server has, and where a chat's files are kept. */
 export function chatRoutes(store: ChatStore, harnesses: Harnesses, files: RouteFiles) {
 	return {
@@ -547,5 +561,6 @@ export function chatRoutes(store: ChatStore, harnesses: Harnesses, files: RouteF
 		handleReplyInThreadRoute: (request: AuthenticatedRequest) => handleReplyInThreadRoute(store, files, request),
 		handleUploadThreadAttachmentRoute: (request: AuthenticatedRequest) => handleUploadThreadAttachmentRoute(store, files, request),
 		handleMarkThreadDoneRoute: (request: AuthenticatedRequest) => handleMarkThreadDoneRoute(store, request),
+		handleArchiveThreadRoute: (request: AuthenticatedRequest) => handleArchiveThreadRoute(store, request),
 	};
 }

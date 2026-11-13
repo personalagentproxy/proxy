@@ -863,6 +863,9 @@ model AgentThread {
   // The `seq` of the last entry the summary was written from: once anything is said in the
   // thread past it, the summary is stale until the next one is written.
   summarySeq       Int?
+  // Whether the member archived the thread, which hides it from their chat's list; the member's
+  // reply or an alert that takes it up brings it back. False for a chat.
+  archived         Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt

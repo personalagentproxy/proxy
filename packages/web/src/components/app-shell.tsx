@@ -55,21 +55,22 @@ type Props = {
 
 /**
  * A column beside a page's content, at the right: its cell of the title bar, and what is under it.
- * `full`, it takes the page's width, the content hidden but kept as it is; on a narrow window it
- * always does.
+ * Open, it is the page's main column and the content the narrower one at its left; `full`, it
+ * takes the page's width, the content hidden but kept as it is; on a narrow window it always does.
  */
 export type Side = {header: ReactNode; content: ReactNode; full: boolean};
 
-// The side's width beside the content, the same in the title bar and under it: as wide as the
-// person dragged the line between them, on this device (`--side-width`), or its own width until
-// they do, but never so wide that the content has less than `SIDE_ROOM` beside it. The cap is
-// worked out in each cell, against the row it is in, so the header's, whose row starts after the
-// title bar's inset, keeps the room less that inset (`--side-room`), and the two cells line up.
-const SIDE_WIDTH = 'lg:w-[min(var(--side-width),_100%_-_var(--side-room))]';
-const SIDE_MIN = 320;
-const SIDE_ROOM = 320;
-const SIDE_DEFAULTS = '[--side-width:min(580px,45vw)] [--side-room:320px]';
-const HEADER_SIDE_ROOM = '[--side-room:calc(320px_-_var(--title-bar-inset,1rem))]';
+// The content's width while a side stands beside it, the side taking the rest: as wide as the
+// person dragged the line between them, on this device (`--content-width`), or its own width
+// until they do, but never so wide that the side has less than `SIDE_ROOM` beside it. The header's
+// row starts after the title bar's inset, so its cell is that inset narrower, and the line
+// between the two cells falls in the same place in the title bar and under it.
+const CONTENT_WIDTH = 'lg:w-[min(var(--content-width),_100%_-_var(--side-room))]';
+const HEADER_CONTENT_WIDTH =
+	'lg:w-[min(var(--content-width)_-_var(--title-bar-inset,1rem),_100%_-_var(--side-room))]';
+const CONTENT_MIN = 320;
+const SIDE_ROOM = 420;
+const SIDE_DEFAULTS = '[--content-width:min(440px,38vw)] [--side-room:420px]';
 
 // Where in the header the content puts what only it knows, once loaded: the title and its
 // actions. Null until the frame has drawn them, and where it has none.
@@ -188,8 +189,9 @@ export function AppShell({
 	const slots = useMemo(() => ({title: titleSlot, actions: actionsSlot}), [titleSlot, actionsSlot]);
 	useFollowRedirect();
 	const page = useRef<HTMLDivElement>(null);
-	const sideColumn = useRef<HTMLDivElement>(null);
-	const {width: storedSideWidth, setWidth: setSideWidth} = useStoredWidth('proxy-side-width');
+	const contentColumn = useRef<HTMLDivElement>(null);
+	const {width: storedContentWidth, setWidth: setContentWidth} =
+		useStoredWidth('proxy-content-width');
 	const heading = loadsTitle ? <span ref={setTitleSlot} className="contents" /> : title;
 	// Each address has its own content, and its own failure, unless the page says what it is.
 	const key = contentKey ?? pathname;
@@ -218,9 +220,9 @@ export function AppShell({
 					SIDE_DEFAULTS,
 				)}
 				style={
-					storedSideWidth === null
+					storedContentWidth === null
 						? undefined
-						: ({'--side-width': `${storedSideWidth}px`} as CSSProperties)
+						: ({'--content-width': `${storedContentWidth}px`} as CSSProperties)
 				}
 			>
 				{/* Sticky only when the window scrolls. It is the title bar's cell over the page's
@@ -229,7 +231,6 @@ export function AppShell({
 					ref={titleBarHeader}
 					className={cn(
 						'z-20 flex shrink-0 items-center border-b bg-background',
-						HEADER_SIDE_ROOM,
 						scroll === 'page' && 'sticky top-0',
 					)}
 				>
@@ -238,7 +239,7 @@ export function AppShell({
 					<div
 						className={cn(
 							'flex h-full min-w-0 flex-1 items-center justify-between gap-4 pr-4',
-							side !== undefined && 'max-lg:hidden',
+							side !== undefined && cn('max-lg:hidden lg:flex-none', HEADER_CONTENT_WIDTH),
 							side?.full && 'hidden',
 						)}
 					>
@@ -252,7 +253,7 @@ export function AppShell({
 						<div
 							className={cn(
 								'flex h-full min-w-0 flex-1 items-center gap-2.5 pr-2.5',
-								!side.full && cn('lg:flex-none lg:border-l', SIDE_WIDTH),
+								!side.full && 'lg:border-l',
 							)}
 						>
 							{/* Beside the content, its name starts where the side's column does, past the
@@ -277,9 +278,10 @@ export function AppShell({
 					) : (
 						<>
 							<div
+								ref={contentColumn}
 								className={cn(
 									'flex min-h-0 min-w-0 flex-1 flex-col',
-									side !== undefined && 'max-lg:hidden',
+									side !== undefined && cn('max-lg:hidden lg:flex-none', CONTENT_WIDTH),
 									side?.full && 'hidden',
 								)}
 							>
@@ -287,24 +289,27 @@ export function AppShell({
 							</div>
 							{side !== undefined && (
 								<div
-									ref={sideColumn}
 									className={cn(
 										'relative flex min-h-0 min-w-0 flex-1 flex-col',
-										!side.full && cn('lg:flex-none lg:border-l', SIDE_WIDTH),
+										!side.full && 'lg:border-l',
 									)}
 								>
 									{side.content}
 									{!side.full && (
 										<ResizeHandle
 											label="Resize thread"
-											grows="left"
-											measure={() => sideColumn.current?.getBoundingClientRect().width ?? SIDE_MIN}
+											grows="right"
+											measure={() =>
+												contentColumn.current?.getBoundingClientRect().width ?? CONTENT_MIN
+											}
 											bounds={() => ({
-												min: SIDE_MIN,
+												min: CONTENT_MIN,
 												max: (page.current?.getBoundingClientRect().width ?? 0) - SIDE_ROOM,
 											})}
-											apply={(next) => page.current?.style.setProperty('--side-width', `${next}px`)}
-											commit={setSideWidth}
+											apply={(next) =>
+												page.current?.style.setProperty('--content-width', `${next}px`)
+											}
+											commit={setContentWidth}
 											className="absolute inset-y-0 left-0 z-10 -translate-x-1/2 max-lg:hidden"
 										/>
 									)}

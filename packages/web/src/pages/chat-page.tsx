@@ -10,6 +10,7 @@ import type {
 } from '@proxy/contracts/harness';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';
 import {
+	ArchiveIcon,
 	BotIcon,
 	CheckIcon,
 	Maximize2Icon,
@@ -30,6 +31,7 @@ import {
 } from 'react';
 import {Link, Outlet, useLocation, useNavigate, useParams} from 'react-router';
 import {
+	archiveThread,
 	createPersona,
 	deletePersona,
 	markThreadDone,
@@ -56,6 +58,8 @@ import {
 	MessageScrollerViewport,
 } from '@/components/chat/message-scroller';
 import {
+	ARCHIVE_LABEL,
+	ArchiveButton,
 	DONE_LABEL,
 	DoneButton,
 	EventLine,
@@ -343,8 +347,8 @@ function ThreadName({
 }
 
 // The open thread's cell of the title bar: its name (`ThreadName`), and, at the right, the
-// check that says it is done where it waits for the person, and the buttons that give it the page's
-// width and back, and close it.
+// check that says it is done where it waits for the person, or, once done, the button that archives
+// it, and the buttons that give it the page's width and back, and close it.
 function ThreadHeader({
 	thread,
 	standing,
@@ -352,6 +356,7 @@ function ThreadHeader({
 	expanded,
 	onExpand,
 	onDone,
+	onArchive,
 	closeTo,
 }: {
 	thread: ChatThread | null;
@@ -361,6 +366,7 @@ function ThreadHeader({
 	expanded: boolean;
 	onExpand: () => void;
 	onDone: (thread: ChatThread) => void;
+	onArchive: (thread: ChatThread) => void;
 	closeTo: string;
 }) {
 	return (
@@ -370,6 +376,11 @@ function ThreadHeader({
 			{thread !== null && standing === 'waiting' && (
 				<IconButton label={DONE_LABEL} onClick={() => onDone(thread)}>
 					<CheckIcon className="size-4" />
+				</IconButton>
+			)}
+			{thread !== null && standing === 'done' && (
+				<IconButton label={ARCHIVE_LABEL} onClick={() => onArchive(thread)}>
+					<ArchiveIcon className="size-4" />
 				</IconButton>
 			)}
 			{/* On a narrow window the thread always has the page's width. */}
@@ -446,6 +457,33 @@ export function ChatPage() {
 				return after;
 			});
 			setError(describeFetchError(marked.error));
+		},
+		[org, current],
+	);
+	// The threads the person archived here, each by its id with when it last had a message then:
+	// until something more comes into it, it is out of the chat's list on the page, as it is out of
+	// the server's once the server has it, which brings it back as something comes.
+	const [archived, setArchived] = useState<ReadonlyMap<string, string>>(() => new Map());
+	const isArchived = useCallback(
+		(thread: ChatThread): boolean => archived.get(thread.id) === thread.lastMessageAt,
+		[archived],
+	);
+	// Archives a thread, on the page at once and then on the server; where the server can't be
+	// told, it is back in the list, and the chat's box says why.
+	const archive = useCallback(
+		async (thread: ChatThread) => {
+			setArchived((before) => new Map(before).set(thread.id, thread.lastMessageAt));
+			const done = await archiveThread(org, current, thread.id);
+			if (done.isOk()) {
+				setError(null);
+				return;
+			}
+			setArchived((before) => {
+				const after = new Map(before);
+				after.delete(thread.id);
+				return after;
+			});
+			setError(describeFetchError(done.error));
 		},
 		[org, current],
 	);
@@ -535,6 +573,13 @@ export function ChatPage() {
 				? shownThread.thread
 				: (shownThreads.find((thread) => thread.id === threadId) ?? null);
 	const chatTo = `/${org}/chat/${current}`;
+	// The thread open beside the chat closes as it is archived.
+	const openArchived = openThread !== null && isArchived(openThread);
+	useEffect(() => {
+		if (openArchived) {
+			void navigate(chatTo);
+		}
+	}, [openArchived, navigate, chatTo]);
 	const full = threadId !== undefined && expanded === threadId;
 	const context: ThreadContext = {
 		harnesses: list?.harnesses ?? [],
@@ -555,6 +600,7 @@ export function ChatPage() {
 							expanded={full}
 							onExpand={() => setExpanded(full ? null : threadId)}
 							onDone={markDone}
+							onArchive={archive}
 							closeTo={chatTo}
 						/>
 					),
@@ -614,6 +660,8 @@ export function ChatPage() {
 					onShownThreads={setShownThreads}
 					standingOf={standingOf}
 					onDone={markDone}
+					isArchived={isArchived}
+					onArchive={archive}
 					managing={editing !== null || deleting !== null}
 					listError={error}
 					focusRequested={focusRequestedFor === current}
@@ -683,6 +731,9 @@ type Opened = {
 	// Where a thread stands on the page, the person's Done taken in, and saying it is done.
 	standingOf: (thread: ChatThread) => ThreadStanding;
 	onDone: (thread: ChatThread) => void;
+	// Whether the person archived a thread on the page, which the list leaves out, and archiving one.
+	isArchived: (thread: ChatThread) => boolean;
+	onArchive: (thread: ChatThread) => void;
 	// An agent is being made, changed or deleted in a dialog.
 	managing: boolean;
 	// What deleting an agent from the list failed with.
@@ -739,7 +790,7 @@ function Opener({
 // One thread in the chat, opening it beside the chat: where it stands, what opened it, where it
 // stands in a sentence, or, without a current one, the start of the latest thing the persona said
 // in it, how many messages it holds with when the last came, and, where it waits for the person,
-// the check after that which says it is done. The one open has a band behind it, the width of the chat. The
+// the check after that which says it is done, or, once it is done, the button that archives it. The one open has a band behind it, the width of the chat. The
 // whole of it is a link, under what it shows, so the files in what opened it are still links of
 // their own, and the button is a button, opening nothing; one just sent, which the server has yet
 // to open, has no address to link to (`to` null), and opens nothing until it has. It is drawn
@@ -750,6 +801,7 @@ const ThreadItem = memo(function ThreadItem({
 	open,
 	fresh,
 	onDone,
+	onArchive,
 	rowRef,
 }: {
 	thread: ChatThread;
@@ -757,6 +809,7 @@ const ThreadItem = memo(function ThreadItem({
 	open: boolean;
 	fresh: boolean;
 	onDone: (thread: ChatThread) => void;
+	onArchive: (thread: ChatThread) => void;
 	// Given the row's element where the chat wants to know whether it is in view.
 	rowRef?: (row: HTMLDivElement | null) => void;
 }) {
@@ -790,6 +843,7 @@ const ThreadItem = memo(function ThreadItem({
 						{count} · {formatMessageTime(thread.lastMessageAt)}
 					</p>
 					{thread.standing === 'waiting' && <DoneButton onDone={() => onDone(thread)} />}
+					{thread.standing === 'done' && <ArchiveButton onArchive={() => onArchive(thread)} />}
 				</div>
 			</div>
 		</div>
@@ -844,6 +898,8 @@ const Chat = memo(function Chat({
 	onShownThreads,
 	standingOf,
 	onDone,
+	isArchived,
+	onArchive,
 	managing,
 	listError,
 	focusRequested,
@@ -856,11 +912,14 @@ const Chat = memo(function Chat({
 	const sending = useSending(loaded.threads, openerText);
 	const threads = useMemo(
 		() =>
-			inOrder(sending.entries, fresher?.thread ?? null).map((thread) => {
+			inOrder(sending.entries, fresher?.thread ?? null).flatMap((thread) => {
+				if (isArchived(thread)) {
+					return [];
+				}
 				const standing = standingOf(thread);
-				return standing === thread.standing ? thread : {...thread, standing};
+				return [standing === thread.standing ? thread : {...thread, standing}];
 			}),
-		[sending.entries, fresher, standingOf],
+		[sending.entries, fresher, standingOf, isArchived],
 	);
 	// What the chat had as it opened: what comes after it rises into place.
 	const [opened] = useState(() => new Set(loaded.threads.map((thread) => thread.id)));
@@ -994,6 +1053,7 @@ const Chat = memo(function Chat({
 										open={id !== null && id === threadId}
 										fresh={!opened.has(key)}
 										onDone={onDone}
+										onArchive={onArchive}
 										rowRef={
 											answer !== null && thread.latestAnswerId === answer.id
 												? setAnswerRow

@@ -31,7 +31,7 @@ function chatThread(over: Partial<ChatThreadRow> = {}): ChatThreadRow {
 		startedFromThreadId: null,
 		titleWritten: false,
 		state: {kind: 'working'},
-		standing: {waitingForMember: false, summary: null, summarySeq: null},
+		standing: {waitingForMember: false, summary: null, summarySeq: null, archived: false},
 		entries: [{id: 'e1', seq: 1, kind: 'person', text: said, pending: false, toolCalls: null, isError: false, createdAt: now}],
 		attachments: [{entryId: 'e1', gone: false, connectionId: 'drive-1', fileId: 'file-1', version: 'v1', name: 'passport.pdf', type: 'application/pdf', size: 42, text: null, cut: false}],
 		...over,

@@ -95,10 +95,12 @@ export type HarnessStore = {
 	getChatThread: (chatId: string, threadId: string, calls: string[], now: Date) => Promise<Result<ChatThreadRow | null, ApiError>>;
 	hasChatThread: (chatId: string, threadId: string) => Promise<Result<boolean, ApiError>>;
 	/** Where a thread stands as its turn ended, written up to `upToSeq` while nothing came since; whether it waits left as it is where not given. */
-	writeThreadStanding: (threadId: string, standing: {summary: string | null; waitingForMember?: boolean}, upToSeq: number) => Promise<Result<boolean, ApiError>>;
+	writeThreadStanding: (threadId: string, standing: {summary: string | null; waitingForMember?: boolean}, upToSeq: number, atWork?: boolean) => Promise<Result<boolean, ApiError>>;
 	/** The title written from the message that opened a thread, once; false for no such thread of a chat, or one titled already. */
 	writeThreadTitle: (threadId: string, title: string) => Promise<Result<boolean, ApiError>>;
 	markThreadDone: (chatId: string, threadId: string) => Promise<Result<boolean, ApiError>>;
+	/** The member archives a thread of their chat: its list no longer has it until something more comes into it. */
+	archiveThread: (chatId: string, threadId: string) => Promise<Result<boolean, ApiError>>;
 	listThreadsWithoutSummary: () => Promise<Result<Array<{id: string; chatId: string}>, ApiError>>;
 	markChatRead: (chatId: string, entryId: string) => Promise<Result<boolean, ApiError>>;
 	getChatDraft: (chatId: string) => Promise<Result<string | null, ApiError>>;
@@ -172,6 +174,7 @@ export const harnessStore: HarnessStore = {
 	writeThreadStanding: harness.writeThreadStanding,
 	writeThreadTitle: harness.writeThreadTitle,
 	markThreadDone: harness.markThreadDone,
+	archiveThread: harness.archiveThread,
 	listThreadsWithoutSummary: harness.listThreadsWithoutSummary,
 	markChatRead: harness.markChatRead,
 	getChatDraft: harness.getChatDraft,

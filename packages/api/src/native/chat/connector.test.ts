@@ -59,7 +59,7 @@ function listed(over: Partial<MemberThreadRow> = {}): MemberThreadRow {
 		title: 'Pricing review with Dana',
 		createdAt: at(0),
 		state: {kind: 'stopped'},
-		standing: {waitingForMember: true, summary: 'Asks which day suits Dana.', summarySeq: 2},
+		standing: {waitingForMember: true, summary: 'Asks which day suits Dana.', summarySeq: 2, archived: false},
 		last: {seq: 2, pending: false, createdAt: at(2)},
 		...over,
 	};
@@ -99,7 +99,7 @@ describe('the Chat connection’s threads', () => {
 		});
 	});
 
-	test('say a thread at work or asleep is in progress, one that stopped done unless it waits, and give a summary only while nothing was said past it', async () => {
+	test('say a thread at work or asleep is in progress, one that stopped archived where the person archived it, else done unless it waits, and give a summary only while nothing was said past it', async () => {
 		const {threadsConnector} = await import('./connector');
 		listMemberThreads.mockResolvedValue(
 			Ok({
@@ -107,10 +107,12 @@ describe('the Chat connection’s threads', () => {
 				threads: [
 					listed({id: 'working', state: {kind: 'working'}, last: {seq: 3, pending: false, createdAt: at(3)}}),
 					listed({id: 'asleep', state: {kind: 'asleep', until: at(30)}}),
-					listed({id: 'done', standing: {waitingForMember: false, summary: 'Moved it to Friday.', summarySeq: 2}}),
+					listed({id: 'done', standing: {waitingForMember: false, summary: 'Moved it to Friday.', summarySeq: 2, archived: false}}),
 					listed({id: 'pending', last: {seq: 2, pending: true, createdAt: at(4)}}),
-					listed({id: 'unread', standing: {waitingForMember: false, summary: null, summarySeq: null}}),
-					listed({id: 'empty', title: null, standing: {waitingForMember: false, summary: null, summarySeq: null}, last: null}),
+					listed({id: 'unread', standing: {waitingForMember: false, summary: null, summarySeq: null, archived: false}}),
+					listed({id: 'empty', title: null, standing: {waitingForMember: false, summary: null, summarySeq: null, archived: false}, last: null}),
+					listed({id: 'archived', standing: {waitingForMember: true, summary: 'Asks which day suits Dana.', summarySeq: 2, archived: true}}),
+					listed({id: 'archived-working', state: {kind: 'working'}, standing: {waitingForMember: false, summary: null, summarySeq: null, archived: true}}),
 				],
 			}),
 		);
@@ -124,9 +126,11 @@ describe('the Chat connection’s threads', () => {
 			['pending', 'Waiting for you', ''],
 			['unread', 'Done', ''],
 			['empty', 'Done', ''],
+			['archived', 'Archived', 'Asks which day suits Dana.'],
+			['archived-working', 'In progress', ''],
 		]);
 		// One nothing was said in is dated by when it was opened, and has no title.
-		expect(records.at(-1)?.values).toMatchObject({title: '', lastMessageAt: at(0).toISOString()});
+		expect(records.find((record) => record.id === 'empty')?.values).toMatchObject({title: '', lastMessageAt: at(0).toISOString()});
 	});
 
 	test('are searched and narrowed to a standing by its word, a page at a time', async () => {
@@ -143,6 +147,9 @@ describe('the Chat connection’s threads', () => {
 		const second = (await threadsConnector.list(threads, {...all, page: '50', filter: 'In progress'})).unwrap();
 		expect(listMemberThreads).toHaveBeenLastCalledWith('org-1', 'user-1', {search: null, standing: 'in_progress', skip: 50, take: 51});
 		expect(second.nextPage).toBeNull();
+
+		(await threadsConnector.list(threads, {...all, filter: 'Archived'})).unwrap();
+		expect(listMemberThreads).toHaveBeenLastCalledWith('org-1', 'user-1', {search: null, standing: 'archived', skip: 0, take: 51});
 
 		expect((await threadsConnector.list(threads, {...all, filter: 'Stuck'})).unwrapErr().kind).toBe('validation_error');
 		expect((await threadsConnector.list(threads, {...all, page: 'next'})).unwrapErr().kind).toBe('validation_error');
@@ -169,7 +176,7 @@ describe('the Chat connection’s threads', () => {
 			startedFromThreadId: null,
 			titleWritten: false,
 			state: {kind: 'stopped'},
-			standing: {waitingForMember: true, summary: 'Asks which day suits Dana.', summarySeq: 2},
+			standing: {waitingForMember: true, summary: 'Asks which day suits Dana.', summarySeq: 2, archived: false},
 			entries: [entry('e1', 1, 'person', 'Move the pricing review'), entry('e2', 2, 'assistant', 'Which day suits Dana?')],
 			attachments: [],
 		};

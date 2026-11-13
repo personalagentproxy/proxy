@@ -9,6 +9,7 @@ import {completeSetAlert, fireAlert, listMemberAlerts} from './alerts';
 import {createMissingChatConnection, getOrgSlug, getThreadPlace, listMemberThreads} from './chat';
 import {
 	appendEntry,
+	archiveThread,
 	appendTurnEntries,
 	completeInference,
 	createPersona,
@@ -627,6 +628,7 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 			waitingForMember: false,
 			summary: null,
 			summarySeq: null,
+			archived: false,
 		});
 		// Nothing is written while the thread is at work.
 		expect(
@@ -645,10 +647,20 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		expect(
 			unwrap(await writeThreadStanding(thread.id, {summary, waitingForMember: true}, upTo)),
 		).toBe(true);
-		expect(await standingOf(thread)).toEqual({waitingForMember: true, summary, summarySeq: upTo});
+		expect(await standingOf(thread)).toEqual({
+			waitingForMember: true,
+			summary,
+			summarySeq: upTo,
+			archived: false,
+		});
 
 		unwrap(await replyInThread(chat.id, thread.id, 'Yes, include it', readyForInference));
-		expect(await standingOf(thread)).toEqual({waitingForMember: false, summary, summarySeq: upTo});
+		expect(await standingOf(thread)).toEqual({
+			waitingForMember: false,
+			summary,
+			summarySeq: upTo,
+			archived: false,
+		});
 		// Written up to before the reply, as a model that read the thread before it came would, it is
 		// not written: the reply's turn writes for it as it ends.
 		await answer(thread, 'worker-st2', 'Added it, CSV export included.');
@@ -714,6 +726,63 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		).toBe(false);
 	});
 
+	test('where a thread stands is written while it works only where said to be, never whether it waits, never over one written from further on, and not once something came', async () => {
+		const thread = await open('Standing at work: move the pricing review');
+		const asked = await lastSeq(thread);
+
+		// Its turn is still to run: as a turn's end, nothing is written; as its agent told the member
+		// something and went on, the sentence is, and whether it waits is left.
+		expect(
+			unwrap(
+				await writeThreadStanding(thread.id, {summary: 'Moved.', waitingForMember: true}, asked),
+			),
+		).toBe(false);
+		expect(
+			unwrap(
+				await writeThreadStanding(thread.id, {summary: 'Checking the calendar.'}, asked, true),
+			),
+		).toBe(true);
+		expect(await standingOf(thread)).toEqual({
+			waitingForMember: false,
+			summary: 'Checking the calendar.',
+			summarySeq: asked,
+			archived: false,
+		});
+
+		// The turn ends, and its end is written; the sentence of the step before, read by a model
+		// that took longer, does not come back over it.
+		await answer(thread, 'worker-sw1', 'Moved it to Friday. Should Dana be told?');
+		const answered = await lastSeq(thread);
+		expect(
+			unwrap(
+				await writeThreadStanding(
+					thread.id,
+					{summary: 'Moved to Friday; asks whether to tell Dana.', waitingForMember: true},
+					answered,
+				),
+			),
+		).toBe(true);
+		expect(
+			unwrap(
+				await writeThreadStanding(thread.id, {summary: 'Checking the calendar.'}, asked, true),
+			),
+		).toBe(false);
+		expect(await standingOf(thread)).toEqual({
+			waitingForMember: true,
+			summary: 'Moved to Friday; asks whether to tell Dana.',
+			summarySeq: answered,
+			archived: false,
+		});
+
+		// The member replies: what was read before the reply is not written, at work or not.
+		unwrap(await replyInThread(chat.id, thread.id, 'Yes, tell Dana', readyForInference));
+		expect(unwrap(await writeThreadStanding(thread.id, {summary: 'Stale.'}, answered, true))).toBe(
+			false,
+		);
+		expect((await standingOf(thread))?.summary).toBe('Moved to Friday; asks whether to tell Dana.');
+		await db.agentJob.updateMany({where: {threadId: thread.id}, data: {status: 'done'}});
+	});
+
 	test('the member marks a thread of their chat done; a thread of another chat is not theirs to mark', async () => {
 		const thread = await open('Check the coverage of the api package');
 		await answer(thread, 'worker-st5', 'Should I include the scripts?');
@@ -733,6 +802,39 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		expect(unwrap(await markThreadDone(chat.id, 'no-such-thread'))).toBe(false);
 		expect(unwrap(await markThreadDone('another-chat', thread.id))).toBe(false);
 		expect(unwrap(await markThreadDone(chat.id, chat.id))).toBe(false);
+	});
+
+	test('the member archives a thread, which leaves the chat’s list until they reply in it, and is still read by its id', async () => {
+		const thread = await open('Archive me once done');
+		await answer(thread, 'worker-ar1', 'Done: the report is in your drive.');
+		const listed = async () => unwrap(await listChatThreads(chat.id, [])).map((one) => one.id);
+
+		expect(unwrap(await archiveThread(chat.id, thread.id))).toBe(true);
+		expect(await listed()).not.toContain(thread.id);
+		expect((await standingOf(thread))?.archived).toBe(true);
+		// The member's Chat connection still lists it, as archived, and not as done.
+		const member = async (standing: 'archived' | 'done') =>
+			(
+				unwrap(
+					await listMemberThreads(orgId, userId, {
+						search: 'Archive me',
+						standing,
+						skip: 0,
+						take: 10,
+					}),
+				)?.threads ?? []
+			).map((one) => one.id);
+		expect(await member('archived')).toEqual([thread.id]);
+		expect(await member('done')).toEqual([]);
+
+		unwrap(await replyInThread(chat.id, thread.id, 'One more thing', readyForInference));
+		expect(await listed()).toContain(thread.id);
+		expect((await standingOf(thread))?.archived).toBe(false);
+		expect(await member('archived')).toEqual([]);
+
+		expect(unwrap(await archiveThread(chat.id, 'no-such-thread'))).toBe(false);
+		expect(unwrap(await archiveThread('another-chat', thread.id))).toBe(false);
+		expect(unwrap(await archiveThread(chat.id, chat.id))).toBe(false);
 	});
 
 	test('the member’s threads are listed for their Chat connection whichever persona each is with, the one opened last first, by their rows alone, narrowed and searched, and one is read whole', async () => {
@@ -779,6 +881,7 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		expect((await mine({standing: 'waiting'})).map((thread) => thread.id)).toEqual([first.id]);
 		expect((await mine({standing: 'in_progress'})).map((thread) => thread.id)).toEqual([second.id]);
 		expect(await mine({standing: 'done'})).toEqual([]);
+		expect(await mine({standing: 'archived'})).toEqual([]);
 		expect((await mine({search: 'WHICH MONTH'})).map((thread) => thread.id)).toEqual([first.id]);
 		expect((await mine({skip: 1, take: 1})).map((thread) => thread.id)).toEqual([first.id]);
 		// Nobody else's, and no other organization's.

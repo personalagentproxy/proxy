@@ -214,6 +214,8 @@ export type ChatThreadState = z.infer<typeof chatThreadStateSchema>;
  * as the thread's turn ends; without one, or where it can't, the thread is done.
  * `POST chat/personas/:personaId/threads/:threadId/done`, with no body: the person says a thread
  * waiting for them is done.
+ * `POST chat/personas/:personaId/threads/:threadId/archive`, with no body: the person archives a
+ * thread, which the chat's list no longer has until they reply in it or an alert takes it up.
  */
 export const threadStandingSchema = z.enum(['in_progress', 'waiting', 'done']);
 
