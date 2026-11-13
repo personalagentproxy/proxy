@@ -185,6 +185,30 @@ function AppLink({
 	);
 }
 
+// An address of the Chat page's, in an organization: a chat, or a thread of one.
+const CHAT_PATH = /^\/[^/]+\/chat(?:\/|$)/;
+
+// Where a link leads in the app itself, as a path: one written as a path, or as an address of this
+// app's Chat page, which is how an agent hands the person one of their threads (its record's url).
+// Such a link opens in place, a thread beside its chat, the page staying as it is; null for a link
+// to anywhere else, another page of the app among them, which opens as any address does.
+function appPath(href: string | undefined): string | null {
+	if (href === undefined) {
+		return null;
+	}
+	if (href.startsWith('/') && !href.startsWith('//')) {
+		return href;
+	}
+	if (!/^https?:\/\//i.test(href) || !URL.canParse(href)) {
+		return null;
+	}
+	const url = new URL(href);
+	if (url.origin !== window.location.origin || !CHAT_PATH.test(url.pathname)) {
+		return null;
+	}
+	return `${url.pathname}${url.search}${url.hash}`;
+}
+
 const MarkdownLink: NonNullable<Components['a']> = ({
 	node: _node,
 	className,
@@ -193,9 +217,10 @@ const MarkdownLink: NonNullable<Components['a']> = ({
 	...props
 }) => {
 	const hosts = useContext(FaviconHostsContext);
-	if (href?.startsWith('/') && !href.startsWith('//')) {
+	const path = appPath(href);
+	if (path !== null) {
 		return (
-			<AppLink path={href} className={className}>
+			<AppLink path={path} className={className}>
 				{children}
 			</AppLink>
 		);

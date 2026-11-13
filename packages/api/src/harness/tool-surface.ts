@@ -70,7 +70,7 @@ const SET_ALERT: ModelTool = {
 
 const CANCEL_ALERT: ModelTool = {
 	name: CANCEL_ALERT_TOOL,
-	description: 'Cancels an alert by its id.',
+	description: 'Cancels one of the person’s alerts by its id, whichever thread it was set in.',
 	parameters: {
 		type: 'object',
 		properties: {id: {type: 'string', description: 'The alert’s id'}},

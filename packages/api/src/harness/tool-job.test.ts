@@ -254,11 +254,11 @@ describe('a thread’s alert calls', () => {
 		expect(store.completeSetAlert).not.toHaveBeenCalled();
 	});
 
-	test('cancel_alert deletes the alert from the thread, and says when there is none such', async () => {
+	test('cancel_alert deletes the alert, any of the member’s, and says when there is none such', async () => {
 		const {runToolJob} = await import('./tool-job');
 		getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name: 'cancel_alert', arguments: '{"id":"alert-1"}'}])));
 		await runToolJob(store, job('c1'), 'w1', now);
-		expect(store.deleteAlert).toHaveBeenCalledWith('alert-1', {threadId: 'thread-1'});
+		expect(store.deleteAlert).toHaveBeenCalledWith('alert-1', {orgId: 'org-1', userId: 'user-1'});
 		expect(completeToolJob).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-1', {callId: 'c1', text: 'Cancelled the alert alert-1.', isError: false});
 
 		store.deleteAlert.mockResolvedValue(Ok(false));

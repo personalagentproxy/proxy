@@ -5,7 +5,8 @@ import type {ApiError} from '@proxy/utils';
 import {readyForInference} from '@proxy/utils/harness';
 
 import {db} from '.';
-import {completeSetAlert, fireAlert, listMemberAlerts, listThreadAlerts} from './alerts';
+import {completeSetAlert, fireAlert, listMemberAlerts} from './alerts';
+import {createMissingChatConnection, getOrgSlug, getThreadPlace, listMemberThreads} from './chat';
 import {
 	appendEntry,
 	appendTurnEntries,
@@ -14,6 +15,7 @@ import {
 	ensureMemberChat,
 	failJob,
 	getChatThread,
+	getMemberThread,
 	hasChatThread,
 	listAnswers,
 	listChatThreads,
@@ -495,18 +497,22 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		);
 		expect((await taskOf(thread)).finishedAt).not.toBeNull();
 
-		const alerts = unwrap(await listThreadAlerts(thread.id));
-		expect(alerts.map((alert) => [alert.threadId, alert.title])).toEqual([
-			[thread.id, 'Pricing review'],
-		]);
-		expect(unwrap(await listThreadAlerts(chat.id))).toEqual([]);
+		// The member's alerts have it, with the thread it was set in, where it comes, and whom with.
+		const alerts = unwrap(await listMemberAlerts(orgId, userId));
+		expect(alerts.map((one) => [one.threadId, one.title, one.threadTitle, one.persona.id])).toEqual(
+			[
+				[
+					thread.id,
+					'Pricing review',
+					'Remind me about the pricing review tomorrow',
+					chat.personaId,
+				],
+			],
+		);
 		const alert = alerts[0];
 		if (!alert) {
 			throw new Error('no alert');
 		}
-		expect(
-			unwrap(await listMemberAlerts(orgId, userId)).map((one) => [one.id, one.persona.id]),
-		).toEqual([[alert.id, chat.personaId]]);
 		expect(
 			unwrap(await fireAlert(alert, 'The alert “Pricing review” is due now.', readyForInference)),
 		).toBe(true);
@@ -657,6 +663,125 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		expect(unwrap(await markThreadDone(chat.id, 'no-such-thread'))).toBe(false);
 		expect(unwrap(await markThreadDone('another-chat', thread.id))).toBe(false);
 		expect(unwrap(await markThreadDone(chat.id, chat.id))).toBe(false);
+	});
+
+	test('the member’s threads are listed for their Chat connection whichever persona each is with, the one opened last first, by their rows alone, narrowed and searched, and one is read whole', async () => {
+		const first = await open('Chat connection: find the invoices');
+		await answer(first, 'worker-cc1', 'Which month?');
+		const upTo = await lastSeq(first);
+		unwrap(
+			await writeThreadStanding(
+				first.id,
+				{summary: 'Asks which month the invoices are for.', waitingForMember: true},
+				upTo,
+			),
+		);
+		const second = await open('Chat connection: book a room');
+		const now = new Date();
+		const everything = {search: null, standing: null, skip: 0, take: 10};
+
+		const mine = async (query: Partial<Parameters<typeof listMemberThreads>[2]> = {}) => {
+			const narrowed = {...everything, search: 'chat connection', ...query};
+			return unwrap(await listMemberThreads(orgId, userId, narrowed, now))?.threads ?? [];
+		};
+
+		const both = await mine();
+		expect(both.map((thread) => thread.id)).toEqual([second.id, first.id]);
+		expect(both[1]).toMatchObject({
+			personaId: chat.personaId,
+			personaName: 'Finance',
+			title: 'Chat connection: find the invoices',
+			state: {kind: 'stopped'},
+			standing: {
+				waitingForMember: true,
+				summary: 'Asks which month the invoices are for.',
+				summarySeq: upTo,
+			},
+			last: {seq: upTo, pending: false},
+		});
+		// One at work has what the member said as its last.
+		expect(both[0]).toMatchObject({state: {kind: 'working'}, last: {pending: false}});
+		expect(unwrap(await listMemberThreads(orgId, userId, everything))?.orgSlug).toBe(
+			`chat-threads-test-${stamp}`,
+		);
+
+		// By where each stands, by its summary's words, and a page at a time.
+		expect((await mine({standing: 'waiting'})).map((thread) => thread.id)).toEqual([first.id]);
+		expect((await mine({standing: 'in_progress'})).map((thread) => thread.id)).toEqual([second.id]);
+		expect(await mine({standing: 'done'})).toEqual([]);
+		expect((await mine({search: 'WHICH MONTH'})).map((thread) => thread.id)).toEqual([first.id]);
+		expect((await mine({skip: 1, take: 1})).map((thread) => thread.id)).toEqual([first.id]);
+		// Nobody else's, and no other organization's.
+		expect(unwrap(await listMemberThreads(orgId, 'another-user', everything))?.threads).toEqual([]);
+		expect(unwrap(await listMemberThreads('no-such-org', userId, everything))).toBeNull();
+
+		// One of theirs is read whole, as its chat reads it; never the chat itself, or another's.
+		const read = unwrap(await getMemberThread({orgId, userId}, first.id, []));
+		expect(read?.entries.map((entry) => [entry.kind, entry.text])).toEqual([
+			['person', 'Chat connection: find the invoices'],
+			['assistant', 'Which month?'],
+		]);
+		expect(unwrap(await getMemberThread({orgId, userId}, chat.id, []))).toBeNull();
+		expect(unwrap(await getMemberThread({orgId, userId: 'another-user'}, first.id, []))).toBeNull();
+
+		expect(unwrap(await getThreadPlace(orgId, chat.personaId))).toEqual({
+			orgSlug: `chat-threads-test-${stamp}`,
+			personaName: 'Finance',
+		});
+		expect(unwrap(await getThreadPlace(orgId, 'no-such-persona'))).toBeNull();
+		expect(unwrap(await getOrgSlug(orgId))).toBe(`chat-threads-test-${stamp}`);
+		expect(unwrap(await getOrgSlug('no-such-org'))).toBeNull();
+		await db.agentJob.updateMany({where: {threadId: second.id}, data: {status: 'done'}});
+	});
+
+	test('the member’s Chat connection is made once the organization has its built-in agent, which alone is given what it may do with it, and never twice', async () => {
+		const made = () =>
+			db.connection.findMany({
+				where: {orgId, integrationId: 'chat'},
+				select: {id: true, ownerUserId: true, account: true, name: true, defaults: true},
+			});
+		const ensure = (providerId: string) =>
+			createMissingChatConnection({
+				orgId,
+				userId,
+				integrationId: 'chat',
+				providerId,
+				actions: ['readThreads', 'readAlerts'],
+			});
+
+		// No agent of the provider yet: there is no Chat to have a connection of.
+		unwrap(await ensure('no-such-provider'));
+		expect(await made()).toEqual([]);
+
+		const [one, other] = await Promise.all([ensure('built-in'), ensure('built-in')]);
+		unwrap(one);
+		unwrap(other);
+		const connections = await made();
+		expect(connections).toEqual([
+			{
+				id: expect.any(String),
+				ownerUserId: userId,
+				account: 'Chat threads test',
+				name: null,
+				defaults: [],
+			},
+		]);
+		const connectionId = connections[0]?.id ?? '';
+		const grants = await db.agentGrant.findMany({
+			where: {connectionId},
+			select: {agentId: true, actionId: true, allowed: true},
+			orderBy: {actionId: 'asc'},
+		});
+		expect(grants).toEqual([
+			{agentId, actionId: 'readAlerts', allowed: true},
+			{agentId, actionId: 'readThreads', allowed: true},
+		]);
+
+		// What the member turned off since stays off: nothing is given again.
+		await db.agentGrant.deleteMany({where: {connectionId}});
+		unwrap(await ensure('built-in'));
+		expect(await made()).toHaveLength(1);
+		expect(await db.agentGrant.count({where: {connectionId}})).toBe(0);
 	});
 
 	test('the threads without a summary are every chat’s threads that have none, the oldest first, no chat among them', async () => {

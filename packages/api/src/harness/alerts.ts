@@ -2,7 +2,7 @@ import {Err, Ok, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {cut} from '@proxy/utils/harness';
-import type {AlertRow, NewAlert} from '@proxy/db/alerts';
+import type {AlertRow, MemberAlertRow, NewAlert} from '@proxy/db/alerts';
 import {integrationFor} from '@proxy/integrations';
 
 import type {Change} from '../records/connector';
@@ -137,20 +137,39 @@ export function collectionName(collectionId: string | null): string | null {
 	return isWatchedCollection(collectionId) ? WATCHED_COLLECTIONS[collectionId] : collectionId;
 }
 
-/** An alert in a line, as the agent is told of it: its id, its title and what it is. */
-export function describeAlert(alert: AlertRow): string {
+/** When an alert comes, in words: a timed one's time, or what a watch watches, where and for what. */
+export function alertComes(alert: AlertRow): string {
 	if (alert.collectionId === null) {
-		return `${alert.id}: “${alert.title}”, due ${alert.at?.toISOString() ?? ''}`;
+		return `due ${alert.at?.toISOString() ?? ''}`;
 	}
-	return `${alert.id}: “${alert.title}”, watching ${collectionName(alert.collectionId) ?? ''} in connection${alert.connectionIds.length === 1 ? '' : 's'} ${alert.connectionIds.join(', ')} for ${listed(alert.terms)}`;
+	return `watching ${collectionName(alert.collectionId) ?? ''} in connection${alert.connectionIds.length === 1 ? '' : 's'} ${alert.connectionIds.join(', ')} for ${listed(alert.terms)}`;
 }
 
-/** What the agent is told, in its instructions, of the alerts set in its thread. */
-export function alertsParagraph(alerts: AlertRow[]): string {
+/** An alert in a line, as the agent is told of it: its id, its title and what it is. */
+export function describeAlert(alert: AlertRow): string {
+	return `${alert.id}: “${alert.title}”, ${alertComes(alert)}`;
+}
+
+// Where an alert comes, as the agent of the thread `threadId` is told: to it, or to another of
+// the person's threads, by its title.
+function setIn(alert: MemberAlertRow, threadId: string): string {
+	if (alert.threadId === threadId) {
+		return 'set in this thread';
+	}
+	return alert.threadTitle ? `set in the thread “${alert.threadTitle}”` : 'set in another thread';
+}
+
+/**
+ * What a thread's agent is told, in its instructions, of the person's alerts: every one of theirs,
+ * whichever thread it was set in and comes to, since what they ask about an alert they ask in a
+ * new thread, which set none.
+ */
+export function alertsParagraph(alerts: MemberAlertRow[], threadId: string): string {
 	if (alerts.length === 0) {
 		return 'No alerts.';
 	}
-	return `Alerts:\n${alerts.map((alert) => `- ${describeAlert(alert)}`).join('\n')}`;
+	const lines = alerts.map((alert) => `- ${describeAlert(alert)}; ${setIn(alert, threadId)}`);
+	return `The person’s alerts, each of which comes to the thread it was set in:\n${lines.join('\n')}`;
 }
 
 /** What a timed alert lands in its thread when it is due. */

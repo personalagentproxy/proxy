@@ -92,12 +92,12 @@ export function setText(alert: AlertRow): string {
 	return `Set the alert ${describeAlert(alert)}.`;
 }
 
-/** A thread's alert calls: a cancel answered, or the alert to set. */
+/** A thread's alert calls: a cancel answered, of any of the member's alerts, whichever of their threads it was set in; or the alert to set, in this one. */
 export function alertCall(store: ToolAnswerStore, thread: ThreadRow, call: ToolCall, args: Record<string, unknown>, now: Date): Promise<Result<AlertCallOutcome, ApiError>> {
 	return Do(async ($) => {
 		if (call.name === CANCEL_ALERT_TOOL) {
 			const id = typeof args.id === 'string' ? args.id : '';
-			if (!$(await store.deleteAlert(id, {threadId: thread.id}))) {
+			if (!$(await store.deleteAlert(id, {orgId: thread.orgId, userId: thread.userId}))) {
 				return error(`No alert ${id}.`);
 			}
 			return {text: `Cancelled the alert ${id}.`, isError: false};

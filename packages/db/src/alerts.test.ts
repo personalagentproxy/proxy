@@ -12,7 +12,6 @@ import {
 	completeSetAlert,
 	deleteAlert,
 	fireAlert,
-	listThreadAlerts,
 	type NewAlert,
 	type PollRow,
 	recordLook,
@@ -41,6 +40,15 @@ function unwrap<T>(result: Result<T, ApiError>): T {
 		throw new Error(JSON.stringify(result.error));
 	}
 	return result.value;
+}
+
+// The alerts set in a thread, oldest first, as an AlertRow has each.
+function alertsIn(threadId: string): Promise<AlertRow[]> {
+	return db.agentAlert.findMany({
+		where: {threadId},
+		omit: {nextAt: true},
+		orderBy: {createdAt: 'asc'},
+	});
 }
 
 const TEN_MINUTES = 10 * 60 * 1000;
@@ -189,7 +197,7 @@ describe.skipIf(!databaseUrl)('the alerts, against the database', () => {
 				await completeSetAlert(call(first, 'worker-a'), time, () => 'Set.', readyForInference),
 			),
 		).toBe(false);
-		expect(unwrap(await listThreadAlerts(thread.id))).toEqual([]);
+		expect(await alertsIn(thread.id)).toEqual([]);
 
 		const answer = (alert: AlertRow) => `Set ${alert.title}.`;
 		expect(
@@ -202,7 +210,7 @@ describe.skipIf(!databaseUrl)('the alerts, against the database', () => {
 			['tool_result', 'Set Call Dana.'],
 			['tool_result', 'Set Bank.'],
 		]);
-		const alerts = unwrap(await listThreadAlerts(thread.id));
+		const alerts = await alertsIn(thread.id);
 		expect(alerts.map((alert) => [alert.title, alert.at, alert.connectionIds])).toEqual([
 			['Call Dana', at, []],
 			['Bank', null, [connectionId]],
@@ -219,7 +227,7 @@ describe.skipIf(!databaseUrl)('the alerts, against the database', () => {
 		expect(
 			unwrap(await completeSetAlert(call(first, 'worker-b'), time, answer, readyForInference)),
 		).toBe(false);
-		expect(unwrap(await listThreadAlerts(thread.id))).toHaveLength(2);
+		expect(await alertsIn(thread.id)).toHaveLength(2);
 	});
 
 	test('an alert set inline, from the turn’s job, is set alone, nothing written to the log and the job still running; a worker that lost the job sets none', async () => {
@@ -250,15 +258,16 @@ describe.skipIf(!databaseUrl)('the alerts, against the database', () => {
 		const job = (workerId: string) => ({jobId: turn.id, workerId, threadId: other.id});
 
 		expect(unwrap(await setAlertInline(job('worker-z'), time))).toBeNull();
-		expect(unwrap(await listThreadAlerts(other.id))).toEqual([]);
+		expect(await alertsIn(other.id)).toEqual([]);
 
 		const made = unwrap(await setAlertInline(job('worker-c'), time));
 		const madeWatch = unwrap(await setAlertInline(job('worker-c'), bank));
 		expect(made).toMatchObject({threadId: other.id, title: 'Tomorrow', at, connectionIds: []});
 		expect(madeWatch).toMatchObject({title: 'Bank again', at: null, connectionIds: [connectionId]});
-		expect(
-			unwrap(await listThreadAlerts(other.id)).map((alert): string | undefined => alert.id),
-		).toEqual([made?.id, madeWatch?.id]);
+		expect((await alertsIn(other.id)).map((alert): string | undefined => alert.id)).toEqual([
+			made?.id,
+			madeWatch?.id,
+		]);
 		// Nothing landed in the log, and the turn goes on.
 		expect(await lastTexts(other, 1)).toEqual([['person', 'Remind me tomorrow']]);
 		expect(await db.agentJob.findUnique({where: {id: turn.id}})).toMatchObject({
@@ -267,8 +276,8 @@ describe.skipIf(!databaseUrl)('the alerts, against the database', () => {
 		});
 
 		// Left as they were for the tests that follow: the alerts cancelled, the turn ended.
-		unwrap(await deleteAlert(made?.id ?? '', {threadId: other.id}));
-		unwrap(await deleteAlert(madeWatch?.id ?? '', {threadId: other.id}));
+		unwrap(await deleteAlert(made?.id ?? '', {orgId, userId}));
+		unwrap(await deleteAlert(madeWatch?.id ?? '', {orgId, userId}));
 		unwrap(
 			await completeInference(
 				turn.id,
@@ -299,7 +308,7 @@ describe.skipIf(!databaseUrl)('the alerts, against the database', () => {
 		expect(await lastTexts(thread, 1)).toEqual([['event', 'The alert “Call Dana” is due now.']]);
 		expect(unwrap(await fireAlert(timed, 'Again.', readyForInference))).toBe(false);
 		expect(await lastTexts(thread, 1)).toEqual([['event', 'The alert “Call Dana” is due now.']]);
-		expect(unwrap(await listThreadAlerts(thread.id)).map((alert) => alert.id)).toEqual([watch.id]);
+		expect((await alertsIn(thread.id)).map((alert) => alert.id)).toEqual([watch.id]);
 	});
 
 	test('a poll a watch is on is taken once, moved on as it is taken', async () => {
@@ -336,7 +345,7 @@ describe.skipIf(!databaseUrl)('the alerts, against the database', () => {
 			(await db.connectionPoll.findMany({where: {connectionId}, select: {cursor: true}}))[0]
 				?.cursor,
 		).toBe('h2');
-		expect(unwrap(await listThreadAlerts(thread.id))[0]?.lastMatchedAt).toEqual(at);
+		expect((await alertsIn(thread.id))[0]?.lastMatchedAt).toEqual(at);
 
 		expect(
 			unwrap(
@@ -346,7 +355,7 @@ describe.skipIf(!databaseUrl)('the alerts, against the database', () => {
 		expect(await lastTexts(thread, 1)).toEqual([['event', 'The alert “Bank” matched.']]);
 
 		// A watch cancelled since the look began is told nothing; the others still are.
-		unwrap(await deleteAlert(elsewhere.id, {threadId: other.id}));
+		unwrap(await deleteAlert(elsewhere.id, {orgId, userId}));
 		const again = [
 			{alert: second, text: 'Gone.'},
 			{alert: watch, text: 'The alert “Bank” matched again.'},

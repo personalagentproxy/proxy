@@ -55,6 +55,9 @@ const requireViewer = mock(async (): Promise<unknown> => Ok(owner));
 const filesOffered = mock(async () => true);
 mock.module('../native/files/connections', () => ({filesOffered, ensureFilesConnection: mock(async () => Ok(undefined))}));
 
+// The member's own Chat connection is made elsewhere too.
+mock.module('../native/chat/connections', () => ({ensureChatConnection: mock(async () => Ok(undefined))}));
+
 mock.module('../utils/user-org', () => ({requireViewer, requireOwner: requireViewer}));
 
 const warn = mock();

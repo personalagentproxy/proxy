@@ -160,13 +160,6 @@ export async function setAlertInline(
 	return writeInline(job, null, (tx, thread) => createAlert(tx, thread, alert));
 }
 
-/** The alerts set in the thread, oldest first: what its agent is told it has. */
-export async function listThreadAlerts(threadId: string): Promise<Result<AlertRow[], ApiError>> {
-	return wrapDb(() =>
-		db.agentAlert.findMany({where: {threadId}, select: alertSelect, orderBy: {createdAt: 'asc'}}),
-	);
-}
-
 /** The watches on the connection's collection. */
 export async function listWatches(
 	connectionId: string,
@@ -181,31 +174,42 @@ export async function listWatches(
 	);
 }
 
-/** The member's alerts in the organization, newest first, each with the persona it was set with. */
+/** One of a member's alerts, with the persona it was set with and the title of the thread it was set in, where it comes. */
+export type MemberAlertRow = AlertRow & {persona: PersonaRow; threadTitle: string | null};
+
+/** The member's alerts in the organization, newest first, each with the persona it was set with and its thread's title. */
 export async function listMemberAlerts(
 	orgId: string,
 	userId: string,
-): Promise<Result<Array<AlertRow & {persona: PersonaRow}>, ApiError>> {
+): Promise<Result<MemberAlertRow[], ApiError>> {
 	return (
 		await wrapDb(() =>
 			db.agentAlert.findMany({
 				where: {orgId, userId},
-				select: {...alertSelect, thread: {select: {persona: {select: personaSelect}}}},
+				select: {
+					...alertSelect,
+					thread: {select: {title: true, persona: {select: personaSelect}}},
+				},
 				orderBy: {createdAt: 'desc'},
 			}),
 		)
 	).map((alerts) =>
-		alerts.map(({thread, ...alert}) => ({...alert, persona: toPersona(thread.persona)})),
+		alerts.map(({thread, ...alert}) => ({
+			...alert,
+			persona: toPersona(thread.persona),
+			threadTitle: thread.title,
+		})),
 	);
 }
 
 /**
- * Deletes an alert: the thread's, as its agent cancels one, or the member's, as the Alerts page
- * deletes one. `Ok(false)` when there is none such.
+ * Deletes one of the member's alerts, whichever of their threads it was set in: as a thread's
+ * agent cancels one, as the Alerts page deletes one, and as their Chat connection does.
+ * `Ok(false)` when there is none such.
  */
 export async function deleteAlert(
 	alertId: string,
-	owner: {threadId: string} | {orgId: string; userId: string},
+	owner: {orgId: string; userId: string},
 ): Promise<Result<boolean, ApiError>> {
 	return (await wrapDb(() => db.agentAlert.deleteMany({where: {id: alertId, ...owner}}))).map(
 		({count}) => count > 0,

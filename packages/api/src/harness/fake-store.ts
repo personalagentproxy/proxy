@@ -54,7 +54,6 @@ export function fakeStore(): FakeStore {
 		completeSetAlert: mock<HarnessStore['completeSetAlert']>(),
 		setAlertInline: mock<HarnessStore['setAlertInline']>(),
 		deleteAlert: mock<HarnessStore['deleteAlert']>(),
-		listThreadAlerts: mock<HarnessStore['listThreadAlerts']>(),
 		listMemberAlerts: mock<HarnessStore['listMemberAlerts']>(),
 		listConnectionsByIds: mock<HarnessStore['listConnectionsByIds']>(),
 		claimDueAlerts: mock<HarnessStore['claimDueAlerts']>(),

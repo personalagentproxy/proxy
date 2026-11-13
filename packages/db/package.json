@@ -9,6 +9,7 @@
 		"./alerts": "./src/alerts.ts",
 		"./audit": "./src/audit.ts",
 		"./auth": "./src/auth.ts",
+		"./chat": "./src/chat.ts",
 		"./claude-account": "./src/claude-account.ts",
 		"./connection": "./src/connection.ts",
 		"./desktop-auth": "./src/desktop-auth.ts",

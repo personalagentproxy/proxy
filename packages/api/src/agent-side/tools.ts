@@ -35,6 +35,7 @@ import {parseRecordValues} from '../records/record-values';
 import {loadConnection} from '../records/target';
 import {log as serverLog} from '../observability/log';
 import {integrationOf} from '../utils/connection-actions';
+import {ensureChatConnection} from '../native/chat/connections';
 import {ensureFilesConnection} from '../native/files/connections';
 import {ensureSandboxConnection} from '../native/sandbox/connections';
 import type {NativeToolRun} from '../native/tool';
@@ -87,6 +88,7 @@ export function listAgentConnections(signedIn: SignedInAgent): Promise<Result<z.
 		const agent = $(await requireAgent(signedIn));
 		$(await ensureSandboxConnection({...agentViewer(signedIn), experiments: signedIn.experiments}));
 		$(await ensureFilesConnection({...agentViewer(signedIn), experiments: signedIn.experiments}));
+		$(await ensureChatConnection(agentViewer(signedIn)));
 		const connections = $(await listConnectionsWithCredential(agentViewer(signedIn))).flatMap((connection) => {
 			const integration = integrationOf(connection);
 			if (!integration) {

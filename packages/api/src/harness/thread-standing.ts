@@ -84,26 +84,28 @@ const jsonSchema = {
 	properties: {summary: {type: 'string'}, waitingForMember: {type: 'boolean'}},
 };
 
-// What the member sees of the thread, each a line by who said it: what they said, with the names
-// of the files they attached; an alert that came into it; what the agent answered, and what it told
-// them as it went. Each cut to a length.
-function messagesOf(thread: ChatThreadRow): string[] {
+/**
+ * What the member sees of the thread, each a line by who said it: what they said, with the names
+ * of the files they attached; an alert that came into it; what the agent answered, and what it told
+ * them as it went. Each cut to `max` characters.
+ */
+export function threadLines(thread: ChatThreadRow, max: number): string[] {
 	return thread.entries.flatMap((entry) => {
 		if (entry.kind === 'person') {
 			const files = thread.attachments.filter((attachment) => attachment.entryId === entry.id).map((attachment) => attachment.name);
 			const text = entry.text.replaceAll(ATTACHMENT_MARK, ' ').trim();
-			return [`Person: ${cut(text, MAX_MESSAGE_CHARS)}${files.length === 0 ? '' : ` [attached: ${files.join(', ')}]`}`];
+			return [`Person: ${cut(text, max)}${files.length === 0 ? '' : ` [attached: ${files.join(', ')}]`}`];
 		}
 		if (entry.kind === 'event') {
-			return [`Alert: ${cut(entry.text, MAX_MESSAGE_CHARS)}`];
+			return [`Alert: ${cut(entry.text, max)}`];
 		}
 		if (entry.kind !== 'assistant') {
 			return [];
 		}
-		const said = entry.text === '' ? [] : [`${entry.isError ? 'Agent (failed)' : 'Agent'}: ${cut(entry.text, MAX_MESSAGE_CHARS)}`];
+		const said = entry.text === '' ? [] : [`${entry.isError ? 'Agent (failed)' : 'Agent'}: ${cut(entry.text, max)}`];
 		const told = (entry.toolCalls ?? []).flatMap((call) => {
 			const message = call.name === SEND_TO_PERSON_TOOL ? personMessageArgs(callArguments(call)) : null;
-			return message ? [`Agent: ${cut(message.text, MAX_MESSAGE_CHARS)}`] : [];
+			return message ? [`Agent: ${cut(message.text, max)}`] : [];
 		});
 		return [...said, ...told];
 	});
@@ -111,7 +113,7 @@ function messagesOf(thread: ChatThreadRow): string[] {
 
 /** The thread as the model reads it: what opened it, then the newest messages that fit in what it reads at most, a line saying so where some between are left out. */
 export function threadForModel(thread: ChatThreadRow): string {
-	const [first, ...rest] = messagesOf(thread);
+	const [first, ...rest] = threadLines(thread, MAX_MESSAGE_CHARS);
 	if (first === undefined) {
 		return '';
 	}

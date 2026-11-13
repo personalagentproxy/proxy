@@ -203,7 +203,7 @@ describe('running a call inline', () => {
 		expect((await run('set_alert', '{"title":"Call Dana","brief":"Remind them.","at":"2026-10-22T07:30:00Z"}')).unwrapErr().kind).toBe('conflict');
 
 		expect((await run('cancel_alert', '{"id":"alert-1"}')).unwrap()).toEqual({text: 'Cancelled the alert alert-1.', isError: false});
-		expect(store.deleteAlert).toHaveBeenCalledWith('alert-1', {threadId: 'thread-1'});
+		expect(store.deleteAlert).toHaveBeenCalledWith('alert-1', {orgId: 'org-1', userId: 'user-1'});
 		store.deleteAlert.mockResolvedValue(Ok(false));
 		expect((await run('cancel_alert', '{"id":"alert-2"}')).unwrap()).toEqual({
 			text: 'No alert alert-2.',

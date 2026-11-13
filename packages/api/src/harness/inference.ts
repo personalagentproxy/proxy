@@ -75,7 +75,7 @@ export type InferenceStore = Pick<
 	| 'getPersonaName'
 	| 'listEntries'
 	| 'listAttachments'
-	| 'listThreadAlerts'
+	| 'listMemberAlerts'
 	| 'finishJob'
 	| 'requeueJob'
 	| 'appendSummary'
@@ -180,15 +180,15 @@ function unreachable(failure: ApiError): string {
 }
 
 // The system prompt: the instructions any agent with the login gets, for the agent as it acts in
-// the thread, as the member whose chat it is of, how to go about it on a thread, and the alerts
-// set in the thread. What the agent makes goes beside what the person attached, in the persona's
+// the thread, as the member whose chat it is of, how to go about it on a thread, and the member's
+// alerts, whichever of their threads each was set in. What the agent makes goes beside what the person attached, in the persona's
 // folder.
 function systemPrompt(store: InferenceStore, thread: ThreadRow, signedIn: SignedInAgent, now: Date): Promise<Result<string, ApiError>> {
 	return Do(async ($) => {
 		const persona = $(await store.getPersonaName(thread));
 		const folder = persona === null ? undefined : chatFolder(persona);
 		const instructions = $(await agentInstructions(signedIn, THREAD_FLOW, folder));
-		const alerts = alertsParagraph($(await store.listThreadAlerts(thread.id)));
+		const alerts = alertsParagraph($(await store.listMemberAlerts(thread.orgId, thread.userId)), thread.id);
 		return [instructions, alerts, `The time now is ${now.toISOString()}.`].join('\n\n');
 	});
 }

@@ -1181,10 +1181,9 @@ function shownInThread(calls: string[]): Prisma.AgentEntryWhereInput {
 	};
 }
 
-// The chat's threads `where` picks among them, oldest first, as ChatThreadRow has them, with the
+// The threads `where` picks, oldest first, as ChatThreadRow has them, with the
 // files of every entry shown, or of the first alone, what opened the thread.
 async function readChatThreads(
-	chatId: string,
 	where: Prisma.AgentThreadWhereInput,
 	calls: string[],
 	now: Date,
@@ -1192,7 +1191,7 @@ async function readChatThreads(
 ): Promise<Result<ChatThreadRow[], ApiError>> {
 	return wrapDb(async () => {
 		const threads = await db.agentThread.findMany({
-			where: {...where, parentThreadId: chatId},
+			where,
 			select: {
 				...threadSelect,
 				waitingForMember: true,
@@ -1235,7 +1234,7 @@ export function listChatThreads(
 	calls: string[],
 	now = new Date(),
 ): Promise<Result<ChatThreadRow[], ApiError>> {
-	return readChatThreads(chatId, {}, calls, now, 'opener');
+	return readChatThreads({parentThreadId: chatId}, calls, now, 'opener');
 }
 
 /** One of the chat's threads, as listChatThreads has it, with the files attached to every entry of it; `Ok(null)` for no such thread of the chat. */
@@ -1245,9 +1244,24 @@ export async function getChatThread(
 	calls: string[],
 	now = new Date(),
 ): Promise<Result<ChatThreadRow | null, ApiError>> {
-	return (await readChatThreads(chatId, {id: threadId}, calls, now, 'all')).map(
+	return (await readChatThreads({id: threadId, parentThreadId: chatId}, calls, now, 'all')).map(
 		(threads) => threads[0] ?? null,
 	);
+}
+
+/**
+ * One of the member's threads in the organization, whichever persona's chat it is of, as
+ * getChatThread has it: what their Chat connection reads one by (chat.ts). `Ok(null)` for no such
+ * thread of theirs.
+ */
+export async function getMemberThread(
+	member: {orgId: string; userId: string},
+	threadId: string,
+	calls: string[],
+	now = new Date(),
+): Promise<Result<ChatThreadRow | null, ApiError>> {
+	const where = {...member, id: threadId, parentThreadId: {not: null}};
+	return (await readChatThreads(where, calls, now, 'all')).map((threads) => threads[0] ?? null);
 }
 
 /** Whether the chat has the thread: what a write into one asks first, without reading it. */

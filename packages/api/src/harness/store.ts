@@ -4,7 +4,7 @@ import type {ApiError} from '@proxy/utils';
 import {readyForInference} from '@proxy/utils/harness';
 import type {EntryAttachment} from '@proxy/utils/harness-context';
 import * as alerts from '@proxy/db/alerts';
-import type {AlertRow, NewAlert, PollRow, WatchMatch} from '@proxy/db/alerts';
+import type {AlertRow, MemberAlertRow, NewAlert, PollRow, WatchMatch} from '@proxy/db/alerts';
 import {type ConnectionRow, getConnectionWithCredentialById, listConnectionsByIds} from '@proxy/db/connection';
 import * as harness from '@proxy/db/harness';
 import type {
@@ -103,9 +103,8 @@ export type HarnessStore = {
 
 	completeSetAlert: (job: {jobId: string; workerId: string; threadId: string; callId: string}, alert: NewAlert, answer: (alert: AlertRow) => string) => Promise<Result<boolean, ApiError>>;
 	setAlertInline: (job: InlineJob, alert: NewAlert) => Promise<Result<AlertRow | null, ApiError>>;
-	deleteAlert: (alertId: string, owner: {threadId: string} | {orgId: string; userId: string}) => Promise<Result<boolean, ApiError>>;
-	listThreadAlerts: (threadId: string) => Promise<Result<AlertRow[], ApiError>>;
-	listMemberAlerts: (orgId: string, userId: string) => Promise<Result<Array<AlertRow & {persona: PersonaRow}>, ApiError>>;
+	deleteAlert: (alertId: string, owner: {orgId: string; userId: string}) => Promise<Result<boolean, ApiError>>;
+	listMemberAlerts: (orgId: string, userId: string) => Promise<Result<MemberAlertRow[], ApiError>>;
 	listConnectionsByIds: (orgId: string, ids: string[]) => Promise<Result<ConnectionRow[], ApiError>>;
 	claimDueAlerts: (everyMs: number, limit: number) => Promise<Result<AlertRow[], ApiError>>;
 	fireAlert: (alert: AlertRow, text: string) => Promise<Result<boolean, ApiError>>;
@@ -174,7 +173,6 @@ export const harnessStore: HarnessStore = {
 	completeSetAlert: (job, alert, answer) => alerts.completeSetAlert(job, alert, answer, readyForInference),
 	setAlertInline: alerts.setAlertInline,
 	deleteAlert: alerts.deleteAlert,
-	listThreadAlerts: alerts.listThreadAlerts,
 	listMemberAlerts: alerts.listMemberAlerts,
 	listConnectionsByIds,
 	claimDueAlerts: alerts.claimDueAlerts,

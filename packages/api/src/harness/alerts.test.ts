@@ -67,8 +67,43 @@ describe('the words', () => {
 	test('an alert is described by its id, what it watches and its terms, or its time', () => {
 		expect(describeAlert(watch)).toBe('alert-1: “Mail from the bank”, watching emails in connection conn-a for “@bank.com” or “loan”');
 		expect(describeAlert({...watch, collectionId: null, connectionIds: [], terms: [], at: now})).toBe('alert-1: “Mail from the bank”, due 2026-11-04T10:00:00.000Z');
-		expect(alertsParagraph([])).toBe('No alerts.');
-		expect(alertsParagraph([watch])).toContain('- alert-1:');
+	});
+
+	test('a thread’s agent is told of every alert of the person’s, each with the thread it comes to: its own, or another by its title', () => {
+		const persona = {
+			id: 'persona-1',
+			name: 'General',
+			look: {nose: 0.5, noseOut: 0.3, eye: 25, eyeTheta: 50, eyeLat: 8, eyes: 2 as const},
+			color: 'teal' as const,
+			harness: 'proxy',
+			chatModel: 'claude',
+			ownerUserId: null,
+			createdById: null,
+			createdAt: now,
+		};
+		const mine = {...watch, persona, threadTitle: 'Watch the bank'};
+		const morning = {
+			...watch,
+			id: 'alert-2',
+			threadId: 'thread-2',
+			title: 'Morning check',
+			collectionId: null,
+			connectionIds: [],
+			terms: [],
+			at: now,
+			persona,
+			threadTitle: 'Check the review every morning',
+		};
+
+		expect(alertsParagraph([], 'thread-1')).toBe('No alerts.');
+		expect(alertsParagraph([mine, morning], 'thread-1')).toBe(
+			[
+				'The person’s alerts, each of which comes to the thread it was set in:',
+				'- alert-1: “Mail from the bank”, watching emails in connection conn-a for “@bank.com” or “loan”; set in this thread',
+				'- alert-2: “Morning check”, due 2026-11-04T10:00:00.000Z; set in the thread “Check the review every morning”',
+			].join('\n'),
+		);
+		expect(alertsParagraph([{...morning, threadTitle: null}], 'thread-1')).toContain('; set in another thread');
 	});
 
 	test('what matched is told with each record, its link and the brief', () => {

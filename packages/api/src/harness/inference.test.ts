@@ -101,7 +101,7 @@ beforeEach(() => {
 	({getJobThread, listEntries, getThreadAgent, getPersonaModel, finishJob, completeInference, requeueJob, appendSummary, appendTurnEntries} = store);
 	getJobThread.mockResolvedValue(Ok(thread));
 	listEntries.mockResolvedValue(Ok([entry('person', 'Hi')]));
-	store.listThreadAlerts.mockResolvedValue(Ok([]));
+	store.listMemberAlerts.mockResolvedValue(Ok([]));
 	store.listAttachments.mockResolvedValue(Ok([]));
 	getThreadAgent.mockResolvedValue(Ok({agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'proxy', name: 'Finance', orgSlug: 'acme', experiments: ['openrouter']}));
 	getPersonaModel.mockResolvedValue(Ok({harness: 'proxy', chatModel: 'claude'}));
@@ -129,8 +129,21 @@ describe('runInference', () => {
 			terms: [],
 			lastMatchedAt: null,
 			createdAt: now,
+			persona: {
+				id: 'persona-1',
+				name: 'Coding Agent',
+				look: {nose: 0.5, noseOut: 0.3, eye: 25, eyeTheta: 50, eyeLat: 8, eyes: 2 as const},
+				color: 'teal' as const,
+				harness: 'proxy',
+				chatModel: 'claude',
+				ownerUserId: null,
+				createdById: null,
+				createdAt: now,
+			},
+			threadTitle: 'Find the invoices',
 		};
-		store.listThreadAlerts.mockResolvedValue(Ok([alert]));
+		// One of the person's set in another thread is told of too.
+		store.listMemberAlerts.mockResolvedValue(Ok([alert, {...alert, id: 'alert-2', threadId: 'thread-2', title: 'Morning check', threadTitle: 'Check the review every morning'}]));
 		const log = [
 			entry('person', 'Find my invoices'),
 			entry('assistant', 'Looking.', {toolCalls: [{id: 'c1', name: 'script', arguments: '{"code":"return 1"}'}]}),
@@ -157,7 +170,7 @@ describe('runInference', () => {
 		expect(result.isOk()).toBe(true);
 		// The agent acts as the member whose chat the thread is of.
 		expect(getThreadAgent).toHaveBeenCalledWith(thread);
-		expect(store.listThreadAlerts).toHaveBeenCalledWith('thread-1');
+		expect(store.listMemberAlerts).toHaveBeenCalledWith('org-1', 'user-1');
 		// What it makes goes in the persona's folder, where what the person attaches goes.
 		expect(agentInstructions).toHaveBeenCalledWith(
 			expect.objectContaining({agentId: 'agent-1', ownerUserId: 'user-1'}),
@@ -169,7 +182,8 @@ describe('runInference', () => {
 		expect(getPersonaModel).toHaveBeenCalledWith(thread);
 		expect(request.model).toBe('claude');
 		expect(request.messages[0]).toMatchObject({role: 'system'});
-		expect(String(request.messages[0]?.content)).toContain('- alert-1: “Check the review”, due 2026-10-22T07:30:00.000Z');
+		expect(String(request.messages[0]?.content)).toContain('- alert-1: “Check the review”, due 2026-10-22T07:30:00.000Z; set in this thread');
+		expect(String(request.messages[0]?.content)).toContain('- alert-2: “Morning check”, due 2026-10-22T07:30:00.000Z; set in the thread “Check the review every morning”');
 		expect(String(request.messages[0]?.content)).toContain('The time now is 2026-10-21T10:00:00.000Z');
 		expect(request.messages.slice(1)).toEqual([
 			{role: 'user', content: 'Find my invoices'},
