@@ -1128,6 +1128,8 @@ export type ThreadStandingRow = {
 	waitingForMember: boolean;
 	summary: string | null;
 	summarySeq: number | null;
+	// The member archived it, and nothing came into it since.
+	archived: boolean;
 };
 
 /** An entry as a thread shows it: what was said, by whom and when, without what the model was sent or how it ran. */
@@ -1197,6 +1199,7 @@ async function readChatThreads(
 				waitingForMember: true,
 				summary: true,
 				summarySeq: true,
+				archived: true,
 				jobs: openJobsSelect,
 				entries: {
 					where: shownInThread(calls),
@@ -1211,16 +1214,18 @@ async function readChatThreads(
 				(files === 'opener' ? entries.slice(0, 1) : entries).map((entry) => entry.id),
 			),
 		);
-		return threads.map(({jobs, entries, waitingForMember, summary, summarySeq, ...thread}) => {
-			const shown = new Set(entries.map((entry) => entry.id));
-			return {
-				...toThread(thread),
-				state: threadState(jobs, now),
-				standing: {waitingForMember, summary, summarySeq},
-				entries: entries.map((entry) => ({...entry, toolCalls: toToolCalls(entry.toolCalls)})),
-				attachments: attachments.filter((attachment) => shown.has(attachment.entryId)),
-			};
-		});
+		return threads.map(
+			({jobs, entries, waitingForMember, summary, summarySeq, archived, ...thread}) => {
+				const shown = new Set(entries.map((entry) => entry.id));
+				return {
+					...toThread(thread),
+					state: threadState(jobs, now),
+					standing: {waitingForMember, summary, summarySeq, archived},
+					entries: entries.map((entry) => ({...entry, toolCalls: toToolCalls(entry.toolCalls)})),
+					attachments: attachments.filter((attachment) => shown.has(attachment.entryId)),
+				};
+			},
+		);
 	});
 }
 

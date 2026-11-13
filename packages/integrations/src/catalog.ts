@@ -2115,11 +2115,12 @@ const mcp: Integration = {
 
 export const CHAT_INTEGRATION_ID = 'chat';
 
-/** Where a thread stands, as its record says it and a list of threads is narrowed by: the Chat page's own words. */
+/** Where a thread stands, as its record says it and a list of threads is narrowed by: the Chat page's own words, and Archived for one the person archived, which the Chat page's list leaves out. */
 export const CHAT_STANDINGS = {
 	in_progress: 'In progress',
 	waiting: 'Waiting for you',
 	done: 'Done',
+	archived: 'Archived',
 } as const;
 
 // Chat: the person's own threads with their agents on the Chat page, and the alerts set in them,

@@ -438,7 +438,7 @@ describe('the chat’s threads', () => {
 			title: 'Pricing review with Dana',
 			taskId: 'task-1',
 			state: {kind: 'stopped'},
-			standing: {waitingForMember: false, summary: null, summarySeq: null},
+			standing: {waitingForMember: false, summary: null, summarySeq: null, archived: false},
 			entries: [],
 			attachments: [],
 			...row,
@@ -526,10 +526,10 @@ describe('the chat’s threads', () => {
 		const {handleListThreadsRoute, handleGetChatThreadRoute} = routes;
 		store.getChatDraft.mockResolvedValue(Ok(null));
 		store.listDraftAttachments.mockResolvedValue(Ok([]));
-		const waiting = {...review, standing: {waitingForMember: true, summary: 'Found it, and asks whether to send the new prices to Dana.', summarySeq: 4}};
+		const waiting = {...review, standing: {waitingForMember: true, summary: 'Found it, and asks whether to send the new prices to Dana.', summarySeq: 4, archived: false}};
 		const stale = chatThread({
 			id: 'thread-4',
-			standing: {waitingForMember: false, summary: 'Booked the room for Friday.', summarySeq: 2},
+			standing: {waitingForMember: false, summary: 'Booked the room for Friday.', summarySeq: 2, archived: false},
 			entries: [
 				logEntry({id: 'e7', seq: 1, threadId: 'thread-4', kind: 'person', text: 'Book a room for the review'}),
 				logEntry({id: 'e8', seq: 2, threadId: 'thread-4', kind: 'assistant', text: 'Booked the Lindens room for Friday.'}),
@@ -537,7 +537,7 @@ describe('the chat’s threads', () => {
 			],
 		});
 		// Asleep, a summary written before it slept is still current: nothing was said since.
-		const sleeping = {...watch, standing: {waitingForMember: false, summary: 'Watches for an email from Dana.', summarySeq: 3}};
+		const sleeping = {...watch, standing: {waitingForMember: false, summary: 'Watches for an email from Dana.', summarySeq: 3, archived: false}};
 		store.listChatThreads.mockResolvedValue(Ok([waiting, stale, sleeping]));
 
 		const listed = (await handleListThreadsRoute(request({personaId: 'persona-1'}))).unwrap().threads;
@@ -573,10 +573,10 @@ describe('the chat’s threads', () => {
 			Ok([
 				ended('just-stopped', 2),
 				// One from before its last turn is as good as none.
-				ended('stale', 2, {standing: {waitingForMember: false, summary: 'Asked for a room.', summarySeq: 1}}),
-				ended('written', 2, {standing: {waitingForMember: true, summary: 'Asks which day.', summarySeq: 2}}),
+				ended('stale', 2, {standing: {waitingForMember: false, summary: 'Asked for a room.', summarySeq: 1, archived: false}}),
+				ended('written', 2, {standing: {waitingForMember: true, summary: 'Asks which day.', summarySeq: 2, archived: false}}),
 				// Written with no sentence, it is written all the same.
-				ended('written-bare', 2, {standing: {waitingForMember: false, summary: null, summarySeq: 2}}),
+				ended('written-bare', 2, {standing: {waitingForMember: false, summary: null, summarySeq: 2, archived: false}}),
 				ended('long-stopped', 600),
 				ended('working', 2, {state: {kind: 'working'}}),
 				chatThread({id: 'empty'}),

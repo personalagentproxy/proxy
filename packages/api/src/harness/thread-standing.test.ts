@@ -52,7 +52,7 @@ function chatThread(thread: Partial<ChatThreadRow> = {}): ChatThreadRow {
 	return {
 		...row,
 		state: {kind: 'stopped'},
-		standing: {waitingForMember: false, summary: null, summarySeq: null},
+		standing: {waitingForMember: false, summary: null, summarySeq: null, archived: false},
 		entries: [
 			logEntry({id: 'e1', seq: 1, kind: 'person', text: `Add a date filter to the activity log, plan first ${ATTACHMENT_MARK}`}),
 			logEntry({
@@ -121,7 +121,7 @@ describe('where a thread stands, as its turn ends', () => {
 		expect((await writeStanding(store, model, 'thread-1')).unwrap()).toBe('skipped');
 		store.getChatThread.mockResolvedValueOnce(Ok(chatThread({entries: [...chatThread().entries, logEntry({id: 'e5', seq: 5, kind: 'person', text: 'Yes, include it', pending: true})]})));
 		expect((await writeStanding(store, model, 'thread-1')).unwrap()).toBe('skipped');
-		store.getChatThread.mockResolvedValueOnce(Ok(chatThread({standing: {waitingForMember: true, summary: 'Has a plan.', summarySeq: 4}})));
+		store.getChatThread.mockResolvedValueOnce(Ok(chatThread({standing: {waitingForMember: true, summary: 'Has a plan.', summarySeq: 4, archived: false}})));
 		expect((await writeStanding(store, model, 'thread-1')).unwrap()).toBe('skipped');
 		store.getJobThread.mockResolvedValueOnce(Ok({...row, parentThreadId: null}));
 		expect((await writeStanding(store, model, 'thread-1')).unwrap()).toBe('skipped');
@@ -133,7 +133,7 @@ describe('where a thread stands, as its turn ends', () => {
 
 	test('writes again once a reply made the summary stale and the turn it began has ended', async () => {
 		const replied = chatThread({
-			standing: {waitingForMember: false, summary: 'Has a plan.', summarySeq: 4},
+			standing: {waitingForMember: false, summary: 'Has a plan.', summarySeq: 4, archived: false},
 			entries: [
 				...chatThread().entries,
 				logEntry({id: 'e5', seq: 5, kind: 'person', text: 'Yes, include it'}),

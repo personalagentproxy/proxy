@@ -558,6 +558,7 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 			waitingForMember: false,
 			summary: null,
 			summarySeq: null,
+			archived: false,
 		});
 		// Nothing is written while the thread is at work.
 		expect(
@@ -576,10 +577,20 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		expect(
 			unwrap(await writeThreadStanding(thread.id, {summary, waitingForMember: true}, upTo)),
 		).toBe(true);
-		expect(await standingOf(thread)).toEqual({waitingForMember: true, summary, summarySeq: upTo});
+		expect(await standingOf(thread)).toEqual({
+			waitingForMember: true,
+			summary,
+			summarySeq: upTo,
+			archived: false,
+		});
 
 		unwrap(await replyInThread(chat.id, thread.id, 'Yes, include it', readyForInference));
-		expect(await standingOf(thread)).toEqual({waitingForMember: false, summary, summarySeq: upTo});
+		expect(await standingOf(thread)).toEqual({
+			waitingForMember: false,
+			summary,
+			summarySeq: upTo,
+			archived: false,
+		});
 		// Written up to before the reply, as a model that read the thread before it came would, it is
 		// not written: the reply's turn writes for it as it ends.
 		await answer(thread, 'worker-st2', 'Added it, CSV export included.');
@@ -673,10 +684,26 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 
 		expect(unwrap(await archiveThread(chat.id, thread.id))).toBe(true);
 		expect(await listed()).not.toContain(thread.id);
-		expect(unwrap(await getChatThread(chat.id, thread.id, []))?.id).toBe(thread.id);
+		expect((await standingOf(thread))?.archived).toBe(true);
+		// The member's Chat connection still lists it, as archived, and not as done.
+		const member = async (standing: 'archived' | 'done') =>
+			(
+				unwrap(
+					await listMemberThreads(orgId, userId, {
+						search: 'Archive me',
+						standing,
+						skip: 0,
+						take: 10,
+					}),
+				)?.threads ?? []
+			).map((one) => one.id);
+		expect(await member('archived')).toEqual([thread.id]);
+		expect(await member('done')).toEqual([]);
 
 		unwrap(await replyInThread(chat.id, thread.id, 'One more thing', readyForInference));
 		expect(await listed()).toContain(thread.id);
+		expect((await standingOf(thread))?.archived).toBe(false);
+		expect(await member('archived')).toEqual([]);
 
 		expect(unwrap(await archiveThread(chat.id, 'no-such-thread'))).toBe(false);
 		expect(unwrap(await archiveThread('another-chat', thread.id))).toBe(false);
@@ -727,6 +754,7 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		expect((await mine({standing: 'waiting'})).map((thread) => thread.id)).toEqual([first.id]);
 		expect((await mine({standing: 'in_progress'})).map((thread) => thread.id)).toEqual([second.id]);
 		expect(await mine({standing: 'done'})).toEqual([]);
+		expect(await mine({standing: 'archived'})).toEqual([]);
 		expect((await mine({search: 'WHICH MONTH'})).map((thread) => thread.id)).toEqual([first.id]);
 		expect((await mine({skip: 1, take: 1})).map((thread) => thread.id)).toEqual([first.id]);
 		// Nobody else's, and no other organization's.
