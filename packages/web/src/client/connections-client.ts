@@ -137,7 +137,7 @@ export function connectMcp(org: string, input: z.input<typeof connectMcpBodySche
 }
 
 /**
- * Connects an integration that takes an API key, Cloudflare, Exa, Linear or Parallel, with one,
+ * Connects an integration that takes an API key, Cloudflare, Exa, Linear, Parallel or You.com, with one,
  * checked with the service first: a new connection, or, with `connection`, that connection given
  * the key, its name kept. 422 is a key the service turned down, 502 the service out of reach, 400
  * says what is wrong with the key.

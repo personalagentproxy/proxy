@@ -7,10 +7,11 @@ import type {McpServer} from '../connections/mcp/mcp-oauth';
 import {callMcpToolFor} from '../connections/mcp/mcp-session';
 import {pageError} from '../connections/page-failure';
 import {formatParallelResults, parseParallelPage, PARALLEL} from '../connections/parallel/parallel-mcp';
+import {formatYoucomResults, parseYoucomPage, YOUCOM} from '../connections/youcom/youcom-mcp';
 import type {DataRecord, RunOnly} from './connector';
 
 /**
- * The web, through a search engine made for agents, Exa or Parallel, fetched live from its MCP
+ * The web, through a search engine made for agents, Exa, Parallel or You.com, fetched live from its MCP
  * server with the connection's tokens, as two collections, `searches` and `pages`, only run, never
  * listed, opened or kept: a search answers with the provider's results, written out the same way for both, a page
  * with its title and text, the first MAX_PAGE_CHARACTERS of it and a line after them saying it was
@@ -49,6 +50,14 @@ const PARALLEL_WEB: WebProvider = {
 	server: PARALLEL,
 	search: (query) => ({tool: 'web_search', args: {objective: query, search_queries: [query]}, answer: formatParallelResults}),
 	read: (url) => ({tool: 'web_fetch', args: {urls: [url], full_content: true}, answer: (text) => parseParallelPage(text, url)}),
+	readsWhole: true,
+};
+
+// You.com takes the query as it is, for as many results as Exa gives, and reads a page in full as Markdown.
+const YOUCOM_WEB: WebProvider = {
+	server: YOUCOM,
+	search: (query) => ({tool: 'you-search', args: {query, count: 10}, answer: formatYoucomResults}),
+	read: (url) => ({tool: 'you-contents', args: {urls: [url], formats: ['markdown']}, answer: (text) => parseYoucomPage(text, url)}),
 	readsWhole: true,
 };
 
@@ -115,3 +124,5 @@ function webConnectors(provider: WebProvider): {searches: RunOnly; pages: RunOnl
 export const exaConnectors = webConnectors(EXA_WEB);
 
 export const parallelConnectors = webConnectors(PARALLEL_WEB);
+
+export const youcomConnectors = webConnectors(YOUCOM_WEB);

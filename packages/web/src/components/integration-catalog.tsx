@@ -24,7 +24,7 @@ import {onSignInClick} from '@/lib/desktop';
 
 // The integrations not connected by signing in to them are connected on a form of their own: a
 // mailbox with an app password, a database with a user's name and password, a custom MCP server by
-// its address. One that also takes an API key, as Cloudflare, Exa, Linear and Parallel do, has a
+// its address. One that also takes an API key, as Cloudflare, Exa, Linear, Parallel and You.com do, has a
 // key before its plus, which takes the key in a dialog here; its plus is then a link of its own
 // beside the row's.
 

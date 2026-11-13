@@ -704,7 +704,7 @@ const cloudflare: Integration = {
 // the provider's results, each page's title, address and the passages that fit the query; a page as
 // its text. Nothing is listed or kept: searches and pages are only ever run.
 function webIntegration(
-	id: 'exa' | 'parallel',
+	id: 'exa' | 'parallel' | 'youcom',
 	name: string,
 	description: string,
 	keysUrl: string,
@@ -799,6 +799,13 @@ const parallel = webIntegration(
 	'Parallel',
 	'Search and read the web',
 	'https://platform.parallel.ai',
+);
+
+const youcom = webIntegration(
+	'youcom',
+	'You.com',
+	'Search and read the web',
+	'https://you.com/platform',
 );
 
 // A SQL database, signed in to with a database user's name and password: PostgreSQL, or MySQL
@@ -2124,6 +2131,7 @@ export const INTEGRATIONS: Integration[] = [
 	cloudflare,
 	exa,
 	parallel,
+	youcom,
 	plaid,
 	postgres,
 	mysql,

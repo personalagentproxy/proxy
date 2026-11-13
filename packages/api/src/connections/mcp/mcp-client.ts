@@ -103,7 +103,7 @@ function authorization(token: string): string {
 // server turns down is `credentials_rejected`, so the caller can refresh it.
 function post(server: McpEndpoint, accessToken: string | null, session: McpSession | null, message: Record<string, unknown>): Promise<Result<Posted, ApiError>> {
 	return Do(async ($) => {
-		const headers: Record<string, string> = {'content-type': 'application/json', accept: 'application/json, text/event-stream'};
+		const headers: Record<string, string> = {...server.headers, 'content-type': 'application/json', accept: 'application/json, text/event-stream'};
 		if (accessToken !== null) {
 			headers.authorization = authorization(accessToken);
 		}
@@ -172,7 +172,7 @@ async function closeSession(server: McpEndpoint, accessToken: string | null, ses
 	if (!session.sessionId) {
 		return;
 	}
-	const headers: Record<string, string> = {'mcp-session-id': session.sessionId, 'mcp-protocol-version': session.protocolVersion};
+	const headers: Record<string, string> = {...server.headers, 'mcp-session-id': session.sessionId, 'mcp-protocol-version': session.protocolVersion};
 	if (accessToken !== null) {
 		headers.authorization = authorization(accessToken);
 	}

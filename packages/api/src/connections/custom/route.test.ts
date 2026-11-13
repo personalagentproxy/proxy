@@ -92,6 +92,7 @@ const builtIns = await Promise.all([
 	import('../linear/built-in').then((module) => module.LINEAR_MCP),
 	import('../notion/built-in').then((module) => module.NOTION_MCP),
 	import('../parallel/built-in').then((module) => module.PARALLEL_MCP),
+	import('../youcom/built-in').then((module) => module.YOUCOM_MCP),
 ]);
 
 mock.module('../integrations', () => ({apiIntegration: () => undefined, apiIntegrations: () => builtIns.map((builtInMcp) => ({id: builtInMcp.integrationId, connectors: {}, builtInMcp}))}));
@@ -281,6 +282,7 @@ describe('handleConnectCustomMcpRoute', () => {
 			['https://mcp.exa.ai/mcp?tools=web_search_exa', 'exa', 'https://auth.exa.ai/oauth/authorize'],
 			['https://search.parallel.ai/mcp', 'parallel', 'https://platform.parallel.ai/getKeys/authorize'],
 			['https://mcp.linear.app/sse', 'linear', 'https://mcp.linear.app/authorize'],
+			['https://api.you.com/mcp', 'youcom', 'https://auth.you.com/oauth2/v1/apps/agentic/P2jInttRMuXpyYZMbVcsc4C9Z0RT/MS3BitzWFxlSigWFUNJHHNsIYt5qp/authorize'],
 		] as const) {
 			const res = await connect({name: 'Search', url});
 			expect(res.sent).toMatchObject({kind: 'signIn'});
@@ -300,6 +302,7 @@ describe('handleConnectCustomMcpRoute', () => {
 			['https://mcp.exa.ai/mcp', 'exa', 'API key ending 1234'],
 			['https://search.parallel.ai/mcp', 'parallel', 'API key ending 1234'],
 			['https://mcp.linear.app/sse', 'linear', 'alex@example.com · Acme'],
+			['https://api.you.com/mcp', 'youcom', 'API key ending 1234'],
 		] as const) {
 			const res = await connect({name: 'Web search', url, token: 'key-1234'});
 			expect(res.sent).toMatchObject({kind: 'connected', connection: {name: 'Web search', account}});
@@ -317,6 +320,14 @@ describe('handleConnectCustomMcpRoute', () => {
 		expect(renewConnection.mock.calls[0]?.[0]).toMatchObject({connectionId: 'linear-1', credential: `enc:${JSON.stringify({auth: 'key', key: 'key-1234'})}`});
 		expect(updateConnectionName).not.toHaveBeenCalled();
 		expect(res.sent).toMatchObject({kind: 'connected', connection: {id: 'linear-1', name: 'Work', account: 'alex@example.com · Acme'}});
+	});
+
+	test("You.com's keyless free profile, which asks for nothing, is connected as a custom server", async () => {
+		const res = await connect({name: 'You.com free', url: 'https://api.you.com/mcp?profile=free'});
+
+		expect(res.sent).toMatchObject({kind: 'connected'});
+		expect(probeMcpServer).toHaveBeenCalledWith(new URL('https://api.you.com/mcp?profile=free'), null);
+		expect(createConnection.mock.calls.at(-1)?.[0]).toMatchObject({integrationId: 'mcp', credential: `enc:${JSON.stringify({auth: 'none', url: 'https://api.you.com/mcp?profile=free'})}`});
 	});
 
 	test("a key in the address, as Exa's own setup writes it, connects the integration with it as its API key", async () => {

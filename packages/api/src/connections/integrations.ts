@@ -14,6 +14,7 @@ import {NOTION_INTEGRATION} from './notion/integration';
 import {PARALLEL_INTEGRATION} from './parallel/integration';
 import {PLAID_INTEGRATION} from './plaid/integration';
 import {POSTGRES_INTEGRATION} from './postgres/integration';
+import {YOUCOM_INTEGRATION} from './youcom/integration';
 import {FILES_INTEGRATION} from '../native/files/integration';
 import {SANDBOX_INTEGRATION} from '../native/sandbox/integration';
 import {VAULT_INTEGRATION} from '../native/vault/integration';
@@ -35,6 +36,7 @@ function modules(): Record<IntegrationId, ApiIntegration> {
 		cloudflare: CLOUDFLARE_INTEGRATION,
 		exa: EXA_INTEGRATION,
 		parallel: PARALLEL_INTEGRATION,
+		youcom: YOUCOM_INTEGRATION,
 		postgres: POSTGRES_INTEGRATION,
 		mysql: MYSQL_INTEGRATION,
 		mcp: CUSTOM_MCP_INTEGRATION,

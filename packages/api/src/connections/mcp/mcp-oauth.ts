@@ -24,6 +24,9 @@ export type McpEndpoint = {
 	// Initializes a session before each call, as the spec asks, for a server that may keep one. The
 	// built-in servers answer without.
 	handshake?: true;
+	// Headers sent with every request to the server beyond the protocol's own, as a User-Agent a
+	// provider asks for to tell an integration's traffic apart.
+	headers?: Record<string, string>;
 	// What a tool failing means, from the text it failed with; else the server out of reach.
 	toolError?: (text: string) => ApiError | null;
 };

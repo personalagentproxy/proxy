@@ -14,7 +14,7 @@ mock.module('../connections/mcp/mcp-session', () => ({
 	},
 }));
 
-const {exaConnectors, parallelConnectors} = await import('./web-connector');
+const {exaConnectors, parallelConnectors, youcomConnectors} = await import('./web-connector');
 
 function collection(integrationId: string, id: string): Collection {
 	const integration = findIntegration(integrationId);
@@ -25,7 +25,7 @@ function collection(integrationId: string, id: string): Collection {
 	return found;
 }
 
-function run(integrationId: 'exa' | 'parallel', command: 'run' | 'read', values: Record<string, string>) {
+function run(integrationId: 'exa' | 'parallel' | 'youcom', command: 'run' | 'read', values: Record<string, string>) {
 	const target = {
 		connection: {
 			id: `${integrationId}-1`,
@@ -44,7 +44,7 @@ function run(integrationId: 'exa' | 'parallel', command: 'run' | 'read', values:
 		},
 		collection: collection(integrationId, command === 'run' ? 'searches' : 'pages'),
 	};
-	const connectors = integrationId === 'exa' ? exaConnectors : parallelConnectors;
+	const connectors = integrationId === 'exa' ? exaConnectors : integrationId === 'parallel' ? parallelConnectors : youcomConnectors;
 	const runner = (command === 'run' ? connectors.searches : connectors.pages).newCommands[command];
 	if (!runner) {
 		throw new Error(`No ${command} for ${integrationId}`);
@@ -63,6 +63,12 @@ beforeEach(() => {
 		if (name === 'web_fetch_exa') {
 			return '# Mocks | Bun Docs\nURL: https://bun.sh/docs/test/mocks\n\nMocking replaces a dependency.';
 		}
+		if (name === 'you-search') {
+			return JSON.stringify({results: {web: [{url: 'https://bun.sh/docs/test/mocks', title: 'Mocks | Bun Docs', description: '', contents: {highlights: ['Mocking replaces a dependency.']}}]}});
+		}
+		if (name === 'you-contents') {
+			return JSON.stringify({output: [{url: 'https://bun.sh/docs/test/mocks', title: 'Mocks | Bun Docs', markdown: '# Mocks\n\nMocking replaces a dependency.\n'}]});
+		}
 		if (name === 'web_search') {
 			return JSON.stringify({results: [{url: 'https://bun.sh/docs/test/mocks', title: 'Mocks | Bun Docs', publish_date: null, excerpts: ['Mocking replaces a dependency.']}]});
 		}
@@ -71,6 +77,28 @@ beforeEach(() => {
 });
 
 describe('webConnector', () => {
+	test('searches You.com with the query, its results written as Exa writes them', async () => {
+		const record = (await run('youcom', 'run', {query: 'bun module mocks'})).unwrap();
+
+		expect(tools.calls).toEqual([{server: 'You.com', name: 'you-search', args: {query: 'bun module mocks', count: 10}}]);
+		expect(record?.values).toEqual({query: 'bun module mocks', results: EXA_RESULTS});
+	});
+
+	test('reads a page with You.com as Markdown', async () => {
+		const record = (await run('youcom', 'read', {url: 'https://bun.sh/docs/test/mocks'})).unwrap();
+
+		expect(tools.calls).toEqual([{server: 'You.com', name: 'you-contents', args: {urls: ['https://bun.sh/docs/test/mocks'], formats: ['markdown']}}]);
+		expect(record?.values).toEqual({url: 'https://bun.sh/docs/test/mocks', title: 'Mocks | Bun Docs', content: '# Mocks\n\nMocking replaces a dependency.'});
+	});
+
+	test('a page You.com read nothing of is a failure saying so', async () => {
+		tools.answer = () => JSON.stringify({output: [{url: 'https://app.example.com', markdown: null}]});
+		expect((await run('youcom', 'read', {url: 'https://app.example.com'})).unwrapErr()).toMatchObject({
+			kind: 'validation_error',
+			message: expect.stringContaining('You.com found no text at https://app.example.com'),
+		});
+	});
+
 	test('searches Exa with the query as what to find and why, its results as Exa writes them', async () => {
 		const record = (await run('exa', 'run', {query: ' bun module mocks '})).unwrap();
 
