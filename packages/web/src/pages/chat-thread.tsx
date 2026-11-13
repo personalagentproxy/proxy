@@ -1,9 +1,7 @@
 import type {
 	ChatAttachment,
 	ChatHarness,
-	ChatThread,
 	ThreadMessage,
-	ThreadStanding,
 	ThreadView,
 } from '@proxy/contracts/harness';
 import {memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
@@ -21,7 +19,7 @@ import {
 	MessageScrollerViewport,
 } from '@/components/chat/message-scroller';
 import {PictureViewer, type ViewedPicture} from '@/components/chat/picture-viewer';
-import {DoneButton, EventLine, PersonBubble} from '@/components/chat/thread-parts';
+import {EventLine, PersonBubble} from '@/components/chat/thread-parts';
 import {WorkingLine} from '@/components/chat/working-line';
 import {type ImageOf, Markdown} from '@/components/markdown';
 import type {AttachmentInput} from '@/hooks/use-attachments';
@@ -42,16 +40,11 @@ const IDLE_POLL_MS = 4000;
 /** What the Chat page gives the thread open beside its chat (`Outlet`'s context). */
 export type ThreadContext = {
 	harnesses: ChatHarness[];
-	// The thread has the page's width, the chat hidden, as against standing beside it.
-	full: boolean;
 	// An agent is being made, changed or deleted in a dialog.
 	managing: boolean;
 	// The thread as it is shown, for the title bar, the list beside it and what is read; null once
 	// it is closed.
 	onShown: (view: ThreadView | null) => void;
-	// Where a thread stands on the page, the person's Done taken in, and saying it is done.
-	standingOf: (thread: ChatThread) => ThreadStanding;
-	onDone: (thread: ChatThread) => void;
 };
 
 // The file kept with an answer that a link of it names; undefined for any other link.
@@ -151,26 +144,17 @@ function personText(message: ThreadMessage): string | null {
 // Nothing to take out on the server: a thread's box is the page's alone.
 function keepNothing() {}
 
-// One of the chat's threads: everything said in it, read again as it works, under it the button
-// that says it is done where it waits for the person, and a box to reply in, which has the
-// keyboard's focus as it opens. What the person replies shows at once, the persona at work under
+// One of the chat's threads: everything said in it, read again as it works, and a box to reply in,
+// which has the keyboard's focus as it opens; the check that says it is done is in its cell of the
+// title bar (chat-page.tsx). What the person replies shows at once, the persona at work under
 // it, before the server has it.
-function Thread({
-	loaded,
-	harnesses,
-	full,
-	managing,
-	onShown,
-	standingOf,
-	onDone,
-}: ThreadContext & {loaded: ThreadView}) {
+function Thread({loaded, harnesses, managing, onShown}: ThreadContext & {loaded: ThreadView}) {
 	const org = useOrgSlug();
 	const [view, setView] = useState<ThreadView>(loaded);
 	const personaId = loaded.persona.id;
 	const threadId = loaded.thread.id;
 	const sending = useSending(view.messages, personText);
 	const busy = view.busy || sending.waiting;
-	const waiting = !busy && standingOf(view.thread) === 'waiting';
 	// What the thread had as it opened: what comes after it rises into place.
 	const [opened] = useState(() => new Set(loaded.messages.map((message) => message.id)));
 	const [focusRequested, setFocusRequested] = useState(true);
@@ -253,9 +237,9 @@ function Thread({
 		[org, personaId, threadId],
 	);
 
-	// Beside the chat, the thread's column is narrow and its own; with the page's width, it is laid
-	// out as the chat is.
-	const column = full ? 'page-column mx-auto max-w-4xl' : 'px-5';
+	// Laid out as the chat is, beside it or with the page's width: its column as wide at most, and
+	// as far in from the edges.
+	const column = 'page-column mx-auto max-w-4xl';
 
 	return (
 		<>
@@ -275,11 +259,6 @@ function Thread({
 								<div data-enter="fade">
 									<WorkingLine />
 								</div>
-							</MessageScrollerItem>
-						)}
-						{waiting && (
-							<MessageScrollerItem>
-								<DoneButton onDone={() => onDone(view.thread)} />
 							</MessageScrollerItem>
 						)}
 					</MessageScrollerContent>

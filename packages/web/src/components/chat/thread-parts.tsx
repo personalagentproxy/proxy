@@ -1,10 +1,11 @@
 import type {ChatAttachment, ThreadStanding} from '@proxy/contracts/harness';
 import {attachedParts} from '@proxy/utils/harness';
-import {ClockIcon} from 'lucide-react';
+import {CheckIcon, ClockIcon} from 'lucide-react';
 import {Fragment} from 'react';
 import {SentChip} from '@/components/chat/attachments';
 import {Bubble, BubbleContent} from '@/components/chat/bubble';
 import {PillButton} from '@proxy/ui/components/pill-button';
+import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';
 import {cn} from '@proxy/ui/lib/utils';
 
 // The parts a thread is drawn with, in the chat's list of its threads and open beside it.
@@ -28,12 +29,32 @@ export function ThreadStatus({standing}: {standing: ThreadStanding}) {
 	return <span className="shrink-0 text-xs font-medium text-foreground">Done</span>;
 }
 
-/** The button on a thread waiting for the person, which says it is done, with nothing more to answer. */
+/** What says a thread waiting for the person is done, with nothing more to answer: a check. */
+export const DONE_LABEL = 'Mark done';
+
+/**
+ * The check on a thread waiting for the person in the chat's list, small enough to sit in the line
+ * of how many messages it holds and when the last came, its label in a tooltip.
+ */
 export function DoneButton({onDone}: {onDone: () => void}) {
 	return (
-		<PillButton type="button" onClick={onDone}>
-			Done
-		</PillButton>
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<PillButton
+						type="button"
+						variant="ghost"
+						icon
+						aria-label={DONE_LABEL}
+						onClick={onDone}
+						className="size-5 text-muted-foreground"
+					/>
+				}
+			>
+				<CheckIcon className="size-3.5" />
+			</TooltipTrigger>
+			<TooltipContent>{DONE_LABEL}</TooltipContent>
+		</Tooltip>
 	);
 }
 

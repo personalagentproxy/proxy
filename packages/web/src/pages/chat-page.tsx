@@ -8,7 +8,7 @@ import type {
 	ThreadStanding,
 	ThreadView,
 } from '@proxy/contracts/harness';
-import {Maximize2Icon, Minimize2Icon, PencilIcon, Trash2Icon, XIcon} from 'lucide-react';
+import {CheckIcon, Maximize2Icon, Minimize2Icon, PencilIcon, Trash2Icon, XIcon} from 'lucide-react';
 import {
 	memo,
 	Suspense,
@@ -46,7 +46,13 @@ import {
 	MessageScrollerItem,
 	MessageScrollerViewport,
 } from '@/components/chat/message-scroller';
-import {DoneButton, EventLine, PersonBubble, ThreadStatus} from '@/components/chat/thread-parts';
+import {
+	DONE_LABEL,
+	DoneButton,
+	EventLine,
+	PersonBubble,
+	ThreadStatus,
+} from '@/components/chat/thread-parts';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {LiveHead} from '@/components/head';
 import {IconButton} from '@/components/icon-button';
@@ -299,19 +305,23 @@ function PersonaList({
 	);
 }
 
-// The open thread's cell of the title bar: its name, where it stands, and, at the right, the
-// buttons that give it the page's width and back, and close it.
+// The open thread's cell of the title bar: its name, where it stands while in progress or waiting
+// for the person (once done, its name alone), and, at the right, the
+// check that says it is done where it waits for the person, and the buttons that give it the page's
+// width and back, and close it.
 function ThreadHeader({
 	thread,
 	standing,
 	expanded,
 	onExpand,
+	onDone,
 	closeTo,
 }: {
 	thread: ChatThread | null;
 	standing: ThreadStanding | null;
 	expanded: boolean;
 	onExpand: () => void;
+	onDone: (thread: ChatThread) => void;
 	closeTo: string;
 }) {
 	return (
@@ -321,10 +331,15 @@ function ThreadHeader({
 			) : (
 				<>
 					<span className="min-w-0 truncate text-sm font-medium">{thread.title || 'Thread'}</span>
-					{standing !== null && <ThreadStatus standing={standing} />}
+					{standing !== null && standing !== 'done' && <ThreadStatus standing={standing} />}
 				</>
 			)}
 			<span className="flex-1" />
+			{thread !== null && standing === 'waiting' && (
+				<IconButton label={DONE_LABEL} onClick={() => onDone(thread)}>
+					<CheckIcon className="size-4" />
+				</IconButton>
+			)}
 			{/* On a narrow window the thread always has the page's width. */}
 			<span className="flex max-lg:hidden">
 				<IconButton label={expanded ? 'Show the chat beside it' : 'Expand'} onClick={onExpand}>
@@ -485,11 +500,8 @@ export function ChatPage() {
 	const full = threadId !== undefined && expanded === threadId;
 	const context: ThreadContext = {
 		harnesses: list?.harnesses ?? [],
-		full,
 		managing: editing !== null || deleting !== null,
 		onShown: setShownThread,
-		standingOf,
-		onDone: markDone,
 	};
 	const side: Side | undefined =
 		threadId === undefined
@@ -502,12 +514,13 @@ export function ChatPage() {
 							standing={openThread === null ? null : standingOf(openThread)}
 							expanded={full}
 							onExpand={() => setExpanded(full ? null : threadId)}
+							onDone={markDone}
 							closeTo={chatTo}
 						/>
 					),
 					content: (
 						// Each thread its own, and its own failure, while the chat stays as it is.
-						<Suspense key={threadId} fallback={<Waiting column={false} />}>
+						<Suspense key={threadId} fallback={<Waiting column />}>
 							<ContentBoundary key={threadId}>
 								<Outlet context={context} />
 							</ContentBoundary>
@@ -664,7 +677,7 @@ function Opener({opener, open}: {opener: ChatThread['opener']; open: boolean}) {
 // One thread in the chat, opening it beside the chat: where it stands, what opened it, where it
 // stands in a sentence, or, without a current one, the start of the latest thing the persona said
 // in it, how many messages it holds with when the last came, and, where it waits for the person,
-// the button that says it is done. The one open has a band behind it, the width of the chat. The
+// the check after that which says it is done. The one open has a band behind it, the width of the chat. The
 // whole of it is a link, under what it shows, so the files in what opened it are still links of
 // their own, and the button is a button, opening nothing. It is drawn again only as it changes;
 // one that came while the chat was open rises into place.
@@ -700,14 +713,12 @@ const ThreadItem = memo(function ThreadItem({
 				{said !== null && (
 					<p className="line-clamp-2 max-w-[44rem] text-sm leading-relaxed">{said}</p>
 				)}
-				<p className="text-xs text-muted-foreground">
-					{count} · {formatMessageTime(thread.lastMessageAt)}
-				</p>
-				{thread.standing === 'waiting' && (
-					<div className="flex pt-1">
-						<DoneButton onDone={() => onDone(thread)} />
-					</div>
-				)}
+				<div className="flex h-5 items-center gap-1">
+					<p className="text-xs text-muted-foreground">
+						{count} · {formatMessageTime(thread.lastMessageAt)}
+					</p>
+					{thread.standing === 'waiting' && <DoneButton onDone={() => onDone(thread)} />}
+				</div>
 			</div>
 		</div>
 	);

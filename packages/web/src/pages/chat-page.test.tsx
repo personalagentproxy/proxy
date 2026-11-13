@@ -770,16 +770,16 @@ describe('ChatPage', () => {
 		expect(
 			within(asking as HTMLElement).queryByText('I have a plan, and one question before I build.'),
 		).toBeNull();
-		expect(within(asking as HTMLElement).getByRole('button', {name: 'Done'})).toBeTruthy();
+		expect(within(asking as HTMLElement).getByRole('button', {name: 'Mark done'})).toBeTruthy();
 		expect(within(done as HTMLElement).getByText('Done').className).toContain('text-foreground');
 		expect(within(done as HTMLElement).getByText('Moved it to Thursday.')).toBeTruthy();
-		expect(within(done as HTMLElement).queryByRole('button', {name: 'Done'})).toBeNull();
+		expect(within(done as HTMLElement).queryByRole('button', {name: 'Mark done'})).toBeNull();
 		expect(
 			within(working as HTMLElement)
 				.getByText('In progress')
 				.closest('.text-muted-foreground'),
 		).toBeTruthy();
-		expect(within(working as HTMLElement).queryByRole('button', {name: 'Done'})).toBeNull();
+		expect(within(working as HTMLElement).queryByRole('button', {name: 'Mark done'})).toBeNull();
 	});
 
 	test('marks a thread waiting for the person done from the list, at once and on the server, without opening it', async () => {
@@ -793,12 +793,12 @@ describe('ChatPage', () => {
 		});
 
 		const chat = await screen.findByLabelText('Chat');
-		const button = within(chat).getByRole('button', {name: 'Done'});
+		const button = within(chat).getByRole('button', {name: 'Mark done'});
 		await follow(button);
 
 		expect(within(chat).queryByText('Waiting for you')).toBeNull();
 		expect(within(chat).getByText('Done')).toBeTruthy();
-		expect(within(chat).queryByRole('button', {name: 'Done'})).toBeNull();
+		expect(within(chat).queryByRole('button', {name: 'Mark done'})).toBeNull();
 		await waitFor(() =>
 			expect(
 				fetchMock.mock.calls.some(
@@ -825,10 +825,10 @@ describe('ChatPage', () => {
 		renderChatPage({threads: [waiting]});
 
 		const chat = await screen.findByLabelText('Chat');
-		await follow(within(chat).getByRole('button', {name: 'Done'}));
+		await follow(within(chat).getByRole('button', {name: 'Mark done'}));
 
 		await waitFor(() => expect(within(chat).getByText('Waiting for you')).toBeTruthy());
-		expect(within(chat).getByRole('button', {name: 'Done'})).toBeTruthy();
+		expect(within(chat).getByRole('button', {name: 'Mark done'})).toBeTruthy();
 		expect(screen.getByText('Something went wrong. Try again.')).toBeTruthy();
 	});
 
@@ -864,7 +864,7 @@ describe('ChatPage', () => {
 			await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Reply')));
 		});
 
-		test('waiting for the person, says so by its name and has the Done button under what was said, which marks it done in the panel, the title bar and the list', async () => {
+		test('waiting for the person, says so by its name and has a check beside its name in the title bar, which marks it done in the list and leaves the title bar with its name alone', async () => {
 			const waiting = thread('t4', {
 				title: 'Date filter on the activity log',
 				standing: 'waiting',
@@ -888,19 +888,18 @@ describe('ChatPage', () => {
 			const opened = await screen.findByLabelText('Thread');
 			const banner = screen.getByRole('banner');
 			expect(within(banner).getByText('Waiting for you')).toBeTruthy();
-			const button = within(opened).getByRole('button', {name: 'Done'});
-			// At the bottom of the thread's messages.
-			const items = [...opened.querySelectorAll('[data-slot=message-scroller-item]')];
-			expect(items.at(-1)?.contains(button)).toBe(true);
+			// A check in the thread's cell of the title bar, not among its messages.
+			expect(within(opened).queryByRole('button', {name: 'Mark done'})).toBeNull();
+			const button = within(banner).getByRole('button', {name: 'Mark done'});
 
 			await follow(button);
 
-			expect(within(opened).queryByRole('button', {name: 'Done'})).toBeNull();
+			expect(within(banner).queryByRole('button', {name: 'Mark done'})).toBeNull();
 			expect(within(banner).queryByText('Waiting for you')).toBeNull();
-			expect(within(banner).getByText('Done')).toBeTruthy();
+			expect(within(banner).queryByText('Done')).toBeNull();
 			const chat = screen.getByLabelText('Chat');
 			expect(within(chat).queryByText('Waiting for you')).toBeNull();
-			expect(within(chat).queryByRole('button', {name: 'Done'})).toBeNull();
+			expect(within(chat).queryByRole('button', {name: 'Mark done'})).toBeNull();
 			await waitFor(() =>
 				expect(
 					fetchMock.mock.calls.some(
