@@ -1068,3 +1068,144 @@ describe('runInference', () => {
 		});
 	});
 });
+
+describe('a chat’s thread', () => {
+	// A thread of the member's chat, which their message opened: no call started it.
+	const opened: ThreadRow = {...thread, id: 'thread-3', parentThreadId: 'thread-1', title: 'Pricing review with Dana', taskId: 'task-3'};
+	const threadJob: JobRow = {...job, threadId: 'thread-3'};
+	const alert = {
+		id: 'alert-1',
+		orgId: 'org-1',
+		userId: 'user-1',
+		threadId: 'thread-3',
+		title: 'Check the review',
+		brief: 'See whether Dana moved it.',
+		at: new Date('2026-10-22T07:30:00Z'),
+		collectionId: null,
+		connectionIds: [],
+		terms: [],
+		lastMatchedAt: null,
+		createdAt: now,
+	};
+	const done: HarnessEvent = {kind: 'done', session: null, system: 'Sent.', inputTokens: 5, outputTokens: 1};
+
+	beforeEach(() => {
+		getJobThread.mockResolvedValue(Ok(opened));
+		listEntries.mockResolvedValue(Ok([entry('person', 'Find the pricing review with Dana')]));
+		store.listThreadAlerts.mockResolvedValue(Ok([alert]));
+	});
+
+	test('runs on its log with its own prompt and the alerts set in it, not the chat’s sub-agents, in the persona’s folder, and plans its calls: the person told at once, a sleep when it ends, a script now', async () => {
+		const {runInference} = await import('./inference');
+		askForTurn.mockResolvedValue(
+			Ok({
+				text: '',
+				toolCalls: [
+					{id: 'c1', name: 'send_to_person', arguments: '{"text":"Looking through the shared drive."}'},
+					{id: 'c2', name: 'sleep_until', arguments: '{"seconds":60}'},
+					{id: 'c3', name: 'script', arguments: '{"code":"return 1"}'},
+					{id: 'c4', name: 'create_subagent', arguments: '{"title":"a","brief":"b"}'},
+				],
+				inputTokens: 10,
+				outputTokens: 2,
+			}),
+		);
+
+		(await runInference(store, on(harness), threadJob, 'w1', false, clock)).unwrap();
+
+		expect(listSubAgents).not.toHaveBeenCalled();
+		expect(store.listThreadAlerts).toHaveBeenCalledWith('thread-3');
+		expect(agentInstructions).toHaveBeenCalledWith(expect.anything(), expect.stringContaining('You are talking with the person in a thread'), 'Chats/Coding Agent');
+		const system = String((askForTurn.mock.calls[0]?.[0] as {messages: Array<{content: string}>}).messages[0]?.content);
+		expect(system).toContain('- alert-1: “Check the review”, due 2026-10-22T07:30:00.000Z');
+		expect(system).not.toContain('sub-agents');
+		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-3', expect.objectContaining({text: '', toolCalls: expect.any(Array)}), {
+			plans: {
+				c1: {kind: 'answer', text: 'Sent.', isError: false},
+				c2: {kind: 'job', runAt: new Date('2026-10-21T10:01:00Z')},
+				c3: {kind: 'job', runAt: now},
+				c4: {kind: 'job', runAt: now},
+			},
+		});
+	});
+
+	test('ends its turn on an answer without calls, its task finished with what it said, telling nobody', async () => {
+		const {runInference} = await import('./inference');
+		askForTurn.mockResolvedValue(Ok({text: 'The review moved to Friday.', toolCalls: [], inputTokens: 10, outputTokens: 2}));
+
+		(await runInference(store, on(harness), threadJob, 'w1', false, clock)).unwrap();
+
+		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-3', expect.objectContaining({text: 'The review moved to Friday.'}), {end: {outcome: 'The review moved to Friday.'}});
+	});
+
+	test('answers the person in the thread, as the chat does, where the turn can’t run or has gone on too long without them, or said nothing, its turn ending with it', async () => {
+		const {runInference} = await import('./inference');
+		await runInference(store, on(null), threadJob, 'w1', false, clock);
+		expect(completeInference).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-3', expect.objectContaining({text: expect.stringContaining('Chat is not set up'), toolCalls: []}), {
+			end: {outcome: expect.stringContaining('Chat is not set up')},
+		});
+		expect(store.failJob).not.toHaveBeenCalled();
+
+		listEntries.mockResolvedValue(Ok([entry('person', 'Go'), ...Array.from({length: 30}, (_, i) => entry('assistant', `step ${i}`))]));
+		await runInference(store, on(harness), threadJob, 'w1', false, clock);
+		expect(completeInference).toHaveBeenLastCalledWith(
+			'job-1',
+			'w1',
+			'thread-3',
+			expect.objectContaining({text: 'I have taken 30 steps without hearing from you, so I have stopped. Tell me to go on if you want me to.'}),
+			{end: expect.anything()},
+		);
+
+		listEntries.mockResolvedValue(Ok([entry('person', 'Thanks')]));
+		askForTurn.mockResolvedValue(Ok({text: ' ', toolCalls: [], inputTokens: 10, outputTokens: 0}));
+		await runInference(store, on(harness), threadJob, 'w1', false, clock);
+		expect(completeInference).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-3', expect.objectContaining({text: 'I had nothing to say to that. Say something to go on.'}), {end: expect.anything()});
+	});
+
+	test('runs on a harness that runs its tools itself, each step written as it goes, and ends its turn on its last answer, showing the person the files it links', async () => {
+		const {runInference} = await import('./inference');
+		const fake: HarnessBackend & ReturnType<typeof fakeHarness> = {...fakeHarness('claude-agent-sdk'), stepsPerTurn: 'many'};
+		getPersonaModel.mockResolvedValue(Ok({harness: 'claude-agent-sdk', chatModel: 'claude'}));
+		claudeCredentialFor.mockResolvedValue(Ok({kind: 'setup_token', token: 'tok'}));
+		const chart = {connectionId: 'drive-1', fileId: 'file-1', version: 'v1', name: 'chart.png', type: 'image/png', size: 42, text: null, cut: false};
+		const pinned = mock(async (_agent: unknown, text: string) => Ok(text.includes('![') ? [chart] : []));
+		const link = 'https://app.example.com/acme/connections/drive-1?file=file-1';
+		fake.script([
+			{kind: 'tool_call', id: 'c1', name: 'send_to_person', arguments: '{"text":"Looking."}'},
+			{kind: 'tool_result', callId: 'c1', text: 'Sent.', isError: false},
+			{kind: 'tool_call', id: 'c2', name: 'script', arguments: '{"code":"return 1"}'},
+			{kind: 'tool_result', callId: 'c2', text: '1', isError: false},
+			{kind: 'text', text: `It moved to Friday: ![Chart](${link})`},
+			{kind: 'done', session: {id: 'session-1', state: null}, system: 'Sent.', inputTokens: 50, outputTokens: 9},
+		]);
+
+		(await runInference(store, {...on(null, fake), pinned}, threadJob, 'w1', false, clock)).unwrap();
+
+		expect(fake.turns[0]?.thread).toEqual({id: 'thread-3', parentThreadId: 'thread-1'});
+		expect(fake.turns[0]?.subAgents).toEqual([]);
+		expect(appendTurnEntries.mock.calls.map((call) => call[3]?.map((written) => written.kind))).toEqual([
+			['assistant', 'tool_result'],
+			['assistant', 'tool_result'],
+		]);
+		expect(completeInference).toHaveBeenCalledWith(
+			'job-1',
+			'w1',
+			'thread-3',
+			expect.objectContaining({text: `It moved to Friday: ![Chart](${link})`, attachments: [chart], toolCalls: []}),
+			{end: {outcome: `It moved to Friday: ![Chart](${link})`}},
+			{harness: 'claude-agent-sdk', session: {id: 'session-1', state: null}},
+		);
+	});
+
+	test('reads an alert of its that came, and may let it pass with nothing said', async () => {
+		const {runInference} = await import('./inference');
+		const fake = fakeHarness();
+		listEntries.mockResolvedValue(Ok([entry('person', 'Tell me when Dana writes'), entry('assistant', 'I will.'), entry('event', 'The alert “Dana” matched a new one of the emails.')]));
+		fake.script([done]);
+
+		(await runInference(store, on(fake), threadJob, 'w1', false, clock)).unwrap();
+
+		expect(fake.turns[0]?.entries.map((given) => given.kind)).toEqual(['person', 'assistant', 'event']);
+		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-3', expect.objectContaining({text: ''}), {end: {outcome: ''}});
+	});
+});

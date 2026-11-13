@@ -280,6 +280,11 @@ export function createApiRouter(): express.Router {
 	org.put('/chat/personas/:personaId/tasks/:taskId/pin', withAuthResult('Pin chat task route', chat.handlePinTaskRoute));
 	org.post('/chat/personas/:personaId/read', withAuthResult('Mark chat read route', chat.handleMarkReadRoute));
 	org.put('/chat/personas/:personaId/draft', withAuthResult('Save chat draft route', chat.handleSaveDraftRoute));
+	org.get('/chat/personas/:personaId/threads', withAuthResult('List chat threads route', chat.handleListThreadsRoute));
+	org.post('/chat/personas/:personaId/threads', withAuthResult('Open chat thread route', chat.handleOpenThreadRoute));
+	org.get('/chat/personas/:personaId/threads/:threadId', withAuthResult('Get chat thread by id route', chat.handleGetChatThreadRoute));
+	org.post('/chat/personas/:personaId/threads/:threadId/messages', withAuthResult('Reply in chat thread route', chat.handleReplyInThreadRoute));
+	org.post('/chat/personas/:personaId/threads/:threadId/attachments', withAuthResult('Upload chat thread attachment route', chat.handleUploadThreadAttachmentRoute));
 	// The Alerts page: what the agents set in the member's conversations, to be woken outside them.
 	const alerts = alertRoutes(harnessStore);
 	org.get('/alerts', withAuthResult('List alerts route', alerts.handleListAlertsRoute));

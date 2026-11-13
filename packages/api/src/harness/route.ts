@@ -9,13 +9,14 @@ import {
 	parentMessageArgs,
 	preview,
 	SEND_TO_PARENT_TOOL,
+	SEND_TO_PERSON_TOOL,
 	SEND_TO_SUBAGENT_TOOL,
 	subAgentMessageArgs,
 	threadState,
 	toAvatarColor,
 	type ToolCall,
 } from '@proxy/utils/harness';
-import type {DraftAttachment, EntryRow, LastMessage, Persona, PersonaModel, PersonaRow, SubAgentRow, ThreadRow} from '@proxy/db/harness';
+import type {ChatThreadRow, DraftAttachment, EntryRow, LastMessage, Persona, PersonaModel, PersonaRow, SubAgentRow, ThreadRow} from '@proxy/db/harness';
 import {
 	type ChatAttachment,
 	type ChatEntry,
@@ -24,6 +25,8 @@ import {
 	type ChatMessage,
 	type ChatPersona,
 	type ChatTask,
+	type ChatThread,
+	type ChatThreads,
 	markReadBodySchema,
 	MAX_ATTACHMENTS,
 	personaBodySchema,
@@ -32,11 +35,15 @@ import {
 	type personaListSchema,
 	postMessageBodySchema,
 	removeAttachmentBodySchema,
+	type openedThreadSchema,
 	type postedMessageSchema,
+	type postedReplySchema,
 	saveDraftBodySchema,
 	type TaskChat,
 	type TaskChatEntry,
 	type ThreadLog,
+	type ThreadMessage,
+	type ThreadView,
 	type uploadedAttachmentSchema,
 } from '@proxy/contracts/harness';
 
@@ -46,7 +53,7 @@ import {manages} from '../utils/manages';
 import type {AttachmentRef, ChatFiles} from './attachments';
 import {type OrgViewer, requireViewer} from '../utils/user-org';
 import {ensureBuiltInAgent} from './built-in-agent';
-import {STOPPED_NOTE} from './conversation';
+import {STOPPED_NOTE, threadOpening} from './conversation';
 import type {HarnessStore} from './store';
 
 /**
@@ -59,7 +66,10 @@ import type {HarnessStore} from './store';
  * says which of the harnesses the server offers the organization runs it and which of that
  * harness's models it answers with (backends/harness.ts), chosen from the conversation's input by
  * whoever may change it. Nothing here runs the model: a message queues a job, and
- * the worker (worker.ts) does the rest; the page reads the log again as it goes.
+ * the worker (worker.ts) does the rest; the page reads the log again as it goes. Beside the
+ * conversation, the member's chat with a persona holds threads: each message they post in the chat
+ * opens one, whose agent works on it and answers them there, and a reply in a thread goes on with
+ * it; the chat lists its threads, and each is read on its own.
  */
 
 /** What the Chat page's routes need of the store. */
@@ -90,6 +100,10 @@ export type ChatStore = Pick<
 	| 'markThreadRead'
 	| 'getThreadDraft'
 	| 'saveThreadDraft'
+	| 'openThread'
+	| 'replyInThread'
+	| 'listChatThreads'
+	| 'getChatThread'
 >;
 
 /** What the routes need of where a conversation's files are kept: putting one there, naming those attached, and showing one; reading a picture for a model is the worker's. */
@@ -564,6 +578,142 @@ function handlePinTaskRoute(store: ChatStore, request: AuthenticatedRequest): Pr
 	});
 }
 
+// The calls a thread shows, as what the persona told the person as it went.
+const THREAD_CALLS = [SEND_TO_PERSON_TOOL];
+
+// What a thread shows (db/harness listChatThreads), each message with the files it went with: what
+// the person said; the events that came into it; what the persona answered in words, then what it
+// told the person as it went in the same step; not the calls it worked through.
+function threadMessages(thread: ChatThreadRow, files: RouteFiles): ThreadMessage[] {
+	const attachmentsOf = (entryId: string) => thread.attachments.filter((attachment) => attachment.entryId === entryId).map(files.shown);
+	return thread.entries.flatMap((entry): ThreadMessage[] => {
+		const at = entry.createdAt.toISOString();
+		if (entry.kind === 'person' || entry.kind === 'event') {
+			return [{id: entry.id, kind: entry.kind, text: entry.text, isError: entry.isError, at, attachments: attachmentsOf(entry.id)}];
+		}
+		if (entry.kind !== 'assistant') {
+			return [];
+		}
+		const said: ThreadMessage[] = entry.text === '' ? [] : [{id: entry.id, kind: 'assistant', text: entry.text, isError: entry.isError, at, attachments: attachmentsOf(entry.id)}];
+		const told = (entry.toolCalls ?? []).flatMap((call): ThreadMessage[] => {
+			const message = call.name === SEND_TO_PERSON_TOOL ? parentMessageArgs(callArguments(call)) : null;
+			return message ? [{id: `${entry.id}:${call.id}`, kind: 'assistant', text: message.text, isError: false, at, attachments: []}] : [];
+		});
+		return [...said, ...told];
+	});
+}
+
+// A thread as the chat lists it, from what it shows: what opened it, the start of the latest
+// thing the persona said, how many messages it holds and when the last came, or, with none, when
+// it was opened.
+function toChatThread(thread: ChatThreadRow, messages: ThreadMessage[]): ChatThread {
+	const first = messages[0];
+	const latest = messages.findLast((message) => message.kind === 'assistant');
+	const opener = first?.kind === 'person' ? {kind: 'person' as const, text: first.text, attachments: first.attachments} : first?.kind === 'event' ? {kind: 'event' as const, text: first.text} : null;
+	const {state} = thread;
+	return {
+		id: thread.id,
+		title: thread.title ?? '',
+		state: state.kind === 'asleep' ? {kind: 'asleep', until: state.until.toISOString()} : state,
+		opener,
+		latest: latest ? preview(latest.text) : null,
+		messageCount: messages.length,
+		lastMessageAt: messages.at(-1)?.at ?? thread.createdAt.toISOString(),
+	};
+}
+
+// The viewer's chat with the persona in the address, which a thread is of; never begun: a viewer
+// without one has no thread in it.
+function requireChat(store: ChatStore, viewer: OrgViewer, persona: PersonaRow, threadId: string): Promise<Result<ThreadRow, ApiError>> {
+	return Do(async ($) => {
+		return $(requirePresent($(await store.getMemberThread(persona.id, viewer.userId)), ApiErr.notFound('thread', threadId)));
+	});
+}
+
+// The thread in the address, one of the viewer's chat with the persona in the address.
+function requireChatThread(store: ChatStore, viewer: OrgViewer, persona: PersonaRow, threadId: string): Promise<Result<ChatThreadRow, ApiError>> {
+	return Do(async ($) => {
+		const chat = $(await requireChat(store, viewer, persona, threadId));
+		return $(requirePresent($(await store.getChatThread(chat.id, threadId, THREAD_CALLS, new Date())), ApiErr.notFound('thread', threadId)));
+	});
+}
+
+/** `GET /api/orgs/:org/chat/personas/:personaId/threads`: the viewer's chat with the persona, begun where there was none: what they typed in it and haven't sent, and its threads, the one that last had a message last. */
+function handleListThreadsRoute(store: ChatStore, harnesses: Harnesses, files: RouteFiles, request: AuthenticatedRequest): Promise<Result<ChatThreads, ApiError>> {
+	return Do(async ($) => {
+		const viewer = $(await requireViewer(request));
+		const persona = $(await requirePersona(store, viewer, request));
+		const chat = $(await requireThread(store, viewer, persona));
+		const [threads, draft, waiting] = await Promise.all([store.listChatThreads(chat.id, THREAD_CALLS, new Date()), store.getThreadDraft(chat.id), store.listDraftAttachments(chat.id)]);
+		const listed = $(threads).map((thread) => toChatThread(thread, threadMessages(thread, files)));
+		return {
+			persona: toPersona(harnesses, viewer, persona),
+			draft: $(draft),
+			// Put in the input from the person's drive, where a file is kept as long as it waits there.
+			draftAttachments: $(waiting).map((attachment) => files.shown({...attachment, gone: false})),
+			threads: listed.toSorted((a, b) => new Date(a.lastMessageAt).getTime() - new Date(b.lastMessageAt).getTime()),
+		};
+	});
+}
+
+/** `GET /api/orgs/:org/chat/personas/:personaId/threads/:threadId`: one thread of the viewer's chat with the persona: what it is up to, its task in the activity log, and what was said in it. */
+function handleGetChatThreadRoute(store: ChatStore, harnesses: Harnesses, files: RouteFiles, request: AuthenticatedRequest): Promise<Result<ThreadView, ApiError>> {
+	return Do(async ($) => {
+		const viewer = $(await requireViewer(request));
+		const persona = $(await requirePersona(store, viewer, request));
+		const thread = $(await requireChatThread(store, viewer, persona, request.params.threadId ?? ''));
+		const messages = threadMessages(thread, files);
+		return {
+			persona: toPersona(harnesses, viewer, persona),
+			thread: toChatThread(thread, messages),
+			busy: thread.state.kind === 'working',
+			activityTaskId: thread.taskId,
+			messages,
+		};
+	});
+}
+
+/** `POST /api/orgs/:org/chat/personas/:personaId/threads` with `{text, attachments}`: a thread opened in the viewer's chat with the persona with what they say, and the files they attach, each as it is when it is said; its persona is woken in it. */
+function handleOpenThreadRoute(store: ChatStore, files: RouteFiles, request: AuthenticatedRequest): Promise<Result<z.infer<typeof openedThreadSchema>, ApiError>> {
+	return Do(async ($) => {
+		const viewer = $(await requireViewer(request));
+		const {text, refs} = $(readMessage(request));
+		const persona = $(await requirePersona(store, viewer, request));
+		const chat = $(await requireThread(store, viewer, persona));
+		const attachments = refs.length === 0 ? [] : $(await files.resolve(viewer, refs));
+		const opening = threadOpening(chat, {text, files: attachments.map((attachment) => attachment.name)});
+		const opened = $(requirePresent($(await store.openThread(chat.id, text, opening, attachments)), ApiErr.notFound('thread', chat.id)));
+		const thread = $(requirePresent($(await store.getChatThread(chat.id, opened.thread.id, THREAD_CALLS, new Date())), ApiErr.notFound('thread', opened.thread.id)));
+		return {thread: toChatThread(thread, threadMessages(thread, files))};
+	});
+}
+
+/** `POST /api/orgs/:org/chat/personas/:personaId/threads/:threadId/messages` with `{text, attachments}`: what the viewer replies in a thread of their chat with the persona, with the files they attach; the thread takes it up. */
+function handleReplyInThreadRoute(store: ChatStore, files: RouteFiles, request: AuthenticatedRequest): Promise<Result<z.infer<typeof postedReplySchema>, ApiError>> {
+	return Do(async ($) => {
+		const viewer = $(await requireViewer(request));
+		const threadId = request.params.threadId ?? '';
+		const {text, refs} = $(readMessage(request));
+		const persona = $(await requirePersona(store, viewer, request));
+		const chat = $(await requireChat(store, viewer, persona, threadId));
+		const attachments = refs.length === 0 ? [] : $(await files.resolve(viewer, refs));
+		const entry = $(requirePresent($(await store.replyInThread(chat.id, threadId, text, attachments)), ApiErr.notFound('thread', threadId)));
+		// Read from their drives just now.
+		const shown = attachments.map((attachment) => files.shown({...attachment, gone: false}));
+		return {message: {id: entry.id, kind: 'person', text: entry.text, isError: false, at: entry.createdAt.toISOString(), attachments: shown}};
+	});
+}
+
+/** `POST /api/orgs/:org/chat/personas/:personaId/threads/:threadId/attachments`: a file for a reply in a thread, kept in the viewer's own drive, to be attached to what they reply next; the page holds it until then. */
+function handleUploadThreadAttachmentRoute(store: ChatStore, files: RouteFiles, request: AuthenticatedRequest): Promise<Result<z.infer<typeof uploadedAttachmentSchema>, ApiError>> {
+	return Do(async ($) => {
+		const viewer = $(await requireViewer(request));
+		const persona = $(await requirePersona(store, viewer, request));
+		$(await requireChatThread(store, viewer, persona, request.params.threadId ?? ''));
+		return {attachment: $(await files.upload(viewer, persona, request))};
+	});
+}
+
 /** The Chat page's routes, on the store, the harnesses the server has, and where a conversation's files are kept. */
 export function chatRoutes(store: ChatStore, harnesses: Harnesses, files: RouteFiles) {
 	return {
@@ -582,5 +732,10 @@ export function chatRoutes(store: ChatStore, harnesses: Harnesses, files: RouteF
 		handlePinTaskRoute: (request: AuthenticatedRequest) => handlePinTaskRoute(store, request),
 		handleMarkReadRoute: (request: AuthenticatedRequest) => handleMarkReadRoute(store, request),
 		handleSaveDraftRoute: (request: AuthenticatedRequest) => handleSaveDraftRoute(store, request),
+		handleListThreadsRoute: (request: AuthenticatedRequest) => handleListThreadsRoute(store, harnesses, files, request),
+		handleGetChatThreadRoute: (request: AuthenticatedRequest) => handleGetChatThreadRoute(store, harnesses, files, request),
+		handleOpenThreadRoute: (request: AuthenticatedRequest) => handleOpenThreadRoute(store, files, request),
+		handleReplyInThreadRoute: (request: AuthenticatedRequest) => handleReplyInThreadRoute(store, files, request),
+		handleUploadThreadAttachmentRoute: (request: AuthenticatedRequest) => handleUploadThreadAttachmentRoute(store, files, request),
 	};
 }

@@ -1,7 +1,7 @@
 import type {Result} from 'ts-results-es';
 
 import {type ApiError, Do} from '@proxy/utils';
-import {callArguments, isRecord, OUTCOME_UNKNOWN, SLEEP_TOOL, sleepUntil, type ToolCall} from '@proxy/utils/harness';
+import {callArguments, isRecord, OUTCOME_UNKNOWN, SLEEP_TOOL, sleepUntil, threadRole, type ToolCall} from '@proxy/utils/harness';
 import type {JobRow, ThreadRow} from '@proxy/db/harness';
 
 import {CANCEL_ALERT_TOOL, SET_ALERT_TOOL} from './alerts';
@@ -12,10 +12,11 @@ import {isGateTool} from './tool-surface';
 
 /**
  * A tool job: one call the model made, run and answered in the log, which is how a harness that
- * leaves its calls open has them run (inference.ts). The agent talking with the person has two:
- * setting an alert, at a time or a watch on the connections it may read with the collection
+ * leaves its calls open has them run (inference.ts). The agent talking with the person, the
+ * chat's or a chat thread's, has two: setting an alert, at a time or a watch on the connections it may read with the collection
  * (alerts.ts), and cancelling one; starting a sub-agent and messaging one are done as the answer
- * is written (conversation.ts planCall). A sub-agent's scripts make their calls through the gate
+ * is written (conversation.ts planCall), as a chat thread's message to the person is answered. A
+ * sub-agent's scripts, and a chat thread's, make their calls through the gate
  * as the sub-agent acting as the member, for its task, logged like any agent's call. A sleep
  * answers with the time, since its job was due when the sleep ended, or when a message woke it,
  * which follows the answer. A script, which may change something, is never run twice: a worker
@@ -34,16 +35,17 @@ function answer(store: ToolJobStore, thread: ThreadRow, job: JobRow, call: ToolC
 		if (!isRecord(args)) {
 			return error(NOT_JSON);
 		}
-		if ((call.name === SET_ALERT_TOOL || call.name === CANCEL_ALERT_TOOL) && thread.parentThreadId === null) {
+		const role = threadRole(thread);
+		if ((call.name === SET_ALERT_TOOL || call.name === CANCEL_ALERT_TOOL) && role !== 'subagent') {
 			return $(await alertCall(store, thread, call, args, now));
 		}
-		if (call.name === SLEEP_TOOL && thread.parentThreadId !== null) {
+		if (call.name === SLEEP_TOOL && role !== 'chat') {
 			if (sleepUntil(args, now) === null) {
 				return error(BAD_SLEEP_ARGS);
 			}
 			return {text: `Woken at ${now.toISOString()}.`, isError: false};
 		}
-		if (!isGateTool(call.name) || thread.parentThreadId === null) {
+		if (!isGateTool(call.name) || role === 'chat') {
 			return noSuchTool(call.name);
 		}
 		// A script run by a worker that lost the job mid-call may have changed something.

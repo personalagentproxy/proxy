@@ -14,6 +14,7 @@ import {
 	type ThreadRow,
 	toPersona,
 	type Wakes,
+	wakeWith,
 	writeInline,
 } from './harness';
 
@@ -34,7 +35,7 @@ export type AlertRow = {
 	id: string;
 	orgId: string;
 	userId: string;
-	// The conversation it was set in, where what it comes to lands.
+	// The conversation it was set in, a chat or one of its threads, where what it comes to lands.
 	threadId: string;
 	title: string;
 	brief: string;
@@ -245,7 +246,8 @@ export async function claimDueAlerts(
 
 /**
  * Fires a timed alert: what `text` says lands in its conversation as an event, and the alert is
- * deleted, in one transaction. Wakes the agent where the log then `wakes` it. `Ok(false)` when
+ * deleted, in one transaction. Wakes the agent as a message would (wakeWith): a thread asleep is
+ * woken now, and its task taken up again. `Ok(false)` when
  * the alert or its conversation is gone, and nothing is written.
  */
 export async function fireAlert(
@@ -263,7 +265,7 @@ export async function fireAlert(
 			if (count === 0) {
 				return false;
 			}
-			await appendEntry(tx, thread, {kind: 'event', text}, wakes);
+			await wakeWith(tx, thread, {kind: 'event', text}, wakes);
 			return true;
 		}),
 	);
@@ -321,9 +323,19 @@ export async function recordLook(
 ): Promise<Result<boolean, ApiError>> {
 	return wrapDb(() =>
 		db.$transaction(async (tx) => {
-			// The conversations first, then the poll, as a watch set takes its conversation, then its polls.
+			// The conversations first, then the poll, as a watch set takes its conversation, then its
+			// polls. A chat's thread is locked by its chat's row, so they go in the order of their chats.
+			const ids = [...new Set(matched.map(({alert}) => alert.threadId))];
+			const found = await tx.agentThread.findMany({
+				where: {id: {in: ids}},
+				select: {id: true, parentThreadId: true},
+			});
+			const chatOf = new Map(
+				found.map((thread) => [thread.id, thread.parentThreadId ?? thread.id]),
+			);
+			const lockOrder = (id: string) => `${chatOf.get(id) ?? id} ${id}`;
 			const threads = new Map<string, ThreadRow | null>();
-			for (const threadId of [...new Set(matched.map(({alert}) => alert.threadId))].sort()) {
+			for (const threadId of ids.toSorted((a, b) => (lockOrder(a) < lockOrder(b) ? -1 : 1))) {
 				threads.set(threadId, await lockThread(tx, threadId));
 			}
 			const {count} = await tx.connectionPoll.updateMany({
@@ -349,7 +361,7 @@ export async function recordLook(
 				if (marked.count === 0) {
 					continue;
 				}
-				await appendEntry(tx, thread, {kind: 'event', text}, wakes);
+				await wakeWith(tx, thread, {kind: 'event', text}, wakes);
 			}
 			return true;
 		}),

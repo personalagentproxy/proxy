@@ -16,6 +16,7 @@ import {
 	sleepUntil,
 	subAgentArgs,
 	subAgentMessageArgs,
+	threadRole,
 	threadState,
 	ATTACHMENT_MARK,
 	attachedParts,
@@ -317,5 +318,13 @@ describe('attachedParts', () => {
 
 	test('a preview of a message says nothing of where its files are', () => {
 		expect(preview(`Does ${mark} match ${mark}?`)).toBe('Does match ?');
+	});
+});
+
+describe('threadRole', () => {
+	test('tells the chat, a thread the member’s message opened, and a sub-agent a call started apart', () => {
+		expect(threadRole({parentThreadId: null, parentCallId: null})).toBe('chat');
+		expect(threadRole({parentThreadId: 'chat-1', parentCallId: null})).toBe('thread');
+		expect(threadRole({parentThreadId: 'chat-1', parentCallId: 'c1'})).toBe('subagent');
 	});
 });

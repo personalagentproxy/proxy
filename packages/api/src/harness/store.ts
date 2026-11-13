@@ -12,6 +12,7 @@ import type {
 	AssistantTurn,
 	AttachmentRow,
 	CappedHarness,
+	ChatThreadRow,
 	ClaimedJob,
 	ConversationAnswer,
 	DraftAttachment,
@@ -28,6 +29,7 @@ import type {
 	PinnedTaskRow,
 	SubAgentRow,
 	SubAgentStart,
+	ThreadOpening,
 	ThreadRow,
 	ThreadSession,
 	WorkingTaskRow,
@@ -39,7 +41,7 @@ import type {SignedInAgent} from '@proxy/db/agent';
 
 /**
  * What the harness reads and writes: the job queue, each thread's log and its jobs, the Chat
- * page's personas, and the alerts set in the conversations with the polls their watches read, in
+ * page's personas, the member's chats and their threads, and the alerts set in the conversations with the polls their watches read, in
  * the database (@proxy/db/harness, @proxy/db/alerts). Every write is one transaction, fenced by
  * the worker's lease where it is a job's, and takes what it writes as the harness composed it:
  * the rules of the conversation are the harness's own (conversation.ts). The agent is woken where
@@ -95,6 +97,12 @@ export type HarnessStore = {
 	listAttachments: (threadId: string) => Promise<Result<AttachmentRow[], ApiError>>;
 	/** What the person writes in a sub-agent's chat, with the files they attached to it. */
 	messageSubAgentDirectly: (conversationId: string, subAgentId: string, text: string, attachments?: EntryAttachment[]) => Promise<Result<boolean, ApiError>>;
+	/** A thread opened in the member's chat with what they said, with the files they attached to it, as its first entry. */
+	openThread: (chatId: string, text: string, opening: ThreadOpening, attachments?: EntryAttachment[]) => Promise<Result<{thread: ThreadRow; entry: EntryRow} | null, ApiError>>;
+	/** What the member replies in one of their chat's threads, with the files they attached to it. */
+	replyInThread: (chatId: string, threadId: string, text: string, attachments?: EntryAttachment[]) => Promise<Result<EntryRow | null, ApiError>>;
+	listChatThreads: (chatId: string, calls: string[], now: Date) => Promise<Result<ChatThreadRow[], ApiError>>;
+	getChatThread: (chatId: string, threadId: string, calls: string[], now: Date) => Promise<Result<ChatThreadRow | null, ApiError>>;
 	listPinnedTasks: (orgId: string, userId: string) => Promise<Result<PinnedTaskRow[], ApiError>>;
 	listWorkingTasks: (orgId: string, userId: string) => Promise<Result<WorkingTaskRow[], ApiError>>;
 	setTaskPinned: (conversationId: string, subAgentId: string, pinned: boolean) => Promise<Result<boolean, ApiError>>;
@@ -170,6 +178,10 @@ export const harnessStore: HarnessStore = {
 	appendPersonMessage: (threadId, text, attachments) => harness.appendPersonMessage(threadId, text, readyForInference, attachments),
 	listAttachments: harness.listAttachments,
 	messageSubAgentDirectly: (conversationId, subAgentId, text, attachments) => harness.messageSubAgentDirectly(conversationId, subAgentId, text, readyForInference, attachments),
+	openThread: (chatId, text, opening, attachments) => harness.openThread(chatId, text, opening, readyForInference, attachments),
+	replyInThread: (chatId, threadId, text, attachments) => harness.replyInThread(chatId, threadId, text, readyForInference, attachments),
+	listChatThreads: harness.listChatThreads,
+	getChatThread: harness.getChatThread,
 	listPinnedTasks: harness.listPinnedTasks,
 	listWorkingTasks: harness.listWorkingTasks,
 	setTaskPinned: harness.setTaskPinned,

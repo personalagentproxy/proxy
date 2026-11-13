@@ -6,7 +6,7 @@ import {ATTACHMENT_MARK} from '@proxy/utils/harness';
 
 import type {HarnessBackend} from '@proxy/backends/harness/backend';
 import {fakeHarness} from '@proxy/backends/harness/fake';
-import type {EntryRow, JobRow, SubAgentRow, ThreadRow} from '@proxy/db/harness';
+import type {ChatThreadRow, EntryRow, JobRow, SubAgentRow, ThreadRow} from '@proxy/db/harness';
 
 import type {HarnessRegistry} from '../backends/harness';
 import type {ChatFiles} from './attachments';
@@ -739,5 +739,176 @@ describe('the chat routes', () => {
 		store.getPersona.mockResolvedValue(Ok(null));
 		expect((await handleMarkReadRoute(request({personaId: 'persona-9'}, {entryId: 'e9'}))).unwrapErr().kind).toBe('not_found');
 		expect(store.markThreadRead).toHaveBeenCalledTimes(2);
+	});
+});
+
+describe('the chat’s threads', () => {
+	const later = (minutes: number) => new Date(now.getTime() + minutes * 60_000);
+
+	// A thread of the viewer's chat, its message opening it, stopped unless the test says otherwise.
+	function chatThread(row: Partial<ChatThreadRow> & {id: string}): ChatThreadRow {
+		return {...thread, parentThreadId: 'thread-1', title: 'Pricing review with Dana', taskId: 'task-1', state: {kind: 'stopped'}, entries: [], attachments: [], ...row};
+	}
+
+	const review = chatThread({
+		id: 'thread-2',
+		taskId: 'task-2',
+		entries: [
+			logEntry({id: 'e1', seq: 1, threadId: 'thread-2', kind: 'person', text: 'Find the pricing review with Dana'}),
+			logEntry({
+				id: 'e2',
+				seq: 2,
+				threadId: 'thread-2',
+				kind: 'assistant',
+				text: '',
+				toolCalls: [call('c1', 'send_to_person', {text: 'Looking through the shared drive.'}), call('c2', 'script', {code: 'return 1'})],
+				createdAt: later(1),
+			}),
+			logEntry({id: 'e3', seq: 4, threadId: 'thread-2', kind: 'assistant', text: 'It moved to **Friday**, with the new prices attached.', createdAt: later(2)}),
+		],
+		attachments: [{...attached, entryId: 'e1', gone: false}],
+	});
+	const watch = chatThread({
+		id: 'thread-3',
+		title: 'Tell me when Dana writes',
+		state: {kind: 'asleep', until: later(60)},
+		entries: [logEntry({id: 'e4', seq: 3, threadId: 'thread-3', kind: 'event', text: 'The alert “Dana” matched a new one of the emails.', createdAt: later(30)})],
+	});
+
+	beforeEach(() => {
+		store.listChatThreads.mockResolvedValue(Ok([watch, review]));
+		store.getChatThread.mockResolvedValue(Ok(review));
+		store.openThread.mockResolvedValue(Ok({thread: review, entry: logEntry({id: 'e1', seq: 1, threadId: 'thread-2', kind: 'person', text: 'Find the pricing review with Dana'})}));
+		store.replyInThread.mockResolvedValue(Ok(logEntry({id: 'e5', seq: 5, threadId: 'thread-2', kind: 'person', text: 'And the old prices?'})));
+	});
+
+	test('list the chat, begun where there was none, with its draft and its threads, the one that last had a message last: what is up with each, what opened it, the start of the latest thing said in it, and how many messages it holds', async () => {
+		const {handleListThreadsRoute} = routes;
+		store.getMemberThread.mockResolvedValue(Ok(null));
+		store.getThreadDraft.mockResolvedValue(Ok('Move the review'));
+		store.listDraftAttachments.mockResolvedValue(Ok([{connectionId: 'drive-1', fileId: 'file-1', version: 'v1', name: 'pricing.md', type: 'text/markdown', size: 42}]));
+
+		const listed = (await handleListThreadsRoute(request({personaId: 'persona-1'}))).unwrap();
+
+		expect(store.ensureMemberThread).toHaveBeenCalledWith({orgId: 'org-1', agentId: 'login-1', personaId: 'persona-1', userId: 'user-1'});
+		expect(store.listChatThreads).toHaveBeenCalledWith('thread-1', ['send_to_person'], expect.any(Date));
+		expect(listed.persona).toEqual(personaResponse);
+		expect(listed.draft).toBe('Move the review');
+		expect(listed.draftAttachments).toEqual([shownAttachment]);
+		expect(listed.threads).toEqual([
+			{
+				id: 'thread-2',
+				title: 'Pricing review with Dana',
+				state: {kind: 'stopped'},
+				opener: {kind: 'person', text: 'Find the pricing review with Dana', attachments: [shownAttachment]},
+				latest: 'It moved to Friday, with the new prices attached.',
+				messageCount: 3,
+				lastMessageAt: later(2).toISOString(),
+			},
+			{
+				id: 'thread-3',
+				title: 'Tell me when Dana writes',
+				state: {kind: 'asleep', until: later(60).toISOString()},
+				opener: {kind: 'event', text: 'The alert “Dana” matched a new one of the emails.'},
+				latest: null,
+				messageCount: 1,
+				lastMessageAt: later(30).toISOString(),
+			},
+		]);
+	});
+
+	test('give one thread with its messages: what the person said with their files, what the persona answered and told them as it went, and events, without the calls', async () => {
+		const {handleGetChatThreadRoute} = routes;
+		store.getChatThread.mockResolvedValue(Ok({...review, state: {kind: 'working'}}));
+
+		const view = (await handleGetChatThreadRoute(request({personaId: 'persona-1', threadId: 'thread-2'}))).unwrap();
+
+		expect(store.getChatThread).toHaveBeenCalledWith('thread-1', 'thread-2', ['send_to_person'], expect.any(Date));
+		expect(view.busy).toBe(true);
+		expect(view.activityTaskId).toBe('task-2');
+		expect(view.thread).toMatchObject({id: 'thread-2', state: {kind: 'working'}, messageCount: 3});
+		expect(view.messages).toEqual([
+			{id: 'e1', kind: 'person', text: 'Find the pricing review with Dana', isError: false, at: now.toISOString(), attachments: [shownAttachment]},
+			{id: 'e2:c1', kind: 'assistant', text: 'Looking through the shared drive.', isError: false, at: later(1).toISOString(), attachments: []},
+			{id: 'e3', kind: 'assistant', text: 'It moved to **Friday**, with the new prices attached.', isError: false, at: later(2).toISOString(), attachments: []},
+		]);
+
+		store.getChatThread.mockResolvedValue(Ok(watch));
+		expect((await handleGetChatThreadRoute(request({personaId: 'persona-1', threadId: 'thread-3'}))).unwrap().messages.map((message) => message.kind)).toEqual(['event']);
+
+		store.getChatThread.mockResolvedValue(Ok(null));
+		expect((await handleGetChatThreadRoute(request({personaId: 'persona-1', threadId: 'thread-9'}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'thread'});
+		store.getMemberThread.mockResolvedValue(Ok(null));
+		expect((await handleGetChatThreadRoute(request({personaId: 'persona-1', threadId: 'thread-2'}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'thread'});
+		expect(store.ensureMemberThread).not.toHaveBeenCalled();
+	});
+
+	test('open a thread with what the viewer says, trimmed, and the files they attach, titled with a line of it, and answer with the thread', async () => {
+		const {handleOpenThreadRoute} = routes;
+		const ref = {connectionId: 'drive-1', fileId: 'file-1', version: 'v1'};
+
+		const opened = (await handleOpenThreadRoute(request({personaId: 'persona-1'}, {text: ' Find the pricing review with Dana \n', attachments: [ref]}))).unwrap();
+
+		expect(store.openThread).toHaveBeenCalledWith(
+			'thread-1',
+			'Find the pricing review with Dana',
+			{
+				title: 'Find the pricing review with Dana',
+				task: {
+					orgId: 'org-1',
+					agentId: 'login-1',
+					ownerUserId: 'user-1',
+					personaId: 'persona-1',
+					parentId: null,
+					title: 'Find the pricing review with Dana',
+					goal: 'Find the pricing review with Dana',
+					via: 'harness',
+				},
+			},
+			[attached],
+		);
+		expect(store.getChatThread).toHaveBeenCalledWith('thread-1', 'thread-2', ['send_to_person'], expect.any(Date));
+		expect(opened.thread).toMatchObject({id: 'thread-2', title: 'Pricing review with Dana'});
+
+		// With files alone, titled by their names.
+		await handleOpenThreadRoute(request({personaId: 'persona-1'}, {text: '', attachments: [ref]}));
+		expect(store.openThread).toHaveBeenLastCalledWith('thread-1', '', expect.objectContaining({title: 'pricing.md'}), [attached]);
+
+		expect((await handleOpenThreadRoute(request({personaId: 'persona-1'}, {text: ' '}))).unwrapErr().kind).toBe('parse_error');
+		expect((await handleOpenThreadRoute(request({personaId: 'persona-1'}, {text: 'And this', attachments: [{...ref, fileId: 'file-2'}]}))).unwrapErr()).toMatchObject({
+			kind: 'not_found',
+			resource: 'file',
+		});
+		expect(store.openThread).toHaveBeenCalledTimes(2);
+	});
+
+	test('reply in a thread with what the viewer says and the files they attach, and say where there is no such thread', async () => {
+		const {handleReplyInThreadRoute} = routes;
+		const ref = {connectionId: 'drive-1', fileId: 'file-1', version: 'v1'};
+
+		const replied = (await handleReplyInThreadRoute(request({personaId: 'persona-1', threadId: 'thread-2'}, {text: ' And the old prices? ', attachments: [ref]}))).unwrap();
+
+		expect(store.replyInThread).toHaveBeenCalledWith('thread-1', 'thread-2', 'And the old prices?', [attached]);
+		expect(replied.message).toEqual({id: 'e5', kind: 'person', text: 'And the old prices?', isError: false, at: now.toISOString(), attachments: [shownAttachment]});
+
+		store.replyInThread.mockResolvedValue(Ok(null));
+		expect((await handleReplyInThreadRoute(request({personaId: 'persona-1', threadId: 'thread-9'}, {text: 'Hi'}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'thread'});
+		store.getMemberThread.mockResolvedValue(Ok(null));
+		expect((await handleReplyInThreadRoute(request({personaId: 'persona-1', threadId: 'thread-2'}, {text: 'Hi'}))).unwrapErr().kind).toBe('not_found');
+		expect(store.replyInThread).toHaveBeenCalledTimes(2);
+		expect(store.ensureMemberThread).not.toHaveBeenCalled();
+	});
+
+	test('put a file for a reply into the viewer’s own drive, keeping it in no input on the server, only for a thread of their chat', async () => {
+		const {handleUploadThreadAttachmentRoute} = routes;
+
+		expect((await handleUploadThreadAttachmentRoute(request({personaId: 'persona-1', threadId: 'thread-2'}))).unwrap()).toEqual({attachment: shownAttachment});
+		expect(files.upload).toHaveBeenCalledWith(viewer, persona, expect.anything());
+		expect(store.addDraftAttachment).not.toHaveBeenCalled();
+
+		files.upload.mockClear();
+		store.getChatThread.mockResolvedValue(Ok(null));
+		expect((await handleUploadThreadAttachmentRoute(request({personaId: 'persona-1', threadId: 'thread-9'}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'thread'});
+		expect(files.upload).not.toHaveBeenCalled();
 	});
 });

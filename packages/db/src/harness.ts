@@ -1,8 +1,8 @@
-import type {
-	AgentEntryKind,
-	AgentJobEventKind,
-	AgentJobKind,
-	AgentJobStatus,
+import {
+	type AgentEntryKind,
+	type AgentJobEventKind,
+	type AgentJobKind,
+	type AgentJobStatus,
 	Prisma,
 } from '@prisma/client';
 import {Err, Ok, type Result} from 'ts-results-es';
@@ -17,6 +17,7 @@ import {
 	parseLook,
 	pendingToolCalls,
 	type ThreadState,
+	threadRole,
 	threadState,
 	type ToolCall,
 } from '@proxy/utils/harness';
@@ -40,7 +41,10 @@ import type {NewAgentTask} from './task';
  * A worker's write is fenced by its lease: it goes through only while the job is still its.
  * What a sub-agent says to the agent that started it lands in that agent's thread as an event
  * answering the call that started the sub-agent; a sub-agent's thread stops when it answers with
- * no calls, keeping its log, and a message from its parent takes it up again. A conversation and
+ * no calls, keeping its log, and a message from its parent takes it up again. A chat's threads are
+ * its children too, opened by the member's message rather than by a call: each has an agent of its
+ * own, which answers the member there and tells nobody else; its answer with no calls ends its
+ * turn, and the member's reply, or an alert set in it, takes it up again. A conversation and
  * its sub-agents' threads are one lock, the conversation's row: whatever a transaction writes in
  * any of them, it locks that row first, so a message between two of them is written with the
  * answer that sent it, and no two transactions wait on each other. What is written, and when the
@@ -63,7 +67,8 @@ export type ThreadRow = {
 	personaId: string;
 	// The member whose conversation it is, or was started from.
 	userId: string;
-	// A sub-agent's thread: the thread it was started from, and the call that started it.
+	// A sub-agent's thread: the thread it was started from, and the call that started it; a chat's
+	// thread: the chat, and no call.
 	parentThreadId: string | null;
 	parentCallId: string | null;
 	// A sub-agent's title; null for a conversation.
@@ -228,17 +233,29 @@ export type SubAgentStart = {
 	entries: [NewEntry, ...NewEntry[]];
 };
 
-/** What follows the model's answer: each of its calls as planned, or, a sub-agent's answer without calls, its stop. */
-export type AfterAnswer = {plans: Record<string, CallPlan>} | {stop: SubAgentStop};
+/**
+ * A chat thread's answer without calls, which ends its turn: where nothing came meanwhile, its
+ * task is finished with `outcome`. Nobody else is told: the member reads the answer in the thread.
+ */
+export type ThreadEnd = {outcome: string};
+
+/**
+ * What follows the model's answer: each of its calls as planned; or, a sub-agent's answer without
+ * calls, its stop; or a chat thread's, the end of its turn.
+ */
+export type AfterAnswer =
+	{plans: Record<string, CallPlan>} | {stop: SubAgentStop} | {end: ThreadEnd};
 
 /**
  * What a failed job writes in its thread, so nobody is left waiting on it: an answer to its call,
- * as the call's result; the sub-agent's stop; or the agent's answer, as an error.
+ * as the call's result; the sub-agent's stop; the agent's answer, as an error; or, in a chat
+ * thread, that answer, which ends the thread's turn.
  */
 export type FailureNote =
 	| {kind: 'answer'; callId: string; text: string}
 	| {kind: 'stop'; stop: SubAgentStop}
-	| {kind: 'reply'; text: string};
+	| {kind: 'reply'; text: string}
+	| {kind: 'end'; text: string; end: ThreadEnd};
 
 const threadSelect = {
 	id: true,
@@ -260,6 +277,18 @@ type ThreadRecord = Prisma.AgentThreadGetPayload<{select: typeof threadSelect}>;
 // A thread as read, its harness's session parsed from the JSON it is kept as.
 function toThread(thread: ThreadRecord): ThreadRow {
 	return {...thread, harnessSession: parseHarnessSession(thread.harnessSession)};
+}
+
+// A chat's children of one kind, as a filter: its threads, which no call started, or its old
+// sub-agents, which a create_subagent call did, told apart as threadRole tells them
+// (@proxy/utils/harness), and going with it.
+function childrenOf(chatId: string, role: 'thread' | 'subagent'): Prisma.AgentThreadWhereInput {
+	return {parentThreadId: chatId, parentCallId: role === 'thread' ? null : {not: null}};
+}
+
+// The chat `chat` and its threads, as a condition on the thread `t` in SQL, as childrenOf has them.
+function inChatSql(chat: Prisma.Sql, t: Prisma.Sql): Prisma.Sql {
+	return Prisma.sql`(${t}."id" = ${chat} OR (${t}."parentThreadId" = ${chat} AND ${t}."parentCallId" IS NULL))`;
 }
 
 // A thread's jobs still to run or running, as much of them as says what its agent is up to.
@@ -360,9 +389,9 @@ export function toEntry(entry: EntryRecord): EntryRow {
 
 /**
  * The organization's personas the member sees, their own and those every member does, with the
- * last thing said in the member's conversation with each, what they typed in it and the files they
- * put in its input and haven't sent, the one last active first: the last thing said in it, or,
- * before anything was, its making.
+ * last thing said in the member's chat with each, across the chat and its threads, what they typed
+ * in it and the files they put in its input and haven't sent, the one last active first: the last
+ * thing said in it, or, before anything was, its making.
  */
 export async function listPersonas(
 	orgId: string,
@@ -385,9 +414,11 @@ export async function listPersonas(
 				where: seenBy(orgId, userId),
 				select: {
 					...personaSelect,
+					// The member's chat and its threads, which no call started, as childrenOf has them.
 					threads: {
-						where: {userId, parentThreadId: null},
+						where: {userId, parentCallId: null},
 						select: {
+							parentThreadId: true,
 							draft: true,
 							attachments: {
 								where: {entryId: null},
@@ -399,7 +430,7 @@ export async function listPersonas(
 								where: {kind: {in: ['person', 'assistant']}, text: {not: ''}},
 								orderBy: {seq: 'desc'},
 								take: 1,
-								select: {kind: true, text: true, createdAt: true},
+								select: {kind: true, text: true, seq: true, createdAt: true},
 							},
 						},
 					},
@@ -410,15 +441,18 @@ export async function listPersonas(
 	).map((personas) =>
 		personas
 			.map(({threads, ...persona}) => {
-				const last = threads[0]?.entries[0];
+				const chat = threads.find((thread) => thread.parentThreadId === null);
+				const last = threads
+					.flatMap((thread) => thread.entries)
+					.toSorted((a, b) => b.seq - a.seq)[0];
 				return {
 					...toPersona(persona),
 					lastMessage:
 						last && (last.kind === 'person' || last.kind === 'assistant')
 							? {kind: last.kind, text: last.text, createdAt: last.createdAt}
 							: null,
-					draft: threads[0]?.draft ?? null,
-					draftAttachments: threads[0]?.attachments ?? [],
+					draft: chat?.draft ?? null,
+					draftAttachments: chat?.attachments ?? [],
 				};
 			})
 			.toSorted((a, b) => lastActive(b).getTime() - lastActive(a).getTime()),
@@ -440,10 +474,11 @@ export type ConversationAnswer = {
 };
 
 /**
- * The persona's last answer in each of the member's conversations that has one, and whether it is
- * unread; one query, and nothing made, for what is asked every so often. Each conversation's
- * answer is found on its own, from the newest entry back by the `(threadId, seq)` index, so a long
- * conversation is not read whole for its last answer.
+ * The persona's last answer in each of the member's chats that has one, across the chat and its
+ * threads, and whether it is unread; one query, and nothing made, for what is asked every so
+ * often. Each thread's last answer is found on its own, from the newest entry back by the
+ * `(threadId, seq)` index, so a long one is not read whole for it, and the chat's is the latest of
+ * those: the entries' `seq` runs across every thread, as the read marker does.
  */
 export async function listAnswers(
 	orgId: string,
@@ -465,10 +500,17 @@ export async function listAnswers(
 				FROM "AgentThread" AS t
 				JOIN "Persona" AS p ON p."id" = t."personaId"
 				CROSS JOIN LATERAL (
-					SELECT "id", "seq", "text"
-					FROM "AgentEntry"
-					WHERE "threadId" = t."id" AND "kind" = 'assistant' AND "text" <> ''
-					ORDER BY "seq" DESC
+					SELECT last."id", last."seq", last."text"
+					FROM "AgentThread" AS c
+					CROSS JOIN LATERAL (
+						SELECT "id", "seq", "text"
+						FROM "AgentEntry"
+						WHERE "threadId" = c."id" AND "kind" = 'assistant' AND "text" <> ''
+						ORDER BY "seq" DESC
+						LIMIT 1
+					) AS last
+					WHERE ${inChatSql(Prisma.sql`t."id"`, Prisma.raw('c'))}
+					ORDER BY last."seq" DESC
 					LIMIT 1
 				) AS e
 				WHERE t."orgId" = ${orgId} AND t."userId" = ${userId} AND t."parentThreadId" IS NULL
@@ -654,8 +696,9 @@ export type LastMessage = {kind: 'person' | 'assistant'; text: string; createdAt
 export type LastAnswer = {id: string; text: string};
 
 /**
- * Marks the thread read up to the entry, as far as the member was shown it, never back: what the
- * persona said after it stays unread. `Ok(false)` means no such entry in the thread.
+ * Marks the chat read up to the entry, one of the chat's or of one of its threads, as far as the
+ * member was shown it, never back: what the persona said after it stays unread. `Ok(false)` means
+ * no such entry in the chat.
  */
 export async function markThreadRead(
 	threadId: string,
@@ -664,7 +707,7 @@ export async function markThreadRead(
 	return (
 		await wrapDb(
 			() =>
-				db.$executeRaw`UPDATE "AgentThread" AS t SET "readSeq" = GREATEST(t."readSeq", e."seq") FROM "AgentEntry" AS e WHERE t."id" = ${threadId} AND e."id" = ${entryId} AND e."threadId" = t."id"`,
+				db.$executeRaw`UPDATE "AgentThread" AS t SET "readSeq" = GREATEST(t."readSeq", e."seq") FROM "AgentEntry" AS e JOIN "AgentThread" AS c ON c."id" = e."threadId" WHERE t."id" = ${threadId} AND e."id" = ${entryId} AND ${inChatSql(Prisma.sql`t."id"`, Prisma.raw('c'))}`,
 		)
 	).map((count) => count > 0);
 }
@@ -710,8 +753,8 @@ export function listDraftAttachments(
 	);
 }
 
-// The member's own conversation, locked for a change to its input; null for none, and for a
-// sub-agent's thread, which keeps no input.
+// The member's own conversation, their chat, locked for a change to its input or its threads; null
+// for none, and for a thread or a sub-agent's, which keeps no input.
 async function lockInput(tx: Tx, threadId: string): Promise<ThreadRow | null> {
 	const thread = await lockThread(tx, threadId);
 	return thread && thread.parentThreadId === null ? thread : null;
@@ -975,7 +1018,7 @@ export async function listOpenJobs(threadId: string): Promise<Result<JobRow[], A
 	);
 }
 
-/** The sub-agents started from the thread, oldest first, each with what it is up to now. */
+/** The sub-agents started from the thread, oldest first, each with what it is up to now; not the chat's threads. */
 export async function listSubAgents(
 	parentThreadId: string,
 	now = new Date(),
@@ -983,7 +1026,7 @@ export async function listSubAgents(
 	return (
 		await wrapDb(() =>
 			db.agentThread.findMany({
-				where: {parentThreadId},
+				where: childrenOf(parentThreadId, 'subagent'),
 				select: {...threadSelect, jobs: openJobsSelect},
 				orderBy: {createdAt: 'asc'},
 			}),
@@ -1160,6 +1203,26 @@ async function tellParent(
 	);
 }
 
+// Whether a message landed in the thread while its agent answered, pending, which it goes on to
+// read. With the conversation locked.
+async function messageWaiting(tx: Tx, thread: ThreadRow): Promise<boolean> {
+	const waiting = await tx.agentEntry.count({where: {threadId: thread.id, pending: true}});
+	return waiting > 0;
+}
+
+// Finishes the thread's task, where it has one under way, with `outcome`. With the conversation
+// locked.
+async function finishTask(tx: Tx, thread: ThreadRow, outcome: string): Promise<void> {
+	if (thread.taskId === null) {
+		return;
+	}
+	const now = new Date();
+	await tx.agentTask.updateMany({
+		where: {id: thread.taskId, finishedAt: null},
+		data: {finishedAt: now, lastActiveAt: now, outcome},
+	});
+}
+
 // A sub-agent's answer without calls: where a message came while it answered, pending, it goes on
 // to read it, its task still under way, and what it said goes to the agent it works for as said
 // going on; otherwise its work stops for now, its task finished with the outcome, and what it
@@ -1173,22 +1236,26 @@ async function endTurn(
 	jobId: string,
 	wakes: Wakes,
 ): Promise<void> {
-	if (thread.parentThreadId === null) {
+	if (threadRole(thread) !== 'subagent') {
 		return;
 	}
-	const waiting = await tx.agentEntry.count({where: {threadId: thread.id, pending: true}});
-	if (waiting > 0) {
+	if (await messageWaiting(tx, thread)) {
 		await tellParent(tx, thread, stop.goingOn, jobId, wakes);
 		return;
 	}
-	if (thread.taskId !== null) {
-		const now = new Date();
-		await tx.agentTask.updateMany({
-			where: {id: thread.taskId, finishedAt: null},
-			data: {finishedAt: now, lastActiveAt: now, outcome: stop.outcome},
-		});
-	}
+	await finishTask(tx, thread, stop.outcome);
 	await tellParent(tx, thread, stop.stopped, jobId, wakes);
+}
+
+// A chat thread's answer without calls, which ends its turn: where a message came while it
+// answered, it goes on to read it, its task still under way; otherwise its task is finished with
+// the outcome, until a reply or an alert takes it up again (wakeWith). Nobody else is told. With
+// the conversation locked; what is pending is released after, as a job ends (endJob).
+async function endThreadTurn(tx: Tx, thread: ThreadRow, end: ThreadEnd): Promise<void> {
+	if (threadRole(thread) !== 'thread' || (await messageWaiting(tx, thread))) {
+		return;
+	}
+	await finishTask(tx, thread, end.outcome);
 }
 
 /** A sub-agent the member pinned, as a task, under its persona: when it last had something in its log, or its start before anything did. */
@@ -1359,6 +1426,166 @@ export async function appendPersonMessage(
 	);
 }
 
+/** A thread of a chat as the member's message opens it: its title and its task, as the api composes them from what they said. */
+export type ThreadOpening = {title: string; task: NewAgentTask & {parentId: null}};
+
+/**
+ * Opens a thread in the member's chat with what they said, in one transaction: the thread, under
+ * the chat, with its task, and their message as its first entry, with the files they attached,
+ * which wakes its agent; what they had typed in the chat and not sent goes with it, since this is
+ * it sent. `Ok(null)` means no such chat.
+ */
+export async function openThread(
+	chatId: string,
+	text: string,
+	opening: ThreadOpening,
+	wakes: Wakes,
+	attachments: EntryAttachment[] = [],
+): Promise<Result<{thread: ThreadRow; entry: EntryRow} | null, ApiError>> {
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			const chat = await lockInput(tx, chatId);
+			if (!chat) {
+				return null;
+			}
+			await tx.agentThread.update({where: {id: chatId}, data: {draft: null}});
+			await tx.agentEntryAttachment.deleteMany({where: inInput(chatId)});
+			const now = new Date();
+			const task = await tx.agentTask.create({
+				data: {...opening.task, createdAt: now, lastActiveAt: now},
+				select: {id: true},
+			});
+			const thread = toThread(
+				await tx.agentThread.create({
+					data: {
+						orgId: chat.orgId,
+						agentId: chat.agentId,
+						personaId: chat.personaId,
+						userId: chat.userId,
+						parentThreadId: chat.id,
+						title: opening.title,
+						taskId: task.id,
+					},
+					select: threadSelect,
+				}),
+			);
+			const entry = await appendEntry(tx, thread, {kind: 'person', text}, wakes);
+			await attach(tx, thread.id, entry.id, attachments);
+			return {thread, entry};
+		}),
+	);
+}
+
+/**
+ * Lands what the member replied in one of their chat's threads, with the files they attached, and
+ * wakes the thread's agent as wakeWith does, its task under way again. `Ok(null)` means no such
+ * thread of the chat.
+ */
+export async function replyInThread(
+	chatId: string,
+	threadId: string,
+	text: string,
+	wakes: Wakes,
+	attachments: EntryAttachment[] = [],
+): Promise<Result<EntryRow | null, ApiError>> {
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			const chat = await lockInput(tx, chatId);
+			if (!chat) {
+				return null;
+			}
+			const found = await tx.agentThread.findFirst({
+				where: {id: threadId, ...childrenOf(chat.id, 'thread')},
+				select: threadSelect,
+			});
+			if (!found) {
+				return null;
+			}
+			return wakeWith(tx, toThread(found), {kind: 'person', text}, wakes, attachments);
+		}),
+	);
+}
+
+/** One of a chat's threads, with what it is up to, the entries of it the member sees, and the files attached to them. */
+export type ChatThreadRow = ThreadRow & {
+	state: ThreadState;
+	entries: EntryRow[];
+	attachments: AttachmentRow[];
+};
+
+// What of a thread the member sees in it: what they said, the events that came into it, what its
+// agent answered in words, and its answers that made a call of one of `calls`, which the member
+// sees as what the call said. Not the other calls, their results or the summaries.
+function shownInThread(calls: string[]): Prisma.AgentEntryWhereInput {
+	return {
+		OR: [
+			{kind: 'person'},
+			{kind: 'event'},
+			{kind: 'assistant', text: {not: ''}},
+			...calls.map(withCall),
+		],
+	};
+}
+
+// The chat's threads `where` picks among them, oldest first, as ChatThreadRow has them.
+async function readChatThreads(
+	chatId: string,
+	where: Prisma.AgentThreadWhereInput,
+	calls: string[],
+	now: Date,
+): Promise<Result<ChatThreadRow[], ApiError>> {
+	return wrapDb(async () => {
+		const threads = await db.agentThread.findMany({
+			where: {...where, ...childrenOf(chatId, 'thread')},
+			select: {
+				...threadSelect,
+				jobs: openJobsSelect,
+				entries: {
+					where: shownInThread(calls),
+					select: entrySelect,
+					orderBy: [{pending: 'asc'}, {seq: 'asc'}],
+				},
+			},
+			orderBy: {createdAt: 'asc'},
+		});
+		const attachments = await attachmentsIn(threads.map((thread) => thread.id));
+		return threads.map(({jobs, entries, ...thread}) => {
+			const shown = new Set(entries.map((entry) => entry.id));
+			return {
+				...toThread(thread),
+				state: threadState(jobs, now),
+				entries: entries.map(toEntry),
+				attachments: attachments.filter((attachment) => shown.has(attachment.entryId)),
+			};
+		});
+	});
+}
+
+/**
+ * The chat's threads, oldest first, each with what it is up to, the entries of it the member sees,
+ * in order, what is pending last, the answers that made a call of one of `calls` among them, and
+ * the files attached to them.
+ */
+export function listChatThreads(
+	chatId: string,
+	calls: string[],
+	now = new Date(),
+): Promise<Result<ChatThreadRow[], ApiError>> {
+	return readChatThreads(chatId, {}, calls, now);
+}
+
+/** One of the chat's threads, as listChatThreads has it; `Ok(null)` for no such thread of the chat. */
+export async function getChatThread(
+	chatId: string,
+	threadId: string,
+	calls: string[],
+	now = new Date(),
+): Promise<Result<ChatThreadRow | null, ApiError>> {
+	return (await readChatThreads(chatId, {id: threadId}, calls, now)).map(
+		(threads) => threads[0] ?? null,
+	);
+}
+
 // Keeps the files an entry goes with, in the order given.
 async function attach(
 	tx: Tx,
@@ -1398,21 +1625,27 @@ export type AttachmentRow = EntryAttachment & {entryId: string; gone: boolean};
  * person attached to what they said, and the files the agent showed them in its answers.
  */
 export function listAttachments(threadId: string): Promise<Result<AttachmentRow[], ApiError>> {
-	return wrapDb(async () => {
-		const rows = await db.agentEntryAttachment.findMany({
-			where: {threadId, entryId: {not: null}},
-			select: attachmentSelect,
-			orderBy: [{createdAt: 'asc'}, {position: 'asc'}],
-		});
-		const kept = await db.fileVersion.findMany({
-			where: {id: {in: [...new Set(rows.map((row) => row.version))]}},
-			select: {id: true},
-		});
-		const there = new Set(kept.map((version) => version.id));
-		return rows.flatMap(({entryId, ...row}) =>
-			entryId === null ? [] : [{...row, entryId, gone: !there.has(row.version)}],
-		);
+	return wrapDb(() => attachmentsIn([threadId]));
+}
+
+// The files of the threads' logs, as listAttachments has them.
+async function attachmentsIn(threadIds: string[]): Promise<AttachmentRow[]> {
+	if (threadIds.length === 0) {
+		return [];
+	}
+	const rows = await db.agentEntryAttachment.findMany({
+		where: {threadId: {in: threadIds}, entryId: {not: null}},
+		select: attachmentSelect,
+		orderBy: [{createdAt: 'asc'}, {position: 'asc'}],
 	});
+	const kept = await db.fileVersion.findMany({
+		where: {id: {in: [...new Set(rows.map((row) => row.version))]}},
+		select: {id: true},
+	});
+	const there = new Set(kept.map((version) => version.id));
+	return rows.flatMap(({entryId, ...row}) =>
+		entryId === null ? [] : [{...row, entryId, gone: !there.has(row.version)}],
+	);
 }
 
 /**
@@ -1684,6 +1917,9 @@ async function writeNote(
 			jobId,
 		},
 	});
+	if (note.kind === 'end') {
+		await endThreadTurn(tx, thread, note.end);
+	}
 }
 
 /**
@@ -1975,11 +2211,8 @@ async function createSubAgent(
 }
 
 // Lands a message from the agent that started the sub-agent in the sub-agent's log, and wakes the
-// sub-agent: one that had stopped takes it up, its task under way again (takeUpSubAgentTask); one at work reads it once
-// its current call is answered; and one asleep is woken now, its sleep's job due now, which answers
-// the sleep as any wake-up does, the message after it, or its wake-up due now, which reads the
-// message. The sub-agent as it was before the message; null when the thread has no such
-// sub-agent. With the conversation locked.
+// sub-agent as wakeWith does. The sub-agent as it was before the message; null when the thread has
+// no such sub-agent. With the conversation locked.
 async function messageSubAgent(
 	tx: Tx,
 	parent: ThreadRow,
@@ -1989,7 +2222,7 @@ async function messageSubAgent(
 	attachments: EntryAttachment[] = [],
 ): Promise<SubAgentRow | null> {
 	const found = await tx.agentThread.findFirst({
-		where: {id: subAgentId, parentThreadId: parent.id},
+		where: {id: subAgentId, ...childrenOf(parent.id, 'subagent')},
 		select: {...threadSelect, jobs: openJobsSelect},
 	});
 	if (!found) {
@@ -1998,8 +2231,28 @@ async function messageSubAgent(
 	const {jobs, ...record} = found;
 	const thread = toThread(record);
 	const now = new Date();
+	await wakeWith(tx, thread, entry, wakes, attachments, now);
+	return {...thread, state: threadState(jobs, now)};
+}
+
+/**
+ * Lands what wakes a thread's agent, a message or an alert's event, with the files it goes with,
+ * and wakes it: one that had stopped takes it up, its task under way again (takeUpTask);
+ * one at work reads it once its current call is answered; and one asleep is woken now, its
+ * sleep's job due now, which answers the sleep as any wake-up does, the message after it, or its
+ * wake-up due now, which reads the message. A chat, which has no task and never sleeps, has it
+ * landed as any entry is. With the conversation locked.
+ */
+export async function wakeWith(
+	tx: Tx,
+	thread: ThreadRow,
+	entry: NewEntry,
+	wakes: Wakes,
+	attachments: EntryAttachment[] = [],
+	now = new Date(),
+): Promise<EntryRow> {
 	if (thread.taskId !== null) {
-		await takeUpSubAgentTask(tx, {...thread, taskId: thread.taskId}, now);
+		await takeUpTask(tx, {...thread, taskId: thread.taskId}, now);
 	}
 	// Only a sleep's job, the sleep's own or the wake-up that answers it, is due later; one a worker
 	// has claimed is no longer queued, and answers as it would.
@@ -2009,18 +2262,14 @@ async function messageSubAgent(
 	});
 	const appended = await appendEntry(tx, thread, entry, wakes);
 	await attach(tx, thread.id, appended.id, attachments);
-	return {...thread, state: threadState(jobs, now)};
+	return appended;
 }
 
-// Puts the sub-agent's task under way again from `now`, as a message wakes it. One that ended,
-// finished or left open, more than 20 minutes before stays as it was, and a new one for the same
-// work takes its place, so a task long over isn't drawn as under way again (@proxy/utils/tasks).
-// With the conversation locked.
-async function takeUpSubAgentTask(
-	tx: Tx,
-	thread: ThreadRow & {taskId: string},
-	now: Date,
-): Promise<void> {
+// Puts the thread's task, a sub-agent's or a chat thread's, under way again from `now`, as a
+// message or an alert wakes it. One that ended, finished or left open, more than 20 minutes before
+// stays as it was, and a new one for the same work takes its place, so a task long over isn't
+// drawn as under way again (@proxy/utils/tasks). With the conversation locked.
+async function takeUpTask(tx: Tx, thread: ThreadRow & {taskId: string}, now: Date): Promise<void> {
 	const task = await tx.agentTask.findUnique({
 		where: {id: thread.taskId},
 		select: {
@@ -2133,6 +2382,10 @@ export async function completeInference(
 				}
 				if ('stop' in after) {
 					await endTurn(tx, thread, after.stop, jobId, wakes);
+					return;
+				}
+				if ('end' in after) {
+					await endThreadTurn(tx, thread, after.end);
 					return;
 				}
 				// The answer's calls without a result: the turn's, just written, or those the log was

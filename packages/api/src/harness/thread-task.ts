@@ -18,8 +18,9 @@ import type {HarnessStore} from './store';
  * pap.finishTask from the agent's login elsewhere while the sub-agent is still at work, is
  * replaced with a new one for the same piece of work, the title and goal the one before had, once
  * the sub-agent makes a call again, since the gate refuses calls for it and the sub-agent starts
- * no task of its own (tool-surface). The agent talking with the person has none: it makes no calls but to
- * its sub-agents.
+ * no task of its own (tool-surface). A chat's thread has one the same way, made as the member's
+ * message opens it and taken up again by their reply. The agent of the chat itself has none: it
+ * makes no calls but to its sub-agents.
  */
 
 /** What a sub-agent's task needs of the store. */

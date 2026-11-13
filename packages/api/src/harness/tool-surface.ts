@@ -8,11 +8,13 @@ import {
 	isRecord,
 	parentMessageArgs,
 	SEND_TO_PARENT_TOOL,
+	SEND_TO_PERSON_TOOL,
 	SEND_TO_SUBAGENT_TOOL,
 	SLEEP_TOOL,
 	sleepUntil,
 	subAgentArgs,
 	subAgentMessageArgs,
+	threadRole,
 	type ToolCall,
 } from '@proxy/utils/harness';
 import type {InlineJob, ThreadRow} from '@proxy/db/harness';
@@ -20,7 +22,18 @@ import type {InlineJob, ThreadRow} from '@proxy/db/harness';
 import type {ModelTool} from '../llm/open-router';
 import {SCRIPT_TOOL, scriptToolDescription} from '../mcp/tools';
 import {CANCEL_ALERT_TOOL, SET_ALERT_PARAMETERS, SET_ALERT_TOOL} from './alerts';
-import {BAD_PARENT_MESSAGE_ARGS, BAD_SUBAGENT_ARGS, BAD_SUBAGENT_MESSAGE_ARGS, jobLost, SENT_TO_PARENT, sentToSubAgent, started, subAgentStart} from './conversation';
+import {
+	BAD_PARENT_MESSAGE_ARGS,
+	BAD_PERSON_MESSAGE_ARGS,
+	BAD_SUBAGENT_ARGS,
+	BAD_SUBAGENT_MESSAGE_ARGS,
+	jobLost,
+	SENT_TO_PARENT,
+	SENT_TO_PERSON,
+	sentToSubAgent,
+	started,
+	subAgentStart,
+} from './conversation';
 import type {HarnessStore} from './store';
 import {alertCall, BAD_SLEEP_ARGS, error, NOT_JSON, noSuchTool, runGateTool, setText, type ToolAnswerStore} from './tool-answers';
 
@@ -31,8 +44,11 @@ import {alertCall, BAD_SLEEP_ARGS, error, NOT_JSON, noSuchTool, runGateTool, set
  * something new in the person's accounts carries certain words, and to cancel one. A sub-agent has
  * the MCP server's script, as any agent gets it, less starting and finishing tasks, since every
  * call it makes is for its own task and the loop fills it in (tool-answers.ts); and two of its
- * own, to send a message to the agent it works for, and to be woken later. Nothing else:
- * everything done to the person's accounts goes through the same gate as Claude's calls.
+ * own, to send a message to the agent it works for, and to be woken later. A chat's thread, whose
+ * agent works on the member's message itself, has the script, a sleep and the alerts, and a
+ * message to the person while it goes on, which is answered at once: the call is what the person
+ * reads. Nothing else: everything done to the person's accounts goes through the same gate as
+ * Claude's calls.
  *
  * The harness (@proxy/backends/harness) is given them as a surface: the tools, none of which only
  * reads, since a script may change something, and `execute`, which runs one inline, mid-turn, for
@@ -95,6 +111,19 @@ const SEND_TO_PARENT: ModelTool = {
 	},
 };
 
+const SEND_TO_PERSON: ModelTool = {
+	name: SEND_TO_PERSON_TOOL,
+	description: 'Tells the person something while you go on: progress on long work, or what they should know now. Not for a question you need answered, nor for what your answer will say.',
+	parameters: {
+		type: 'object',
+		properties: {
+			text: {type: 'string', description: 'The message, in short Markdown'},
+		},
+		required: ['text'],
+		additionalProperties: false,
+	},
+};
+
 const SLEEP: ModelTool = {
 	name: SLEEP_TOOL,
 	description: 'Sleeps until `until`, ISO 8601 with offset, or for `seconds`, at most a week; a message wakes you sooner. You wake with only this log, so say first what you will do then.',
@@ -145,9 +174,19 @@ export const MAIN_AGENT_TOOLS: ModelTool[] = [CREATE_SUBAGENT, SEND_TO_SUBAGENT,
 /** The tools a sub-agent is given: the MCP server's script, a message to the agent it works for, and a sleep. */
 export const SUB_AGENT_TOOLS: ModelTool[] = [SCRIPT, SEND_TO_PARENT, SLEEP];
 
-/** The tools the model is given on a thread: a sub-agent's, or the main agent's. */
-export function toolsFor(thread: {parentThreadId: string | null}): ModelTool[] {
-	return thread.parentThreadId === null ? MAIN_AGENT_TOOLS : SUB_AGENT_TOOLS;
+/** The tools a chat's thread is given: the MCP server's script, a message to the person, a sleep, and setting an alert and cancelling one. */
+export const THREAD_TOOLS: ModelTool[] = [SCRIPT, SEND_TO_PERSON, SLEEP, SET_ALERT, CANCEL_ALERT];
+
+/** The tools the model is given on a thread: the main agent's, a chat thread's, or a sub-agent's. */
+export function toolsFor(thread: {parentThreadId: string | null; parentCallId: string | null}): ModelTool[] {
+	const role = threadRole(thread);
+	if (role === 'chat') {
+		return MAIN_AGENT_TOOLS;
+	}
+	if (role === 'thread') {
+		return THREAD_TOOLS;
+	}
+	return SUB_AGENT_TOOLS;
 }
 
 // A tool as the harness is given it. None only reads: a script may change something, and the
@@ -159,17 +198,38 @@ function toHarnessTool(tool: ModelTool): HarnessTool {
 /** What running a call inline needs of the store: what answering one needs, and the fenced writes beside the log. */
 export type ToolSurfaceStore = ToolAnswerStore & Pick<HarnessStore, 'setAlertInline' | 'scheduleWake' | 'startSubAgentInline' | 'messageSubAgentInline' | 'tellParentInline'>;
 
+// An alert call, at once: one set, in a transaction of its own fenced by the job, or cancelled.
+function alertInline(store: ToolSurfaceStore, thread: ThreadRow, job: InlineJob, call: ToolCall, args: Record<string, unknown>, now: Date): Promise<Result<ToolAnswer, ApiError>> {
+	return Do(async ($) => {
+		const outcome = $(await alertCall(store, thread, call, args, now));
+		if (!('alert' in outcome)) {
+			return outcome;
+		}
+		const alert = $(requirePresent($(await store.setAlertInline(job, outcome.alert)), jobLost()));
+		return {text: setText(alert), isError: false};
+	});
+}
+
+// A sleep, at once: a wake job for the thread, the answer ending the turn.
+function sleepInline(store: ToolSurfaceStore, job: InlineJob, args: Record<string, unknown>, now: Date): Promise<Result<ToolAnswer, ApiError>> {
+	return Do(async ($) => {
+		const until = sleepUntil(args, now);
+		if (until === null) {
+			return error(BAD_SLEEP_ARGS);
+		}
+		if (!$(await store.scheduleWake(job.jobId, job.workerId, job.threadId, until))) {
+			return $(Err(jobLost()));
+		}
+		return {text: `Sleeping until ${until.toISOString()}. You will be woken then, or earlier by a message.`, isError: false, endTurn: true};
+	});
+}
+
 // What a call of the agent talking with the person does, at once: an alert set or cancelled, a
 // sub-agent started or messaged.
 function executeMain(store: ToolSurfaceStore, thread: ThreadRow, job: InlineJob, call: ToolCall, args: Record<string, unknown>, now: Date): Promise<Result<ToolAnswer, ApiError>> {
 	return Do(async ($) => {
 		if (call.name === SET_ALERT_TOOL || call.name === CANCEL_ALERT_TOOL) {
-			const outcome = $(await alertCall(store, thread, call, args, now));
-			if (!('alert' in outcome)) {
-				return outcome;
-			}
-			const alert = $(requirePresent($(await store.setAlertInline(job, outcome.alert)), jobLost()));
-			return {text: setText(alert), isError: false};
+			return $(await alertInline(store, thread, job, call, args, now));
 		}
 		if (call.name === CREATE_SUBAGENT_TOOL) {
 			const parsed = subAgentArgs(args);
@@ -206,14 +266,28 @@ function executeSub(store: ToolSurfaceStore, thread: ThreadRow, job: InlineJob, 
 			return {text: SENT_TO_PARENT, isError: false};
 		}
 		if (call.name === SLEEP_TOOL) {
-			const until = sleepUntil(args, now);
-			if (until === null) {
-				return error(BAD_SLEEP_ARGS);
-			}
-			if (!$(await store.scheduleWake(job.jobId, job.workerId, job.threadId, until))) {
-				return $(Err(jobLost()));
-			}
-			return {text: `Sleeping until ${until.toISOString()}. You will be woken then, or earlier by a message.`, isError: false, endTurn: true};
+			return $(await sleepInline(store, job, args, now));
+		}
+		if (isGateTool(call.name)) {
+			return $(await runGateTool(store, thread, args));
+		}
+		return noSuchTool(call.name);
+	});
+}
+
+// What a call of a chat thread's does, at once: the person told, which is the call itself, read
+// where the thread is shown, so nothing is written for it; a sleep as a wake job, the answer
+// ending the turn; an alert set or cancelled; or a script run.
+function executeThread(store: ToolSurfaceStore, thread: ThreadRow, job: InlineJob, call: ToolCall, args: Record<string, unknown>, now: Date): Promise<Result<ToolAnswer, ApiError>> {
+	return Do(async ($) => {
+		if (call.name === SEND_TO_PERSON_TOOL) {
+			return parentMessageArgs(args) ? {text: SENT_TO_PERSON, isError: false} : error(BAD_PERSON_MESSAGE_ARGS);
+		}
+		if (call.name === SLEEP_TOOL) {
+			return $(await sleepInline(store, job, args, now));
+		}
+		if (call.name === SET_ALERT_TOOL || call.name === CANCEL_ALERT_TOOL) {
+			return $(await alertInline(store, thread, job, call, args, now));
 		}
 		if (isGateTool(call.name)) {
 			return $(await runGateTool(store, thread, args));
@@ -237,8 +311,12 @@ export function toolSurfaceFor(store: ToolSurfaceStore, thread: ThreadRow, job: 
 			if (!isRecord(args)) {
 				return Promise.resolve(Ok(error(NOT_JSON)));
 			}
-			if (thread.parentThreadId === null) {
+			const role = threadRole(thread);
+			if (role === 'chat') {
 				return executeMain(store, thread, inlineJob, call, args, clock());
+			}
+			if (role === 'thread') {
+				return executeThread(store, thread, inlineJob, call, args, clock());
 			}
 			return executeSub(store, thread, inlineJob, call, args, clock());
 		},

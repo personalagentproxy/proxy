@@ -83,6 +83,32 @@ export const SEND_TO_SUBAGENT_TOOL = 'send_to_subagent';
 export const SEND_TO_PARENT_TOOL = 'send_to_parent';
 export const SLEEP_TOOL = 'sleep_until';
 
+/** The name of a chat thread's tool that tells the person something while its agent goes on. */
+export const SEND_TO_PERSON_TOOL = 'send_to_person';
+
+/**
+ * What a thread is to the harness: a member's chat with a persona, the root, whose agent is the
+ * main agent that starts sub-agents; one of the chat's threads, opened by the member's message,
+ * whose agent works on that message itself and answers the member; or an old sub-agent, started
+ * by a create_subagent call of the chat's agent, which it answers. The one place a chat's thread
+ * and a sub-agent are told apart: by whether a call started it. Step 4 of the move to threads
+ * removes the sub-agents, and with them this.
+ */
+export type ThreadRole = 'chat' | 'thread' | 'subagent';
+
+export function threadRole(thread: {
+	parentThreadId: string | null;
+	parentCallId: string | null;
+}): ThreadRole {
+	if (thread.parentThreadId === null) {
+		return 'chat';
+	}
+	if (thread.parentCallId === null) {
+		return 'thread';
+	}
+	return 'subagent';
+}
+
 // How long a sub-agent's title may be: a task's.
 const MAX_TITLE = 120;
 

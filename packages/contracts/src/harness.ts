@@ -45,8 +45,8 @@ export const chatPersonaSchema = z.object({
 	 */
 	mayChange: z.boolean(),
 	/**
-	 * The last thing said in the person's conversation with it, cut to a line, for the list; null
-	 * before anything was said.
+	 * The last thing said in the person's conversation with it, the chat or any of its threads, cut
+	 * to a line, for the list; null before anything was said.
 	 */
 	lastMessage: z.object({kind: speakerSchema, text: z.string(), at: z.string()}).nullable(),
 	/**
@@ -112,9 +112,9 @@ export const personaListSchema = z.object({
 export const pinTaskBodySchema = z.object({pinned: z.boolean()});
 
 /**
- * The persona's last answer in one of the person's conversations, cut to a line, which may come
- * before what the person said last, and whether they haven't seen it: the page hasn't shown it to
- * them since it came (`POST chat/personas/:personaId/read`).
+ * The persona's last answer in one of the person's conversations, the chat or any of its threads,
+ * cut to a line, which may come before what the person said last, and whether they haven't seen
+ * it: the page hasn't shown it to them since it came (`POST chat/personas/:personaId/read`).
  */
 export const chatAnswerSchema = z.object({
 	personaId: z.string(),
@@ -270,8 +270,8 @@ export const saveDraftBodySchema = z.object({
 });
 
 /**
- * `POST chat/personas/:personaId/read`: the persona's answer the page showed the person, which
- * the conversation is read up to.
+ * `POST chat/personas/:personaId/read`: the persona's answer the page showed the person, in the
+ * chat or one of its threads, which the chat is read up to.
  */
 export const markReadBodySchema = z.object({entryId: z.string().min(1)});
 
@@ -311,3 +311,104 @@ export const taskChatSchema = z.object({
 });
 
 export type TaskChat = z.infer<typeof taskChatSchema>;
+
+/**
+ * What one of the chat's threads is up to: at work; asleep until a time, woken then or by a reply;
+ * or stopped, until the person replies or an alert set in it comes.
+ */
+export const chatThreadStateSchema = z.discriminatedUnion('kind', [
+	z.object({kind: z.literal('working')}),
+	z.object({kind: z.literal('asleep'), until: z.string()}),
+	z.object({kind: z.literal('stopped')}),
+]);
+
+export type ChatThreadState = z.infer<typeof chatThreadStateSchema>;
+
+/**
+ * Something said in a thread, as its page shows it: what the person said, with the files they
+ * attached to it; what the persona answered, or told them as it went, with the files its words
+ * show, which is what went wrong where its turn failed; or an event, an alert set in the thread
+ * that came. What the persona did to get there is in the activity log, not here.
+ */
+export const threadMessageSchema = z.object({
+	id: z.string(),
+	kind: z.enum(['person', 'assistant', 'event']),
+	text: z.string(),
+	isError: z.boolean(),
+	at: z.string(),
+	attachments: z.array(chatAttachmentSchema),
+});
+
+export type ThreadMessage = z.infer<typeof threadMessageSchema>;
+
+/**
+ * One of the chat's threads, as the chat lists it: its title; what it is up to; what opened it,
+ * the person's message with the files they attached, or an event's text; the start of the latest
+ * thing the persona said in it, cut to a line, null before it said anything; how many messages it
+ * holds (`threadMessageSchema`), and when the last came.
+ */
+export const chatThreadSchema = z.object({
+	id: z.string(),
+	title: z.string(),
+	state: chatThreadStateSchema,
+	opener: z
+		.discriminatedUnion('kind', [
+			z.object({
+				kind: z.literal('person'),
+				text: z.string(),
+				attachments: z.array(chatAttachmentSchema),
+			}),
+			z.object({kind: z.literal('event'), text: z.string()}),
+		])
+		.nullable(),
+	latest: z.string().nullable(),
+	messageCount: z.number(),
+	lastMessageAt: z.string(),
+});
+
+export type ChatThread = z.infer<typeof chatThreadSchema>;
+
+/**
+ * `GET chat/personas/:personaId/threads`: the person's chat with a persona, begun where there was
+ * none: the persona, what they typed in it and haven't sent and the files they put in its input,
+ * as the conversation's answer has them (`threadLogSchema`), and its threads, the one that last had
+ * a message last.
+ */
+export const chatThreadsSchema = z.object({
+	persona: chatPersonaSchema,
+	draft: z.string().nullable(),
+	draftAttachments: z.array(chatAttachmentSchema),
+	threads: z.array(chatThreadSchema),
+});
+
+export type ChatThreads = z.infer<typeof chatThreadsSchema>;
+
+/**
+ * `GET chat/personas/:personaId/threads/:threadId`: one of the chat's threads: the persona, the
+ * thread, whether it is at work, as against asleep or done for now, the task of the activity log
+ * its requests are made for now (`/activity/tasks/:id`), and what was said in it, in order.
+ */
+export const threadViewSchema = z.object({
+	persona: chatPersonaSchema,
+	thread: chatThreadSchema,
+	busy: z.boolean(),
+	activityTaskId: z.string().nullable(),
+	messages: z.array(threadMessageSchema),
+});
+
+export type ThreadView = z.infer<typeof threadViewSchema>;
+
+/**
+ * `POST chat/personas/:personaId/threads`, with a body as `postMessageBodySchema`: a thread opened
+ * in the chat with what the person says, and the files they attach, as its first message; the
+ * chat's draft goes with it, since this is it sent. Its persona is woken in it.
+ */
+export const openedThreadSchema = z.object({thread: chatThreadSchema});
+
+/**
+ * `POST chat/personas/:personaId/threads/:threadId/messages`, with a body as
+ * `postMessageBodySchema`: what the person replies in a thread, which takes it up again.
+ * `POST chat/personas/:personaId/threads/:threadId/attachments?name=&type=`: a file for a reply,
+ * kept in the person's own drive as one put in a task's input is (`uploadAttachmentQuerySchema`).
+ */
+export const postedReplySchema = z.object({message: threadMessageSchema});

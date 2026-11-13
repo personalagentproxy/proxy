@@ -18,7 +18,7 @@ mock.module('../mcp/tools', () => ({...mcpTools, callMcpTool}));
 const listAgentConnections = mock();
 mock.module('../agent-side/tools', () => ({listAgentConnections}));
 mock.module('../records/connectors', () => ({connectorFor: () => ({list: mock(), get: mock(), changes: mock()})}));
-const {isGateTool, MAIN_AGENT_TOOLS, SUB_AGENT_TOOLS, toolsFor, toolSurfaceFor} = await import('./tool-surface');
+const {isGateTool, MAIN_AGENT_TOOLS, SUB_AGENT_TOOLS, THREAD_TOOLS, toolsFor, toolSurfaceFor} = await import('./tool-surface');
 const EMAILS_READ = findCollection(findIntegration('google') ?? {collections: []}, 'emails')?.read ?? '';
 
 type Params = {properties: Record<string, unknown>; required: string[]};
@@ -40,9 +40,19 @@ describe('the main agent’s tools', () => {
 		expect((MAIN_AGENT_TOOLS[3]?.parameters as Params).required).toEqual(['id']);
 	});
 
-	test('are the conversation’s, and a sub-agent gets its own', () => {
-		expect(toolsFor({parentThreadId: null})).toBe(MAIN_AGENT_TOOLS);
-		expect(toolsFor({parentThreadId: 'thread-1'})).toBe(SUB_AGENT_TOOLS);
+	test('are the conversation’s, and a sub-agent and a chat’s thread get their own', () => {
+		expect(toolsFor({parentThreadId: null, parentCallId: null})).toBe(MAIN_AGENT_TOOLS);
+		expect(toolsFor({parentThreadId: 'thread-1', parentCallId: 'c0'})).toBe(SUB_AGENT_TOOLS);
+		expect(toolsFor({parentThreadId: 'thread-1', parentCallId: null})).toBe(THREAD_TOOLS);
+	});
+});
+
+describe('a chat thread’s tools', () => {
+	test('are the MCP server’s script, a message to the person, a sleep, and setting an alert and cancelling one: no sub-agents, and no parent to tell', () => {
+		expect(THREAD_TOOLS.map((candidate) => candidate.name)).toEqual(['script', 'send_to_person', 'sleep_until', 'set_alert', 'cancel_alert']);
+		const toPerson = THREAD_TOOLS.find((candidate) => candidate.name === 'send_to_person');
+		expect((toPerson?.parameters as Params).required).toEqual(['text']);
+		expect(toPerson?.description).toContain('Tells the person something while you go on');
 	});
 });
 
@@ -88,8 +98,11 @@ describe('running a call inline', () => {
 		createdAt: now,
 	};
 	const sub: ThreadRow = {...conversation, id: 'thread-1', parentThreadId: 'thread-0', parentCallId: 'c0', title: 'Find the invoices', taskId: 'task-1'};
+	// A thread of the member's chat, which their message opened.
+	const opened: ThreadRow = {...conversation, id: 'thread-2', parentThreadId: 'thread-0', title: 'Pricing review with Dana', taskId: 'task-1'};
 	const mainJob = {jobId: 'job-1', workerId: 'w1', threadId: 'thread-0'};
 	const subJob = {jobId: 'job-2', workerId: 'w1', threadId: 'thread-1'};
+	const threadJob = {jobId: 'job-3', workerId: 'w1', threadId: 'thread-2'};
 	const alert: AlertRow = {
 		id: 'alert-1',
 		orgId: 'org-1',
@@ -109,6 +122,7 @@ describe('running a call inline', () => {
 	let store: FakeStore;
 	const onMain = () => toolSurfaceFor(store, conversation, {id: 'job-1'}, 'w1', () => now);
 	const onSub = () => toolSurfaceFor(store, sub, {id: 'job-2'}, 'w1', () => now);
+	const onThread = () => toolSurfaceFor(store, opened, {id: 'job-3'}, 'w1', () => now);
 	const run = (surface: ReturnType<typeof onMain>, name: string, args: string, id = 'c1') => surface.execute({id, name, arguments: args});
 
 	beforeEach(() => {
@@ -282,6 +296,48 @@ describe('running a call inline', () => {
 			text: 'No alert alert-2.',
 			isError: true,
 		});
+	});
+
+	test('a chat thread’s script, sleep and alerts are run as the thread’s own, for its task', async () => {
+		const surface = onThread();
+		expect(surface.tools.map((candidate) => candidate.name)).toEqual(['script', 'send_to_person', 'sleep_until', 'set_alert', 'cancel_alert']);
+
+		const code = 'return pap.call("mail-1", "emails_list")';
+		expect((await run(surface, 'script', JSON.stringify({code}))).unwrap()).toEqual({text: '{"records":[]}', isError: false});
+		expect(callMcpTool).toHaveBeenCalledWith(signedIn, {code, task: 'task-1'}, 'harness');
+
+		expect((await run(surface, 'sleep_until', '{"seconds":60}')).unwrap()).toMatchObject({isError: false, endTurn: true});
+		expect(store.scheduleWake).toHaveBeenCalledWith('job-3', 'w1', 'thread-2', new Date('2026-10-21T10:01:00Z'));
+
+		expect((await run(surface, 'set_alert', '{"title":"Call Dana","brief":"Remind them.","at":"2026-10-22T07:30:00Z"}')).unwrap()).toEqual({
+			text: 'Set the alert alert-1: “Call Dana”, due 2026-10-22T07:30:00.000Z.',
+			isError: false,
+		});
+		expect(store.setAlertInline).toHaveBeenCalledWith(threadJob, {kind: 'time', title: 'Call Dana', brief: 'Remind them.', at: new Date('2026-10-22T07:30:00Z')});
+		expect((await run(surface, 'cancel_alert', '{"id":"alert-1"}')).unwrap()).toEqual({text: 'Cancelled the alert alert-1.', isError: false});
+		expect(store.deleteAlert).toHaveBeenCalledWith('alert-1', {threadId: 'thread-2'});
+	});
+
+	test('a chat thread’s message to the person is answered at once, nothing written for it: the call is what the person reads', async () => {
+		expect((await run(onThread(), 'send_to_person', '{"text":"Halfway through the invoices."}')).unwrap()).toEqual({text: 'Sent.', isError: false});
+		expect((await run(onThread(), 'send_to_person', '{}')).unwrap()).toEqual({text: 'Give text, the message.', isError: true});
+		expect(store.tellParentInline).not.toHaveBeenCalled();
+		expect(store.appendTurnEntries).not.toHaveBeenCalled();
+	});
+
+	test('a chat thread has no sub-agents and no parent to tell, and the others have no message to the person', async () => {
+		for (const [name, args] of [
+			['create_subagent', '{"title":"a","brief":"b"}'],
+			['send_to_subagent', '{"subagent":"thread-1","text":"Hi"}'],
+			['send_to_parent', '{"text":"Hi"}'],
+		] as const) {
+			expect((await run(onThread(), name, args)).unwrap()).toEqual({text: `There is no tool ${name}.`, isError: true});
+		}
+		expect((await run(onMain(), 'send_to_person', '{"text":"Hi"}')).unwrap()).toEqual({text: 'There is no tool send_to_person.', isError: true});
+		expect((await run(onSub(), 'send_to_person', '{"text":"Hi"}')).unwrap()).toEqual({text: 'There is no tool send_to_person.', isError: true});
+		expect(store.startSubAgentInline).not.toHaveBeenCalled();
+		expect(store.messageSubAgentInline).not.toHaveBeenCalled();
+		expect(store.tellParentInline).not.toHaveBeenCalled();
 	});
 
 	test('never writes to the log, nor ends the job: the result is the worker’s to write', async () => {

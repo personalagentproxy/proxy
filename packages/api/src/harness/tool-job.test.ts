@@ -290,3 +290,50 @@ describe('the conversation’s alert calls', () => {
 		expect(store.completeSetAlert).not.toHaveBeenCalled();
 	});
 });
+
+describe('a chat thread’s calls', () => {
+	// A thread of the member's chat, which their message opened: no call started it.
+	const opened: ThreadRow = {...thread, id: 'thread-2', parentCallId: null, title: 'Pricing review with Dana', taskId: 'task-1'};
+	const onThread = (callId: string): JobRow => ({...job(callId), threadId: 'thread-2'});
+
+	beforeEach(() => {
+		getJobThread.mockResolvedValue(Ok(opened));
+		store.completeSetAlert.mockResolvedValue(Ok(true));
+		store.deleteAlert.mockResolvedValue(Ok(true));
+	});
+
+	test('run a script through the MCP dispatch for the thread’s task, and answer a sleep with the time', async () => {
+		const {runToolJob} = await import('./tool-job');
+		await runToolJob(store, onThread('c1'), 'w1', now);
+		expect(callMcpTool).toHaveBeenCalledWith(signedIn, {code: 'return await pap.call("mail-1", "emails_list");', task: 'task-1'}, 'harness');
+		expect(completeToolJob).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-2', {callId: 'c1', text: '{"records":[]}', isError: false});
+
+		getEntry.mockResolvedValue(Ok(entryWith([{id: 'c2', name: 'sleep_until', arguments: '{"seconds":60}'}])));
+		await runToolJob(store, onThread('c2'), 'w1', now);
+		expect(completeToolJob).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-2', {callId: 'c2', text: 'Woken at 2026-10-21T10:00:00.000Z.', isError: false});
+	});
+
+	test('set an alert in the thread, as it is answered, and cancel one of the thread’s', async () => {
+		const {runToolJob} = await import('./tool-job');
+		getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name: 'set_alert', arguments: '{"title":"Check the review","brief":"See whether Dana moved it.","at":"2026-10-22T07:30:00Z"}'}])));
+		await runToolJob(store, onThread('c1'), 'w1', now);
+		expect(store.completeSetAlert).toHaveBeenCalledWith(
+			{jobId: 'job-1', workerId: 'w1', threadId: 'thread-2', callId: 'c1'},
+			{kind: 'time', title: 'Check the review', brief: 'See whether Dana moved it.', at: new Date('2026-10-22T07:30:00Z')},
+			expect.any(Function),
+		);
+
+		getEntry.mockResolvedValue(Ok(entryWith([{id: 'c2', name: 'cancel_alert', arguments: '{"id":"alert-1"}'}])));
+		await runToolJob(store, onThread('c2'), 'w1', now);
+		expect(store.deleteAlert).toHaveBeenCalledWith('alert-1', {threadId: 'thread-2'});
+	});
+
+	test('have no sub-agents and no parent to tell: a job for one answers that there is no such tool', async () => {
+		const {runToolJob} = await import('./tool-job');
+		for (const name of ['create_subagent', 'send_to_subagent', 'send_to_parent']) {
+			getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name, arguments: '{}'}])));
+			await runToolJob(store, onThread('c1'), 'w1', now);
+			expect(completeToolJob).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-2', {callId: 'c1', text: `There is no tool ${name}.`, isError: true});
+		}
+	});
+});
