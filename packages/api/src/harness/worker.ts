@@ -32,8 +32,10 @@ import {runToolJob, type ToolJobStore} from './tool-job';
  * (backends/harness.ts): the worker counts those it runs, and, at the cap, claims only the other
  * jobs, so a turn it has no subprocess for stays in the queue, for it later or for another
  * instance, rather than taking up room here while it waits. As a thread's turn ends, a small model
- * reads where it stands, after the turn's job and beside the next (thread-standing.ts); stopping,
- * the worker waits for those readings as it does for its jobs.
+ * reads where it stands, after the turn's job and beside the next (thread-standing.ts), and as its
+ * agent tells the member something and goes on, the turn's job still running, which the turn says
+ * through the harnesses it is run with; stopping, the worker waits for those readings as it does
+ * for its jobs.
  */
 
 const POLL_MS = 500;
@@ -125,18 +127,26 @@ export function startHarnessWorker(store: WorkerStore, harnesses: Harnesses, sta
 	// How many of the jobs running are turns on the capped harness.
 	let cappedTurns = 0;
 
-	// Runs the job, and, a turn's job over, however it went, has where its thread stands written
-	// after, in the background, so the worker goes on to the next job meanwhile: the thread's turn
-	// may have ended, and where it hasn't, nothing is written (thread-standing.ts).
-	const runClaimed = async (job: JobRow): Promise<void> => {
-		await runOrFail(store, harnesses, job, workerId);
-		if (job.kind !== 'inference' && job.kind !== 'wake') {
-			return;
-		}
-		const written: Promise<void> = standAfterTurn(store, standing, job.threadId).finally(() => {
+	// Has where the thread stands written, in the background, so the worker goes on meanwhile.
+	const stand = (threadId: string): void => {
+		const written: Promise<void> = standAfterTurn(store, standing, threadId).finally(() => {
 			standings.delete(written);
 		});
 		standings.add(written);
+	};
+	// The harnesses a turn is run with, which say when its agent told the member something and
+	// went on: where the thread stands is written then too, the turn still running.
+	const telling: Harnesses = {...harnesses, told: stand};
+
+	// Runs the job, and, a turn's job over, however it went, has where its thread stands written
+	// after: the thread's turn may have ended, or its agent told the member something in a step
+	// whose calls are still to run, and otherwise nothing is written (thread-standing.ts).
+	const runClaimed = async (job: JobRow): Promise<void> => {
+		await runOrFail(store, telling, job, workerId);
+		if (job.kind !== 'inference' && job.kind !== 'wake') {
+			return;
+		}
+		stand(job.threadId);
 	};
 
 	const loop = async (): Promise<void> => {

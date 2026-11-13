@@ -13,7 +13,7 @@ import {chatFolder} from '../native/files/names';
 import {log, serializeError} from '../observability/log';
 import {alertsParagraph} from './alerts';
 import {picturesOf, withAttached} from './attachments';
-import {afterAnswer, jobLost, planCalls} from './thread-rules';
+import {afterAnswer, jobLost, planCalls, SHOWN_CALLS} from './thread-rules';
 import type {HarnessStore} from './store';
 import {type ToolSurfaceStore, toolSurfaceFor} from './tool-surface';
 
@@ -225,9 +225,10 @@ function pinFor(harnesses: Harnesses, thread: ThreadRow, signedIn: SignedInAgent
 // assistant entry, with the harness and the model it ran on and the files its words show (`pin`),
 // and the result after it, the first step with the system prompt; what is left
 // when `done` comes is the turn's last step, given back with what the turn cost, the session kept
-// and the calls still open. What the provider said of the plan goes to `onUsage`. A result for a
-// call the turn didn't make, or answered already, and a turn that ends without `done` or `failed`,
-// are failures of the harness.
+// and the calls still open. What the provider said of the plan goes to `onUsage`, and `onTold`
+// hears of each step written that the thread shows, the agent telling the person something as it
+// goes on. A result for a call the turn didn't make, or answered already, and a turn that ends
+// without `done` or `failed`, are failures of the harness.
 function consume(
 	store: InferenceStore,
 	job: JobRow,
@@ -236,6 +237,7 @@ function consume(
 	events: AsyncIterable<HarnessEvent>,
 	onUsage: UsageSink,
 	pin: Pin,
+	onTold: () => void,
 ): Promise<Result<TurnOutcome, ApiError>> {
 	return Do(async ($) => {
 		let pieces: string[] = [];
@@ -277,6 +279,11 @@ function consume(
 				const result: NewTurnEntry = {kind: 'tool_result', callId: event.callId, text: event.text, isError: event.isError};
 				if (!$(await store.appendTurnEntries(job.id, workerId, job.threadId, [...step, result]))) {
 					return $(Err(jobLost()));
+				}
+				// A step the thread shows, its words or a message to the person, is the agent telling
+				// them something as it goes on.
+				if (text !== '' || toolCalls.some((call) => SHOWN_CALLS.includes(call.name))) {
+					onTold();
 				}
 				wroteInline = true;
 				pieces = [];
@@ -393,6 +400,7 @@ function askOnLog(
 					}),
 					usageSink(credentials, choice, thread, clock),
 					pinFor(harnesses, thread, signedIn),
+					() => harnesses.told?.(thread.id),
 				),
 			);
 		}),

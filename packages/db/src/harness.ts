@@ -1275,16 +1275,19 @@ export async function hasChatThread(
 }
 
 /**
- * Writes where the thread stands, as its turn ended: the sentence, written from the log up to
- * `upToSeq`, and, where given, whether its agent waits for the member; left as it was otherwise.
- * Written only while it is still so: not where the thread is at work again, or anything came into
- * it past `upToSeq`, the member's reply or an alert, which a later turn's end writes for. `Ok(false)`
- * where it was not written.
+ * Writes where the thread stands: the sentence, written from the log up to `upToSeq`, and, where
+ * given, whether its agent waits for the member; left as it was otherwise. As its turn ended, it
+ * is written only while that is still so: not where the thread is at work again. `atWork`, as its
+ * agent told the member something and went on, it is written while the thread works. Either way
+ * not where anything came into the thread past `upToSeq`, the member's reply or an alert, which a
+ * later write is for, nor over one written from further on in the log, which a write that took
+ * longer would otherwise put back. `Ok(false)` where it was not written.
  */
 export async function writeThreadStanding(
 	threadId: string,
 	standing: {summary: string | null; waitingForMember?: boolean},
 	upToSeq: number,
+	atWork = false,
 ): Promise<Result<boolean, ApiError>> {
 	return wrapDb(() =>
 		db.$transaction(async (tx) => {
@@ -1298,11 +1301,11 @@ export async function writeThreadStanding(
 				}),
 				tx.agentJob.count({where: {threadId, status: {in: ['queued', 'running']}}}),
 			]);
-			if (came > 0 || open > 0) {
+			if (came > 0 || (open > 0 && !atWork)) {
 				return false;
 			}
-			await tx.agentThread.update({
-				where: {id: threadId},
+			const {count} = await tx.agentThread.updateMany({
+				where: {id: threadId, OR: [{summarySeq: null}, {summarySeq: {lte: upToSeq}}]},
 				data: {
 					summary: standing.summary,
 					summarySeq: upToSeq,
@@ -1310,9 +1313,8 @@ export async function writeThreadStanding(
 						? {}
 						: {waitingForMember: standing.waitingForMember}),
 				},
-				select: {id: true},
 			});
-			return true;
+			return count > 0;
 		}),
 	);
 }

@@ -644,6 +644,61 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		).toBe(false);
 	});
 
+	test('where a thread stands is written while it works only where said to be, never whether it waits, never over one written from further on, and not once something came', async () => {
+		const thread = await open('Standing at work: move the pricing review');
+		const asked = await lastSeq(thread);
+
+		// Its turn is still to run: as a turn's end, nothing is written; as its agent told the member
+		// something and went on, the sentence is, and whether it waits is left.
+		expect(
+			unwrap(
+				await writeThreadStanding(thread.id, {summary: 'Moved.', waitingForMember: true}, asked),
+			),
+		).toBe(false);
+		expect(
+			unwrap(
+				await writeThreadStanding(thread.id, {summary: 'Checking the calendar.'}, asked, true),
+			),
+		).toBe(true);
+		expect(await standingOf(thread)).toEqual({
+			waitingForMember: false,
+			summary: 'Checking the calendar.',
+			summarySeq: asked,
+		});
+
+		// The turn ends, and its end is written; the sentence of the step before, read by a model
+		// that took longer, does not come back over it.
+		await answer(thread, 'worker-sw1', 'Moved it to Friday. Should Dana be told?');
+		const answered = await lastSeq(thread);
+		expect(
+			unwrap(
+				await writeThreadStanding(
+					thread.id,
+					{summary: 'Moved to Friday; asks whether to tell Dana.', waitingForMember: true},
+					answered,
+				),
+			),
+		).toBe(true);
+		expect(
+			unwrap(
+				await writeThreadStanding(thread.id, {summary: 'Checking the calendar.'}, asked, true),
+			),
+		).toBe(false);
+		expect(await standingOf(thread)).toEqual({
+			waitingForMember: true,
+			summary: 'Moved to Friday; asks whether to tell Dana.',
+			summarySeq: answered,
+		});
+
+		// The member replies: what was read before the reply is not written, at work or not.
+		unwrap(await replyInThread(chat.id, thread.id, 'Yes, tell Dana', readyForInference));
+		expect(unwrap(await writeThreadStanding(thread.id, {summary: 'Stale.'}, answered, true))).toBe(
+			false,
+		);
+		expect((await standingOf(thread))?.summary).toBe('Moved to Friday; asks whether to tell Dana.');
+		await db.agentJob.updateMany({where: {threadId: thread.id}, data: {status: 'done'}});
+	});
+
 	test('the member marks a thread of their chat done; a thread of another chat is not theirs to mark', async () => {
 		const thread = await open('Check the coverage of the api package');
 		await answer(thread, 'worker-st5', 'Should I include the scripts?');

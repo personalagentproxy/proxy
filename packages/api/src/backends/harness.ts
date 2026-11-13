@@ -55,8 +55,8 @@ export type PictureOf = (attachment: EntryAttachment) => Promise<Result<EntryIma
  */
 export type PinnedIn = (agent: SignedInAgent, text: string) => Promise<Result<EntryAttachment[], ApiError>>;
 
-/** What the worker runs turns with: the harnesses, how a member's credential is read, which the choice between them turns on, how a picture the person attached is read for a model that sees pictures, without which no turn is given any, and how the files an answer shows are kept with it, without which none is. */
-export type Harnesses = {registry: HarnessRegistry; credentials: ClaudeCredentials; picture?: PictureOf; pinned?: PinnedIn};
+/** What the worker runs turns with: the harnesses, how a member's credential is read, which the choice between them turns on, how a picture the person attached is read for a model that sees pictures, without which no turn is given any, how the files an answer shows are kept with it, without which none is, and who is told that a thread's agent told the member something and went on, the worker itself, which writes where the thread stands then (harness/worker.ts). */
+export type Harnesses = {registry: HarnessRegistry; credentials: ClaudeCredentials; picture?: PictureOf; pinned?: PinnedIn; told?: (threadId: string) => void};
 
 /** The harness for a turn with the model to answer with and the credential to give it, or none, with what the person is told instead. */
 export type HarnessChoice = {harness: HarnessBackend; model: string; auth: HarnessAuth | null} | {harness: null; auth: null; why: string};

@@ -16,7 +16,9 @@ import type {HarnessStore} from './store';
  * Where a thread stands, written as its turn ends, whichever harness ran it and however it ended,
  * its answer without calls or a failure answered in the thread (worker.ts): one sentence saying
  * where it is, for the chat's list in place of the start of the latest answer, and whether its
- * agent waits for the member to answer or act before it can go on. A small model reads what the
+ * agent waits for the member to answer or act before it can go on. The sentence is written while
+ * the thread works too, each time its agent tells the member something and goes on, so a long
+ * turn's row says what it is at; whether it waits is the turn's end's alone to say. A small model reads what the
  * member sees of the thread and says both, through `askForJson` (llm/open-router.ts) on the
  * server's OpenRouter key, as the command bar's model fills in a card. It is the turn's after: the
  * turn's result is written before it runs, and nothing it does reaches the turn. Without the key
@@ -75,6 +77,13 @@ export const STANDING_INSTRUCTIONS = [
 	'You read a thread between a person and an AI agent that works for them, as the person sees it, and say where it stands, for the list of their threads. Answer with JSON only.',
 	'summary: one sentence, at most 20 words, saying where the thread stands now: what was done or found, with the number, name or link that matters, or what the agent asks. Clipped and factual, about the thread rather than its last message; no "The agent", no "I", no greeting. Write it in the language of the thread. For example: "Has a plan, and asks whether the date range should cover the CSV export too." "Merged #412 once its checks passed." "81% of lines and 74% of branches."',
 	'waitingForMember: true when the agent stopped and can not go on until the person answers a question, decides something or does something it asked of them; false when it finished, reported, or needs nothing more from them.',
+].join('\n\n');
+
+/** What the model is told of a thread its agent is still at work on: what to write, the thread waiting for nobody. */
+export const WORKING_INSTRUCTIONS = [
+	'You read a thread between a person and an AI agent that works for them, as the person sees it, while the agent is still at work on it, and say where it stands, for the list of their threads. Answer with JSON only.',
+	'summary: one sentence, at most 20 words, saying what the agent is doing now and what it has found or done so far, with the number, name or link that matters. Clipped and factual, about the thread rather than its last message; no "The agent", no "I", no greeting. Write it in the language of the thread. For example: "Found the width in app-shell.tsx; flipping the two columns before opening a pull request." "Read 40 of 112 invoices; three unpaid so far."',
+	'waitingForMember: false, since the agent is at work.',
 ].join('\n\n');
 
 const jsonSchema = {
@@ -139,14 +148,17 @@ async function inTime<T>(work: Promise<Result<T, ApiError>>, ms: number): Promis
 	return Promise.race([work, late]).finally(() => clearTimeout(timer));
 }
 
-/** Whether where the thread stands was written, or there was nothing to write: no key, no such thread, one at work, or one whose summary is current. */
+/** Whether where the thread stands was written, or there was nothing to write: no key, no such thread, one at work whose agent has told the member nothing new, or one whose summary is current. */
 export type StandingWritten = 'written' | 'skipped';
 
 /**
  * Writes where the thread stands, as the model reads it: the sentence, and, with `decideWaiting`,
- * whether it waits for the member; left as it is otherwise, as for a thread from before, whose
- * standing nobody read. Nothing is asked without the key, for a thread at work, one with nothing
- * said in it, or one whose summary is current already.
+ * for a thread whose turn has ended, whether it waits for the member; left as it is otherwise, as
+ * for a thread from before, whose standing nobody read, and for one at work, which waits for
+ * nobody. One at work is read only where the last thing it shows is its agent's, what it told the
+ * member as it went: before that, the member's own message says where it stands. Nothing is asked
+ * without the key, for a thread with nothing said in it, with something pending, which the agent
+ * has yet to read, or whose summary is current already.
  */
 export function writeStanding(store: StandingStore, model: StandingModel, threadId: string, decideWaiting = true, clock: () => Date = () => new Date()): Promise<Result<StandingWritten, ApiError>> {
 	return Do(async ($): Promise<StandingWritten> => {
@@ -158,7 +170,11 @@ export function writeStanding(store: StandingStore, model: StandingModel, thread
 			return 'skipped';
 		}
 		const thread = $(await store.getChatThread(row.parentThreadId, threadId, SHOWN_CALLS, clock()));
-		if (thread === null || thread.state.kind !== 'stopped' || thread.entries.some((entry) => entry.pending)) {
+		if (thread === null || thread.entries.some((entry) => entry.pending)) {
+			return 'skipped';
+		}
+		const atWork = thread.state.kind !== 'stopped';
+		if (atWork && thread.entries.at(-1)?.kind !== 'assistant') {
 			return 'skipped';
 		}
 		const upToSeq = Math.max(0, ...thread.entries.map((entry) => entry.seq));
@@ -170,7 +186,7 @@ export function writeStanding(store: StandingStore, model: StandingModel, thread
 			await inTime(
 				model.ask({
 					key: model.key,
-					system: STANDING_INSTRUCTIONS,
+					system: atWork ? WORKING_INSTRUCTIONS : STANDING_INSTRUCTIONS,
 					user: threadForModel(thread),
 					name: 'standing',
 					jsonSchema,
@@ -182,8 +198,8 @@ export function writeStanding(store: StandingStore, model: StandingModel, thread
 			),
 		);
 		const sentence = cut(answer.summary.replace(/\s+/g, ' ').trim(), MAX_SUMMARY);
-		const standing = {summary: sentence === '' ? null : sentence, ...(decideWaiting ? {waitingForMember: answer.waitingForMember} : {})};
-		return $(await store.writeThreadStanding(threadId, standing, upToSeq)) ? 'written' : 'skipped';
+		const standing = {summary: sentence === '' ? null : sentence, ...(decideWaiting && !atWork ? {waitingForMember: answer.waitingForMember} : {})};
+		return $(await store.writeThreadStanding(threadId, standing, upToSeq, atWork)) ? 'written' : 'skipped';
 	});
 }
 
@@ -193,8 +209,9 @@ export type SummarizedThreads = {written: number; skipped: number; failed: numbe
 /**
  * Writes a summary for each of the chats' threads that has none, the oldest first, one after
  * another, as a turn's end would, but leaving whether it waits as it is: what the one-off script
- * after the threads came does (scripts/summarize-threads.ts). A thread at work is left for its
- * turn's end; one that fails is logged, and the rest go on. `onThread` hears how each went.
+ * after the threads came does (scripts/summarize-threads.ts). A thread at work whose agent has told
+ * the member nothing yet is left for when it does; one that fails is logged, and the rest go on.
+ * `onThread` hears how each went.
  */
 export function summarizeThreadsWithoutSummary(
 	store: StandingStore & Pick<HarnessStore, 'listThreadsWithoutSummary'>,
@@ -232,8 +249,8 @@ async function standingFailure(store: StandingStore, model: StandingModel, threa
 }
 
 /**
- * Writes where the thread stands as a job of its turn has ended, as best it can: it never fails
- * and never throws. What goes wrong is logged, and it is tried once more, a moment later; failing
+ * Writes where the thread stands as a job of its turn has ended, or as its agent told the member
+ * something and went on, as best it can: it never fails and never throws. What goes wrong is logged, and it is tried once more, a moment later; failing
  * again, the thread is left done, with no summary.
  */
 export async function standAfterTurn(store: StandingStore, model: StandingModel, threadId: string): Promise<void> {
