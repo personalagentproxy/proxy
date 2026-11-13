@@ -331,11 +331,12 @@ export function CommandBar({connections, agents, personas, open: up, onClose}: P
 		leave(to);
 	};
 
-	// An action is done where the bar is, which stays up, so the change can be seen; a page is gone to.
+	// An action is done where the bar was; a page is gone to.
 	const open = (destination: Destination) => {
 		if (destination.to === null) {
 			setTheme(resolveTheme(theme) === 'dark' ? 'light' : 'dark');
-			input.current?.focus();
+			change('');
+			onClose();
 			return;
 		}
 		leave(destination.to);
