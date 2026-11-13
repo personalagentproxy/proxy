@@ -1,4 +1,5 @@
 import type {ActivityFilter} from '@proxy/contracts/activity';
+import {getAgentPage} from '@/client/agent-client';
 import {createDesktopCode, getSignInMethods} from '@/client/auth-client';
 import {
 	getActivityTimeline,
@@ -415,4 +416,10 @@ export async function welcomeConnectionLoader(args: {params: {org?: string; id?:
 		getConnection(orgOf(args), args.params.id ?? ''),
 	]);
 	return {...data, connection: unwrapOrNull(connection)};
+}
+
+// The agent page: who is signed in and what it is told. No live session, a revoked login
+// included, sends the agent to its sign-in.
+export async function agentPageLoader() {
+	return unwrapLoaderResult(await getAgentPage(), '/agent/login');
 }

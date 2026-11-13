@@ -1,6 +1,6 @@
 import {z} from 'zod';
 
-/** An agent's own sign-in (`/agent-auth/…`), for the web app's agent pages. */
+/** An agent's own sign-in (`/agent-auth/…`), for the web app's agent page. */
 
 /** `POST /agent-auth/login`: 401 for a wrong username or password, 403 for a revoked login. */
 export const agentLoginBodySchema = z.object({

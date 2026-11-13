@@ -3,7 +3,7 @@ import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 import {getAgentById, type AgentRow, type SignedInAgent} from '@proxy/db/agent';
-import type {agentMeSchema, ToolResult} from '@proxy/contracts/agent-side';
+import type {agentAccessSchema, ToolResult} from '@proxy/contracts/agent-side';
 import {logAgentRequest} from '@proxy/db/audit';
 import {listConnectionsWithCredential, type ConnectionRow} from '@proxy/db/connection';
 import type {Viewer} from '@proxy/db/viewer';
@@ -18,7 +18,6 @@ import {
 	type CollectionTool,
 	type Integration,
 	type Condition,
-	type McpTool,
 	type OwnSettings,
 	type ServerTool,
 	type Tool,
@@ -28,6 +27,7 @@ import {
 import {callCustomTool} from '../connections/custom/custom-mcp';
 import {apiIntegration} from '../connections/integrations';
 import {toolMetrics} from '../observability/metrics';
+import {noteRejectedSignIn} from '../connections/rejected-sign-in';
 import {needsSignIn, signInNeededError, unavailableActions, unavailableError} from '../connections/unavailable';
 import {isRecordStore, type Connector, type DataRecord, type RecordStore, type RecordTarget, type RecordValues} from '../records/connector';
 import {connectorFor} from '../records/connectors';
@@ -77,43 +77,40 @@ export function requireAgent(signedIn: SignedInAgent): Promise<Result<AgentRow, 
 	});
 }
 
-// An integration's own tools the actions allow, as the agent pages list a custom server's: by
-// name, with their params, read-only where they say so.
-function nativeToolsOf(integration: Integration, actions: string[]): McpTool[] | null {
-	if (!integration.tools) {
-		return null;
-	}
-	return allowedTools(integration, actions)
-		.filter((tool) => tool.kind === 'native')
-		.map((tool) => ({name: tool.name, title: tool.title, description: tool.description, inputSchema: tool.inputSchema, annotations: {title: tool.title, readOnlyHint: tool.readOnly}}));
-}
-
-/** Who the agent is and what it can do with each connection it reaches; connections it can't use are left out. */
-export function listAgentConnections(signedIn: SignedInAgent): Promise<Result<z.infer<typeof agentMeSchema>, ApiError>> {
+/**
+ * Who the agent is and what it can do with each connection it reaches; connections it can't use
+ * are left out, but for one with no sign-in that it could use once signed in to again, listed with
+ * nothing it can do (`signInNeeded`), so the agent can tell the person.
+ */
+export function listAgentConnections(signedIn: SignedInAgent): Promise<Result<z.infer<typeof agentAccessSchema>, ApiError>> {
 	return Do(async ($) => {
 		const agent = $(await requireAgent(signedIn));
 		$(await ensureSandboxConnection({...agentViewer(signedIn), experiments: signedIn.experiments}));
 		$(await ensureFilesConnection({...agentViewer(signedIn), experiments: signedIn.experiments}));
-		const connections = $(await listConnectionsWithCredential(agentViewer(signedIn)))
-			.flatMap((connection) => {
-				const integration = integrationOf(connection);
-				if (!integration) {
-					return [];
-				}
-				const actions = actionsOf(agent, connection, integration, unavailableActions(connection));
-				return [
-					{
-						id: connection.id,
-						integrationId: connection.integrationId,
-						account: connection.account,
-						shared: connection.sharedWithEveryone || connection.shares.length > 0,
-						actions,
-						tools: integration.mcpTools?.filter((tool) => actions.includes(tool.name)) ?? nativeToolsOf(integration, actions),
-						name: connection.name,
-					},
-				];
-			})
-			.filter(({actions}) => actions.length > 0);
+		const connections = $(await listConnectionsWithCredential(agentViewer(signedIn))).flatMap((connection) => {
+			const integration = integrationOf(connection);
+			if (!integration) {
+				return [];
+			}
+			const actions = actionsOf(agent, connection, integration, unavailableActions(connection));
+			const signInNeeded = needsSignIn(connection);
+			// What its settings give the agent, as they would once it is signed in to again.
+			const usableOnceSignedIn = signInNeeded && actionsOf(agent, connection, integration, []).length > 0;
+			if (actions.length === 0 && !usableOnceSignedIn) {
+				return [];
+			}
+			return [
+				{
+					id: connection.id,
+					integrationId: connection.integrationId,
+					account: connection.account,
+					shared: connection.sharedWithEveryone || connection.shares.length > 0,
+					actions,
+					name: connection.name,
+					signInNeeded,
+				},
+			];
+		});
 		return {agent: {id: agent.id, providerId: agent.providerId, name: agent.name}, connections};
 	});
 }
@@ -127,7 +124,7 @@ export function listAgentTools(signedIn: SignedInAgent, connectionId: string): P
 	});
 }
 
-// Who calls and which way it came in: the web app's agent pages, the MCP server, the built-in
+// Who calls and which way it came in: the web app's agent page, the MCP server, the built-in
 // agent's own loop, or code in a sandbox, with the CLI's token (cli/route.ts).
 export type AgentCaller = {agent: SignedInAgent; via: 'web' | 'mcp' | 'harness' | 'cli'};
 
@@ -250,7 +247,7 @@ export function runAgentTool(caller: TaskCaller, connectionId: string, toolName:
 		const {connection, integration} = $(connectionRead);
 		const tool = $(requirePresent(findTool(integration, toolName), ApiErr.notFound('tool', toolName)));
 		if (tool.kind === 'call' || tool.kind === 'native') {
-			return $(await runParamsTool({caller, agent, connection, integration, startedAt}, tool, params));
+			return $(await noteRejectedSignIn(connection, connection.credential, await runParamsTool({caller, agent, connection, integration, startedAt}, tool, params)));
 		}
 
 		const collection = $(requirePresent(findCollection(integration, tool.collectionId), ApiErr.notFound('tool', toolName)));
@@ -272,7 +269,7 @@ export function runAgentTool(caller: TaskCaller, connectionId: string, toolName:
 			$(await log(run, 'denied', null, searchOf(listParams)));
 			return $(Err(run.refuse(missing)));
 		}
-		return $(await execute(run, listParams ?? $(parseToolParams(tool, params))));
+		return $(await noteRejectedSignIn(connection, connection.credential, await execute(run, listParams ?? $(parseToolParams(tool, params)))));
 	});
 }
 
@@ -286,7 +283,7 @@ export function actionRefusal(integration: Integration, agent: AgentRow, connect
 		return ApiErr.forbidden();
 	}
 	if (needsSignIn(connection)) {
-		return signInNeededError(integration);
+		return signInNeededError(integration, connection.account);
 	}
 	const required = integration.actions.find((action) => action.id === actionId)?.requires;
 	return unavailableError(integration, unavailable.includes(actionId) || required === undefined ? actionId : required);

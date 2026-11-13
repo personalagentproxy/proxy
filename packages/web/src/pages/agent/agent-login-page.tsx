@@ -2,7 +2,6 @@ import type {FetchError} from '@proxy/utils';
 import {useState} from 'react';
 import {Link, useNavigate} from 'react-router';
 import {signInAgent} from '@/client/agent-client';
-import {TASKS_PATH} from '@/lib/agent-task';
 import {PillButton} from '@proxy/ui/components/pill-button';
 import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
@@ -35,7 +34,7 @@ export function AgentLoginPage() {
 						setError(signInErrorMessage(result.error));
 						return;
 					}
-					navigate(TASKS_PATH, {replace: true});
+					navigate('/agent', {replace: true});
 				}}
 			>
 				<h1 className="text-lg font-semibold">

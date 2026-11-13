@@ -37,6 +37,7 @@ function targetFor(collectionId: string) {
 			tools: null,
 			name: null,
 			defaults: [],
+			credentialRejectedAt: null,
 			credential: 'v1.encrypted',
 		},
 		collection: collection(collectionId),

@@ -4,11 +4,9 @@ import {Ok} from 'ts-results-es';
 const createAgentTask = mock();
 const getAgentTask = mock();
 const finishAgentTask = mock();
-const listOpenAgentTasks = mock();
 const touchAgentTask = mock();
-const isAgentTaskOpen = mock();
 
-mock.module('@proxy/db/task', () => ({createAgentTask, getAgentTask, finishAgentTask, isAgentTaskOpen, listOpenAgentTasks, touchAgentTask}));
+mock.module('@proxy/db/task', () => ({createAgentTask, getAgentTask, finishAgentTask, touchAgentTask}));
 
 const agent = {agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'claude', name: 'Claude', orgSlug: 'org-1', experiments: []};
 const caller = {agent, via: 'mcp' as const};
@@ -36,7 +34,6 @@ beforeEach(() => {
 	getAgentTask.mockResolvedValue(Ok(row));
 	finishAgentTask.mockResolvedValue(Ok(finishedRow));
 	touchAgentTask.mockResolvedValue(Ok(true));
-	isAgentTaskOpen.mockResolvedValue(Ok(true));
 });
 
 describe('startAgentTask', () => {
@@ -142,17 +139,6 @@ describe('startAgentTask', () => {
 
 			expect(result.unwrapErr()).toMatchObject({kind: 'conflict', message: expect.stringContaining('Task task-0 (Plan the week), or a task it is part of, is finished')});
 		});
-	});
-});
-
-describe('listAgentOpenTasks', () => {
-	test('answers the agent’s tasks under way, each with its id as task', async () => {
-		listOpenAgentTasks.mockResolvedValue(Ok([row]));
-		const {listAgentOpenTasks} = await import('./tasks');
-		const result = await listAgentOpenTasks(agent);
-
-		expect(listOpenAgentTasks).toHaveBeenCalledWith('org-1', 'agent-1');
-		expect(result.unwrap()).toEqual({tasks: [response]});
 	});
 });
 
@@ -280,46 +266,5 @@ describe('requireOpenTask', () => {
 			statusCode: 409,
 			message: 'Task task-1 (Triage inbox), or a task it is part of, is finished. Start a new task for what you are doing now, and give its id as task.',
 		});
-	});
-});
-
-describe('getAgentOpenTask', () => {
-	beforeEach(() => setSystemTime(new Date('2026-10-16T09:10:00Z')));
-	afterEach(() => setSystemTime());
-
-	test('answers the task while it is under way, and refuses it as a call for it would be', async () => {
-		const {getAgentOpenTask} = await import('./tasks');
-		const open = await getAgentOpenTask(agent, 'task-1');
-		getAgentTask.mockResolvedValue(Ok(finishedRow));
-		const finished = await getAgentOpenTask(agent, 'task-1');
-
-		expect(open.unwrap()).toEqual(response);
-		expect(finished.unwrapErr()).toMatchObject({kind: 'conflict', statusCode: 409});
-	});
-
-	test('only reads the task: one left open stays so, and one under a task finished is refused', async () => {
-		const {getAgentOpenTask} = await import('./tasks');
-		setSystemTime(new Date('2026-10-16T09:30:00Z'));
-		const leftOpen = await getAgentOpenTask(agent, 'task-1');
-		isAgentTaskOpen.mockResolvedValue(Ok(false));
-		const under = await getAgentOpenTask(agent, 'task-1');
-
-		expect(leftOpen.unwrap()).toEqual(response);
-		expect(isAgentTaskOpen).toHaveBeenCalledWith('org-1', 'agent-1', 'task-1');
-		expect(under.unwrapErr()).toEqual({
-			kind: 'conflict',
-			statusCode: 409,
-			message: 'Task task-1 (Triage inbox), or a task it is part of, is finished. Start a new task for what you are doing now, and give its id as task.',
-		});
-		expect(touchAgentTask).not.toHaveBeenCalled();
-	});
-
-	test('refuses a task left open more than 20 minutes ago', async () => {
-		const {getAgentOpenTask} = await import('./tasks');
-		setSystemTime(new Date('2026-10-16T11:00:00Z'));
-		const result = await getAgentOpenTask(agent, 'task-1');
-
-		expect(result.unwrapErr()).toMatchObject({kind: 'conflict', message: expect.stringContaining('has ended: it was left open')});
-		expect(isAgentTaskOpen).not.toHaveBeenCalled();
 	});
 });

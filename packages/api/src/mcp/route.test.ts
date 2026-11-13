@@ -21,7 +21,7 @@ const startAgentTask = mock();
 const finishAgentTask = mock();
 const requireOpenTask = mock();
 
-mock.module('../agent-side/tasks', () => ({startAgentTask, finishAgentTask, requireOpenTask, listAgentOpenTasks: mock()}));
+mock.module('../agent-side/tasks', () => ({startAgentTask, finishAgentTask, requireOpenTask}));
 
 mock.module('../observability/log', () => ({
 	log: {debug: mock(), info: mock(), warn: mock(), error: mock()},
@@ -31,7 +31,7 @@ mock.module('../observability/log', () => ({
 mock.module('../utils/env', () => ({env: {NODE_ENV: 'production', APP_URL: 'https://app.example.com'}}));
 
 const signedIn = {agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'claude', name: 'Claude', orgSlug: 'org-1', experiments: []};
-const mailbox = {id: 'mail-1', integrationId: 'email', account: 'alex@example.com', shared: false, actions: ['read', 'archive'], tools: null, name: null};
+const mailbox = {id: 'mail-1', integrationId: 'email', account: 'alex@example.com', shared: false, actions: ['read', 'archive'], name: null};
 const task = {
 	id: 'task-1',
 	agentId: 'agent-1',
@@ -193,6 +193,18 @@ describe('handleMcpRoute', () => {
 		expect(await instructions()).not.toContain('Drives (Files)');
 	});
 
+	test('a connection with no sign-in is listed as one to be signed in to again, where, and nothing it can do', async () => {
+		const {agentInstructions} = await import('./tools');
+		const notes = {id: 'granola-1', integrationId: 'granola', account: 'alex@example.com', shared: true, actions: [], tools: null, name: null, signInNeeded: true};
+		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [{...mailbox, signInNeeded: false}, notes]}));
+
+		const told = (await agentInstructions(signedIn, 'Work.')).unwrap();
+		expect(told).toContain('- mail-1: Email (alex@example.com): Read, Archive');
+		expect(told).toContain(
+			'- granola-1: Granola (alex@example.com), shared: not signed in, so nothing can be done with it until whoever connected it signs in again at https://app.example.com/org-1/connections/granola-1. If the person asks for something from it, tell them so.',
+		);
+	});
+
 	test('in a conversation, what the agent makes goes in the folder it is given', async () => {
 		const {agentInstructions} = await import('./tools');
 		const own = {id: 'drive-1', integrationId: 'files', account: 'Acme', shared: false, actions: ['readFiles', 'createFiles'], tools: null, name: null};
@@ -303,6 +315,22 @@ describe('handleMcpRoute', () => {
 		expect(sendAgentFeedback).toHaveBeenCalledWith({agent: signedIn, via: 'mcp'}, {message: 'emails_list ignored the folder', tool: 'emails_list', task: 'task-1'});
 		expect(finishAgentTask).toHaveBeenCalledWith({agent: signedIn, via: 'mcp'}, {outcome: 'Archived 12 newsletters', task: 'task-1'});
 		expect(JSON.parse(answer.text)).toMatchObject({task: 'task-1', finishedAt: '2026-10-16T09:30:00.000Z'});
+	});
+
+	test('on the agent page, a script answers with the task it started, for the page to send with the next, and none once it finished it', async () => {
+		startAgentTask.mockResolvedValue(Ok({...started, task: 'task-2'}));
+		const {runAgentScript} = await import('./tools');
+		const startedHere = await runAgentScript(signedIn, `await pap.startTask({title: 'Triage inbox', goal: 'Archive the newsletters'}); return 1;`, null, 'web');
+		const carriedOn = await runAgentScript(signedIn, `return 1;`, 'task-2', 'web');
+		const finished = await runAgentScript(signedIn, `await pap.finishTask(); return 1;`, 'task-2', 'web');
+		const taskless = await runAgentScript(signedIn, `return await pap.connections();`, null, 'web');
+
+		expect(startAgentTask).toHaveBeenCalledWith({agent: signedIn, via: 'web'}, {title: 'Triage inbox', goal: 'Archive the newsletters'});
+		expect(startedHere).toEqual({text: '1\n\nTask: task-2', isError: false, task: 'task-2'});
+		expect(carriedOn.task).toBe('task-2');
+		expect(finishAgentTask).toHaveBeenCalledWith({agent: signedIn, via: 'web'}, {task: 'task-2'});
+		expect(finished.task).toBeNull();
+		expect(taskless.text).toStartWith('PapError: No task: call pap.startTask first.\n');
 	});
 
 	test('a call without a task is refused, saying to start one; one for a task that is not the agent’s or is finished, as the agent side says', async () => {

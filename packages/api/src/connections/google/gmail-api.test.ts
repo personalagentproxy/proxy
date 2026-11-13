@@ -5,7 +5,8 @@ import type {MessagePart} from './gmail-api';
 
 // The Gmail calls go through the Google client, which reads the environment and the database on
 // import; only the reading of Gmail's answers is tested here.
-mock.module('@proxy/db/connection', () => ({updateConnectionCredential: mock(), getConnectionCredential: mock(async () => Ok(null))}));
+const markCredentialRejected = mock(async () => Ok(true));
+mock.module('@proxy/db/connection', () => ({markCredentialRejected, updateConnectionCredential: mock(), getConnectionCredential: mock(async () => Ok(null))}));
 
 mock.module('../../utils/env', () => ({env: {NODE_ENV: 'production', APP_URL: 'https://app.example.com', GOOGLE_CLIENT_ID: 'client-1', GOOGLE_CLIENT_SECRET: 'secret-1'}}));
 

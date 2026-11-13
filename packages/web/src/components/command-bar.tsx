@@ -15,7 +15,7 @@ import {Input} from '@proxy/ui/components/input';
 import {Skeleton} from '@proxy/ui/components/skeleton';
 import {cn} from '@proxy/ui/lib/utils';
 import {useOrgSlug} from '@/hooks/use-org';
-import {apiMessage} from '@/lib/agent-errors';
+import {apiMessage} from '@/lib/api-message';
 import {
 	addressedPersona,
 	type Destination,

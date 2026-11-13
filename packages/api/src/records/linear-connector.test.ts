@@ -37,6 +37,7 @@ const target = {
 		tools: null,
 		name: null,
 		defaults: [],
+		credentialRejectedAt: null,
 		credential: 'v1.encrypted',
 	},
 	collection: issues(),

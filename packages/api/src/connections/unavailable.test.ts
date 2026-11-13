@@ -38,7 +38,7 @@ const ALL_SCOPES = [
 
 function google(scopes: string[]) {
 	const credential = {accessToken: 'access-1', refreshToken: 'refresh-1', expiresAt: null, scopes, email: 'alex@example.com'};
-	return {id: 'google-1', integrationId: 'google', credential: `enc:${JSON.stringify(credential)}`};
+	return {id: 'google-1', integrationId: 'google', credential: `enc:${JSON.stringify(credential)}`, credentialRejectedAt: null};
 }
 
 describe('unavailableActions', () => {
@@ -118,8 +118,20 @@ describe('unavailableActions', () => {
 	test('every other integration covers all its actions, whatever its credential', async () => {
 		const {unavailableActions} = await import('./unavailable');
 
-		expect(unavailableActions({id: 'email-1', integrationId: 'email', credential: 'v1.unreadable'})).toEqual([]);
-		expect(unavailableActions({id: 'vault-1', integrationId: 'vault', credential: null})).toEqual([]);
+		expect(unavailableActions({id: 'email-1', integrationId: 'email', credential: 'v1.unreadable', credentialRejectedAt: null})).toEqual([]);
+		expect(unavailableActions({id: 'vault-1', integrationId: 'vault', credential: null, credentialRejectedAt: null})).toEqual([]);
+	});
+
+	test('a sign-in its provider turned down covers no action, its credential kept; the vault is never signed in to', async () => {
+		const {findIntegration} = await import('@proxy/integrations');
+		const {needsSignIn, unavailableActions} = await import('./unavailable');
+		const rejectedAt = new Date('2026-11-01T09:00:00.000Z');
+		const mailbox = {id: 'email-1', integrationId: 'email', credential: 'v1.x.y.z', credentialRejectedAt: rejectedAt};
+
+		expect(needsSignIn(mailbox)).toBe(true);
+		expect(unavailableActions(mailbox)).toEqual(findIntegration('email')?.actions.map((action) => action.id) ?? []);
+		expect(needsSignIn({...mailbox, credentialRejectedAt: null})).toBe(false);
+		expect(needsSignIn({id: 'vault-1', integrationId: 'vault', credential: null, credentialRejectedAt: rejectedAt})).toBe(false);
 	});
 
 	test("a Google credential that won't decrypt or read covers no action, and is logged", async () => {
@@ -128,7 +140,7 @@ describe('unavailableActions', () => {
 		const every = findIntegration('google')?.actions.map((action) => action.id);
 
 		for (const credential of ['v1.other-key', 'enc:{"accessToken":1}', 'enc:not json', null]) {
-			expect(unavailableActions({id: 'google-1', integrationId: 'google', credential})).toEqual(every ?? []);
+			expect(unavailableActions({id: 'google-1', integrationId: 'google', credential, credentialRejectedAt: null})).toEqual(every ?? []);
 		}
 		expect(warn).toHaveBeenCalledWith('A Google credential could not be read', {connectionId: 'google-1'});
 	});

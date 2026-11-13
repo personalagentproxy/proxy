@@ -14,9 +14,16 @@ import {apiIntegration} from './integrations';
  * that had none of the integration's (`take-over-custom.ts`), covers none until it is signed in to.
  */
 
-/** Whether the connection has no sign-in at all, as one moved over from a custom MCP server may not. The vault is never signed in to. */
+/**
+ * Whether the connection needs signing in to: it has no sign-in at all, as one moved over from a
+ * custom MCP server may not, or its provider turned the one it has down. The vault is never
+ * signed in to.
+ */
 export function needsSignIn(connection: StoredConnection): boolean {
-	return connection.credential === null && !findIntegration(connection.integrationId)?.native;
+	if (findIntegration(connection.integrationId)?.native) {
+		return false;
+	}
+	return connection.credential === null || connection.credentialRejectedAt !== null;
 }
 
 /** The connection's actions its sign-in didn't cover, in the catalog's order. */
@@ -27,9 +34,14 @@ export function unavailableActions(connection: StoredConnection): string[] {
 	return apiIntegration(connection.integrationId)?.unavailableActions?.(connection) ?? [];
 }
 
-/** The refusal of every action of a connection that has no sign-in, saying how to give it one. */
-export function signInNeededError(integration: Integration): ApiError {
-	return ApiErr.validationError(`This ${integration.name} connection isn't signed in yet. Sign in to ${integration.name} on its page in Personal Agent Proxy to use it.`);
+/**
+ * The refusal of every action of a connection that has no sign-in: nothing was sent to its
+ * service, and only whoever connected it can give it one again, so trying again won't help.
+ */
+export function signInNeededError(integration: Integration, account: string): ApiError {
+	return ApiErr.validationError(
+		`${integration.name} (${account}) isn't signed in, so nothing was sent to it. Whoever connected it has to sign in again on its page in Personal Agent Proxy; trying again won't help until then.`,
+	);
 }
 
 /** The refusal of an action the sign-in didn't cover, saying how to allow it. */

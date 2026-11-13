@@ -2,7 +2,7 @@ import type {FetchError} from '@proxy/utils';
 import {redirect} from 'react-router';
 import type {Result} from 'ts-results-es';
 import {isNotFoundError, isUnauthenticatedError} from '@/client/request';
-import {apiMessage} from '@/lib/agent-errors';
+import {apiMessage} from '@/lib/api-message';
 import {log} from '@/lib/log';
 
 /**

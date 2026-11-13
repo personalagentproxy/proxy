@@ -22,7 +22,8 @@ import type {BuiltInMcp} from './mcp/built-in';
 export type DisconnectedConnection = {id: string; integrationId: string; account: string; credential: string | null};
 
 /** A connection with its stored credential, as what its sign-in covered is read from it. */
-export type StoredConnection = {id: string; integrationId: string; credential: string | null};
+/** A connection as stored: its credential, encrypted, and when the provider turned it down, if it did. */
+export type StoredConnection = {id: string; integrationId: string; credential: string | null; credentialRejectedAt: Date | null};
 
 /**
  * How an integration is connected, and so its routes (`create-api-router.ts`), each made when the

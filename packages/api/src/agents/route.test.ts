@@ -28,7 +28,8 @@ mock.module('@proxy/db/organization', () => ({listMemberNames: mock(async () => 
 
 const getConnectionWithCredential = mock();
 
-mock.module('@proxy/db/connection', () => ({getConnectionWithCredential}));
+const markCredentialRejected = mock(async () => Ok(true));
+mock.module('@proxy/db/connection', () => ({markCredentialRejected, getConnectionWithCredential}));
 
 // Readable stand-ins for encryption, so a test can write the credential it means.
 mock.module('../utils/secret-crypto', () => ({
@@ -97,6 +98,7 @@ beforeEach(() => {
 			tools: null,
 			name: null,
 			defaults: [],
+			credentialRejectedAt: null,
 			credential: 'enc:{}',
 		}),
 	);
@@ -268,6 +270,7 @@ describe('handleSetAgentGrantsRoute', () => {
 				account: 'alex@example.com',
 				createdAt: new Date(),
 				defaults: [],
+				credentialRejectedAt: null,
 				credential: `enc:${JSON.stringify(credential)}`,
 			}),
 		);
@@ -400,6 +403,7 @@ describe('who may change a shared agent', () => {
 				tools: null,
 				name: null,
 				defaults: [],
+				credentialRejectedAt: null,
 				credential: 'enc:{}',
 			}),
 		);
@@ -425,6 +429,7 @@ describe('the built-in agent’s settings', () => {
 			tools: null,
 			name: null,
 			defaults: [],
+			credentialRejectedAt: null,
 			credential: 'enc:{}',
 		});
 

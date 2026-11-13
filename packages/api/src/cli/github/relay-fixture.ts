@@ -115,6 +115,7 @@ export function githubConnection(id: string, account: string, defaults: string[]
 		tools: null,
 		name: null,
 		defaults: defaults.map((actionId) => ({actionId})),
+		credentialRejectedAt: null,
 		credential: `enc:${JSON.stringify(credential)}`,
 	};
 }

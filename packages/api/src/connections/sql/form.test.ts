@@ -10,7 +10,9 @@ const findAccountConnection = mock(async (_viewer: {orgId: string}, {integration
 );
 const createConnection = mock();
 
+const markCredentialRejected = mock(async () => Ok(true));
 mock.module('@proxy/db/connection', () => ({
+	markCredentialRejected,
 	findAccountConnection,
 	createConnection,
 	getConnectionWithCredential: mock(),

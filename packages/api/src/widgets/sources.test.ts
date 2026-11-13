@@ -9,7 +9,9 @@ const unavailableActions = mock((_connection: {id: string}): string[] => []);
 mock.module('../utils/env', () => ({env: {NODE_ENV: 'test'}}));
 // The connectors are the integrations' modules' own, which bring how each is connected along: what
 // connecting saves is stubbed, never called here.
+const markCredentialRejected = mock(async () => Ok(true));
 mock.module('@proxy/db/connection', () => ({
+	markCredentialRejected,
 	getOrgConnectionWithCredential: mock(),
 	listConnectionsWithCredential,
 	getConnectionWithCredential,

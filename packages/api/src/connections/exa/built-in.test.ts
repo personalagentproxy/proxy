@@ -10,7 +10,9 @@ const updateConnectionName = mock();
 
 const getConnectionWithCredential = mock();
 
+const markCredentialRejected = mock(async () => Ok(true));
 mock.module('@proxy/db/connection', () => ({
+	markCredentialRejected,
 	getConnectionWithCredential,
 	findAccountConnection,
 	createConnection,
@@ -134,6 +136,7 @@ const existing = {
 	tools: null,
 	name: 'Team Exa',
 	defaults: [{actionId: 'search'}],
+	credentialRejectedAt: null,
 	credential: 'enc:{}',
 };
 
@@ -154,6 +157,7 @@ beforeEach(() => {
 			tools: null,
 			name: data.name ?? null,
 			defaults: data.defaults.map((actionId) => ({actionId})),
+			credentialRejectedAt: null,
 		}),
 	);
 	getConnectionWithCredential.mockResolvedValue(Ok(null));

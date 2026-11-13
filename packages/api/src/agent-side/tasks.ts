@@ -1,10 +1,9 @@
 import {Err, type Result} from 'ts-results-es';
-import type {z} from 'zod';
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
 import type {SignedInAgent} from '@proxy/db/agent';
-import {type AgentTask, type agentTaskListSchema, finishTaskBodySchema, startTaskBodySchema} from '@proxy/contracts/agent-side';
+import {type AgentTask, finishTaskBodySchema, startTaskBodySchema} from '@proxy/contracts/agent-side';
 import {taskEndedLongAgo} from '@proxy/utils/tasks';
-import {type AgentTaskRow, createAgentTask, finishAgentTask as markAgentTaskFinished, getAgentTask, isAgentTaskOpen, listOpenAgentTasks, touchAgentTask} from '@proxy/db/task';
+import {type AgentTaskRow, createAgentTask, finishAgentTask as markAgentTaskFinished, getAgentTask, touchAgentTask} from '@proxy/db/task';
 
 import type {AgentCaller} from './tools';
 
@@ -85,25 +84,6 @@ export function startAgentTask(caller: AgentCaller, args: unknown): Promise<Resu
 	});
 }
 
-/** The agent's tasks still under way, newest first: none finished, and none left open. */
-export function listAgentOpenTasks(agent: SignedInAgent): Promise<Result<z.infer<typeof agentTaskListSchema>, ApiError>> {
-	return Do(async ($) => ({tasks: $(await listOpenAgentTasks(agent.orgId, agent.agentId)).map(toResponse)}));
-}
-
-/**
- * The agent's task `taskId` while it is not finished, refused as a call made for it would be
- * (`requireOpenTask`), but only read: one left open stays so until a call is made for it.
- */
-export function getAgentOpenTask(agent: SignedInAgent, taskId: string): Promise<Result<AgentTask, ApiError>> {
-	return Do(async ($) => {
-		const task = $(await readUnfinishedTask(agent, taskId));
-		if (!$(await isAgentTaskOpen(agent.orgId, agent.agentId, taskId))) {
-			return $(Err(ApiErr.conflict(finishedAbove(task))));
-		}
-		return toResponse(task);
-	});
-}
-
 /**
  * Marks the agent's task `{task}` finished, with `outcome`, what was done or found, where the
  * agent gives one; its sub-tasks still under way are finished with it. One finished already keeps
@@ -133,7 +113,7 @@ export function finishAgentTask(caller: AgentCaller, args: unknown): Promise<Res
 /**
  * The agent's task `taskId` for a call made for it; unknown, or another agent's, is not found. One
  * finished already, or under a task finished, is refused as a conflict, saying to start a new one,
- * so the agent pages can tell it from any other refusal of the call. The call counts as something
+ * so the agent can tell it from any other refusal of the call. The call counts as something
  * done for the task and every task above it, so none is left open while it is worked on, and one
  * left open is taken up again, unless that was more than 20 minutes ago (@proxy/utils/tasks).
  */

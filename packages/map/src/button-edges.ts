@@ -14,11 +14,8 @@ export const BUTTON_EDGES: ReadonlyArray<{from: string; to: string; label: strin
 	{from: '/:org/members', to: '/:org/connections', label: 'Leave'},
 	{from: '/:org/settings', to: '/:org/connections', label: 'Leave organization'},
 	{from: '/:org/settings', to: '/:org/connections', label: 'Delete organization'},
-	// The agent lands on its tasks, to open one or start another.
+	// The agent lands on its one page, where it writes scripts.
 	{from: '/agent/login', to: '/agent', label: 'Sign in'},
-	{from: '/agent', to: '/agent/:taskId', label: 'Start task'},
-	// From every page of a task, through the header; the task's home stands for them.
-	{from: '/agent/:taskId', to: '/agent', label: 'Finish task'},
 
 	{
 		from: '/:org/welcome/connections',
@@ -76,20 +73,4 @@ export const BUTTON_EDGES: ReadonlyArray<{from: string; to: string; label: strin
 	{from: '/:org/agents/new', to: '/:org/agents/:id', label: 'Done'},
 	{from: '/:org/agents/:id/setup', to: '/:org/agents/:id', label: 'Done'},
 	{from: '/:org/agents/:id', to: '/:org/agents', label: 'Delete'},
-
-	{
-		from: '/agent/:taskId/:connectionId/:collectionId/new',
-		to: '/agent/:taskId/:connectionId/:collectionId/:recordId',
-		label: 'Save',
-	},
-	{
-		from: '/agent/:taskId/:connectionId/:collectionId/new',
-		to: '/agent/:taskId/:connectionId/:collectionId',
-		label: 'Cancel',
-	},
-	{
-		from: '/agent/:taskId/:connectionId/:collectionId/:recordId',
-		to: '/agent/:taskId/:connectionId/:collectionId',
-		label: 'Delete',
-	},
 ];

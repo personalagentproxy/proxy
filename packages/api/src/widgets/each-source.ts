@@ -3,6 +3,7 @@ import {Err, type Result} from 'ts-results-es';
 import {ApiErr, type ApiError} from '@proxy/utils';
 import type {Failure} from '@proxy/contracts/widgets';
 
+import {noteRejectedSignIn} from '../connections/rejected-sign-in';
 import {log, serializeError} from '../observability/log';
 import type {Source} from './sources';
 
@@ -49,7 +50,8 @@ function failureMessage(error: ApiError): string {
  * expired sign-in doesn't empty a widget; one given up on is told to stop.
  */
 export async function eachSource<S extends Source, T>(sources: S[], work: SourceWork<S, T>): Promise<Gathered<S, T>> {
-	const results = await Promise.all(sources.map((source) => withinTimeout(source, work)));
+	// A sign-in turned down is noted on its connection, so it is left out from then on.
+	const results = await Promise.all(sources.map(async (source) => noteRejectedSignIn(source.connection, source.connection.credential, await withinTimeout(source, work))));
 	const gathered: Gathered<S, T> = {found: [], failed: []};
 	results.forEach((result, index) => {
 		const source = sources[index];
