@@ -33,6 +33,20 @@ const KIND_ICONS: Record<FileKind, LucideIcon> = {
 	file: FileIcon,
 };
 
+/** The glyph of a file's kind, as its chip has it, for the viewer (file-viewer.tsx), which shows it large. */
+export function FileKindIcon({
+	name,
+	type,
+	className,
+}: {
+	name: string;
+	type: string;
+	className?: string;
+}) {
+	const Icon = KIND_ICONS[fileKind(name, type)];
+	return <Icon className={className} aria-hidden />;
+}
+
 // A file as a chip: a line of text high, so it sits in a line of a message as a word does, its
 // kind in a cell of its own at the front, then its name.
 const CHIP = 'flex h-6 max-w-56 min-w-0 items-center rounded-md border bg-background text-sm';
@@ -41,10 +55,11 @@ const NAME = 'truncate px-2';
 const GLYPH = 'size-3.5';
 
 // A file attached to what the person said, where they put it among their words: a chip, by its
-// kind and its name, in the line of the message as a word is, and a link to the file in its
-// drive, where it is shown and its versions are; one deleted for good since, its name struck
-// through and a link to nothing, saying so.
-export function SentChip({attachment}: {attachment: ChatAttachment}) {
+// kind and its name, in the line of the message as a word is. Given `onOpen`, a button that opens
+// it in the viewer (file-viewer.tsx), among the message's other files; without, a link to the file
+// in its drive, where it is shown and its versions are. One deleted for good since, its name struck
+// through, opening nothing, saying so.
+export function SentChip({attachment, onOpen}: {attachment: ChatAttachment; onOpen?: () => void}) {
 	const org = useOrgSlug();
 	const {connectionId, fileId, name, type, size} = attachment;
 	const Icon = KIND_ICONS[fileKind(name, type)];
@@ -61,21 +76,39 @@ export function SentChip({attachment}: {attachment: ChatAttachment}) {
 			</span>
 		);
 	}
+	const title = `${name} · ${formatBytes(size)}`;
+	// Its own colors, whatever the message's: a message of the person's is drawn inverted.
+	const chip = cn(CHIP, 'text-foreground hover:bg-muted');
+	const face = (
+		<>
+			<span className={CELL}>
+				<Icon className={GLYPH} />
+			</span>
+			<span className={NAME}>{name}</span>
+		</>
+	);
 	return (
 		// With the room a word has around it: padding of its own, the line's text having no gap
 		// to give.
 		<span className="inline-block px-0.5 py-0.5 align-middle">
-			<Link
-				to={`/${org}/connections/${connectionId}${driveQuery({file: fileId})}`}
-				title={`${name} · ${formatBytes(size)}`}
-				// Its own colors, whatever the message's: a message of the person's is drawn inverted.
-				className={cn(CHIP, 'text-foreground hover:bg-muted')}
-			>
-				<span className={CELL}>
-					<Icon className={GLYPH} />
-				</span>
-				<span className={NAME}>{name}</span>
-			</Link>
+			{onOpen ? (
+				<button
+					type="button"
+					onClick={onOpen}
+					title={title}
+					className={cn(chip, 'outline-none focus-visible:ring-3 focus-visible:ring-ring/50')}
+				>
+					{face}
+				</button>
+			) : (
+				<Link
+					to={`/${org}/connections/${connectionId}${driveQuery({file: fileId})}`}
+					title={title}
+					className={chip}
+				>
+					{face}
+				</Link>
+			)}
 		</span>
 	);
 }
@@ -87,7 +120,7 @@ const TILE_HEIGHT = 144;
 
 // A file the persona showed in its answer, where its words put it: a picture, at the version kept
 // with the answer, whatever the file holds now, as a tile on a line of its own, never among words,
-// which opens it in the viewer (picture-viewer.tsx); any other file, or one deleted since, as its
+// which opens it in the viewer (file-viewer.tsx); any other file, or one deleted since, as its
 // chip.
 export function ShownFile({
 	attachment,

@@ -18,7 +18,7 @@ import {
 	MessageScrollerItem,
 	MessageScrollerViewport,
 } from '@/components/chat/message-scroller';
-import {PictureViewer, type ViewedPicture} from '@/components/chat/picture-viewer';
+import {FileViewer, type ViewedFile} from '@/components/chat/file-viewer';
 import {EventLine, PersonBubble} from '@/components/chat/thread-parts';
 import {WorkingLine} from '@/components/chat/working-line';
 import {type ImageOf, Markdown} from '@/components/markdown';
@@ -61,7 +61,7 @@ function keptFile(attachments: ChatAttachment[], src: string): ChatAttachment | 
 
 // The pictures an answer shows, in the order its words put them, for the viewer: each of its
 // Markdown pictures that links to a picture kept with it.
-function picturesOf(message: ThreadMessage): ViewedPicture[] {
+function picturesOf(message: ThreadMessage): ViewedFile[] {
 	return markdownPictures(message.text).flatMap(({src, alt}) => {
 		const attachment = keptFile(message.attachments, src);
 		return attachment?.shown === true && !attachment.gone ? [{attachment, alt}] : [];
@@ -92,9 +92,7 @@ function AnswerMarkdown({message}: {message: ThreadMessage}) {
 	return (
 		<>
 			<Markdown text={message.text} image={image} />
-			{pictures.length > 0 && (
-				<PictureViewer pictures={pictures} index={viewing} onIndex={setViewing} />
-			)}
+			{pictures.length > 0 && <FileViewer files={pictures} index={viewing} onIndex={setViewing} />}
 		</>
 	);
 }
