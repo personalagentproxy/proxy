@@ -1,13 +1,14 @@
 /// <reference types="bun" />
 
 import {afterEach, describe, expect, test} from 'bun:test';
-import {cleanup, fireEvent, render, screen, within} from '@testing-library/react';
-import {createMemoryRouter, RouterProvider} from 'react-router';
+import {act, cleanup, fireEvent, render, screen, within} from '@testing-library/react';
+import {createMemoryRouter, RouterProvider, useLocation} from 'react-router';
 import {SidebarProvider} from '@proxy/ui/components/sidebar';
 import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {AppSidebar} from '@/components/nav';
-import {SidebarPanelProvider} from '@/components/sidebar-panel';
+import {InSidebar, SidebarPanelProvider} from '@/components/sidebar-panel';
+import {useOrgSlug} from '@/hooks/use-org';
 import {type Unread, UnreadContext} from '@/hooks/use-unread';
 import type {Human} from '@/lib/orgs';
 import {testHuman} from '@/test-org';
@@ -25,6 +26,21 @@ function unreadOf(ids: string[]): Unread {
 	};
 }
 
+// The page beside the sidebar, started over in another organization as the human side's is: on
+// Chat, its agents in the sidebar.
+function Page() {
+	const org = useOrgSlug();
+	const {pathname} = useLocation();
+	if (!pathname.startsWith(`/${org}/chat`)) {
+		return null;
+	}
+	return (
+		<InSidebar key={org} label="Chat">
+			<p>Agents</p>
+		</InSidebar>
+	);
+}
+
 function renderSidebar(human: Human, entry = '/acme/connections', unread = unreadOf([])) {
 	const router = createMemoryRouter(
 		[
@@ -32,25 +48,35 @@ function renderSidebar(human: Human, entry = '/acme/connections', unread = unrea
 				id: 'human',
 				path: '/:org/*',
 				loader: () => human,
-				element: <AppSidebar />,
+				element: (
+					<SidebarPanelProvider>
+						<AppSidebar />
+						<Page />
+					</SidebarPanelProvider>
+				),
 			},
 		],
 		{initialEntries: [entry]},
 	);
 
-	return render(
+	render(
 		<ThemeProvider>
 			<TooltipProvider>
 				<SidebarProvider>
-					<SidebarPanelProvider>
-						<UnreadContext.Provider value={unread}>
-							<RouterProvider router={router} />
-						</UnreadContext.Provider>
-					</SidebarPanelProvider>
+					<UnreadContext.Provider value={unread}>
+						<RouterProvider router={router} />
+					</UnreadContext.Provider>
 				</SidebarProvider>
 			</TooltipProvider>
 		</ThemeProvider>,
 	);
+	return router;
+}
+
+// Whether the sidebar shows the page's panel rather than the navigation.
+function drilled(): boolean {
+	const back = document.querySelector('button[aria-label="Chat, back to the menu"]');
+	return back !== null && back.closest('[inert]') === null;
 }
 
 // The organization's pages in the sidebar, group by group.
@@ -87,7 +113,8 @@ describe('AppSidebar', () => {
 
 	test('lights Chat in a conversation', async () => {
 		renderSidebar(testHuman(), '/acme/chat/general');
-		const chat = await screen.findByRole('link', {name: 'Chat'});
+		// Under its agents, which the sidebar shows on Chat.
+		const chat = await screen.findByRole('link', {name: 'Chat', hidden: true});
 		expect(chat.hasAttribute('data-active')).toBe(true);
 	});
 
@@ -98,6 +125,23 @@ describe('AppSidebar', () => {
 		const badge = screen.getByRole('status', {name: '2 unread'});
 		expect(badge.textContent).toBe('2');
 		expect(badge.closest('li')?.querySelector('a')?.textContent).toBe('Chat');
+	});
+
+	test("lands on the navigation, not on Chat's agents, in an organization switched to", async () => {
+		const router = renderSidebar(testHuman(), '/acme/chat/general');
+		await screen.findByRole('button', {name: 'Chat, back to the menu'});
+		expect(drilled()).toBe(true);
+
+		// As the switcher goes, landing on Chat through the redirects there.
+		await act(() => router.navigate('/globex'));
+		await act(() => router.navigate('/globex/chat', {replace: true}));
+		await act(() => router.navigate('/globex/chat/general', {replace: true}));
+		expect(drilled()).toBe(false);
+
+		// Back to Chat from elsewhere in it, into its agents again.
+		await act(() => router.navigate('/globex/connections'));
+		await act(() => router.navigate('/globex/chat/general'));
+		expect(drilled()).toBe(true);
 	});
 
 	test("lights the switcher on the organization's members and settings", async () => {
