@@ -32,7 +32,8 @@ import {runToolJob, type ToolJobStore} from './tool-job';
  * (backends/harness.ts): the worker counts those it runs, and, at the cap, claims only the other
  * jobs, so a turn it has no subprocess for stays in the queue, for it later or for another
  * instance, rather than taking up room here while it waits. As a thread's turn ends, a small model
- * reads where it stands, after the turn's job and beside the next (thread-standing.ts).
+ * reads where it stands, after the turn's job and beside the next (thread-standing.ts); stopping,
+ * the worker waits for those readings as it does for its jobs.
  */
 
 const POLL_MS = 500;
@@ -86,17 +87,6 @@ async function fail(store: WorkerStore, job: JobRow, workerId: string, error: st
 	await store.failJob(job.id, workerId, error, failureNote(error));
 }
 
-// Runs the job with its lease kept, and marks it failed where it throws or fails. A turn's job
-// over, however it went, the thread's turn may have ended: where it has, where the thread stands is
-// written after, in the background, so the worker goes on to the next job meanwhile
-// (thread-standing.ts).
-async function runClaimed(store: WorkerStore, harnesses: Harnesses, standing: StandingModel, job: JobRow, workerId: string): Promise<void> {
-	await runOrFail(store, harnesses, job, workerId);
-	if (job.kind === 'inference' || job.kind === 'wake') {
-		void standAfterTurn(store, standing, job.threadId);
-	}
-}
-
 // Runs the job with its lease kept, and marks it failed where it throws or fails.
 async function runOrFail(store: WorkerStore, harnesses: Harnesses, job: JobRow, workerId: string): Promise<void> {
 	if (job.attempts > MAX_ATTEMPTS) {
@@ -130,8 +120,24 @@ export function startHarnessWorker(store: WorkerStore, harnesses: Harnesses, sta
 	const cap = cappedHarness(harnesses.registry);
 	let stopping = false;
 	const running = new Set<Promise<void>>();
+	// Where threads stand, being written after their turns' jobs: none takes a job's room.
+	const standings = new Set<Promise<void>>();
 	// How many of the jobs running are turns on the capped harness.
 	let cappedTurns = 0;
+
+	// Runs the job, and, a turn's job over, however it went, has where its thread stands written
+	// after, in the background, so the worker goes on to the next job meanwhile: the thread's turn
+	// may have ended, and where it hasn't, nothing is written (thread-standing.ts).
+	const runClaimed = async (job: JobRow): Promise<void> => {
+		await runOrFail(store, harnesses, job, workerId);
+		if (job.kind !== 'inference' && job.kind !== 'wake') {
+			return;
+		}
+		const written: Promise<void> = standAfterTurn(store, standing, job.threadId).finally(() => {
+			standings.delete(written);
+		});
+		standings.add(written);
+	};
 
 	const loop = async (): Promise<void> => {
 		while (!stopping) {
@@ -152,7 +158,7 @@ export function startHarnessWorker(store: WorkerStore, harnesses: Harnesses, sta
 			const {capped, ...row} = claimed.value;
 			cappedTurns += capped ? 1 : 0;
 			// Every line written for the job says which it was, as a request's say which request.
-			const job: Promise<void> = runInContext({jobId: row.id, jobKind: row.kind, threadId: row.threadId, workerId}, () => runClaimed(store, harnesses, standing, row, workerId)).finally(() => {
+			const job: Promise<void> = runInContext({jobId: row.id, jobKind: row.kind, threadId: row.threadId, workerId}, () => runClaimed(row)).finally(() => {
 				running.delete(job);
 				cappedTurns -= capped ? 1 : 0;
 			});
@@ -165,7 +171,13 @@ export function startHarnessWorker(store: WorkerStore, harnesses: Harnesses, sta
 	return {
 		stop: async () => {
 			stopping = true;
-			await Promise.race([Promise.all(running), sleep(STOP_MS)]);
+			// A job done has begun writing where its thread stands by then, so those are waited for
+			// after the jobs.
+			const settled = async (): Promise<void> => {
+				await Promise.all(running);
+				await Promise.all(standings);
+			};
+			await Promise.race([settled(), sleep(STOP_MS)]);
 		},
 	};
 }

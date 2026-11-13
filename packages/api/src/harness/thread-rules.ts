@@ -1,4 +1,4 @@
-import {callArguments, cut, personMessageArgs, preview, SEND_TO_PERSON_TOOL, SLEEP_TOOL, sleepUntil, type ToolCall} from '@proxy/utils/harness';
+import {ATTACHMENT_MARK, callArguments, cut, personMessageArgs, preview, SEND_TO_PERSON_TOOL, SLEEP_TOOL, sleepUntil, type ToolCall} from '@proxy/utils/harness';
 import {ApiErr, type ApiError} from '@proxy/utils';
 import type {AfterAnswer, CallPlan, FailureNote, JobRow, ThreadEnd, ThreadOpening, ThreadRow} from '@proxy/db/harness';
 import type {NewAgentTask} from '@proxy/db/task';
@@ -26,15 +26,44 @@ const MAX_TASK_TEXT = 2000;
 // How long a thread's title is: a line of the member's message that opened it.
 const MAX_THREAD_TITLE = 80;
 
+// Text with its whitespace folded, as a line.
+function folded(text: string): string {
+	return text.replace(/\s+/g, ' ').trim();
+}
+
+// A line to call a thread by, of what the member said in words: as a list shows a message, its
+// Markdown dropped; said with files alone, the files' names; said in a block of code alone, as a
+// pasted log is, or in marks alone, which a list's line drops, the code without its fences, or the
+// marks as they are. Never empty, the member having said something or attached a file.
+function titleOf(words: string, files: string[]): string {
+	const names = files.join(', ');
+	const lines = [preview(words), preview(names), folded(words.replace(/```(?:[\w+-]*\n)?/g, ' ')), folded(words), names];
+	return lines.find((line) => line !== '') ?? '';
+}
+
+// What the member said with each file's name in brackets where they put it among their words, as
+// the model reads it (utils/harness-context withAttachments), in place of the mark that stands
+// for it.
+function withFileNames(text: string, files: string[]): string {
+	let placed = 0;
+	return text
+		.replaceAll(ATTACHMENT_MARK, () => {
+			const name = files[placed];
+			placed += 1;
+			return name === undefined ? '' : `[${name}]`;
+		})
+		.trim();
+}
+
 /**
  * A thread as the member's message in their chat opens it: titled with a line of what they said,
  * or, said with files alone, with the files' names; its task the same piece of work, the message
- * its goal, cut.
+ * its goal, each file named where it sits among the words, cut.
  */
 export function threadOpening(chat: ThreadRow, said: {text: string; files: string[]}): ThreadOpening {
-	const line = preview(said.text);
-	const title = cut(line === '' ? preview(said.files.join(', ')) : line, MAX_THREAD_TITLE);
-	return {title, task: taskFor(chat, {title, goal: said.text === '' ? title : cut(said.text, MAX_TASK_TEXT)})};
+	const words = said.text.replaceAll(ATTACHMENT_MARK, ' ').trim();
+	const title = cut(titleOf(words, said.files), MAX_THREAD_TITLE);
+	return {title, task: taskFor(chat, {title, goal: words === '' ? title : cut(withFileNames(said.text, said.files), MAX_TASK_TEXT)})};
 }
 
 /** A thread's answer without calls, what it said: the end of its turn, and its task's outcome, cut. */

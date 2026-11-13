@@ -496,6 +496,7 @@ describe('the chat’s threads', () => {
 				title: 'Pricing review with Dana',
 				state: {kind: 'stopped'},
 				standing: 'done',
+				standingPending: false,
 				opener: {kind: 'person', text: 'Find the pricing review with Dana', attachments: [shownAttachment]},
 				summary: null,
 				latest: 'It moved to Friday, with the new prices attached.',
@@ -509,6 +510,7 @@ describe('the chat’s threads', () => {
 				title: 'Tell me when Dana writes',
 				state: {kind: 'asleep', until: later(60).toISOString()},
 				standing: 'in_progress',
+				standingPending: false,
 				opener: {kind: 'event', text: 'The alert “Dana” matched a new one of the emails.'},
 				summary: null,
 				latest: null,
@@ -551,6 +553,47 @@ describe('the chat’s threads', () => {
 		const reply = {...logEntry({id: 'e10', seq: 3, threadId: 'thread-2', kind: 'person', text: 'Yes, send them'}), pending: true};
 		store.getChatThread.mockResolvedValue(Ok({...waiting, state: {kind: 'working'}, entries: [...waiting.entries, reply]}));
 		expect((await handleGetChatThreadRoute(request({personaId: 'persona-1', threadId: 'thread-2'}))).unwrap().thread).toMatchObject({standing: 'in_progress', summary: null});
+	});
+
+	test('say that where a thread stands is still being read while it stopped a moment ago with nothing written for what was said last, and not once it is written, later, or at work', async () => {
+		const {handleListThreadsRoute} = routes;
+		store.getChatDraft.mockResolvedValue(Ok(null));
+		store.listDraftAttachments.mockResolvedValue(Ok([]));
+		const ago = (seconds: number) => new Date(Date.now() - seconds * 1000);
+		const ended = (id: string, seconds: number, row: Partial<ChatThreadRow> = {}) =>
+			chatThread({
+				id,
+				entries: [
+					logEntry({id: `${id}-1`, seq: 1, threadId: id, kind: 'person', text: 'Book a room for the review', createdAt: ago(seconds + 30)}),
+					logEntry({id: `${id}-2`, seq: 2, threadId: id, kind: 'assistant', text: 'Which day?', createdAt: ago(seconds)}),
+				],
+				...row,
+			});
+		store.listChatThreads.mockResolvedValue(
+			Ok([
+				ended('just-stopped', 2),
+				// One from before its last turn is as good as none.
+				ended('stale', 2, {standing: {waitingForMember: false, summary: 'Asked for a room.', summarySeq: 1}}),
+				ended('written', 2, {standing: {waitingForMember: true, summary: 'Asks which day.', summarySeq: 2}}),
+				// Written with no sentence, it is written all the same.
+				ended('written-bare', 2, {standing: {waitingForMember: false, summary: null, summarySeq: 2}}),
+				ended('long-stopped', 600),
+				ended('working', 2, {state: {kind: 'working'}}),
+				chatThread({id: 'empty'}),
+			]),
+		);
+
+		const listed = (await handleListThreadsRoute(request({personaId: 'persona-1'}))).unwrap().threads;
+
+		expect(Object.fromEntries(listed.map((thread) => [thread.id, thread.standingPending]))).toEqual({
+			'just-stopped': true,
+			stale: true,
+			written: false,
+			'written-bare': false,
+			'long-stopped': false,
+			working: false,
+			empty: false,
+		});
 	});
 
 	test('mark a thread of the viewer’s chat done, and say where there is no such thread', async () => {
@@ -680,13 +723,17 @@ describe('the chat’s threads', () => {
 
 	test('put a file for a reply into the viewer’s own drive, keeping it in no input on the server, only for a thread of their chat', async () => {
 		const {handleUploadThreadAttachmentRoute} = routes;
+		store.hasChatThread.mockResolvedValue(Ok(true));
 
 		expect((await handleUploadThreadAttachmentRoute(request({personaId: 'persona-1', threadId: 'thread-2'}))).unwrap()).toEqual({attachment: shownAttachment});
 		expect(files.upload).toHaveBeenCalledWith(viewer, persona, expect.anything());
 		expect(store.addDraftAttachment).not.toHaveBeenCalled();
+		// Asked whether it is there, not read with all that was said in it.
+		expect(store.hasChatThread).toHaveBeenCalledWith('chat-1', 'thread-2');
+		expect(store.getChatThread).not.toHaveBeenCalled();
 
 		files.upload.mockClear();
-		store.getChatThread.mockResolvedValue(Ok(null));
+		store.hasChatThread.mockResolvedValue(Ok(false));
 		expect((await handleUploadThreadAttachmentRoute(request({personaId: 'persona-1', threadId: 'thread-9'}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'thread'});
 		expect(files.upload).not.toHaveBeenCalled();
 	});

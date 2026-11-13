@@ -112,6 +112,7 @@ async function answer(path: string, method: string): Promise<Response> {
 				title: 'Plan my trip',
 				state: {kind: 'working'},
 				standing: 'in_progress',
+				standingPending: false,
 				opener: {kind: 'person', text: '', attachments: []},
 				summary: null,
 				latest: null,

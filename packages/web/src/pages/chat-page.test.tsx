@@ -68,6 +68,7 @@ function thread(id: string, over: Partial<ChatThread> = {}): ChatThread {
 		title: 'Pricing review with Dana',
 		state: {kind: 'stopped'},
 		standing: 'done',
+		standingPending: false,
 		opener: {kind: 'person', text: 'Move the pricing review', attachments: []},
 		summary: null,
 		latest: 'Moved it to Thursday.',
@@ -678,6 +679,70 @@ describe('ChatPage', () => {
 		).toHaveLength(0);
 	});
 
+	test('reads the chat up to an answer a thread in the list shows only once that thread’s row is in view', async () => {
+		// A browser that says what is in view: of the rows it is asked about, none, until told.
+		const watched: Array<{row: Element; say: (inView: boolean) => void}> = [];
+		class Watcher {
+			readonly root = null;
+			readonly rootMargin = '0px';
+			readonly scrollMargin = '0px';
+			readonly thresholds = [0];
+			private readonly callback: IntersectionObserverCallback;
+			constructor(callback: IntersectionObserverCallback) {
+				this.callback = callback;
+			}
+			observe(row: Element) {
+				const say = (inView: boolean) =>
+					this.callback(
+						[
+							{
+								target: row,
+								isIntersecting: inView,
+								intersectionRatio: inView ? 1 : 0,
+								time: 0,
+								rootBounds: null,
+								boundingClientRect: new DOMRect(),
+								intersectionRect: new DOMRect(),
+							},
+						],
+						this,
+					);
+				watched.push({row, say});
+			}
+			unobserve() {}
+			disconnect() {}
+			takeRecords() {
+				return [];
+			}
+		}
+		Object.assign(globalThis, {IntersectionObserver: Watcher});
+		const reads = () =>
+			fetchMock.mock.calls.filter(([url]) => url === '/api/orgs/acme/chat/personas/general/read');
+		answers = [
+			{
+				personaId: 'general',
+				name: 'General',
+				answer: {id: 'm2', text: 'Moved it to Thursday.'},
+				unread: true,
+			},
+		];
+		renderChatPage({threads: [backup, pricing]});
+
+		// The row of the thread that answered is the one asked about; out of view, as while another
+		// thread has the page's width, its answer is not read.
+		const link = await screen.findByRole('link', {name: 'Pricing review with Dana'});
+		await waitFor(() => expect(watched).toHaveLength(1));
+		expect(watched[0]?.row.contains(link)).toBe(true);
+		act(() => watched[0]?.say(false));
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(reads()).toHaveLength(0);
+
+		act(() => watched[0]?.say(true));
+		await waitFor(() => expect(reads()).toHaveLength(1));
+		expect(reads()[0]?.[1]?.body).toBe(JSON.stringify({entryId: 'm2'}));
+		Reflect.deleteProperty(globalThis, 'IntersectionObserver');
+	});
+
 	test('lists the threads, the one that last had a message last, each with where it stands, what opened it, the start of the latest answer and how many messages it holds', async () => {
 		const asleep = thread('t3', {
 			title: 'Train tickets',
@@ -738,6 +803,29 @@ describe('ChatPage', () => {
 		expect(within(chat).queryByText('In progress')).toBeNull();
 		expect(within(chat).getByText('The backup ran.')).toBeTruthy();
 	}, 10000);
+
+	test('reads the chat again while where a thread that stopped stands is still being read, so it says it waits for the person once that is written', async () => {
+		let listed = [{...pricing, standingPending: true}];
+		let reads = 0;
+		renderChatPage({
+			listThreads: () => {
+				reads += 1;
+				return listed;
+			},
+		});
+
+		const chat = await screen.findByLabelText('Chat');
+		expect(within(chat).getByText('Done')).toBeTruthy();
+		listed = [{...pricing, standing: 'waiting', summary: 'Asks which day suits Dana.'}];
+		await act(() => new Promise((resolve) => setTimeout(resolve, 4500)));
+		expect(within(chat).getByText('Waiting for you')).toBeTruthy();
+		expect(within(chat).getByText('Asks which day suits Dana.')).toBeTruthy();
+
+		// Written, there is nothing more to read it again for.
+		const read = reads;
+		await act(() => new Promise((resolve) => setTimeout(resolve, 4500)));
+		expect(reads).toBe(read);
+	}, 15000);
 
 	test('says a thread waits for the person in orange, one done in ink, and where each stands in a sentence while it is current, the start of the latest answer otherwise', async () => {
 		const waiting = thread('t4', {
@@ -1031,10 +1119,31 @@ describe('ChatPage', () => {
 			).toBeNull();
 		});
 
-		test('says where it is gone', async () => {
-			renderChatPage({threads: [], initial: '/acme/chat/general/threads/t9'});
+		test('given the page’s width and closed, opens beside the chat again', async () => {
+			renderChatPage({threads: [pricing], initial: '/acme/chat/general/threads/t1'});
+			await screen.findByLabelText('Thread');
+			const chatColumn = () => screen.getByLabelText('Chat').closest('[class~="hidden"]');
+
+			fireEvent.click(screen.getByRole('button', {name: 'Expand'}));
+			expect(chatColumn()).not.toBeNull();
+			await follow(screen.getByRole('button', {name: 'Close'}));
+			await waitFor(() => expect(screen.queryByLabelText('Thread')).toBeNull());
+
+			await follow(screen.getByRole('link', {name: 'Pricing review with Dana'}));
+			await screen.findByLabelText('Thread');
+			expect(chatColumn()).toBeNull();
+			expect(screen.getByRole('button', {name: 'Expand'})).toBeTruthy();
+		});
+
+		test('says where it is gone, the title bar waiting for no name', async () => {
+			const {container} = renderChatPage({threads: [], initial: '/acme/chat/general/threads/t9'});
 
 			expect(await screen.findByText('This thread does not exist anymore.')).toBeTruthy();
+			const bar = screen.getByRole('banner');
+			await waitFor(() => expect(within(bar).getByText('Thread')).toBeTruthy());
+			expect(bar.querySelector('[data-slot="skeleton"]')).toBeNull();
+			expect(container.querySelector('[data-slot="skeleton"]')).toBeNull();
+			expect(within(bar).getByRole('button', {name: 'Close'})).toBeTruthy();
 		});
 
 		test('shows the pictures an answer kept where its words put them, any other file it kept as a chip, and loads no picture from anywhere else', async () => {
@@ -1191,6 +1300,8 @@ describe('ChatPage', () => {
 			const sent = await within(chat).findByText('Book the train');
 			expect(box.textContent).toBe('');
 			expect(sent.closest('[data-enter]')?.getAttribute('data-enter')).toBe('rise');
+			// The server has yet to open it: there is nowhere for it to lead.
+			expect(within(sent.closest('[data-enter]') as HTMLElement).queryByRole('link')).toBeNull();
 			expect(
 				within(sent.closest('[data-enter]') as HTMLElement).getByText('In progress'),
 			).toBeTruthy();
@@ -1211,6 +1322,12 @@ describe('ChatPage', () => {
 			});
 			expect(within(chat).getByText('Book the train')).toBe(sent);
 			expect(screen.queryByLabelText('Thread')).toBeNull();
+			// Opened, it leads to the thread the server made, before the chat read again has it.
+			expect(
+				within(sent.closest('[data-enter]') as HTMLElement)
+					.getByRole('link', {name: 'Book the train'})
+					.getAttribute('href'),
+			).toBe('/acme/chat/general/threads/t-new');
 		});
 
 		test('puts what was sent back in the box, and takes it out of the chat, where the send fails', async () => {

@@ -41,6 +41,7 @@ export function fakeStore(): FakeStore {
 		replyInThread: mock<HarnessStore['replyInThread']>(),
 		listChatThreads: mock<HarnessStore['listChatThreads']>(),
 		getChatThread: mock<HarnessStore['getChatThread']>(),
+		hasChatThread: mock<HarnessStore['hasChatThread']>(),
 		writeThreadStanding: mock<HarnessStore['writeThreadStanding']>(),
 		markThreadDone: mock<HarnessStore['markThreadDone']>(),
 		listThreadsWithoutSummary: mock<HarnessStore['listThreadsWithoutSummary']>(),

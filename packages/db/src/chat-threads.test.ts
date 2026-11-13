@@ -14,6 +14,7 @@ import {
 	ensureMemberChat,
 	failJob,
 	getChatThread,
+	hasChatThread,
 	listAnswers,
 	listChatThreads,
 	listEntries,
@@ -205,6 +206,28 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		const listed = unwrap(await getChatThread(chat.id, thread.id, []));
 		expect(listed?.state).toEqual({kind: 'working'});
 		expect(listed?.attachments).toEqual([{...file, entryId: entry.id, gone: true}]);
+		// Each entry as a thread shows it, without what the model was sent for it.
+		expect(Object.keys(listed?.entries[0] ?? {}).toSorted()).toEqual(
+			['createdAt', 'id', 'isError', 'kind', 'pending', 'seq', 'text', 'toolCalls'].toSorted(),
+		);
+
+		// The chat's list has the files of what opened each thread, not of what was said after.
+		const chart = {...file, fileId: 'file-2', name: 'chart.png', type: 'image/png'};
+		const reply = unwrap(
+			await replyInThread(chat.id, thread.id, 'And this chart?', readyForInference, [chart]),
+		);
+		const inList = unwrap(await listChatThreads(chat.id, [])).find((one) => one.id === thread.id);
+		expect(inList?.entries.map((one) => one.id)).toEqual([entry.id, reply?.id ?? '']);
+		expect(inList?.attachments).toEqual([{...file, entryId: entry.id, gone: true}]);
+		expect(
+			unwrap(await getChatThread(chat.id, thread.id, []))?.attachments.map((one) => one.name),
+		).toEqual(['pricing.md', 'chart.png']);
+		await db.agentEntry.delete({where: {id: reply?.id ?? ''}});
+
+		// Whether the chat has a thread is asked without reading it.
+		expect(unwrap(await hasChatThread(chat.id, thread.id))).toBe(true);
+		expect(unwrap(await hasChatThread(chat.id, 'no-such-thread'))).toBe(false);
+		expect(unwrap(await hasChatThread(thread.id, thread.id))).toBe(false);
 
 		// Only a chat opens threads.
 		expect(unwrap(await openThread(thread.id, 'Hi', opening('Hi'), readyForInference))).toBeNull();

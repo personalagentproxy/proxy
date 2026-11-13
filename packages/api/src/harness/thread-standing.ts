@@ -1,3 +1,5 @@
+import {setTimeout as sleep} from 'node:timers/promises';
+
 import {Err, Result} from 'ts-results-es';
 import {z} from 'zod';
 
@@ -18,9 +20,9 @@ import type {HarnessStore} from './store';
  * member sees of the thread and says both, through `askForJson` (llm/open-router.ts) on the
  * server's OpenRouter key, as the command bar's model fills in a card. It is the turn's after: the
  * turn's result is written before it runs, and nothing it does reaches the turn. Without the key
- * nothing is asked; a failure, an answer outside the form or no answer in time is logged; and the
- * thread is then done with no summary, as a reply or an alert that took it up left it
- * (db/harness wakeWith). What is written is written up to the last thing said in the thread, and
+ * nothing is asked; a failure, an answer outside the form or no answer in time is logged, and the
+ * model asked once more; failing again, the thread is then done with no summary, as a reply or an
+ * alert that took it up left it (db/harness wakeWith). What is written is written up to the last thing said in the thread, and
  * only while nothing came since (db/harness writeThreadStanding): a summary is shown only while it
  * is current. The member's Done button overrides whether it waits.
  */
@@ -33,16 +35,29 @@ const standingSchema = z.object({summary: z.string(), waitingForMember: z.boolea
 /** What the model answers: the sentence, and whether the thread waits for the member. */
 export type Standing = z.infer<typeof standingSchema>;
 
-/** The model that reads a thread: the server's OpenRouter key, undefined without one, the call it is asked through (askForJson), and how long it may take. */
+/** The model that reads a thread: the server's OpenRouter key, undefined without one, the call it is asked through (askForJson), how long it may take, and how long after a failure it is asked again. */
 export type StandingModel = {
 	key: string | undefined;
 	ask: (request: JsonRequest<Standing>) => Promise<Result<Standing, ApiError>>;
 	timeoutMs?: number;
+	retryMs?: number;
 };
 
 // How long the model may take: a turn's end is not held up by it, but a thread's word over it
 // should change while the member is still looking.
 const TIMEOUT_MS = 20_000;
+
+// How many times a turn's end tries to write where its thread stands, and how long it waits
+// between: a model that failed or was late once often answers the next time.
+const ATTEMPTS = 2;
+const RETRY_MS = 2_000;
+
+/**
+ * How long after a thread's turn ended where it stands may still be written: every attempt taking
+ * all its time, with the reads and the write around them. Until then a list of the thread reads it
+ * again (route.ts).
+ */
+export const STANDING_WITHIN_MS = ATTEMPTS * TIMEOUT_MS + (ATTEMPTS - 1) * RETRY_MS + 8_000;
 
 // Its thinking and the answer: a sentence and a yes or no.
 const MAX_TOKENS = 1500;
@@ -202,17 +217,32 @@ export function summarizeThreadsWithoutSummary(
 	});
 }
 
-/**
- * Writes where the thread stands as a job of its turn has ended, as best it can: it never fails
- * and never throws. What goes wrong is logged, and the thread is left done, with no summary.
- */
-export async function standAfterTurn(store: StandingStore, model: StandingModel, threadId: string): Promise<void> {
+// One try at writing where the thread stands: what went wrong, for the log, or null where nothing did.
+async function standingFailure(store: StandingStore, model: StandingModel, threadId: string): Promise<ReturnType<typeof serializeError> | null> {
 	const result = await Result.wrapAsync(() => writeStanding(store, model, threadId));
 	if (result.isErr()) {
-		log.warn('Where a thread stands could not be written', {threadId, ...serializeError(result.error)});
-		return;
+		return serializeError(result.error);
 	}
 	if (result.value.isErr()) {
-		log.warn('Where a thread stands could not be written', {threadId, ...serializeError('cause' in result.value.error ? result.value.error.cause : result.value.error)});
+		return serializeError('cause' in result.value.error ? result.value.error.cause : result.value.error);
+	}
+	return null;
+}
+
+/**
+ * Writes where the thread stands as a job of its turn has ended, as best it can: it never fails
+ * and never throws. What goes wrong is logged, and it is tried once more, a moment later; failing
+ * again, the thread is left done, with no summary.
+ */
+export async function standAfterTurn(store: StandingStore, model: StandingModel, threadId: string): Promise<void> {
+	for (let attempt = 1; attempt <= ATTEMPTS; attempt += 1) {
+		const failure = await standingFailure(store, model, threadId);
+		if (failure === null) {
+			return;
+		}
+		log.warn('Where a thread stands could not be written', {threadId, attempt, ...failure});
+		if (attempt < ATTEMPTS) {
+			await sleep(model.retryMs ?? RETRY_MS);
+		}
 	}
 }

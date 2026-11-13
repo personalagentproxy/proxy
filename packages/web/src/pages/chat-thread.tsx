@@ -45,6 +45,9 @@ export type ThreadContext = {
 	// The thread as it is shown, for the title bar, the list beside it and what is read; null once
 	// it is closed.
 	onShown: (view: ThreadView | null) => void;
+	// Whether the address names a thread the chat doesn't have, for the title bar, which would
+	// wait for its name otherwise.
+	onMissing: (missing: boolean) => void;
 };
 
 // The file kept with an answer that a link of it names; undefined for any other link.
@@ -129,11 +132,20 @@ export function OpenThread() {
 	const {thread} = useLoaded<typeof chatThreadLoader>();
 	const context = useOutletContext<ThreadContext>();
 	if (thread === null) {
-		return (
-			<p className="px-5 pt-6 text-sm text-muted-foreground">This thread does not exist anymore.</p>
-		);
+		return <MissingThread onMissing={context.onMissing} />;
 	}
 	return <Thread key={thread.thread.id} loaded={thread} {...context} />;
+}
+
+// In place of a thread the chat doesn't have: the page is told so while this says it.
+function MissingThread({onMissing}: Pick<ThreadContext, 'onMissing'>) {
+	useLayoutEffect(() => {
+		onMissing(true);
+		return () => onMissing(false);
+	}, [onMissing]);
+	return (
+		<p className="px-5 pt-6 text-sm text-muted-foreground">This thread does not exist anymore.</p>
+	);
 }
 
 // What the person said in the thread; null for what isn't theirs.
@@ -148,7 +160,12 @@ function keepNothing() {}
 // which has the keyboard's focus as it opens; the check that says it is done is in its cell of the
 // title bar (chat-page.tsx). What the person replies shows at once, the persona at work under
 // it, before the server has it.
-function Thread({loaded, harnesses, managing, onShown}: ThreadContext & {loaded: ThreadView}) {
+function Thread({
+	loaded,
+	harnesses,
+	managing,
+	onShown,
+}: Omit<ThreadContext, 'onMissing'> & {loaded: ThreadView}) {
 	const org = useOrgSlug();
 	const [view, setView] = useState<ThreadView>(loaded);
 	const personaId = loaded.persona.id;

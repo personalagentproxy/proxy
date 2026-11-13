@@ -319,10 +319,12 @@ type Tx = Prisma.TransactionClient;
 
 /** An entry as read, its calls parsed. */
 export function toEntry(entry: EntryRecord): EntryRow {
-	return {
-		...entry,
-		toolCalls: entry.toolCalls === null ? null : (JSON.parse(entry.toolCalls) as ToolCall[]),
-	};
+	return {...entry, toolCalls: toToolCalls(entry.toolCalls)};
+}
+
+// An entry's calls, as they are kept: as JSON.
+function toToolCalls(kept: string | null): ToolCall[] | null {
+	return kept === null ? null : (JSON.parse(kept) as ToolCall[]);
 }
 
 /**
@@ -346,55 +348,65 @@ export async function listPersonas(
 		ApiError
 	>
 > {
-	return (
-		await wrapDb(() =>
-			db.persona.findMany({
-				where: seenBy(orgId, userId),
-				select: {
-					...personaSelect,
-					// The member's chat and its threads.
-					threads: {
-						where: {userId},
-						select: {
-							parentThreadId: true,
-							draft: true,
-							attachments: {
-								where: {entryId: null},
-								select: draftSelect,
-								orderBy: {position: 'asc'},
-							},
-							// The agent's turns that only made calls say nothing, so the last with words.
-							entries: {
-								where: {kind: {in: ['person', 'assistant']}, text: {not: ''}},
-								orderBy: {seq: 'desc'},
-								take: 1,
-								select: {kind: true, text: true, seq: true, createdAt: true},
-							},
+	return wrapDb(async () => {
+		const personas = await db.persona.findMany({
+			where: seenBy(orgId, userId),
+			select: {
+				...personaSelect,
+				// The member's chat and its threads.
+				threads: {
+					where: {userId},
+					select: {
+						parentThreadId: true,
+						draft: true,
+						attachments: {
+							where: {entryId: null},
+							select: draftSelect,
+							orderBy: {position: 'asc'},
+						},
+						// The agent's turns that only made calls say nothing, so the last with words: which
+						// it is, not what it says, since one of a chat's many threads has the chat's last.
+						entries: {
+							where: {kind: {in: ['person', 'assistant']}, text: {not: ''}},
+							orderBy: {seq: 'desc'},
+							take: 1,
+							select: {id: true, kind: true, seq: true, createdAt: true},
 						},
 					},
 				},
-				orderBy: {createdAt: 'desc'},
-			}),
-		)
-	).map((personas) =>
-		personas
-			.map(({threads, ...persona}) => {
-				const chat = threads.find((thread) => thread.parentThreadId === null);
-				const last = threads
-					.flatMap((thread) => thread.entries)
-					.toSorted((a, b) => b.seq - a.seq)[0];
+			},
+			orderBy: {createdAt: 'desc'},
+		});
+		const listed = personas.map(({threads, ...persona}) => ({
+			persona,
+			chat: threads.find((thread) => thread.parentThreadId === null),
+			last: threads.flatMap((thread) => thread.entries).toSorted((a, b) => b.seq - a.seq)[0],
+		}));
+		// What each chat's last says, read for those alone.
+		const lastIds = listed.flatMap(({last}) => (last ? [last.id] : []));
+		const said =
+			lastIds.length === 0
+				? []
+				: await db.agentEntry.findMany({
+						where: {id: {in: lastIds}},
+						select: {id: true, text: true},
+					});
+		const textOf = new Map(said.map((entry) => [entry.id, entry.text]));
+		return listed
+			.map(({persona, chat, last}) => {
+				const text = last ? textOf.get(last.id) : undefined;
 				return {
 					...toPersona(persona),
 					lastMessage:
-						last && (last.kind === 'person' || last.kind === 'assistant')
-							? {kind: last.kind, text: last.text, createdAt: last.createdAt}
+						last && text !== undefined && (last.kind === 'person' || last.kind === 'assistant')
+							? {kind: last.kind, text, createdAt: last.createdAt}
 							: null,
 					draft: chat?.draft ?? null,
 					draftAttachments: chat?.attachments ?? [],
 				};
 			})
-			.toSorted((a, b) => lastActive(b).getTime() - lastActive(a).getTime()),
-	);
+			.toSorted((a, b) => lastActive(b).getTime() - lastActive(a).getTime());
+	});
 }
 
 // When a persona was last active in the member's chat with it: the last thing said, or its making
@@ -1118,11 +1130,34 @@ export type ThreadStandingRow = {
 	summarySeq: number | null;
 };
 
-/** One of a chat's threads, with what it is up to, where it stands, the entries of it the member sees, and the files attached to them. */
+/** An entry as a thread shows it: what was said, by whom and when, without what the model was sent or how it ran. */
+export type ShownEntryRow = Pick<
+	EntryRow,
+	'id' | 'seq' | 'kind' | 'pending' | 'text' | 'toolCalls' | 'isError' | 'createdAt'
+>;
+
+// The columns of an entry a thread shows it by, as `ShownEntryRow` has them: not the system prompt
+// each answer keeps, which is long, nor the rest of how it was run.
+const shownEntrySelect = {
+	id: true,
+	seq: true,
+	kind: true,
+	pending: true,
+	text: true,
+	toolCalls: true,
+	isError: true,
+	createdAt: true,
+} as const;
+
+/**
+ * One of a chat's threads, with what it is up to, where it stands, the entries of it the member
+ * sees, and the files attached to them; as the chat lists it (listChatThreads), the files of what
+ * opened it alone.
+ */
 export type ChatThreadRow = ThreadRow & {
 	state: ThreadState;
 	standing: ThreadStandingRow;
-	entries: EntryRow[];
+	entries: ShownEntryRow[];
 	attachments: AttachmentRow[];
 };
 
@@ -1146,12 +1181,14 @@ function shownInThread(calls: string[]): Prisma.AgentEntryWhereInput {
 	};
 }
 
-// The chat's threads `where` picks among them, oldest first, as ChatThreadRow has them.
+// The chat's threads `where` picks among them, oldest first, as ChatThreadRow has them, with the
+// files of every entry shown, or of the first alone, what opened the thread.
 async function readChatThreads(
 	chatId: string,
 	where: Prisma.AgentThreadWhereInput,
 	calls: string[],
 	now: Date,
+	files: 'all' | 'opener',
 ): Promise<Result<ChatThreadRow[], ApiError>> {
 	return wrapDb(async () => {
 		const threads = await db.agentThread.findMany({
@@ -1164,20 +1201,24 @@ async function readChatThreads(
 				jobs: openJobsSelect,
 				entries: {
 					where: shownInThread(calls),
-					select: entrySelect,
+					select: shownEntrySelect,
 					orderBy: [{pending: 'asc'}, {seq: 'asc'}],
 				},
 			},
 			orderBy: {createdAt: 'asc'},
 		});
-		const attachments = await attachmentsIn(threads.map((thread) => thread.id));
+		const attachments = await attachmentsOf(
+			threads.flatMap(({entries}) =>
+				(files === 'opener' ? entries.slice(0, 1) : entries).map((entry) => entry.id),
+			),
+		);
 		return threads.map(({jobs, entries, waitingForMember, summary, summarySeq, ...thread}) => {
 			const shown = new Set(entries.map((entry) => entry.id));
 			return {
 				...toThread(thread),
 				state: threadState(jobs, now),
 				standing: {waitingForMember, summary, summarySeq},
-				entries: entries.map(toEntry),
+				entries: entries.map((entry) => ({...entry, toolCalls: toToolCalls(entry.toolCalls)})),
 				attachments: attachments.filter((attachment) => shown.has(attachment.entryId)),
 			};
 		});
@@ -1187,26 +1228,36 @@ async function readChatThreads(
 /**
  * The chat's threads, oldest first, each with what it is up to, the entries of it the member sees,
  * in order, what is pending last, the answers that made a call of one of `calls` among them, and
- * the files attached to them.
+ * the files attached to what opened it, which is all of them a list shows.
  */
 export function listChatThreads(
 	chatId: string,
 	calls: string[],
 	now = new Date(),
 ): Promise<Result<ChatThreadRow[], ApiError>> {
-	return readChatThreads(chatId, {}, calls, now);
+	return readChatThreads(chatId, {}, calls, now, 'opener');
 }
 
-/** One of the chat's threads, as listChatThreads has it; `Ok(null)` for no such thread of the chat. */
+/** One of the chat's threads, as listChatThreads has it, with the files attached to every entry of it; `Ok(null)` for no such thread of the chat. */
 export async function getChatThread(
 	chatId: string,
 	threadId: string,
 	calls: string[],
 	now = new Date(),
 ): Promise<Result<ChatThreadRow | null, ApiError>> {
-	return (await readChatThreads(chatId, {id: threadId}, calls, now)).map(
+	return (await readChatThreads(chatId, {id: threadId}, calls, now, 'all')).map(
 		(threads) => threads[0] ?? null,
 	);
+}
+
+/** Whether the chat has the thread: what a write into one asks first, without reading it. */
+export async function hasChatThread(
+	chatId: string,
+	threadId: string,
+): Promise<Result<boolean, ApiError>> {
+	return (
+		await wrapDb(() => db.agentThread.count({where: {id: threadId, parentThreadId: chatId}}))
+	).map((count) => count > 0);
 }
 
 /**
@@ -1325,12 +1376,27 @@ export function listAttachments(threadId: string): Promise<Result<AttachmentRow[
 }
 
 // The files of the threads' logs, as listAttachments has them.
-async function attachmentsIn(threadIds: string[]): Promise<AttachmentRow[]> {
+function attachmentsIn(threadIds: string[]): Promise<AttachmentRow[]> {
 	if (threadIds.length === 0) {
-		return [];
+		return Promise.resolve([]);
 	}
+	return attachmentsWhere({threadId: {in: threadIds}, entryId: {not: null}});
+}
+
+// The files of the entries, as listAttachments has them.
+function attachmentsOf(entryIds: string[]): Promise<AttachmentRow[]> {
+	if (entryIds.length === 0) {
+		return Promise.resolve([]);
+	}
+	return attachmentsWhere({entryId: {in: entryIds}});
+}
+
+// The files `where` picks, in the order they were attached, each with whether its version is gone.
+async function attachmentsWhere(
+	where: Prisma.AgentEntryAttachmentWhereInput,
+): Promise<AttachmentRow[]> {
 	const rows = await db.agentEntryAttachment.findMany({
-		where: {threadId: {in: threadIds}, entryId: {not: null}},
+		where,
 		select: attachmentSelect,
 		orderBy: [{createdAt: 'asc'}, {position: 'asc'}],
 	});

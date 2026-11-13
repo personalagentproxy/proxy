@@ -238,7 +238,9 @@ export type ThreadMessage = z.infer<typeof threadMessageSchema>;
 
 /**
  * One of the chat's threads, as the chat lists it: its title; what it is up to, and where it
- * stands (`threadStandingSchema`); what opened it, the person's message with the files they
+ * stands (`threadStandingSchema`), and whether that is still being read, as it is for a moment
+ * after its turn ended, so that it may change with nothing more said in it; what opened it, the
+ * person's message with the files they
  * attached, or an event's text; where it stands in one sentence, as written when its turn last
  * ended, null before one was, where none could be, and once anything was said in it since, until
  * the next is; the start of the latest
@@ -253,6 +255,7 @@ export const chatThreadSchema = z.object({
 	title: z.string(),
 	state: chatThreadStateSchema,
 	standing: threadStandingSchema,
+	standingPending: z.boolean(),
 	opener: z
 		.discriminatedUnion('kind', [
 			z.object({

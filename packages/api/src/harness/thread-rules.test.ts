@@ -53,6 +53,26 @@ describe('a thread', () => {
 		expect(threadOpening(chat, {text: `${ATTACHMENT_MARK}What does this say?`, files: ['pricing.md']}).title).toBe('What does this say?');
 	});
 
+	test('has a title whatever opened it: code alone by the code, marks alone by the marks', () => {
+		const log = threadOpening(chat, {text: '```sh\nError: no route to host\n  at connect\n```', files: []});
+		expect(log.title).toBe('Error: no route to host at connect');
+		expect(log.task.title).toBe('Error: no route to host at connect');
+		expect(log.task.goal).toBe('```sh\nError: no route to host\n  at connect\n```');
+
+		expect(threadOpening(chat, {text: '***', files: []}).title).toBe('***');
+		expect(threadOpening(chat, {text: '```\n```', files: []}).title).toBe('``` ```');
+		expect(threadOpening(chat, {text: `${ATTACHMENT_MARK}\n\`\`\`\nrow 1\n\`\`\``, files: ['pricing.md']}).title).toBe('pricing.md');
+	});
+
+	test('keeps no mark of a file in its goal: files alone are named, and one among the words is named where it sits', () => {
+		const files = threadOpening(chat, {text: `${ATTACHMENT_MARK}${ATTACHMENT_MARK}`, files: ['pricing.md', 'chart.png']});
+		expect(files.title).toBe('pricing.md, chart.png');
+		expect(files.task.goal).toBe('pricing.md, chart.png');
+
+		const among = threadOpening(chat, {text: `Does ${ATTACHMENT_MARK} match ${ATTACHMENT_MARK}?`, files: ['chart.png', 'pricing.md']});
+		expect(among.task.goal).toBe('Does [chart.png] match [pricing.md]?');
+	});
+
 	test('ends its turn on an answer without calls, its task finished with what it said, cut, and tells nobody; any other answer gets its calls as planned', () => {
 		const plans = {c2: {kind: 'job' as const, runAt: now}};
 

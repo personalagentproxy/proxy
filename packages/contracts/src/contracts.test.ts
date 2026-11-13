@@ -112,6 +112,7 @@ describe('contracts', () => {
 			title: 'Add a date filter to the activity log',
 			state: {kind: 'stopped'},
 			standing: 'waiting',
+			standingPending: false,
 			opener: {
 				kind: 'person',
 				text: 'add a date filter to the activity log, plan first',

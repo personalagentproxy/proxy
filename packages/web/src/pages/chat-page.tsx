@@ -65,6 +65,7 @@ import {useChatDraft} from '@/hooks/use-chat-draft';
 import {FROM_COMMAND_BAR} from '@/lib/command-bar';
 import {useLastLoaded, useLoaded} from '@/hooks/use-loaded';
 import {rememberedPersonaList} from '@/lib/persona-list';
+import {useInView} from '@/hooks/use-in-view';
 import {useListMotion} from '@/hooks/use-list-motion';
 import {useOrgSlug} from '@/hooks/use-org';
 import {usePoll} from '@/hooks/use-poll';
@@ -305,13 +306,36 @@ function PersonaList({
 	);
 }
 
-// The open thread's cell of the title bar: its name, where it stands while in progress or waiting
-// for the person (once done, its name alone), and, at the right, the
+// The open thread's name in the title bar, with where it stands while in progress or waiting for
+// the person (once done, its name alone): what stands for it while it loads, and a plain word for
+// one the chat doesn't have, whose name will not come.
+function ThreadName({
+	thread,
+	standing,
+	missing,
+}: {
+	thread: ChatThread | null;
+	standing: ThreadStanding | null;
+	missing: boolean;
+}) {
+	if (thread === null) {
+		return missing ? <span className="text-sm font-medium">Thread</span> : <TitleWaiting />;
+	}
+	return (
+		<>
+			<span className="min-w-0 truncate text-sm font-medium">{thread.title || 'Thread'}</span>
+			{standing !== null && standing !== 'done' && <ThreadStatus standing={standing} />}
+		</>
+	);
+}
+
+// The open thread's cell of the title bar: its name (`ThreadName`), and, at the right, the
 // check that says it is done where it waits for the person, and the buttons that give it the page's
 // width and back, and close it.
 function ThreadHeader({
 	thread,
 	standing,
+	missing,
 	expanded,
 	onExpand,
 	onDone,
@@ -319,6 +343,8 @@ function ThreadHeader({
 }: {
 	thread: ChatThread | null;
 	standing: ThreadStanding | null;
+	// The address names a thread the chat doesn't have.
+	missing: boolean;
 	expanded: boolean;
 	onExpand: () => void;
 	onDone: (thread: ChatThread) => void;
@@ -326,14 +352,7 @@ function ThreadHeader({
 }) {
 	return (
 		<>
-			{thread === null ? (
-				<TitleWaiting />
-			) : (
-				<>
-					<span className="min-w-0 truncate text-sm font-medium">{thread.title || 'Thread'}</span>
-					{standing !== null && standing !== 'done' && <ThreadStatus standing={standing} />}
-				</>
-			)}
+			<ThreadName thread={thread} standing={standing} missing={missing} />
 			<span className="flex-1" />
 			{thread !== null && standing === 'waiting' && (
 				<IconButton label={DONE_LABEL} onClick={() => onDone(thread)}>
@@ -375,8 +394,14 @@ export function ChatPage() {
 	const [shownThreads, setShownThreads] = useState<ChatThread[]>([]);
 	// The thread open beside the chat, as it shows it.
 	const [shownThread, setShownThread] = useState<ThreadView | null>(null);
-	// The thread given the page's width, by its id, until it is given the chat back or closed.
+	// The thread given the page's width, by its id, until it is given the chat back or closed, as
+	// it is once the address names it no more: opened again, it is beside the chat.
 	const [expanded, setExpanded] = useState<string | null>(null);
+	if (expanded !== null && expanded !== threadId) {
+		setExpanded(null);
+	}
+	// Whether the address names a thread the chat doesn't have, as the thread's place says.
+	const [threadMissing, setThreadMissing] = useState(false);
 	// The agent dialog: making a new one, or changing the selected one; closed as null.
 	const [editing, setEditing] = useState<'new' | ChatPersona | null>(null);
 	const [deleting, setDeleting] = useState<ChatPersona | null>(null);
@@ -502,6 +527,7 @@ export function ChatPage() {
 		harnesses: list?.harnesses ?? [],
 		managing: editing !== null || deleting !== null,
 		onShown: setShownThread,
+		onMissing: setThreadMissing,
 	};
 	const side: Side | undefined =
 		threadId === undefined
@@ -512,6 +538,7 @@ export function ChatPage() {
 						<ThreadHeader
 							thread={openThread}
 							standing={openThread === null ? null : standingOf(openThread)}
+							missing={threadMissing}
 							expanded={full}
 							onExpand={() => setExpanded(full ? null : threadId)}
 							onDone={markDone}
@@ -679,34 +706,41 @@ function Opener({opener, open}: {opener: ChatThread['opener']; open: boolean}) {
 // in it, how many messages it holds with when the last came, and, where it waits for the person,
 // the check after that which says it is done. The one open has a band behind it, the width of the chat. The
 // whole of it is a link, under what it shows, so the files in what opened it are still links of
-// their own, and the button is a button, opening nothing. It is drawn again only as it changes;
-// one that came while the chat was open rises into place.
+// their own, and the button is a button, opening nothing; one just sent, which the server has yet
+// to open, has no address to link to (`to` null), and opens nothing until it has. It is drawn
+// again only as it changes; one that came while the chat was open rises into place.
 const ThreadItem = memo(function ThreadItem({
 	thread,
 	to,
 	open,
 	fresh,
 	onDone,
+	rowRef,
 }: {
 	thread: ChatThread;
-	to: string;
+	to: string | null;
 	open: boolean;
 	fresh: boolean;
 	onDone: (thread: ChatThread) => void;
+	// Given the row's element where the chat wants to know whether it is in view.
+	rowRef?: (row: HTMLDivElement | null) => void;
 }) {
 	const said = thread.summary ?? thread.latest;
 	const count = `${thread.messageCount} ${thread.messageCount === 1 ? 'message' : 'messages'}`;
 	return (
 		<div
+			ref={rowRef}
 			data-enter={fresh ? 'rise' : undefined}
 			className={cn('relative py-5.5', open && OPEN_BAND)}
 		>
-			<Link
-				to={to}
-				aria-label={thread.title || 'Thread'}
-				aria-current={open ? 'page' : undefined}
-				className="absolute inset-0 outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset"
-			/>
+			{to !== null && (
+				<Link
+					to={to}
+					aria-label={thread.title || 'Thread'}
+					aria-current={open ? 'page' : undefined}
+					className="absolute inset-0 outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset"
+				/>
+			)}
 			<div className="page-column pointer-events-none relative mx-auto flex w-full max-w-4xl flex-col items-start gap-2.5 [&_a]:pointer-events-auto [&_button]:pointer-events-auto">
 				<ThreadStatus standing={thread.standing} />
 				<Opener opener={thread.opener} open={open} />
@@ -777,24 +811,30 @@ const Chat = memo(function Chat({
 	}, [onShownThreads, threads]);
 
 	// The chat read again every so often while a thread of it is in progress, so one that stops,
-	// or says something, shows.
+	// or says something, shows; and while where one that stopped stands is still being read, which
+	// is written a moment after it stops, so that it shows as waiting for the person, with its
+	// sentence, rather than as done.
 	const reloadChat = useCallback(() => void reload(), [reload]);
 	usePoll(reloadChat, {
-		enabled: threads.some((thread) => thread.state.kind !== 'stopped'),
+		enabled: threads.some((thread) => thread.state.kind !== 'stopped' || thread.standingPending),
 		intervalMs: IN_PROGRESS_POLL_MS,
 		visibleGapMs: IN_PROGRESS_VISIBLE_GAP_MS,
 		immediate: false,
 	});
 
 	// The persona's last answer in the chat, as the provider last asked, is shown where it is a
-	// listed thread's latest answer, or among what the open thread says. The provider is told which
-	// chat the page shows, and that answer once it is shown: while the person looks at it, it is
-	// neither counted nor notified of, and is read up to that answer.
+	// listed thread's latest answer and that thread's row is in view, which it isn't while a thread
+	// has the page's width, as on a narrow window, or scrolled out of the list; or among what the
+	// open thread says. The provider is told which chat the page shows, and that answer once it is
+	// shown: while the person looks at it, it is neither counted nor notified of, and is read up to
+	// that answer.
 	const {setViewing, answers} = useUnread();
 	const answer = answers?.find((candidate) => candidate.personaId === personaId)?.answer ?? null;
+	const [answerRow, setAnswerRow] = useState<HTMLDivElement | null>(null);
+	const answerRowInView = useInView(answerRow);
 	const answerShown =
 		answer !== null &&
-		(threads.some((thread) => thread.latestAnswerId === answer.id) ||
+		((answerRowInView && threads.some((thread) => thread.latestAnswerId === answer.id)) ||
 			(fresher?.messages.some((message) => message.id === answer.id) ?? false));
 	const answerId = answerShown ? answer.id : null;
 	useEffect(() => {
@@ -841,6 +881,7 @@ const Chat = memo(function Chat({
 			title: preview(message),
 			state: {kind: 'working'},
 			standing: 'in_progress',
+			standingPending: false,
 			opener: {kind: 'person', text: message, attachments: files},
 			summary: null,
 			latest: null,
@@ -881,14 +922,22 @@ const Chat = memo(function Chat({
 						)}
 						{threads.map((thread) => {
 							const key = sending.keyOf(thread);
+							// One just sent is the server's once the send has answered, before the chat
+							// read again has it.
+							const id = sending.idOf(thread);
 							return (
 								<MessageScrollerItem key={key} scrollAnchor={sending.sentHere(thread)}>
 									<ThreadItem
 										thread={thread}
-										to={`/${org}/chat/${personaId}/threads/${thread.id}`}
-										open={thread.id === threadId}
+										to={id === null ? null : `/${org}/chat/${personaId}/threads/${id}`}
+										open={id !== null && id === threadId}
 										fresh={!opened.has(key)}
 										onDone={onDone}
+										rowRef={
+											answer !== null && thread.latestAnswerId === answer.id
+												? setAnswerRow
+												: undefined
+										}
 									/>
 								</MessageScrollerItem>
 							);

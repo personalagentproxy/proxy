@@ -162,25 +162,43 @@ describe('where a thread stands, as its turn ends', () => {
 		expect(store.writeThreadStanding.mock.calls.at(-1)?.[1].summary).toHaveLength(300);
 	});
 
-	test('after a turn, a failure of the model, an answer late or a throw is logged and writes nothing, and never fails', async () => {
+	test('after a turn, a failure of the model, an answer late or a throw is logged, and the model asked once more, a moment later: what it then gives is written', async () => {
 		const warn = spyOn(log, 'warn').mockImplementation(() => {});
+		const quick = {...model, retryMs: 1};
 
 		ask.mockResolvedValueOnce(Err(ApiErr.providerUnreachable(new Error('The model answered outside the form: {'))));
-		expect(await standAfterTurn(store, model, 'thread-1')).toBeUndefined();
+		expect(await standAfterTurn(store, quick, 'thread-1')).toBeUndefined();
+		expect(ask).toHaveBeenCalledTimes(2);
+		expect(store.writeThreadStanding).toHaveBeenCalledTimes(1);
 
 		ask.mockImplementationOnce(() => new Promise(() => {}));
-		const started = Date.now();
-		expect(await standAfterTurn(store, {...model, timeoutMs: 20}, 'thread-1')).toBeUndefined();
-		expect(Date.now() - started).toBeLessThan(1000);
+		expect(await standAfterTurn(store, {...quick, timeoutMs: 20}, 'thread-1')).toBeUndefined();
+		expect(store.writeThreadStanding).toHaveBeenCalledTimes(2);
 
 		ask.mockRejectedValueOnce(new Error('boom'));
-		expect(await standAfterTurn(store, model, 'thread-1')).toBeUndefined();
+		expect(await standAfterTurn(store, quick, 'thread-1')).toBeUndefined();
+		expect(store.writeThreadStanding).toHaveBeenCalledTimes(3);
 
 		store.getChatThread.mockResolvedValueOnce(Err(ApiErr.internalError(new Error('database down'))));
-		expect(await standAfterTurn(store, model, 'thread-1')).toBeUndefined();
+		expect(await standAfterTurn(store, quick, 'thread-1')).toBeUndefined();
+		expect(store.writeThreadStanding).toHaveBeenCalledTimes(4);
 
-		expect(store.writeThreadStanding).not.toHaveBeenCalled();
 		expect(warn).toHaveBeenCalledTimes(4);
+		expect(warn.mock.calls.map((call) => call[1])).toEqual(Array.from({length: 4}, () => expect.objectContaining({threadId: 'thread-1', attempt: 1})));
+		warn.mockRestore();
+	});
+
+	test('after a turn, failing a second time writes nothing, is asked no more, and never fails', async () => {
+		const warn = spyOn(log, 'warn').mockImplementation(() => {});
+		ask.mockResolvedValue(Err(ApiErr.providerUnreachable(new Error('The model answered outside the form: {'))));
+
+		const started = Date.now();
+		expect(await standAfterTurn(store, {...model, retryMs: 1}, 'thread-1')).toBeUndefined();
+
+		expect(Date.now() - started).toBeLessThan(1000);
+		expect(ask).toHaveBeenCalledTimes(2);
+		expect(store.writeThreadStanding).not.toHaveBeenCalled();
+		expect(warn).toHaveBeenCalledTimes(2);
 		warn.mockRestore();
 	});
 });

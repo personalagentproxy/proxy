@@ -148,6 +148,18 @@ WHERE e."id" = f."id"
 	AND NOT f."brief"
 	AND (f."saidKind" IS DISTINCT FROM 'person' OR f."nth" > 1);
 
+-- Text read as JSON, null where it is none: a call's arguments are as the model wrote them, and a
+-- harness's session as the harness did. Postgres has `pg_input_is_valid` for this from 16 on, and
+-- the server runs on older ones too.
+CREATE FUNCTION pg_temp.reshape_jsonb("value" text) RETURNS jsonb
+LANGUAGE plpgsql IMMUTABLE AS $$
+BEGIN
+	RETURN "value"::jsonb;
+EXCEPTION WHEN data_exception THEN
+	RETURN NULL;
+END;
+$$;
+
 -- A sub-agent's progress notes, its send_to_parent calls, were what it said as it went: each
 -- becomes part of what the answer that made it says, after its own words, in order, as the tool
 -- would take it, a call whose arguments are no message giving none.
@@ -158,11 +170,7 @@ FROM (
 	FROM "ReshapedThread" AS r
 	JOIN "AgentEntry" AS e ON e."threadId" = r."id"
 	CROSS JOIN LATERAL jsonb_array_elements(e."toolCalls"::jsonb) WITH ORDINALITY AS call("value", "n")
-	CROSS JOIN LATERAL (
-		SELECT CASE
-			WHEN pg_input_is_valid(call."value"->>'arguments', 'jsonb') THEN (call."value"->>'arguments')::jsonb
-		END AS "args"
-	) AS parsed
+	CROSS JOIN LATERAL (SELECT pg_temp.reshape_jsonb(call."value"->>'arguments') AS "args") AS parsed
 	CROSS JOIN LATERAL (
 		SELECT CASE
 			WHEN jsonb_typeof(parsed."args") = 'object' AND jsonb_typeof(parsed."args"->'text') = 'string'
@@ -290,11 +298,7 @@ WHERE task."id" = o."id";
 DELETE FROM "AgentHarnessTranscript" AS h
 USING "AgentThread" AS t
 JOIN "ReshapedThread" AS r ON r."id" = t."id"
-CROSS JOIN LATERAL (
-	SELECT CASE
-		WHEN pg_input_is_valid(t."harnessSession", 'jsonb') THEN t."harnessSession"::jsonb
-	END AS "value"
-) AS kept
+CROSS JOIN LATERAL (SELECT pg_temp.reshape_jsonb(t."harnessSession") AS "value") AS kept
 WHERE jsonb_typeof(kept."value") = 'object' AND h."sessionId" = kept."value"->>'id';
 
 UPDATE "AgentThread" AS t
@@ -307,3 +311,4 @@ DROP TABLE "Released";
 DROP TABLE "Forwarded";
 DROP TABLE "ReshapedThread";
 DROP TABLE "ReshapedChat";
+DROP FUNCTION pg_temp.reshape_jsonb(text);

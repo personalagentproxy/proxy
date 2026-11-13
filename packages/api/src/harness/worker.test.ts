@@ -134,7 +134,8 @@ describe('the worker', () => {
 			.mockResolvedValueOnce(Ok(claimed({...inference, id: 'j3', threadId: 't3'})))
 			.mockResolvedValueOnce(Ok(claimed({...wake, threadId: 't5'})))
 			.mockResolvedValue(Ok(null));
-		// The model on the key never answers: the worker goes on to the next job all the same.
+		// The model on the key never answers: the worker goes on to the next job all the same, and
+		// each reading gives up in its time, asked once more.
 		const ask = mock<StandingModel['ask']>(() => new Promise(() => {}));
 		const row = (threadId: string) => ({
 			id: threadId,
@@ -173,17 +174,77 @@ describe('the worker', () => {
 			Ok({...row(threadId), state: {kind: 'stopped'}, standing: {waitingForMember: false, summary: null, summarySeq: null}, entries: [said], attachments: []}),
 		);
 
-		const worker = startHarnessWorker(store, harness, {key: 'sk-or-1', ask});
+		const worker = startHarnessWorker(store, harness, {key: 'sk-or-1', ask, timeoutMs: 20, retryMs: 1});
 		await settle();
+		// The jobs are done while the model is still being waited for.
+		expect(runInference).toHaveBeenCalledTimes(3);
+		expect(runToolJob).toHaveBeenCalledTimes(1);
 		await worker.stop();
 
 		// Each turn's thread, the failed one's too, after its job; not a tool job's.
-		expect(store.getJobThread.mock.calls.map((call) => call[0]).toSorted()).toEqual(['t1', 't3', 't5']);
+		expect([...new Set(store.getJobThread.mock.calls.map((call) => call[0]))].toSorted()).toEqual(['t1', 't3', 't5']);
 		expect(store.failJob).toHaveBeenCalledTimes(1);
 		expect(store.failJob).toHaveBeenCalledWith('j3', expect.any(String), 'OpenRouter refused the request (400): too long', expect.any(Function));
-		expect(runToolJob).toHaveBeenCalledTimes(1);
-		expect(ask).toHaveBeenCalledTimes(3);
+		expect(ask).toHaveBeenCalledTimes(6);
 		expect(store.writeThreadStanding).not.toHaveBeenCalled();
+	});
+
+	test('stopping, the worker waits for where a thread stands to be written, begun as its turn’s job ended', async () => {
+		const {startHarnessWorker} = await import('./worker');
+		store.claimJob.mockResolvedValueOnce(Ok(claimed(inference))).mockResolvedValue(Ok(null));
+		// The turn takes a moment, and the model one after it: the worker is stopped during the turn.
+		runInference.mockImplementationOnce(async () => {
+			await settle();
+			return Ok(undefined);
+		});
+		let written = false;
+		const model: StandingModel = {key: 'sk-or-1', ask: mock<StandingModel['ask']>(async () => Ok({summary: 'Moved it to Friday.', waitingForMember: false}))};
+		store.getJobThread.mockResolvedValue(
+			Ok({
+				id: 't1',
+				orgId: 'org-1',
+				agentId: 'login-1',
+				personaId: 'persona-1',
+				userId: 'user-1',
+				parentThreadId: 'chat-1',
+				title: null,
+				taskId: null,
+				harness: null,
+				harnessSession: null,
+				createdAt: now,
+			}),
+		);
+		store.getChatThread.mockImplementation(async (_chatId, threadId) => {
+			await settle();
+			return Ok({
+				id: threadId,
+				orgId: 'org-1',
+				agentId: 'login-1',
+				personaId: 'persona-1',
+				userId: 'user-1',
+				parentThreadId: 'chat-1',
+				title: null,
+				taskId: null,
+				harness: null,
+				harnessSession: null,
+				createdAt: now,
+				state: {kind: 'stopped'},
+				standing: {waitingForMember: false, summary: null, summarySeq: null},
+				entries: [{id: 'e1', seq: 1, kind: 'person', text: 'Move the pricing review', pending: false, toolCalls: null, isError: false, createdAt: now}],
+				attachments: [],
+			});
+		});
+		store.writeThreadStanding.mockImplementation(async () => {
+			written = true;
+			return Ok(true);
+		});
+
+		const worker = startHarnessWorker(store, harness, model);
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		await worker.stop();
+
+		expect(written).toBe(true);
+		expect(store.writeThreadStanding).toHaveBeenCalledWith('t1', {summary: 'Moved it to Friday.', waitingForMember: false}, 1);
 	});
 
 	test('without a model to read it, where a thread stands is not read', async () => {
