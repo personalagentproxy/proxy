@@ -13,6 +13,9 @@ export type SidebarPanel = {
 	// Whether the person went back up to the navigation from it.
 	up: boolean;
 	setUp: (up: boolean) => void;
+	// Whether a panel opening now leaves the sidebar up on the navigation: in an organization just
+	// switched to, until the person goes elsewhere in it.
+	opensUp: () => boolean;
 };
 
 export const SidebarPanelContext = createContext<SidebarPanel | null>(null);
