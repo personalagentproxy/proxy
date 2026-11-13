@@ -199,7 +199,7 @@ export function AppSidebar() {
 										className="rounded-full font-medium"
 										onClick={() => panel.setUp(true)}
 									>
-										<ChevronLeftIcon />
+										<ChevronLeftIcon className="text-muted-foreground" />
 										<span>{panel.label}</span>
 									</SidebarMenuButton>
 								</SidebarMenuItem>
