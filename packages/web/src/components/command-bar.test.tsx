@@ -3,6 +3,7 @@
 import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
 import {afterEach, beforeEach, describe, expect, jest, mock, test} from 'bun:test';
+import {useState} from 'react';
 import {act, cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {createMemoryRouter, RouterProvider} from 'react-router';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
@@ -156,6 +157,44 @@ function renderBar() {
 						),
 					},
 				],
+			},
+		],
+		{initialEntries: ['/acme']},
+	);
+
+	return render(
+		<ThemeProvider>
+			<TooltipProvider>
+				<RouterProvider router={router} />
+			</TooltipProvider>
+		</ThemeProvider>,
+	);
+}
+
+// Same bar, but closes when `onClose` is called, as the command palette does.
+function renderClosableBar() {
+	function Bar() {
+		const [open, setOpen] = useState(true);
+		if (!open) {
+			return null;
+		}
+		return (
+			<CommandBar
+				connections={lists.connections}
+				agents={lists.agents}
+				personas={null}
+				open
+				onClose={() => setOpen(false)}
+			/>
+		);
+	}
+
+	const router = createMemoryRouter(
+		[
+			{
+				id: 'human',
+				loader: () => testHuman(),
+				children: [{path: '/:org', element: <Bar />}],
 			},
 		],
 		{initialEntries: ['/acme']},
@@ -522,9 +561,9 @@ describe('CommandBar', () => {
 		).toBeTruthy();
 	});
 
-	test('toggles the theme from its row and stays up to show it', async () => {
+	test('toggles the theme from its row on Enter and closes the bar', async () => {
 		localStorage.setItem('proxy-ui-theme', 'light');
-		renderBar();
+		renderClosableBar();
 
 		const input = await typeInto('theme');
 		const row = await screen.findByRole('option', {name: /Toggle theme/});
@@ -533,11 +572,19 @@ describe('CommandBar', () => {
 
 		await waitFor(() => expect(document.documentElement.classList.contains('dark')).toBe(true));
 		expect(localStorage.getItem('proxy-ui-theme')).toBe('dark');
-		expect(
-			screen.getByRole('option', {name: /Toggle theme/}).querySelector('svg.lucide-moon'),
-		).not.toBeNull();
-		fireEvent.click(screen.getByRole('option', {name: /Toggle theme/}));
-		await waitFor(() => expect(document.documentElement.classList.contains('light')).toBe(true));
-		expect(screen.getByRole('searchbox', {name: 'Quick actions'})).toBeTruthy();
+		expect(screen.queryByRole('searchbox', {name: 'Quick actions'})).toBeNull();
+	});
+
+	test('toggles the theme from its row on click and closes the bar', async () => {
+		localStorage.setItem('proxy-ui-theme', 'light');
+		renderClosableBar();
+
+		await typeInto('theme');
+		const row = await screen.findByRole('option', {name: /Toggle theme/});
+		fireEvent.click(row);
+
+		await waitFor(() => expect(document.documentElement.classList.contains('dark')).toBe(true));
+		expect(localStorage.getItem('proxy-ui-theme')).toBe('dark');
+		expect(screen.queryByRole('searchbox', {name: 'Quick actions'})).toBeNull();
 	});
 });
