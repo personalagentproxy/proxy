@@ -14,7 +14,9 @@ const setConnectionSharing = mock();
 const createConnection = mock();
 const moveConnection = mock();
 
+const markCredentialRejected = mock(async () => Ok(true));
 mock.module('@proxy/db/connection', () => ({
+	markCredentialRejected,
 	setConnectionSharing,
 	createConnection,
 	moveConnection,
@@ -103,6 +105,7 @@ const emailRow = {
 	tools: null,
 	name: null,
 	defaults: [{actionId: 'read'}],
+	credentialRejectedAt: null,
 	credential: 'enc:{}',
 };
 
@@ -633,6 +636,7 @@ describe('handleCreateDriveRoute', () => {
 		account: 'Workspace',
 		name: 'Launch',
 		defaults: [{actionId: 'readFiles'}, {actionId: 'createFiles'}, {actionId: 'editFiles'}, {actionId: 'trashFiles'}],
+		credentialRejectedAt: null,
 	};
 
 	test('makes a named drive of the person’s, or every member’s where asked, which agents read and write by default', async () => {

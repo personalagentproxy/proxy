@@ -19,13 +19,22 @@ export const agentConnectionSchema = z.object({
 	actions: z.array(z.string()),
 	/** What the person called the connection, where they named it. */
 	name: z.string().nullable(),
+	/**
+	 * The connection has no sign-in, as when its service turned the one it had down: nothing can
+	 * be done with it, and nothing is asked of the service, until it is signed in to again. Listed
+	 * with no actions and no tools, so the agent can tell the person rather than think it is gone.
+	 */
+	signInNeeded: z.boolean(),
 });
 
 export type AgentConnection = z.infer<typeof agentConnectionSchema>;
 
 const agentSchema = z.object({id: z.string(), providerId: z.string(), name: z.string()});
 
-/** Who the agent is and what it can do with each connection; connections it can't use are left out. */
+/**
+ * Who the agent is and what it can do with each connection; connections it can't use are left
+ * out, but for one it could use once signed in to again (`signInNeeded`).
+ */
 export const agentAccessSchema = z.object({
 	agent: agentSchema,
 	connections: z.array(agentConnectionSchema),

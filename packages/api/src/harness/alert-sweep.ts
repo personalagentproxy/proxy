@@ -4,6 +4,8 @@ import {type ApiError, ApiErr, Do} from '@proxy/utils';
 import type {AlertRow, PollRow, WatchMatch} from '@proxy/db/alerts';
 
 import {log, serializeError} from '../observability/log';
+import {noteRejectedSignIn} from '../connections/rejected-sign-in';
+import {needsSignIn} from '../connections/unavailable';
 import type {Change, Changes, RecordTarget} from '../records/connector';
 import {integrationOf} from '../utils/connection-actions';
 import {dueText, matches, matchText, POLL_EVERY_MS} from './alerts';
@@ -93,7 +95,11 @@ export function runPoll(store: SweepStore, poll: PollRow, now: Date): Promise<Re
 			return;
 		}
 		const target = $(await pollTarget(store, poll));
-		const changed = $(await target.changes(target, poll.cursor, now));
+		// Nothing is asked of a provider that turned the sign-in down until it is signed in to again.
+		if (needsSignIn(target.connection)) {
+			return;
+		}
+		const changed = $(await noteRejectedSignIn(target.connection, target.connection.credential, await target.changes(target, poll.cursor, now)));
 		const told = $(await watchMatches(store, watches, changed.items, poll));
 		$(await store.recordLook(poll, changed.cursor, told, now));
 	});

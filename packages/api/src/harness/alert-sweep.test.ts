@@ -19,6 +19,10 @@ mock.module('@proxy/integrations', () => ({
 	findCollection: (integration: {collections: Array<{id: string}>}, id: string) => integration.collections.find((collection) => collection.id === id),
 	integrationFor: () => ({id: 'google', name: 'Google', collections: [{id: 'emails', read: 'read'}]}),
 }));
+// A connection whose sign-in was turned down needs signing in to again; a turned-down look is noted.
+mock.module('../connections/unavailable', () => ({needsSignIn: (connection: {credentialRejectedAt: Date | null}) => connection.credentialRejectedAt !== null}));
+const noteRejectedSignIn = mock(async (_connection: unknown, _credential: string | null, answer: unknown) => answer);
+mock.module('../connections/rejected-sign-in', () => ({noteRejectedSignIn}));
 // What the agent may read, acting as the member: the connection, with the collection's read.
 const listAgentConnections = mock();
 mock.module('../agent-side/tools', () => ({listAgentConnections}));
@@ -37,6 +41,7 @@ const connection = {
 	tools: null,
 	name: null,
 	defaults: [],
+	credentialRejectedAt: null,
 	credential: 'secret',
 };
 const thread: ThreadRow = {
@@ -142,6 +147,22 @@ describe('runPoll', () => {
 		store.getPollConnection.mockResolvedValue(Ok(null));
 		expect((await runPoll(store, poll, now)).isErr()).toBe(true);
 		expect(store.recordLook).not.toHaveBeenCalled();
+	});
+
+	test('a connection whose sign-in was turned down is not looked at, and the next comes again from the cursor', async () => {
+		const {runPoll} = await import('./alert-sweep');
+		store.getPollConnection.mockResolvedValue(Ok({...connection, credentialRejectedAt: now}));
+		(await runPoll(store, poll, now)).unwrap();
+		expect(changes).not.toHaveBeenCalled();
+		expect(store.recordLook).not.toHaveBeenCalled();
+	});
+
+	test('a look its provider turns the sign-in down for is noted on the connection with the credential it used', async () => {
+		const {runPoll} = await import('./alert-sweep');
+		const rejected = Err(ApiErr.credentialsRejected());
+		changes.mockResolvedValue(rejected);
+		expect((await runPoll(store, poll, now)).isErr()).toBe(true);
+		expect(noteRejectedSignIn).toHaveBeenCalledWith(connection, 'secret', rejected);
 	});
 
 	test('a poll whose last watch went since it was taken is not looked at', async () => {

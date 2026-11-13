@@ -39,6 +39,7 @@ const connection = {
 	tools: null,
 	name: null,
 	defaults: [],
+	credentialRejectedAt: null,
 	credential: 'enc:{"accessToken":"access-sandbox-1","itemId":"item-1"}',
 };
 

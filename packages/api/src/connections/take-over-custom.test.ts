@@ -6,7 +6,9 @@ import {ApiErr, type ApiError} from '@proxy/utils';
 const listCustomMcpConnections = mock();
 const takeOverConnection = mock();
 
+const markCredentialRejected = mock(async () => Ok(true));
 mock.module('@proxy/db/connection', () => ({
+	markCredentialRejected,
 	listCustomMcpConnections,
 	takeOverConnection,
 	findAccountConnection: mock(),

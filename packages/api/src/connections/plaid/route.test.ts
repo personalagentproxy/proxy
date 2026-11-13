@@ -7,7 +7,9 @@ const findAccountConnection = mock();
 const createConnection = mock();
 const getConnectionWithCredential = mock();
 
+const markCredentialRejected = mock(async () => Ok(true));
 mock.module('@proxy/db/connection', () => ({
+	markCredentialRejected,
 	findAccountConnection,
 	createConnection,
 	getConnectionWithCredential,
@@ -70,6 +72,7 @@ const bankRow = {
 	tools: null,
 	name: null,
 	defaults: [],
+	credentialRejectedAt: null,
 	credential: 'enc:{"accessToken":"access-sandbox-1","itemId":"item-1"}',
 };
 

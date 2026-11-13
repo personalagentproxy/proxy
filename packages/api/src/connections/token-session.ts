@@ -5,6 +5,7 @@ import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 import {getConnectionCredential, updateConnectionCredential} from '@proxy/db/connection';
 
 import {log} from '../observability/log';
+import {noteRejectedSignIn} from './rejected-sign-in';
 import {encryptSecret} from '../utils/secret-crypto';
 import {readStoredJson} from '../utils/stored-json';
 
@@ -150,16 +151,25 @@ export function freshCredential<C>(refresher: TokenRefresher<C>, connection: Sto
 
 /**
  * Makes a call with a connection's credential, kept fresh as `callWithRefresh` does, the new tokens
- * saved on the connection. A connection the provider won't refresh any more is
- * `credentials_rejected`, and has to be signed in again.
+ * saved on the connection. A connection the provider won't refresh any more, or turns down
+ * just after a refresh, is `credentials_rejected`, noted on it as needing signing in to again.
  */
 export function callWithToken<C, T>(refresher: TokenRefresher<C>, connection: StoredConnection, call: (credential: C) => Promise<Result<T, ApiError>>): Promise<Result<T, ApiError>> {
 	return Do(async ($) => {
 		const read = $(readSession(refresher, connection.credential));
+		// The credential last used, a refreshed one where it was, which is the one turned down.
+		let used = read.stored;
 		const fresh: Freshening<Session<C>> = {
 			isExpiring: (session) => refresher.isExpiring(session.credential),
-			refresh: (session) => renew(refresher, connection.id, session),
+			refresh: async (session) => {
+				const renewed = await renew(refresher, connection.id, session);
+				if (renewed.isOk()) {
+					used = renewed.value.stored;
+				}
+				return renewed;
+			},
 		};
-		return $(await callWithRefresh(fresh, read, (session) => call(session.credential)));
+		const answer = await callWithRefresh(fresh, read, (session) => call(session.credential));
+		return $(await noteRejectedSignIn(connection, used, answer));
 	});
 }

@@ -6,7 +6,8 @@ import {findCollection, findIntegration, type Collection} from '@proxy/integrati
 
 import type {RecordStore} from './connector';
 
-mock.module('@proxy/db/connection', () => ({updateConnectionCredential: mock(), getConnectionCredential: mock(async () => Ok(null))}));
+const markCredentialRejected = mock(async () => Ok(true));
+mock.module('@proxy/db/connection', () => ({markCredentialRejected, updateConnectionCredential: mock(), getConnectionCredential: mock(async () => Ok(null))}));
 
 mock.module('../observability/log', () => ({
 	log: {debug: mock(), info: mock(), warn: mock(), error: mock()},
@@ -44,6 +45,7 @@ const target = {
 		tools: null,
 		name: null,
 		defaults: [],
+		credentialRejectedAt: null,
 		credential: `enc:${JSON.stringify(CREDENTIAL)}`,
 	},
 	collection: emails(),

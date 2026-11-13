@@ -5,7 +5,7 @@ import {
 	SANDBOX_INTEGRATION_ID,
 	VAULT_INTEGRATION_ID,
 } from '@proxy/integrations';
-import {ForwardIcon, PencilIcon, Trash2Icon} from 'lucide-react';
+import {ForwardIcon, PencilIcon, Trash2Icon, TriangleAlertIcon} from 'lucide-react';
 import {useState} from 'react';
 import {Link} from 'react-router';
 import {deleteConnection, moveConnection, renameConnection} from '@/client/connections-client';
@@ -20,6 +20,7 @@ import {Row, RowHeader, RowList} from '@/components/row-list';
 import {SideEmpty, SideToggle} from '@/components/share-toggle';
 import {PersonHead, PersonHeads} from '@/components/person-heads';
 import {ContextMenuItem} from '@proxy/ui/components/context-menu';
+import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';
 import {useHuman} from '@/hooks/use-human';
 import {useLoaded} from '@/hooks/use-loaded';
 import {useReload} from '@/hooks/use-reload';
@@ -171,7 +172,7 @@ function Connections() {
 							key={connection.id}
 							to={`/${org}/connections/${connection.id}`}
 							icon={integration && <IntegrationLogo integration={integration} />}
-							title={connectionTitle(connection)}
+							title={<ConnectionName connection={connection} userId={human.user.id} />}
 							cells={
 								<>
 									<span className={CELLS.account}>{connection.account}</span>
@@ -273,6 +274,40 @@ function Connections() {
 				}}
 			/>
 		</>
+	);
+}
+
+// The connection's name, and after it a red warning where agents can't use it at all: it has no
+// sign-in, as one turned down by its service. One whose sign-in only left some actions out says so
+// on its own page, the person maybe having left them out on purpose.
+function ConnectionName({connection, userId}: {connection: Connection; userId: string}) {
+	if (!connection.signInNeeded) {
+		return connectionTitle(connection);
+	}
+
+	const who =
+		connection.ownerUserId === userId
+			? 'you sign'
+			: `${connection.owner ?? 'whoever connected it'} signs`;
+	const says = `Not signed in, so agents can't use it until ${who} in again.`;
+	return (
+		<span className="flex min-w-0 items-center gap-1.5">
+			<span className="truncate">{connectionTitle(connection)}</span>
+			<Tooltip>
+				<TooltipTrigger
+					render={
+						<span
+							tabIndex={0}
+							aria-label={says}
+							className="flex shrink-0 items-center text-destructive"
+						/>
+					}
+				>
+					<TriangleAlertIcon className="size-3.5" />
+				</TooltipTrigger>
+				<TooltipContent>{says}</TooltipContent>
+			</Tooltip>
+		</span>
 	);
 }
 

@@ -9,7 +9,8 @@ import type {TokenRefresher} from './token-session';
 const updateConnectionCredential = mock();
 const getConnectionCredential = mock();
 
-mock.module('@proxy/db/connection', () => ({getConnectionCredential, updateConnectionCredential}));
+const markCredentialRejected = mock(async () => Ok(true));
+mock.module('@proxy/db/connection', () => ({markCredentialRejected, getConnectionCredential, updateConnectionCredential}));
 
 const warn = mock();
 
@@ -141,12 +142,15 @@ describe('callWithToken', () => {
 		expect((await callWithToken(REFRESHER, connectionWith(false), call)).unwrap()).toBe('answer');
 		expect(tokensCalledWith()).toEqual(['access-1', 'access-2']);
 		expect(refresh).toHaveBeenCalledTimes(1);
+		expect(markCredentialRejected).not.toHaveBeenCalled();
 
 		mock.clearAllMocks();
 		call.mockResolvedValue(Err(ApiErr.credentialsRejected()));
 		expect((await callWithToken(REFRESHER, connectionWith(false), call)).unwrapErr().kind).toBe('credentials_rejected');
 		expect(tokensCalledWith()).toEqual(['access-1', 'access-2']);
 		expect(refresh).toHaveBeenCalledTimes(1);
+		// Noted with the refreshed credential, the one turned down, so a sign-in since isn't marked.
+		expect(markCredentialRejected).toHaveBeenCalledWith({connectionId: 'conn-1', credential: `enc:${JSON.stringify(fresh)}`});
 	});
 
 	test('does not refresh again when a just-refreshed credential is turned down', async () => {
@@ -156,6 +160,7 @@ describe('callWithToken', () => {
 
 		expect(refresh).toHaveBeenCalledTimes(1);
 		expect(tokensCalledWith()).toEqual(['access-2']);
+		expect(markCredentialRejected).toHaveBeenCalledWith({connectionId: 'conn-1', credential: `enc:${JSON.stringify(fresh)}`});
 	});
 
 	test('a refresh that fails is the answer, without a call', async () => {
@@ -166,6 +171,8 @@ describe('callWithToken', () => {
 		expect(result.unwrapErr().kind).toBe('credentials_rejected');
 		expect(call).not.toHaveBeenCalled();
 		expect(updateConnectionCredential).not.toHaveBeenCalled();
+		// The credential is kept, only noted as turned down.
+		expect(markCredentialRejected).toHaveBeenCalledWith({connectionId: 'conn-1', credential: connectionWith(true).credential});
 	});
 
 	test('a connection without a credential has to be signed in to', async () => {

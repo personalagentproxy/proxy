@@ -22,7 +22,9 @@ afterAll(() => {
 	fetchSpy.mockRestore();
 });
 
+const markCredentialRejected = mock(async () => Ok(true));
 mock.module('@proxy/db/connection', () => ({
+	markCredentialRejected,
 	findAccountConnection,
 	createConnection,
 	renewConnection,
@@ -109,6 +111,7 @@ const row = {
 	tools: JSON.stringify([search]),
 	name: null,
 	defaults: [{actionId: 'search_docs'}],
+	credentialRejectedAt: null,
 };
 
 function makeRequest(body: unknown, params: Record<string, string> = {}, query: Record<string, string> = {}, headers: Record<string, string> = {}) {
