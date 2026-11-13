@@ -27,14 +27,14 @@ import {cn} from '@proxy/ui/lib/utils';
 import {useHuman} from '@/hooks/use-human';
 import {describeApiError} from '@/lib/loader-utils';
 
-// An organization's mark: its initial on a tile the size of an integration's logo.
+// An organization's mark: its initial in a circle the size of an integration's logo.
 export function OrgTile({org, className}: {org: {name: string}; className?: string}) {
 	return (
 		<span
 			aria-hidden
 			data-preserve-color
 			className={cn(
-				'flex size-5 shrink-0 items-center justify-center rounded-md bg-primary text-xs font-medium text-primary-foreground',
+				'flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-medium text-primary-foreground',
 				className,
 			)}
 		>
@@ -43,19 +43,27 @@ export function OrgTile({org, className}: {org: {name: string}; className?: stri
 	);
 }
 
+// A row of the switcher: a pill, with room at its ends for the round.
+const MENU_ROW = 'rounded-full px-2.5';
+// The switcher's corners: a row's round, half its 28px height, and the menu's 4px padding around
+// it. No shadow.
+const MENU_CORNERS = 'rounded-[18px] shadow-none';
+// The lines between the switcher's parts: as faint as the lines between a table's rows.
+const MENU_LINE = 'bg-border/60';
+
 // The organization's own pages, in the switcher under its organizations.
 const ORG_PAGES = [
 	{to: '/members', label: 'Members', icon: UsersIcon},
 	{to: '/settings', label: 'Settings', icon: SettingsIcon},
 ];
 
-// The top of the sidebar's rail: the organization the address names, as its mark. Hovering it, or
-// clicking it on a touch screen, opens the switcher beside the rail, with the organization's
+// The top of the sidebar: the organization the address names, with its mark. Hovering it, or
+// clicking it on a touch screen, opens the switcher below it, with the organization's
 // members and settings, lit while one of them is open. Everything on the human side is that
 // organization's; switching goes to another's address, where it opens.
 export function OrgSwitcher() {
 	const human = useHuman();
-	const {isMobile, setOpenMobile} = useSidebar();
+	const {setOpenMobile} = useSidebar();
 	const navigate = useNavigate();
 	const {pathname} = useLocation();
 	const [creating, setCreating] = useState(false);
@@ -78,12 +86,11 @@ export function OrgSwitcher() {
 					delay={100}
 					closeDelay={200}
 					render={
-						// The tile is taller than the rail's icons: the button's padding gives it the room, and
-						// on the rail the same on every side, so it centers on the icons as they do.
+						// The tile is taller than the icons: the button's padding gives it the room.
 						<SidebarMenuButton
 							aria-label={`Organization: ${activeOrg.name}`}
 							isActive={onOrgPage}
-							className="py-1.5 group-data-[collapsible=icon]:p-1.5!"
+							className="rounded-full py-1.5"
 						/>
 					}
 				>
@@ -91,17 +98,19 @@ export function OrgSwitcher() {
 					<span className="min-w-0 flex-1 truncate">{activeOrg.name}</span>
 					<ChevronsUpDownIcon className="ml-auto text-muted-foreground" />
 				</DropdownMenuTrigger>
-				{/* Beside the rail; below the switcher on a phone, where the sidebar is a full panel. */}
-				<DropdownMenuContent
-					side={isMobile ? 'bottom' : 'right'}
-					align="start"
-					sideOffset={isMobile ? 4 : 8}
-					className="w-64"
-				>
+				{/* Below the switcher, as wide as it, flat on the sidebar, its rows lit as pills as the
+				    sidebar's are. Its corners are as round as a row's ends and the gap around them,
+				    so a lit first or last row keeps an even gap to the edge. */}
+				<DropdownMenuContent side="bottom" align="start" sideOffset={4} className={MENU_CORNERS}>
 					<DropdownMenuGroup>
 						{human.orgs.map((org) => (
-							<DropdownMenuItem key={org.id} onClick={() => void open(org.slug)}>
-								<OrgTile org={org} />
+							<DropdownMenuItem
+								key={org.id}
+								className={MENU_ROW}
+								onClick={() => void open(org.slug)}
+							>
+								{/* As small as the icons below it, so the names line up with their labels. */}
+								<OrgTile org={org} className="size-4 text-[10px]" />
 								<span className="min-w-0 flex-1 truncate">{org.name}</span>
 								{org.id === activeOrg.id ? (
 									<CheckIcon />
@@ -113,11 +122,12 @@ export function OrgSwitcher() {
 							</DropdownMenuItem>
 						))}
 					</DropdownMenuGroup>
-					<DropdownMenuSeparator />
+					<DropdownMenuSeparator className={MENU_LINE} />
 					<DropdownMenuGroup>
 						{ORG_PAGES.map((page) => (
 							<DropdownMenuLinkItem
 								key={page.to}
+								className={MENU_ROW}
 								closeOnClick
 								render={
 									<Link to={`/${activeOrg.slug}${page.to}`} onClick={() => setOpenMobile(false)} />
@@ -128,8 +138,8 @@ export function OrgSwitcher() {
 							</DropdownMenuLinkItem>
 						))}
 					</DropdownMenuGroup>
-					<DropdownMenuSeparator />
-					<DropdownMenuItem onClick={() => setCreating(true)}>
+					<DropdownMenuSeparator className={MENU_LINE} />
+					<DropdownMenuItem className={MENU_ROW} onClick={() => setCreating(true)}>
 						<PlusIcon />
 						Create organization
 					</DropdownMenuItem>

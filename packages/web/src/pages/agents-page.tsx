@@ -7,7 +7,7 @@ import {deleteAgent, renameAgent, setAgentRevoked} from '@/client/agents-client'
 import {AgentLogo} from '@/components/brand-logo';
 import {Badge} from '@proxy/ui/components/badge';
 import {ContextMenuItem} from '@proxy/ui/components/context-menu';
-import {AppShell, PageHeader, PageTitle} from '@/components/app-shell';
+import {AppShell, PageTitle} from '@/components/app-shell';
 import {AddButton} from '@/components/add-button';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {RenameDialog} from '@/components/rename-dialog';
@@ -72,15 +72,16 @@ function Agents() {
 
 	return (
 		<>
-			<PageHeader
-				actions={
+			<SideToggle
+				side={side}
+				orgName={activeOrg.name}
+				add={
 					<AddButton
 						label="New agent"
 						to={side.shared ? `/${org}/agents/new?for=everyone` : `/${org}/agents/new`}
 					/>
 				}
 			/>
-			<SideToggle side={side} orgName={activeOrg.name} />
 			{error && <p className="text-sm text-destructive">{error}</p>}
 			<RowList
 				header={

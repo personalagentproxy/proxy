@@ -9,7 +9,7 @@ import {ForwardIcon, PencilIcon, Trash2Icon} from 'lucide-react';
 import {useState} from 'react';
 import {Link} from 'react-router';
 import {deleteConnection, moveConnection, renameConnection} from '@/client/connections-client';
-import {AppShell, PageHeader, PageTitle} from '@/components/app-shell';
+import {AppShell, PageTitle} from '@/components/app-shell';
 import {AddButton} from '@/components/add-button';
 import {IntegrationLogo} from '@/components/brand-logo';
 import {ConfirmDialog} from '@/components/confirm-dialog';
@@ -118,16 +118,18 @@ function Connections() {
 
 	return (
 		<>
-			<PageHeader
-				actions={
+			<OrgNotice />
+			<SideToggle
+				side={side}
+				orgName={activeOrg.name}
+				sharedLabel="Shared"
+				add={
 					<AddButton
 						label="Add connection"
 						to={showingShared ? `/${org}/connections/new?for=everyone` : `/${org}/connections/new`}
 					/>
 				}
 			/>
-			<OrgNotice />
-			<SideToggle side={side} orgName={activeOrg.name} sharedLabel="Shared" />
 			{error && <p className="text-sm text-destructive">{error}</p>}
 			<RowList
 				header={

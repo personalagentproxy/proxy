@@ -16,14 +16,34 @@ import {
 } from '@proxy/contracts/harness';
 import type {z} from 'zod';
 import {apiRequest, apiSend, apiUpload, orgApi} from '@/client/request';
+import {rememberPersonaList} from '@/lib/persona-list';
 
 // The Chat page's api: the personas the person sees, their own and General, which every member
 // does, each named and given a head, the person's own conversation with each, its turns, what
 // they say in it, and how far they have read it, and the tasks the persona started in it, each
 // with a chat of its own.
 
-export function listPersonas(org: string) {
-	return apiRequest('GET', `${orgApi(org)}/chat/personas`, personaListSchema);
+// How long a list asked for ahead of Chat's opening is fresh enough not to ask again.
+const PREFETCH_GAP_MS = 10 * 1000;
+const prefetchedAt = new Map<string, number>();
+
+/** Asks for the list ahead of Chat's opening, as the pointer heads for it, to remember it. */
+export function prefetchPersonaList(org: string): void {
+	const now = Date.now();
+	if (now - (prefetchedAt.get(org) ?? 0) < PREFETCH_GAP_MS) {
+		return;
+	}
+	prefetchedAt.set(org, now);
+	void listPersonas(org);
+}
+
+/** The list, remembered as it comes (lib/persona-list.ts). */
+export async function listPersonas(org: string) {
+	const listed = await apiRequest('GET', `${orgApi(org)}/chat/personas`, personaListSchema);
+	if (listed.isOk()) {
+		rememberPersonaList(org, listed.value);
+	}
+	return listed;
 }
 
 export function listAnswers(org: string) {

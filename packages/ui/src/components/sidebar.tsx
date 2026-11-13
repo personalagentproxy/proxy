@@ -27,6 +27,8 @@ type SidebarContextProps = {
 	openMobile: boolean;
 	setOpenMobile: (open: boolean) => void;
 	isMobile: boolean;
+	// Folds the sidebar in or out on desktop; opens or closes its sheet on phones.
+	toggleSidebar: () => void;
 };
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null);
@@ -40,24 +42,35 @@ function useSidebar() {
 	return context;
 }
 
-// On desktop the sidebar is either always collapsed or always expanded, as `collapsed` says: there
-// is no toggling it. On phones it is a sheet, opened by the trigger and closed on every pick.
+// On desktop the sidebar is collapsed or expanded as `collapsed` says, and `toggleSidebar` asks
+// `onCollapsedChange` for the other. On phones it is a sheet, opened by the toggle and closed on
+// every pick.
 function SidebarProvider({
 	collapsed = false,
+	onCollapsedChange,
 	className,
 	style,
 	children,
 	...props
 }: React.ComponentProps<'div'> & {
 	collapsed?: boolean;
+	onCollapsedChange?: (collapsed: boolean) => void;
 }) {
 	const isMobile = useIsMobile();
 	const [openMobile, setOpenMobile] = React.useState(false);
 	const state = collapsed ? 'collapsed' : 'expanded';
 
+	const toggleSidebar = React.useCallback(() => {
+		if (isMobile) {
+			setOpenMobile((open) => !open);
+			return;
+		}
+		onCollapsedChange?.(!collapsed);
+	}, [isMobile, collapsed, onCollapsedChange]);
+
 	const contextValue = React.useMemo<SidebarContextProps>(
-		() => ({state, isMobile, openMobile, setOpenMobile}),
-		[state, isMobile, openMobile],
+		() => ({state, isMobile, openMobile, setOpenMobile, toggleSidebar}),
+		[state, isMobile, openMobile, toggleSidebar],
 	);
 
 	return (
@@ -185,9 +198,9 @@ function Sidebar({
 	);
 }
 
-// Opens the sidebar's sheet on phones.
+// Opens the sidebar's sheet on phones, as the docs have it; on desktop, folds the sidebar in or out.
 function SidebarTrigger({className, onClick, ...props}: React.ComponentProps<typeof PillButton>) {
-	const {openMobile, setOpenMobile} = useSidebar();
+	const {toggleSidebar} = useSidebar();
 
 	return (
 		<PillButton
@@ -198,7 +211,7 @@ function SidebarTrigger({className, onClick, ...props}: React.ComponentProps<typ
 			className={cn(className)}
 			onClick={(event) => {
 				onClick?.(event);
-				setOpenMobile(!openMobile);
+				toggleSidebar();
 			}}
 			{...props}
 		>

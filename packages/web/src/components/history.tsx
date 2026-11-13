@@ -12,21 +12,40 @@ function subscribe(onChange: () => void): () => void {
 	return () => navigation.removeEventListener('currententrychange', onChange);
 }
 
-// Back and forward in the desktop app's title bar, beside the traffic lights, where a browser has
-// its own: the window has none. They step through the window's history, kept by the Navigation
-// API, which counts only the app's own pages, never the splash pages (`data:`) shown before it.
-// ⌘[ and ⌘], and a mouse's side buttons, do the same. After them come the page's controls, then
-// its title, in the slots given to `controlsRef` and `titleRef` (title-bar-slot.tsx).
-export function DesktopHistory({
-	controlsRef,
-	titleRef,
-}: {
-	controlsRef?: (slot: HTMLElement | null) => void;
-	titleRef?: (slot: HTMLElement | null) => void;
-}) {
+/**
+ * Back and forward at the right of the navigation's top row (title-bar.tsx). They step through
+ * the window's history, kept by the Navigation API, which counts only the app's own pages, never
+ * the desktop app's splash pages (`data:`) shown before it. Nothing in a browser without the API.
+ */
+export function HistoryButtons() {
+	if (typeof navigation === 'undefined') {
+		return null;
+	}
+	return <Buttons />;
+}
+
+function Buttons() {
 	const navigate = useNavigate();
 	const canGoBack = useSyncExternalStore(subscribe, () => navigation.canGoBack);
 	const canGoForward = useSyncExternalStore(subscribe, () => navigation.canGoForward);
+	return (
+		<>
+			<IconButton label="Back" disabled={!canGoBack} onClick={() => void navigate(-1)}>
+				<ArrowLeftIcon className="size-4" />
+			</IconButton>
+			<IconButton label="Forward" disabled={!canGoForward} onClick={() => void navigate(1)}>
+				<ArrowRightIcon className="size-4" />
+			</IconButton>
+		</>
+	);
+}
+
+/**
+ * In the desktop app, which has no browser's keys for it: back and forward on ⌘[ and ⌘], and on a
+ * mouse's side buttons, on every page. A browser does both itself.
+ */
+export function DesktopHistoryKeys() {
+	const navigate = useNavigate();
 
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {
@@ -60,16 +79,5 @@ export function DesktopHistory({
 		};
 	}, [navigate]);
 
-	return (
-		<div data-desktop-history className="flex items-center gap-0.5">
-			<IconButton label="Back" disabled={!canGoBack} onClick={() => void navigate(-1)}>
-				<ArrowLeftIcon className="size-4" />
-			</IconButton>
-			<IconButton label="Forward" disabled={!canGoForward} onClick={() => void navigate(1)}>
-				<ArrowRightIcon className="size-4" />
-			</IconButton>
-			<div ref={controlsRef} className="contents" />
-			<div ref={titleRef} data-desktop-title className="flex min-w-0 items-center gap-2 pl-2.5" />
-		</div>
-	);
+	return null;
 }

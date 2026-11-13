@@ -4,7 +4,7 @@ import {afterEach, beforeEach, describe, expect, test} from 'bun:test';
 import {act, cleanup, fireEvent, render, screen} from '@testing-library/react';
 import {createMemoryRouter, Outlet, RouterProvider} from 'react-router';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
-import {DesktopHistory} from '@/components/desktop-history';
+import {DesktopHistoryKeys, HistoryButtons} from '@/components/history';
 
 // The window's history as the Navigation API tells it, which happy-dom has none of.
 class FakeNavigation {
@@ -48,7 +48,8 @@ function renderAt(entries: string[], index: number) {
 				element: (
 					<>
 						<Outlet />
-						<DesktopHistory />
+						<HistoryButtons />
+						<DesktopHistoryKeys />
 					</>
 				),
 				children: [
@@ -74,7 +75,7 @@ function isOff(name: string): boolean {
 	return button(name).hasAttribute('disabled');
 }
 
-describe('DesktopHistory', () => {
+describe('HistoryButtons and DesktopHistoryKeys', () => {
 	test('is off where the history has nowhere to go, and follows it as it changes', () => {
 		renderAt(['/connections'], 0);
 

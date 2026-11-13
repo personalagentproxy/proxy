@@ -7,6 +7,7 @@ import {SidebarProvider} from '@proxy/ui/components/sidebar';
 import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {AppSidebar} from '@/components/nav';
+import {SidebarPanelProvider} from '@/components/sidebar-panel';
 import {type Unread, UnreadContext} from '@/hooks/use-unread';
 import type {Human} from '@/lib/orgs';
 import {testHuman} from '@/test-org';
@@ -40,10 +41,12 @@ function renderSidebar(human: Human, entry = '/acme/connections', unread = unrea
 	return render(
 		<ThemeProvider>
 			<TooltipProvider>
-				<SidebarProvider collapsed>
-					<UnreadContext.Provider value={unread}>
-						<RouterProvider router={router} />
-					</UnreadContext.Provider>
+				<SidebarProvider>
+					<SidebarPanelProvider>
+						<UnreadContext.Provider value={unread}>
+							<RouterProvider router={router} />
+						</UnreadContext.Provider>
+					</SidebarPanelProvider>
 				</SidebarProvider>
 			</TooltipProvider>
 		</ThemeProvider>,

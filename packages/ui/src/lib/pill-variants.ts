@@ -3,10 +3,10 @@ import {cn} from '@proxy/ui/lib/utils';
 /**
  * The app's corners, one for each kind of thing, so a screen reads as one:
  * - what is pressed is a pill, `rounded-full`: buttons, links drawn as buttons, icon buttons, a
- *   toggle's options, tabs, and the pickers in a line ("Send this to General", a widget's calendar,
- *   Chat's model);
- * - a row of a list, lit as it is pointed at or chosen, `rounded-lg`: the sidebar's, Chat's
- *   conversations, the command bar's;
+ *   toggle's options, tabs, the pickers in a line ("Send this to General", a widget's calendar,
+ *   Chat's model), and the web app's navigation, the organization switcher and the pages under it;
+ * - a row of a list, lit as it is pointed at or chosen, `rounded-lg`: Chat's conversations, the
+ *   command bar's, the docs' sidebar's;
  * - a surface, `rounded-xl`: a card, a dialog, Chat's message box and the command bar drawn as it;
  * - a small tile, `rounded-md`: an integration's logo, an event in a day's grid.
  *

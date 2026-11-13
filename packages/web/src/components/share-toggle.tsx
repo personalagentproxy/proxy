@@ -33,27 +33,34 @@ export function ShareToggle({orgName, shared, onChange, counts, sharedLabel}: Pr
 	);
 }
 
-/** The toggle over a list with two sides (`useSide`), with how many each has; nothing alone. */
+/**
+ * The bar over a list with two sides (`useSide`): the toggle, with how many each has, where the
+ * person isn't alone in the organization, and the list's add action at its right.
+ */
 export function SideToggle({
 	side,
 	orgName,
 	sharedLabel,
+	add,
 }: {
 	side: SideChoice;
 	orgName: string;
 	sharedLabel?: string;
+	add: ReactNode;
 }) {
-	if (!side.others) {
-		return null;
-	}
 	return (
-		<ShareToggle
-			orgName={orgName}
-			shared={side.shared}
-			counts={side.counts}
-			onChange={side.pick}
-			sharedLabel={sharedLabel}
-		/>
+		<div className="flex items-center gap-4">
+			{side.others && (
+				<ShareToggle
+					orgName={orgName}
+					shared={side.shared}
+					counts={side.counts}
+					onChange={side.pick}
+					sharedLabel={sharedLabel}
+				/>
+			)}
+			<div className="ml-auto">{add}</div>
+		</div>
 	);
 }
 

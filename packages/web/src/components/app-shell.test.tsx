@@ -8,7 +8,6 @@ import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import {AppShell, PageHeader, PageTitle} from '@/components/app-shell';
 import {HumanSide} from '@/components/human-side';
 import {useLastLoaded, useLoaded} from '@/hooks/use-loaded';
-import {PANEL_DEFAULT_WIDTH, PANEL_MAX_WIDTH, PANEL_MIN_WIDTH} from '@/hooks/use-panel-width';
 import {useReload} from '@/hooks/use-reload';
 import {later, LoadFailure} from '@/lib/loader-utils';
 import {testHuman} from '@/test-org';
@@ -250,6 +249,22 @@ describe('AppShell', () => {
 		expect(screen.getByText('Last: Two')).toBeDefined();
 	});
 
+	test('drills the sidebar into its panel, with a way back up to the navigation', async () => {
+		const {loader, asked} = pendingLoader();
+		renderAt('/acme/beside/1', loader);
+		await act(async () => asked[0]?.answer({name: 'One'}));
+		await screen.findByText('Thing 1: One');
+
+		expect(screen.getByText('Last: One')).toBeDefined();
+		expect(screen.queryByRole('link', {name: 'Connections and permissions'})).toBeNull();
+
+		fireEvent.click(screen.getByRole('button', {name: 'Panel, back to the menu'}));
+		expect(screen.getByRole('link', {name: 'Connections and permissions'})).toBeDefined();
+		expect(screen.queryByRole('button', {name: 'Panel, back to the menu'})).toBeNull();
+		// The page stays as it was.
+		expect(screen.getByText('Thing 1: One')).toBeDefined();
+	});
+
 	test('follows a redirect the loader answers with', async () => {
 		const loader = later(async (): Promise<Thing> => {
 			throw redirect('/acme/elsewhere');
@@ -273,74 +288,5 @@ describe('AppShell', () => {
 		expect(await screen.findByText('Something went wrong loading this page.')).toBeDefined();
 		expect(screen.getByRole('banner').textContent).toBe('Things');
 		expect(screen.getByRole('link', {name: 'Connections and permissions'})).toBeDefined();
-	});
-});
-
-describe('AppShell panel width', () => {
-	const handle = () => screen.getByRole('separator', {name: 'Resize panel'});
-	const panelWidth = () => handle().closest('aside')?.style.width;
-
-	afterEach(() => {
-		localStorage.clear();
-	});
-
-	// The page with a panel, its content loaded, so nothing suspends as the edge is moved.
-	async function openPanelPage() {
-		const {loader, asked} = pendingLoader();
-		renderAt('/acme/beside/1', loader);
-		await screen.findByRole('banner');
-		await act(async () => asked[0]?.answer({name: 'One'}));
-		await screen.findByText('Thing 1: One');
-	}
-
-	test('is its default width until dragged, and keeps the width dragged to', async () => {
-		await openPanelPage();
-		expect(panelWidth()).toBe(`${PANEL_DEFAULT_WIDTH}px`);
-
-		fireEvent.pointerDown(handle(), {button: 0, pointerId: 1, clientX: 300});
-		fireEvent.pointerMove(handle(), {pointerId: 1, clientX: 380});
-		expect(panelWidth()).toBe(`${PANEL_DEFAULT_WIDTH + 80}px`);
-		fireEvent.pointerUp(handle(), {pointerId: 1, clientX: 380});
-
-		expect(localStorage.getItem('proxy-panel-width')).toBe(String(PANEL_DEFAULT_WIDTH + 80));
-		expect(handle().getAttribute('aria-valuenow')).toBe(String(PANEL_DEFAULT_WIDTH + 80));
-	});
-
-	test('stays between its narrowest and widest', async () => {
-		await openPanelPage();
-
-		fireEvent.pointerDown(handle(), {button: 0, pointerId: 1, clientX: 300});
-		fireEvent.pointerUp(handle(), {pointerId: 1, clientX: 2000});
-		expect(panelWidth()).toBe(`${PANEL_MAX_WIDTH}px`);
-
-		fireEvent.pointerDown(handle(), {button: 0, pointerId: 1, clientX: 300});
-		fireEvent.pointerUp(handle(), {pointerId: 1, clientX: 0});
-		expect(panelWidth()).toBe(`${PANEL_MIN_WIDTH}px`);
-	});
-
-	test('opens as wide as it was kept', async () => {
-		localStorage.setItem('proxy-panel-width', '400');
-		await openPanelPage();
-
-		expect(panelWidth()).toBe('400px');
-	});
-
-	test('moves with the arrow keys, and goes back to its default on a double click or Enter', async () => {
-		await openPanelPage();
-
-		fireEvent.keyDown(handle(), {key: 'ArrowRight'});
-		fireEvent.keyDown(handle(), {key: 'ArrowRight', shiftKey: true});
-		expect(panelWidth()).toBe(`${PANEL_DEFAULT_WIDTH + 80}px`);
-		fireEvent.keyDown(handle(), {key: 'Home'});
-		expect(panelWidth()).toBe(`${PANEL_MIN_WIDTH}px`);
-
-		fireEvent.doubleClick(handle());
-		expect(panelWidth()).toBe(`${PANEL_DEFAULT_WIDTH}px`);
-		expect(localStorage.getItem('proxy-panel-width')).toBeNull();
-
-		fireEvent.keyDown(handle(), {key: 'End'});
-		expect(panelWidth()).toBe(`${PANEL_MAX_WIDTH}px`);
-		fireEvent.keyDown(handle(), {key: 'Enter'});
-		expect(panelWidth()).toBe(`${PANEL_DEFAULT_WIDTH}px`);
 	});
 });
