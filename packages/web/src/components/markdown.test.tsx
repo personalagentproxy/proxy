@@ -22,6 +22,16 @@ describe('Markdown', () => {
 		expect(links[0]?.firstElementChild).toBe(favicons[0]);
 	});
 
+	test('opens a card over https links, and over no others', () => {
+		const {container} = render(
+			<Markdown text="[secure](https://www.example.com/a), [insecure](http://example.com) and [mail](mailto:a@example.com)." />,
+		);
+		const triggers = container.querySelectorAll('[data-slot="preview-card-trigger"]');
+		expect(triggers).toHaveLength(1);
+		expect(triggers[0]?.getAttribute('href')).toBe('https://www.example.com/a');
+		expect(triggers[0]?.getAttribute('target')).toBe('_blank');
+	});
+
 	test('leaves email and insecure links without a favicon', () => {
 		const {container} = render(
 			<Markdown text="[Email us](mailto:hello@example.com), [use HTTP](http://example.com), or use malformed HTTPS links such as [one slash](https:/example.com) and [no slashes](https:example.com)." />,

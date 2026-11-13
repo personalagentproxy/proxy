@@ -14,6 +14,7 @@ import remarkGfm from 'remark-gfm';
 import {cn} from '@proxy/ui/lib/utils';
 import {useOrgSlug} from '@/hooks/use-org';
 import {accountPath} from '@/lib/orgs';
+import {LinkPreviewCard} from './link-preview-card';
 
 const MAX_FAVICON_HOSTS = 8;
 const FaviconHostsContext = createContext<Set<string> | null>(null);
@@ -201,14 +202,8 @@ const MarkdownLink: NonNullable<Components['a']> = ({
 		);
 	}
 	const host = hosts ? faviconHost(href, hosts) : null;
-	return (
-		<a
-			className={cn(LINK_CLASS, className)}
-			href={href}
-			target="_blank"
-			rel="noreferrer"
-			{...props}
-		>
+	const content = (
+		<>
 			{host && (
 				<img
 					src={`/api/favicons/${encodeURIComponent(host)}`}
@@ -221,6 +216,19 @@ const MarkdownLink: NonNullable<Components['a']> = ({
 				/>
 			)}
 			{children}
+		</>
+	);
+	// Where the link has a favicon it is an https address that the cards are made for.
+	if (host && href) {
+		return (
+			<LinkPreviewCard className={cn(LINK_CLASS, className)} href={href} {...props}>
+				{content}
+			</LinkPreviewCard>
+		);
+	}
+	return (
+		<a className={cn(LINK_CLASS, className)} href={href} target="_blank" rel="noreferrer" {...props}>
+			{content}
 		</a>
 	);
 };
