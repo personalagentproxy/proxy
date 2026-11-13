@@ -819,14 +819,14 @@ const ThreadItem = memo(function ThreadItem({
 	);
 });
 
-// The threads in the order the chat lists them, by when each last had a message, the last last,
-// those the page has fresher in their place.
+// The threads in the order the chat lists them, by when each was opened, the newest last, so that
+// none moves when a message comes to it; those the page has fresher in their place.
 function inOrder(threads: ChatThread[], fresher: ChatThread | null): ChatThread[] {
 	const shown =
 		fresher === null
 			? threads
 			: threads.map((thread) => (thread.id === fresher.id ? fresher : thread));
-	return shown.toSorted((a, b) => Date.parse(a.lastMessageAt) - Date.parse(b.lastMessageAt));
+	return shown.toSorted((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
 }
 
 // The person's chat with one of the personas they see: its threads, read again while one of them
@@ -955,6 +955,7 @@ const Chat = memo(function Chat({
 			latestAnswerId: null,
 			messageCount: 1,
 			lastMessageAt: at,
+			createdAt: at,
 		});
 		onShownSaid({personaId, last: {kind: 'person', text: preview(message), at}});
 		await settle();
