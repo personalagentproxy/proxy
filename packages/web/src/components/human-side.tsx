@@ -23,8 +23,11 @@ export function HumanSide() {
 				<CommandPaletteProvider>
 					<SidebarPanelProvider>
 						<AppSidebar />
-						<TitleBarStart />
 						<Outlet key={org} />
+						{/* After the page: the desktop app takes the window's drag surface from the page
+						    in order, the later over the earlier, and with the navigation folded away the
+						    page's header, which drags the window, reaches under the toggle. */}
+						<TitleBarStart />
 					</SidebarPanelProvider>
 				</CommandPaletteProvider>
 			</UnreadProvider>
