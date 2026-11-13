@@ -57,6 +57,10 @@ export type BuiltInMcp = {
 	// a tool is called, and the query param a server's address may carry the key in
 	// (`addressParam`), as Exa's own setup writes it: `?exaApiKey=`.
 	apiKey?: {check: (key: string) => Promise<Result<void, ApiError>>; addressParam?: string};
+	// An address at one of its hosts that the integration can't reach as it is, as You.com's keyless
+	// free profile (`?profile=free`), which asks for nothing: the custom MCP form connects it as a
+	// custom server rather than send it to sign in.
+	staysCustom?: (url: URL) => boolean;
 	// The actions agents get with a new connection.
 	defaults: string[];
 	// The server's tools a custom connection was allowed, by name; any other's settings are dropped.

@@ -66,7 +66,8 @@ function connectCustomMcp(request: AuthenticatedRequest, res: Response): Promise
 		// A server of an integration built in is connected as that integration: with the token, or
 		// the key in the address, as its API key, where it takes one, else signed in to as its
 		// catalog's entry is. A token for one that only signs in is refused rather than dropped.
-		const builtIn = builtInForHost(url.host);
+		const found = builtInForHost(url.host);
+		const builtIn = found?.staysCustom?.(url) && !token ? undefined : found;
 		const key = builtIn && (token ?? keyInAddress(builtIn, url));
 		if (builtIn && key && builtIn.apiKey) {
 			const row = $(await connectWithKey(builtIn, viewer, {name: body.name, key, shared}));
