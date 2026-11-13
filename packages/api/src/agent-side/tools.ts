@@ -3,7 +3,7 @@ import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 import {getAgentById, type AgentRow, type SignedInAgent} from '@proxy/db/agent';
-import type {agentMeSchema, ToolResult} from '@proxy/contracts/agent-side';
+import type {agentAccessSchema, ToolResult} from '@proxy/contracts/agent-side';
 import {logAgentRequest} from '@proxy/db/audit';
 import {listConnectionsWithCredential, type ConnectionRow} from '@proxy/db/connection';
 import type {Viewer} from '@proxy/db/viewer';
@@ -18,7 +18,6 @@ import {
 	type CollectionTool,
 	type Integration,
 	type Condition,
-	type McpTool,
 	type OwnSettings,
 	type ServerTool,
 	type Tool,
@@ -77,19 +76,8 @@ export function requireAgent(signedIn: SignedInAgent): Promise<Result<AgentRow, 
 	});
 }
 
-// An integration's own tools the actions allow, as the agent pages list a custom server's: by
-// name, with their params, read-only where they say so.
-function nativeToolsOf(integration: Integration, actions: string[]): McpTool[] | null {
-	if (!integration.tools) {
-		return null;
-	}
-	return allowedTools(integration, actions)
-		.filter((tool) => tool.kind === 'native')
-		.map((tool) => ({name: tool.name, title: tool.title, description: tool.description, inputSchema: tool.inputSchema, annotations: {title: tool.title, readOnlyHint: tool.readOnly}}));
-}
-
 /** Who the agent is and what it can do with each connection it reaches; connections it can't use are left out. */
-export function listAgentConnections(signedIn: SignedInAgent): Promise<Result<z.infer<typeof agentMeSchema>, ApiError>> {
+export function listAgentConnections(signedIn: SignedInAgent): Promise<Result<z.infer<typeof agentAccessSchema>, ApiError>> {
 	return Do(async ($) => {
 		const agent = $(await requireAgent(signedIn));
 		$(await ensureSandboxConnection({...agentViewer(signedIn), experiments: signedIn.experiments}));
@@ -108,7 +96,6 @@ export function listAgentConnections(signedIn: SignedInAgent): Promise<Result<z.
 						account: connection.account,
 						shared: connection.sharedWithEveryone || connection.shares.length > 0,
 						actions,
-						tools: integration.mcpTools?.filter((tool) => actions.includes(tool.name)) ?? nativeToolsOf(integration, actions),
 						name: connection.name,
 					},
 				];
@@ -127,7 +114,7 @@ export function listAgentTools(signedIn: SignedInAgent, connectionId: string): P
 	});
 }
 
-// Who calls and which way it came in: the web app's agent pages, the MCP server, the built-in
+// Who calls and which way it came in: the web app's agent page, the MCP server, the built-in
 // agent's own loop, or code in a sandbox, with the CLI's token (cli/route.ts).
 export type AgentCaller = {agent: SignedInAgent; via: 'web' | 'mcp' | 'harness' | 'cli'};
 

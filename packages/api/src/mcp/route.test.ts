@@ -21,7 +21,7 @@ const startAgentTask = mock();
 const finishAgentTask = mock();
 const requireOpenTask = mock();
 
-mock.module('../agent-side/tasks', () => ({startAgentTask, finishAgentTask, requireOpenTask, listAgentOpenTasks: mock()}));
+mock.module('../agent-side/tasks', () => ({startAgentTask, finishAgentTask, requireOpenTask}));
 
 mock.module('../observability/log', () => ({
 	log: {debug: mock(), info: mock(), warn: mock(), error: mock()},
@@ -31,7 +31,7 @@ mock.module('../observability/log', () => ({
 mock.module('../utils/env', () => ({env: {NODE_ENV: 'production', APP_URL: 'https://app.example.com'}}));
 
 const signedIn = {agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'claude', name: 'Claude', orgSlug: 'org-1', experiments: []};
-const mailbox = {id: 'mail-1', integrationId: 'email', account: 'alex@example.com', shared: false, actions: ['read', 'archive'], tools: null, name: null};
+const mailbox = {id: 'mail-1', integrationId: 'email', account: 'alex@example.com', shared: false, actions: ['read', 'archive'], name: null};
 const task = {
 	id: 'task-1',
 	agentId: 'agent-1',
@@ -303,6 +303,22 @@ describe('handleMcpRoute', () => {
 		expect(sendAgentFeedback).toHaveBeenCalledWith({agent: signedIn, via: 'mcp'}, {message: 'emails_list ignored the folder', tool: 'emails_list', task: 'task-1'});
 		expect(finishAgentTask).toHaveBeenCalledWith({agent: signedIn, via: 'mcp'}, {outcome: 'Archived 12 newsletters', task: 'task-1'});
 		expect(JSON.parse(answer.text)).toMatchObject({task: 'task-1', finishedAt: '2026-10-16T09:30:00.000Z'});
+	});
+
+	test('on the agent page, a script answers with the task it started, for the page to send with the next, and none once it finished it', async () => {
+		startAgentTask.mockResolvedValue(Ok({...started, task: 'task-2'}));
+		const {runAgentScript} = await import('./tools');
+		const startedHere = await runAgentScript(signedIn, `await pap.startTask({title: 'Triage inbox', goal: 'Archive the newsletters'}); return 1;`, null, 'web');
+		const carriedOn = await runAgentScript(signedIn, `return 1;`, 'task-2', 'web');
+		const finished = await runAgentScript(signedIn, `await pap.finishTask(); return 1;`, 'task-2', 'web');
+		const taskless = await runAgentScript(signedIn, `return await pap.connections();`, null, 'web');
+
+		expect(startAgentTask).toHaveBeenCalledWith({agent: signedIn, via: 'web'}, {title: 'Triage inbox', goal: 'Archive the newsletters'});
+		expect(startedHere).toEqual({text: '1\n\nTask: task-2', isError: false, task: 'task-2'});
+		expect(carriedOn.task).toBe('task-2');
+		expect(finishAgentTask).toHaveBeenCalledWith({agent: signedIn, via: 'web'}, {task: 'task-2'});
+		expect(finished.task).toBeNull();
+		expect(taskless.text).toStartWith('PapError: No task: call pap.startTask first.\n');
 	});
 
 	test('a call without a task is refused, saying to start one; one for a task that is not the agent’s or is finished, as the agent side says', async () => {

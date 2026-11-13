@@ -139,9 +139,7 @@ async function signInFresh(): Promise<{
 	return {context, slug, connectionId};
 }
 
-// The first agent login that can read the vault, whose entries live in the database and so
-// show without a live account, as a mailbox's or an MCP server's would need; else the first
-// login that is not revoked.
+// The first agent login that is not revoked.
 async function signInAgent(
 	human: BrowserContext,
 	slug: string,
@@ -151,36 +149,13 @@ async function signInAgent(
 		human,
 		`/api/orgs/${slug}/agents`,
 	);
-	let fallback: BrowserContext | null = null;
-	for (const agent of agents) {
-		if (agent.revokedAt !== null) {
-			continue;
-		}
-		const context = await newContext();
-		await postJson(context, '/agent-auth/login', {username: agent.username, password});
-		const me = await getJson<{connections: Array<{integrationId: string}>}>(
-			context,
-			'/api/agent/me',
-		);
-		if (me.connections.some((connection) => connection.integrationId === 'vault')) {
-			return context;
-		}
-		fallback ??= context;
-	}
-	if (!fallback) {
+	const agent = agents.find((candidate) => candidate.revokedAt === null);
+	if (!agent) {
 		fail('The seed made no agent login that is not revoked.');
 	}
-	return fallback;
-}
-
-// A task's pages, `/agent/:taskId/…`, make every request for the task in their address: the crawl
-// starts one through the api, and opens the agent side on its pages.
-async function startTask(context: BrowserContext): Promise<string> {
-	const task = (await postJson(context, '/api/agent/tasks', {
-		title: 'Look around',
-		goal: 'See every page of the agent side for the screen map.',
-	})) as {task: string};
-	return task.task;
+	const context = await newContext();
+	await postJson(context, '/agent-auth/login', {username: agent.username, password});
+	return context;
 }
 
 // `/connect-agent` only opens with a request an MCP client's sign-in sealed, so the crawl
@@ -238,7 +213,6 @@ const contexts: Record<ContextName, BrowserContext> = {
 	fresh: fresh.context,
 	agent: await signInAgent(human.context, human.slug, agentPassword),
 };
-const taskId = await startTask(contexts.agent);
 
 // The folder is emptied, not replaced: Vite serves it and stops noticing files in a new one.
 await mkdir(OUT_DIR, {recursive: true});
@@ -270,7 +244,6 @@ discover(
 	`/${fresh.slug}/welcome/connections/${fresh.connectionId}`,
 );
 discover('/connect-agent', await connectAgentPath(human.context));
-discover('/agent/:taskId', `/agent/${taskId}`);
 // No page links to an invitation: the one a token nobody was sent opens.
 discover('/invite/:token', '/invite/not-a-token');
 for (const pattern of patterns) {
@@ -307,11 +280,8 @@ async function visit(pattern: string, url: string, capture: boolean): Promise<vo
 		[...document.querySelectorAll<HTMLAnchorElement>('a[href]')].map((anchor) => ({
 			href: anchor.getAttribute('href') ?? '',
 			text: anchor.innerText.trim() || anchor.getAttribute('aria-label') || '',
-			// The sidebar, breadcrumbs, and the agent side's brand and feedback link, which lead home
-			// and to the feedback form from every page.
-			nav:
-				anchor.closest('[data-slot="sidebar"], nav, footer') !== null ||
-				(anchor.closest('header') !== null && anchor.getAttribute('href') === '/agent'),
+			// The sidebar and breadcrumbs, which lead home from every page.
+			nav: anchor.closest('[data-slot="sidebar"], nav, footer') !== null,
 		})),
 	);
 	await page.close();

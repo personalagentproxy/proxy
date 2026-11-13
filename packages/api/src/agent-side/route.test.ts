@@ -1,129 +1,62 @@
 import {beforeEach, describe, expect, mock, test} from 'bun:test';
 import {Ok} from 'ts-results-es';
 
-const runAgentTool = mock();
-const listAgentTools = mock();
-const listAgentConnections = mock();
+const requireAgent = mock();
 
-mock.module('./tools', () => ({runAgentTool, listAgentTools, listAgentConnections}));
+mock.module('./tools', () => ({requireAgent}));
 
-const sendAgentFeedback = mock();
+const pageInstructions = mock();
+const runAgentScript = mock();
 
-mock.module('./feedback', () => ({sendAgentFeedback}));
-
-const startAgentTask = mock();
-const finishAgentTask = mock();
-const listAgentOpenTasks = mock();
-const getAgentOpenTask = mock();
-
-mock.module('./tasks', () => ({startAgentTask, finishAgentTask, listAgentOpenTasks, getAgentOpenTask}));
+mock.module('../mcp/tools', () => ({pageInstructions, runAgentScript}));
 
 const signedIn = {agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'dot', name: 'Dots', orgSlug: 'org-1', experiments: []};
 
-function makeRequest(params: Record<string, string>, body: unknown = undefined) {
-	return {agent: signedIn, params, body, query: {}} as never;
+function makeRequest(body: unknown = undefined) {
+	return {agent: signedIn, params: {}, body, query: {}} as never;
 }
 
 beforeEach(() => {
 	mock.clearAllMocks();
-	runAgentTool.mockResolvedValue(Ok({record: null}));
-	listAgentTools.mockResolvedValue(Ok([]));
+	requireAgent.mockResolvedValue(Ok({id: 'agent-1', providerId: 'dot', name: 'Dots'}));
+	pageInstructions.mockResolvedValue(Ok('You are Dots, signed in to Personal Agent Proxy.'));
+	runAgentScript.mockResolvedValue({text: '"task-2"\n\nTask: task-2', isError: false, task: 'task-2'});
 });
 
-describe('handleAgentRunToolRoute', () => {
-	test("runs the URL's tool with the body's params, as the signed-in agent, for the body's task", async () => {
-		const {handleAgentRunToolRoute} = await import('./route');
-		const result = await handleAgentRunToolRoute(makeRequest({connectionId: 'mail-1', toolName: 'emails_archive'}, {task: 'task-1', params: {id: 'inbox-7-12'}}));
+describe('handleAgentMeRoute', () => {
+	test('says who the agent is, and what it is told', async () => {
+		const {handleAgentMeRoute} = await import('./route');
+		const result = await handleAgentMeRoute(makeRequest());
 
-		expect(result.unwrap()).toEqual({record: null});
-		expect(runAgentTool).toHaveBeenCalledWith({agent: signedIn, via: 'web', taskId: 'task-1'}, 'mail-1', 'emails_archive', {id: 'inbox-7-12'});
+		expect(result.unwrap()).toEqual({agent: {id: 'agent-1', providerId: 'dot', name: 'Dots'}, instructions: 'You are Dots, signed in to Personal Agent Proxy.'});
+		expect(pageInstructions).toHaveBeenCalledWith(signedIn);
+	});
+});
+
+describe('handleAgentScriptRoute', () => {
+	test('runs the script as the signed-in agent, over the web, for the task the page kept', async () => {
+		const {handleAgentScriptRoute} = await import('./route');
+		const result = await handleAgentScriptRoute(makeRequest({code: 'return await pap.connections();', task: ' task-1 '}));
+
+		expect(result.unwrap()).toEqual({text: '"task-2"\n\nTask: task-2', isError: false, task: 'task-2'});
+		expect(runAgentScript).toHaveBeenCalledWith(signedIn, 'return await pap.connections();', 'task-1', 'web');
 	});
 
-	test('a body without params runs the tool with none', async () => {
-		const {handleAgentRunToolRoute} = await import('./route');
-		await handleAgentRunToolRoute(makeRequest({connectionId: 'mail-1', toolName: 'emails_list'}, {task: 'task-1'}));
+	test('a script without a task, or with an empty one, runs for none', async () => {
+		const {handleAgentScriptRoute} = await import('./route');
+		await handleAgentScriptRoute(makeRequest({code: 'return 1;'}));
+		await handleAgentScriptRoute(makeRequest({code: 'return 1;', task: ''}));
 
-		expect(runAgentTool).toHaveBeenCalledWith({agent: signedIn, via: 'web', taskId: 'task-1'}, 'mail-1', 'emails_list', undefined);
+		expect(runAgentScript.mock.calls.map((call) => call[2])).toEqual([null, null]);
 	});
 
-	test('a body that is not an object, or without a task, is refused', async () => {
-		const {handleAgentRunToolRoute} = await import('./route');
-		const nonsense = await handleAgentRunToolRoute(makeRequest({connectionId: 'mail-1', toolName: 'emails_list'}, 'nonsense'));
-		const taskless = await handleAgentRunToolRoute(makeRequest({connectionId: 'mail-1', toolName: 'emails_list'}, {params: {}}));
+	test('a body that is not an object, or without code, is refused', async () => {
+		const {handleAgentScriptRoute} = await import('./route');
+		const nonsense = await handleAgentScriptRoute(makeRequest('nonsense'));
+		const empty = await handleAgentScriptRoute(makeRequest({code: '   '}));
 
 		expect(nonsense.unwrapErr().kind).toBe('parse_error');
-		expect(taskless.unwrapErr().kind).toBe('parse_error');
-		expect(runAgentTool).not.toHaveBeenCalled();
-	});
-});
-
-describe('handleAgentStartTaskRoute and handleAgentFinishTaskRoute', () => {
-	test('start and finish the task as the signed-in agent, over the web', async () => {
-		const started = {task: 'task-1', parent: null, title: 'Triage inbox', goal: 'Archive the newsletters', startedAt: '2026-10-16T09:00:00.000Z', finishedAt: null, outcome: null};
-		startAgentTask.mockResolvedValue(Ok(started));
-		finishAgentTask.mockResolvedValue(Ok({...started, finishedAt: '2026-10-16T09:30:00.000Z'}));
-		const {handleAgentFinishTaskRoute, handleAgentStartTaskRoute} = await import('./route');
-		const start = await handleAgentStartTaskRoute(makeRequest({}, {title: 'Triage inbox', goal: 'Archive the newsletters', parent: 'task-0'}));
-		const finish = await handleAgentFinishTaskRoute(makeRequest({taskId: 'task-1'}));
-		const finishSaying = await handleAgentFinishTaskRoute(makeRequest({taskId: 'task-1'}, {outcome: 'Archived 12 newsletters'}));
-
-		expect(start.unwrap()).toEqual(started);
-		expect(startAgentTask).toHaveBeenCalledWith({agent: signedIn, via: 'web'}, {title: 'Triage inbox', goal: 'Archive the newsletters', parent: 'task-0'});
-		expect(finish.unwrap().finishedAt).toBe('2026-10-16T09:30:00.000Z');
-		expect(finishSaying.isOk()).toBe(true);
-		expect(finishAgentTask.mock.calls).toEqual([
-			[
-				{agent: signedIn, via: 'web'},
-				{task: 'task-1', outcome: undefined},
-			],
-			[
-				{agent: signedIn, via: 'web'},
-				{task: 'task-1', outcome: 'Archived 12 newsletters'},
-			],
-		]);
-	});
-});
-
-describe('handleAgentListTasksRoute', () => {
-	test('lists the signed-in agent’s tasks under way', async () => {
-		listAgentOpenTasks.mockResolvedValue(Ok({tasks: []}));
-		const {handleAgentListTasksRoute} = await import('./route');
-		const result = await handleAgentListTasksRoute(makeRequest({}));
-
-		expect(result.unwrap()).toEqual({tasks: []});
-		expect(listAgentOpenTasks).toHaveBeenCalledWith(signedIn);
-	});
-});
-
-describe('handleAgentGetTaskRoute', () => {
-	test('opens the URL’s task for the signed-in agent', async () => {
-		const task = {task: 'task-1', parent: null, title: 'Triage inbox', goal: 'Archive the newsletters', startedAt: '2026-10-16T09:00:00.000Z', finishedAt: null, outcome: null};
-		getAgentOpenTask.mockResolvedValue(Ok(task));
-		const {handleAgentGetTaskRoute} = await import('./route');
-		const result = await handleAgentGetTaskRoute(makeRequest({taskId: 'task-1'}));
-
-		expect(result.unwrap()).toEqual(task);
-		expect(getAgentOpenTask).toHaveBeenCalledWith(signedIn, 'task-1');
-	});
-});
-
-describe('handleAgentListToolsRoute', () => {
-	test("lists the connection's tools for the signed-in agent", async () => {
-		const {handleAgentListToolsRoute} = await import('./route');
-		const result = await handleAgentListToolsRoute(makeRequest({connectionId: 'mail-1'}));
-
-		expect(result.unwrap()).toEqual({tools: []});
-		expect(listAgentTools).toHaveBeenCalledWith(signedIn, 'mail-1');
-	});
-});
-
-describe('handleAgentFeedbackRoute', () => {
-	test('sends the body as feedback from the signed-in agent, over the web', async () => {
-		sendAgentFeedback.mockResolvedValue(Ok({sent: true}));
-		const {handleAgentFeedbackRoute} = await import('./route');
-		const result = await handleAgentFeedbackRoute(makeRequest({}, {message: 'Save did nothing'}));
-
-		expect(result.unwrap()).toEqual({sent: true});
-		expect(sendAgentFeedback).toHaveBeenCalledWith({agent: signedIn, via: 'web'}, {message: 'Save did nothing'});
+		expect(empty.unwrapErr().kind).toBe('parse_error');
+		expect(runAgentScript).not.toHaveBeenCalled();
 	});
 });

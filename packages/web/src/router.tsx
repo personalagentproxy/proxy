@@ -1,20 +1,6 @@
 import type {SignInMethods} from '@proxy/contracts/auth';
 import type {Org} from '@proxy/contracts/orgs';
-import {
-	Outlet,
-	createBrowserRouter,
-	redirect,
-	redirectDocument,
-	type RouteObject,
-} from 'react-router';
-import {
-	agentCollectionLoader,
-	agentRecordLoader,
-	agentSideLoader,
-	agentTaskLoader,
-	agentTasksLoader,
-	shouldRevalidateAgentTask,
-} from '@/agent-loaders';
+import {createBrowserRouter, redirect, redirectDocument, type RouteObject} from 'react-router';
 import {getSignInMethods} from '@/client/auth-client';
 import {getMe} from '@/client/me-client';
 import {isNotFoundError} from '@/client/request';
@@ -31,6 +17,7 @@ import {
 	addConnectionLoader,
 	alertsLoader,
 	agentLoader,
+	agentPageLoader,
 	agentSetupLoader,
 	agentsLoader,
 	chatIndexLoader,
@@ -64,14 +51,8 @@ import {AccountPage} from '@/pages/account-page';
 import {AgentPage} from '@/pages/agent-page';
 import {AgentSetupPage} from '@/pages/agent-setup-page';
 import {AgentsPage} from '@/pages/agents-page';
-import {AgentCollectionPage} from '@/pages/agent/agent-collection-page';
-import {AgentFeedbackPage} from '@/pages/agent/agent-feedback-page';
-import {AgentHomePage} from '@/pages/agent/agent-home-page';
 import {AgentLoginPage} from '@/pages/agent/agent-login-page';
-import {AgentNewRecordPage} from '@/pages/agent/agent-new-record-page';
-import {AgentRecordPage} from '@/pages/agent/agent-record-page';
-import {AgentTaskPage} from '@/pages/agent/agent-task-page';
-import {AgentToolPage} from '@/pages/agent/agent-tool-page';
+import {AgentScriptPage} from '@/pages/agent/agent-script-page';
 import {ChatPage} from '@/pages/chat-page';
 import {ConnectAgentPage} from '@/pages/connect-agent-page';
 import {ConnectionPage} from '@/pages/connection-page';
@@ -337,45 +318,15 @@ const routes: RouteObject[] = [
 			{path: '/:org/settings', element: <OrgSettingsPage />},
 		],
 	},
+	// The agent's one page: a script to write and send, and what it came to. The agent pages that
+	// were before it, a task's under `/agent/<task>/…`, open it too.
 	{
-		id: 'agent',
-		loader: agentSideLoader,
-		element: <Outlet />,
+		path: '/agent',
+		loader: agentPageLoader,
+		element: <AgentScriptPage />,
 		errorElement: <RouteError />,
-		children: [
-			// The agent's tasks, to open one or start another: where it starts, and where it is sent
-			// without one.
-			{path: '/agent', loader: agentTasksLoader, element: <AgentTaskPage />},
-			{path: '/agent/feedback', element: <AgentFeedbackPage />},
-			// A task's pages, each making its requests for the task in its address.
-			{
-				id: 'agent-task',
-				path: '/agent/:taskId',
-				loader: agentTaskLoader,
-				shouldRevalidate: shouldRevalidateAgentTask,
-				element: <Outlet />,
-				children: [
-					{index: true, element: <AgentHomePage />},
-					// A custom MCP server's tool, which has no collection.
-					{path: '/agent/:taskId/:connectionId/tool/:toolName', element: <AgentToolPage />},
-					{
-						path: '/agent/:taskId/:connectionId/:collectionId',
-						loader: agentCollectionLoader,
-						element: <AgentCollectionPage />,
-					},
-					{
-						path: '/agent/:taskId/:connectionId/:collectionId/new',
-						element: <AgentNewRecordPage />,
-					},
-					{
-						path: '/agent/:taskId/:connectionId/:collectionId/:recordId',
-						loader: agentRecordLoader,
-						element: <AgentRecordPage />,
-					},
-				],
-			},
-		],
 	},
+	{path: '/agent/*', loader: () => redirect('/agent')},
 	{path: '*', loader: unknownLoader, element: null, errorElement: <RouteError />},
 ];
 
