@@ -466,6 +466,7 @@ describe('the chat’s threads', () => {
 	const watch = chatThread({
 		id: 'thread-3',
 		title: 'Tell me when Dana writes',
+		createdAt: later(-10),
 		state: {kind: 'asleep', until: later(60)},
 		entries: [logEntry({id: 'e4', seq: 3, threadId: 'thread-3', kind: 'event', text: 'The alert “Dana” matched a new one of the emails.', createdAt: later(30)})],
 	});
@@ -477,7 +478,7 @@ describe('the chat’s threads', () => {
 		store.replyInThread.mockResolvedValue(Ok(logEntry({id: 'e5', seq: 5, threadId: 'thread-2', kind: 'person', text: 'And the old prices?'})));
 	});
 
-	test('list the chat, begun where there was none, with its draft and its threads, the one that last had a message last: what is up with each, what opened it, the start of the latest thing said in it, and how many messages it holds', async () => {
+	test('list the chat, begun where there was none, with its draft and its threads in the order they were opened, the newest last, whichever last had a message: what is up with each, what opened it, the start of the latest thing said in it, and how many messages it holds', async () => {
 		const {handleListThreadsRoute} = routes;
 		store.getMemberChat.mockResolvedValue(Ok(null));
 		store.getChatDraft.mockResolvedValue(Ok('Move the review'));
@@ -492,20 +493,6 @@ describe('the chat’s threads', () => {
 		expect(listed.draftAttachments).toEqual([shownAttachment]);
 		expect(listed.threads).toEqual([
 			{
-				id: 'thread-2',
-				title: 'Pricing review with Dana',
-				state: {kind: 'stopped'},
-				standing: 'done',
-				standingPending: false,
-				opener: {kind: 'person', text: 'Find the pricing review with Dana', attachments: [shownAttachment]},
-				summary: null,
-				latest: 'It moved to Friday, with the new prices attached.',
-				latestEntryId: 'e3',
-				latestAnswerId: 'e3',
-				messageCount: 3,
-				lastMessageAt: later(2).toISOString(),
-			},
-			{
 				id: 'thread-3',
 				title: 'Tell me when Dana writes',
 				state: {kind: 'asleep', until: later(60).toISOString()},
@@ -518,6 +505,22 @@ describe('the chat’s threads', () => {
 				latestAnswerId: null,
 				messageCount: 1,
 				lastMessageAt: later(30).toISOString(),
+				createdAt: later(-10).toISOString(),
+			},
+			{
+				id: 'thread-2',
+				title: 'Pricing review with Dana',
+				state: {kind: 'stopped'},
+				standing: 'done',
+				standingPending: false,
+				opener: {kind: 'person', text: 'Find the pricing review with Dana', attachments: [shownAttachment]},
+				summary: null,
+				latest: 'It moved to Friday, with the new prices attached.',
+				latestEntryId: 'e3',
+				latestAnswerId: 'e3',
+				messageCount: 3,
+				lastMessageAt: later(2).toISOString(),
+				createdAt: now.toISOString(),
 			},
 		]);
 	});
@@ -543,9 +546,9 @@ describe('the chat’s threads', () => {
 		const listed = (await handleListThreadsRoute(request({personaId: 'persona-1'}))).unwrap().threads;
 
 		expect(listed.map(({id, standing, summary, latest}) => ({id, standing, summary, latest}))).toEqual([
+			{id: 'thread-3', standing: 'in_progress', summary: 'Watches for an email from Dana.', latest: null},
 			{id: 'thread-2', standing: 'waiting', summary: 'Found it, and asks whether to send the new prices to Dana.', latest: 'It moved to Friday, with the new prices attached.'},
 			{id: 'thread-4', standing: 'done', summary: null, latest: 'Booked the Lindens room for Friday.'},
-			{id: 'thread-3', standing: 'in_progress', summary: 'Watches for an email from Dana.', latest: null},
 		]);
 
 		// At work again, it is in progress whatever its last turn's end said; what the viewer said,

@@ -274,13 +274,14 @@ export const chatThreadSchema = z.object({
 	latestAnswerId: z.string().nullable(),
 	messageCount: z.number(),
 	lastMessageAt: z.string(),
+	createdAt: z.string(),
 });
 
 export type ChatThread = z.infer<typeof chatThreadSchema>;
 
 /**
  * `GET chat/personas/:personaId/threads`: the person's chat with a persona, begun where there was
- * none: the persona, and its threads, the one that last had a message last.
+ * none: the persona, and its threads in the order they were opened, the newest last.
  */
 export const chatThreadsSchema = z.object({
 	persona: chatPersonaSchema,
