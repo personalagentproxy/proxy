@@ -432,7 +432,17 @@ describe('the chat’s threads', () => {
 
 	// A thread of the viewer's chat, its message opening it, stopped unless the test says otherwise.
 	function chatThread(row: Partial<ChatThreadRow> & {id: string}): ChatThreadRow {
-		return {...chat, parentThreadId: 'chat-1', title: 'Pricing review with Dana', taskId: 'task-1', state: {kind: 'stopped'}, entries: [], attachments: [], ...row};
+		return {
+			...chat,
+			parentThreadId: 'chat-1',
+			title: 'Pricing review with Dana',
+			taskId: 'task-1',
+			state: {kind: 'stopped'},
+			standing: {waitingForMember: false, summary: null, summarySeq: null},
+			entries: [],
+			attachments: [],
+			...row,
+		};
 	}
 
 	const review = chatThread({
@@ -485,7 +495,9 @@ describe('the chat’s threads', () => {
 				id: 'thread-2',
 				title: 'Pricing review with Dana',
 				state: {kind: 'stopped'},
+				standing: 'done',
 				opener: {kind: 'person', text: 'Find the pricing review with Dana', attachments: [shownAttachment]},
+				summary: null,
 				latest: 'It moved to Friday, with the new prices attached.',
 				latestEntryId: 'e3',
 				latestAnswerId: 'e3',
@@ -496,7 +508,9 @@ describe('the chat’s threads', () => {
 				id: 'thread-3',
 				title: 'Tell me when Dana writes',
 				state: {kind: 'asleep', until: later(60).toISOString()},
+				standing: 'in_progress',
 				opener: {kind: 'event', text: 'The alert “Dana” matched a new one of the emails.'},
+				summary: null,
 				latest: null,
 				latestEntryId: null,
 				latestAnswerId: null,
@@ -504,6 +518,57 @@ describe('the chat’s threads', () => {
 				lastMessageAt: later(30).toISOString(),
 			},
 		]);
+	});
+
+	test('say where each thread stands: in progress while at work or asleep, waiting for the viewer where its turn’s end said so, done otherwise; and its summary only while nothing was said past it', async () => {
+		const {handleListThreadsRoute, handleGetChatThreadRoute} = routes;
+		store.getChatDraft.mockResolvedValue(Ok(null));
+		store.listDraftAttachments.mockResolvedValue(Ok([]));
+		const waiting = {...review, standing: {waitingForMember: true, summary: 'Found it, and asks whether to send the new prices to Dana.', summarySeq: 4}};
+		const stale = chatThread({
+			id: 'thread-4',
+			standing: {waitingForMember: false, summary: 'Booked the room for Friday.', summarySeq: 2},
+			entries: [
+				logEntry({id: 'e7', seq: 1, threadId: 'thread-4', kind: 'person', text: 'Book a room for the review'}),
+				logEntry({id: 'e8', seq: 2, threadId: 'thread-4', kind: 'assistant', text: 'Booked the Lindens room for Friday.'}),
+				logEntry({id: 'e9', seq: 7, threadId: 'thread-4', kind: 'person', text: 'Make it Thursday', createdAt: later(5)}),
+			],
+		});
+		// Asleep, a summary written before it slept is still current: nothing was said since.
+		const sleeping = {...watch, standing: {waitingForMember: false, summary: 'Watches for an email from Dana.', summarySeq: 3}};
+		store.listChatThreads.mockResolvedValue(Ok([waiting, stale, sleeping]));
+
+		const listed = (await handleListThreadsRoute(request({personaId: 'persona-1'}))).unwrap().threads;
+
+		expect(listed.map(({id, standing, summary, latest}) => ({id, standing, summary, latest}))).toEqual([
+			{id: 'thread-2', standing: 'waiting', summary: 'Found it, and asks whether to send the new prices to Dana.', latest: 'It moved to Friday, with the new prices attached.'},
+			{id: 'thread-4', standing: 'done', summary: null, latest: 'Booked the Lindens room for Friday.'},
+			{id: 'thread-3', standing: 'in_progress', summary: 'Watches for an email from Dana.', latest: null},
+		]);
+
+		// At work again, it is in progress whatever its last turn's end said; what the viewer said,
+		// still pending, makes the summary stale.
+		const reply = {...logEntry({id: 'e10', seq: 3, threadId: 'thread-2', kind: 'person', text: 'Yes, send them'}), pending: true};
+		store.getChatThread.mockResolvedValue(Ok({...waiting, state: {kind: 'working'}, entries: [...waiting.entries, reply]}));
+		expect((await handleGetChatThreadRoute(request({personaId: 'persona-1', threadId: 'thread-2'}))).unwrap().thread).toMatchObject({standing: 'in_progress', summary: null});
+	});
+
+	test('mark a thread of the viewer’s chat done, and say where there is no such thread', async () => {
+		const {handleMarkThreadDoneRoute} = routes;
+		store.markThreadDone.mockResolvedValue(Ok(true));
+
+		expect((await handleMarkThreadDoneRoute(request({personaId: 'persona-1', threadId: 'thread-2'}))).isOk()).toBe(true);
+		expect(store.markThreadDone).toHaveBeenCalledWith('chat-1', 'thread-2');
+
+		store.markThreadDone.mockResolvedValue(Ok(false));
+		expect((await handleMarkThreadDoneRoute(request({personaId: 'persona-1', threadId: 'thread-9'}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'thread'});
+
+		store.getMemberChat.mockResolvedValue(Ok(null));
+		expect((await handleMarkThreadDoneRoute(request({personaId: 'persona-1', threadId: 'thread-2'}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'thread'});
+		store.getPersona.mockResolvedValue(Ok(null));
+		expect((await handleMarkThreadDoneRoute(request({personaId: 'persona-9', threadId: 'thread-2'}))).unwrapErr().kind).toBe('not_found');
+		expect(store.markThreadDone).toHaveBeenCalledTimes(2);
+		expect(store.ensureMemberChat).not.toHaveBeenCalled();
 	});
 
 	test('give one thread with its messages: what the person said with their files, what the persona answered and told them as it went, and events, without the calls', async () => {

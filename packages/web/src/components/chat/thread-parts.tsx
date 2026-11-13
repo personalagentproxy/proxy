@@ -1,25 +1,39 @@
-import type {ChatAttachment, ChatThreadState} from '@proxy/contracts/harness';
+import type {ChatAttachment, ThreadStanding} from '@proxy/contracts/harness';
 import {attachedParts} from '@proxy/utils/harness';
 import {ClockIcon} from 'lucide-react';
 import {Fragment} from 'react';
 import {SentChip} from '@/components/chat/attachments';
 import {Bubble, BubbleContent} from '@/components/chat/bubble';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {cn} from '@proxy/ui/lib/utils';
 
 // The parts a thread is drawn with, in the chat's list of its threads and open beside it.
 
 /**
- * What a thread is up to, as a word over it in the list and beside its name in the title bar: in
- * progress, shimmering, while it is at work or asleep until it wakes; nothing once it has stopped.
+ * Where a thread stands, as a word over it in the list and beside its name in the title bar: in
+ * progress, grey and shimmering, while it is at work or asleep until it wakes; waiting for you, in
+ * orange, where its agent stopped needing the person; done, in ink.
  */
-export function ThreadStatus({state}: {state: ChatThreadState}) {
-	if (state.kind === 'stopped') {
-		return null;
+export function ThreadStatus({standing}: {standing: ThreadStanding}) {
+	if (standing === 'in_progress') {
+		return (
+			<span className="shrink-0 text-xs font-medium text-muted-foreground">
+				<span className="shimmer motion-reduce:shimmer-none">In progress</span>
+			</span>
+		);
 	}
+	if (standing === 'waiting') {
+		return <span className="shrink-0 text-xs font-medium text-waiting">Waiting for you</span>;
+	}
+	return <span className="shrink-0 text-xs font-medium text-foreground">Done</span>;
+}
+
+/** The button on a thread waiting for the person, which says it is done, with nothing more to answer. */
+export function DoneButton({onDone}: {onDone: () => void}) {
 	return (
-		<span className="shrink-0 text-xs font-medium text-muted-foreground">
-			<span className="shimmer motion-reduce:shimmer-none">In progress</span>
-		</span>
+		<PillButton type="button" onClick={onDone}>
+			Done
+		</PillButton>
 	);
 }
 

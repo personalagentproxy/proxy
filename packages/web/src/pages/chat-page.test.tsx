@@ -67,7 +67,9 @@ function thread(id: string, over: Partial<ChatThread> = {}): ChatThread {
 		id,
 		title: 'Pricing review with Dana',
 		state: {kind: 'stopped'},
+		standing: 'done',
 		opener: {kind: 'person', text: 'Move the pricing review', attachments: []},
+		summary: null,
 		latest: 'Moved it to Thursday.',
 		latestEntryId: 'm2',
 		latestAnswerId: 'm2',
@@ -82,6 +84,7 @@ function opened(text: string, attachments: ChatAttachment[] = []): ChatThread {
 	return thread('t-new', {
 		title: text,
 		state: {kind: 'working'},
+		standing: 'in_progress',
 		opener: {kind: 'person', text, attachments},
 		latest: null,
 		latestEntryId: null,
@@ -105,6 +108,7 @@ const pricing = thread('t1');
 const backup = thread('t2', {
 	title: 'Morning check',
 	state: {kind: 'working'},
+	standing: 'in_progress',
 	opener: {kind: 'event', text: 'Every weekday at 9:00, as you asked'},
 	latest: null,
 	latestEntryId: null,
@@ -674,10 +678,11 @@ describe('ChatPage', () => {
 		).toHaveLength(0);
 	});
 
-	test('lists the threads, the one that last had a message last, each with what it is up to, what opened it, the start of the latest answer and how many messages it holds', async () => {
+	test('lists the threads, the one that last had a message last, each with where it stands, what opened it, the start of the latest answer and how many messages it holds', async () => {
 		const asleep = thread('t3', {
 			title: 'Train tickets',
 			state: {kind: 'asleep', until: '2026-10-21T12:00:00Z'},
+			standing: 'in_progress',
 			opener: {kind: 'person', text: 'Book the train to Porto', attachments: []},
 			latest: 'Waiting for the fares to drop.',
 			latestEntryId: 'm7',
@@ -700,8 +705,9 @@ describe('ChatPage', () => {
 			'/acme/chat/general/threads/t3',
 		]);
 		const [stopped, working, sleeping] = links.map((link) => link.parentElement as HTMLElement);
-		// In progress while at work or asleep; nothing once stopped.
+		// In progress while at work or asleep; done once stopped needing nothing.
 		expect(within(stopped as HTMLElement).queryByText('In progress')).toBeNull();
+		expect(within(stopped as HTMLElement).getByText('Done')).toBeTruthy();
 		expect(within(working as HTMLElement).getByText('In progress')).toBeTruthy();
 		expect(within(sleeping as HTMLElement).getByText('In progress')).toBeTruthy();
 		// What the person said, in a bubble; what an alert brought, a line.
@@ -726,12 +732,105 @@ describe('ChatPage', () => {
 
 		const chat = await screen.findByLabelText('Chat');
 		expect(within(chat).getByText('In progress')).toBeTruthy();
-		listed = [{...backup, state: {kind: 'stopped'}, latest: 'The backup ran.'}];
+		listed = [{...backup, state: {kind: 'stopped'}, standing: 'done', latest: 'The backup ran.'}];
 		// The chat is read again within the 4 seconds it waits between reads.
 		await act(() => new Promise((resolve) => setTimeout(resolve, 4500)));
 		expect(within(chat).queryByText('In progress')).toBeNull();
 		expect(within(chat).getByText('The backup ran.')).toBeTruthy();
 	}, 10000);
+
+	test('says a thread waits for the person in orange, one done in ink, and where each stands in a sentence while it is current, the start of the latest answer otherwise', async () => {
+		const waiting = thread('t4', {
+			title: 'Date filter on the activity log',
+			standing: 'waiting',
+			opener: {
+				kind: 'person',
+				text: 'add a date filter to the activity log, plan first',
+				attachments: [],
+			},
+			summary: 'Has a plan, and asks whether the date range should cover the CSV export too.',
+			latest: 'I have a plan, and one question before I build.',
+			lastMessageAt: '2026-10-21T10:07:00Z',
+		});
+		// Its summary stale, the page has none for it: the start of the latest answer stands in.
+		renderChatPage({threads: [pricing, backup, waiting]});
+
+		const chat = await screen.findByLabelText('Chat');
+		const [done, working, asking] = within(chat)
+			.getAllByRole('link')
+			.map((link) => link.parentElement as HTMLElement);
+		expect(within(asking as HTMLElement).getByText('Waiting for you').className).toContain(
+			'text-waiting',
+		);
+		expect(
+			within(asking as HTMLElement).getByText(
+				'Has a plan, and asks whether the date range should cover the CSV export too.',
+			),
+		).toBeTruthy();
+		expect(
+			within(asking as HTMLElement).queryByText('I have a plan, and one question before I build.'),
+		).toBeNull();
+		expect(within(asking as HTMLElement).getByRole('button', {name: 'Done'})).toBeTruthy();
+		expect(within(done as HTMLElement).getByText('Done').className).toContain('text-foreground');
+		expect(within(done as HTMLElement).getByText('Moved it to Thursday.')).toBeTruthy();
+		expect(within(done as HTMLElement).queryByRole('button', {name: 'Done'})).toBeNull();
+		expect(
+			within(working as HTMLElement)
+				.getByText('In progress')
+				.closest('.text-muted-foreground'),
+		).toBeTruthy();
+		expect(within(working as HTMLElement).queryByRole('button', {name: 'Done'})).toBeNull();
+	});
+
+	test('marks a thread waiting for the person done from the list, at once and on the server, without opening it', async () => {
+		const waiting = thread('t4', {
+			standing: 'waiting',
+			summary: 'Asks whether Thursday works for Dana.',
+		});
+		renderChatPage({
+			threads: [waiting],
+			views: {t4: view(waiting, [said('m1', 'person', 'Move the pricing review')])},
+		});
+
+		const chat = await screen.findByLabelText('Chat');
+		const button = within(chat).getByRole('button', {name: 'Done'});
+		await follow(button);
+
+		expect(within(chat).queryByText('Waiting for you')).toBeNull();
+		expect(within(chat).getByText('Done')).toBeTruthy();
+		expect(within(chat).queryByRole('button', {name: 'Done'})).toBeNull();
+		await waitFor(() =>
+			expect(
+				fetchMock.mock.calls.some(
+					([input, init]) =>
+						input.endsWith('/chat/personas/general/threads/t4/done') && init?.method === 'POST',
+				),
+			).toBe(true),
+		);
+		expect(screen.queryByLabelText('Thread')).toBeNull();
+		expect(
+			within(chat)
+				.getByRole('link', {name: 'Pricing review with Dana'})
+				.getAttribute('aria-current'),
+		).toBeNull();
+	});
+
+	test('where the server can’t be told a thread is done, it waits again, saying why', async () => {
+		const waiting = thread('t4', {standing: 'waiting'});
+		answering((input) =>
+			input.endsWith('/threads/t4/done')
+				? Promise.resolve(Response.json({error: 'Something went wrong'}, {status: 500}))
+				: null,
+		);
+		renderChatPage({threads: [waiting]});
+
+		const chat = await screen.findByLabelText('Chat');
+		await follow(within(chat).getByRole('button', {name: 'Done'}));
+
+		await waitFor(() => expect(within(chat).getByText('Waiting for you')).toBeTruthy());
+		expect(within(chat).getByRole('button', {name: 'Done'})).toBeTruthy();
+		expect(screen.getByText('Something went wrong. Try again.')).toBeTruthy();
+	});
 
 	describe('a thread', () => {
 		test('opens beside the chat, named in the title bar, lit in the list, with what was said in it and the box to reply in focused', async () => {
@@ -763,6 +862,52 @@ describe('ChatPage', () => {
 			expect(within(opened).getByText('Every weekday at 9:00, as you asked')).toBeTruthy();
 			expect(within(opened).queryByText('Working')).toBeNull();
 			await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Reply')));
+		});
+
+		test('waiting for the person, says so by its name and has the Done button under what was said, which marks it done in the panel, the title bar and the list', async () => {
+			const waiting = thread('t4', {
+				title: 'Date filter on the activity log',
+				standing: 'waiting',
+				summary: 'Has a plan, and asks whether the date range should cover the CSV export too.',
+			});
+			renderChatPage({
+				threads: [waiting],
+				views: {
+					t4: view(waiting, [
+						said('m1', 'person', 'add a date filter to the activity log, plan first'),
+						said(
+							'm2',
+							'assistant',
+							'I have a plan. Should the date range apply to the CSV export too?',
+						),
+					]),
+				},
+				initial: '/acme/chat/general/threads/t4',
+			});
+
+			const opened = await screen.findByLabelText('Thread');
+			const banner = screen.getByRole('banner');
+			expect(within(banner).getByText('Waiting for you')).toBeTruthy();
+			const button = within(opened).getByRole('button', {name: 'Done'});
+			// At the bottom of the thread's messages.
+			const items = [...opened.querySelectorAll('[data-slot=message-scroller-item]')];
+			expect(items.at(-1)?.contains(button)).toBe(true);
+
+			await follow(button);
+
+			expect(within(opened).queryByRole('button', {name: 'Done'})).toBeNull();
+			expect(within(banner).queryByText('Waiting for you')).toBeNull();
+			expect(within(banner).getByText('Done')).toBeTruthy();
+			const chat = screen.getByLabelText('Chat');
+			expect(within(chat).queryByText('Waiting for you')).toBeNull();
+			expect(within(chat).queryByRole('button', {name: 'Done'})).toBeNull();
+			await waitFor(() =>
+				expect(
+					fetchMock.mock.calls.some(
+						([input, init]) => input.endsWith('/threads/t4/done') && init?.method === 'POST',
+					),
+				).toBe(true),
+			);
 		});
 
 		test('says the agent is at work at its end while it is', async () => {

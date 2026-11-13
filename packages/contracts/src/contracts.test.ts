@@ -2,6 +2,7 @@ import {describe, expect, test} from 'bun:test';
 import {readdirSync, readFileSync} from 'node:fs';
 import {join} from 'node:path';
 
+import * as harness from './harness';
 import * as intent from './intent';
 import * as widgets from './widgets';
 
@@ -103,5 +104,35 @@ describe('contracts', () => {
 			expect(intent.pickedSchema.parse({widget, ms: 1}).widget).toBe(widget);
 		}
 		expect(intent.pickedSchema.safeParse({widget: 'nope', ms: 1}).success).toBe(false);
+	});
+
+	test('a chat thread says where it stands, one of the three words, and its summary, or null', () => {
+		const thread: harness.ChatThread = {
+			id: 't1',
+			title: 'Add a date filter to the activity log',
+			state: {kind: 'stopped'},
+			standing: 'waiting',
+			opener: {
+				kind: 'person',
+				text: 'add a date filter to the activity log, plan first',
+				attachments: [],
+			},
+			summary: 'Has a plan, and asks whether the date range should cover the CSV export too.',
+			latest: 'I have a plan, and one question before I build.',
+			latestEntryId: 'e2',
+			latestAnswerId: 'e2',
+			messageCount: 2,
+			lastMessageAt: '2026-03-02T09:24:00.000Z',
+		};
+		expect(harness.chatThreadSchema.parse(thread)).toEqual(thread);
+		expect(
+			harness.chatThreadSchema.parse({...thread, standing: 'done', summary: null}).summary,
+		).toBeNull();
+		expect([...harness.threadStandingSchema.options]).toEqual(['in_progress', 'waiting', 'done']);
+		expect(harness.chatThreadSchema.safeParse({...thread, standing: 'stopped'}).success).toBe(
+			false,
+		);
+		const {summary: _summary, ...withoutSummary} = thread;
+		expect(harness.chatThreadSchema.safeParse(withoutSummary).success).toBe(false);
 	});
 });

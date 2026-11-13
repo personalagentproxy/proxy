@@ -88,6 +88,10 @@ export type HarnessStore = {
 	replyInThread: (chatId: string, threadId: string, text: string, attachments?: EntryAttachment[]) => Promise<Result<EntryRow | null, ApiError>>;
 	listChatThreads: (chatId: string, calls: string[], now: Date) => Promise<Result<ChatThreadRow[], ApiError>>;
 	getChatThread: (chatId: string, threadId: string, calls: string[], now: Date) => Promise<Result<ChatThreadRow | null, ApiError>>;
+	/** Where a thread stands as its turn ended, written up to `upToSeq` while nothing came since; whether it waits left as it is where not given. */
+	writeThreadStanding: (threadId: string, standing: {summary: string | null; waitingForMember?: boolean}, upToSeq: number) => Promise<Result<boolean, ApiError>>;
+	markThreadDone: (chatId: string, threadId: string) => Promise<Result<boolean, ApiError>>;
+	listThreadsWithoutSummary: () => Promise<Result<Array<{id: string; chatId: string}>, ApiError>>;
 	markChatRead: (chatId: string, entryId: string) => Promise<Result<boolean, ApiError>>;
 	getChatDraft: (chatId: string) => Promise<Result<string | null, ApiError>>;
 	saveChatDraft: (chatId: string, draft: string | null, order?: Array<Pick<DraftAttachment, 'connectionId' | 'fileId' | 'version'>>) => Promise<Result<boolean, ApiError>>;
@@ -155,6 +159,9 @@ export const harnessStore: HarnessStore = {
 	replyInThread: (chatId, threadId, text, attachments) => harness.replyInThread(chatId, threadId, text, readyForInference, attachments),
 	listChatThreads: harness.listChatThreads,
 	getChatThread: harness.getChatThread,
+	writeThreadStanding: harness.writeThreadStanding,
+	markThreadDone: harness.markThreadDone,
+	listThreadsWithoutSummary: harness.listThreadsWithoutSummary,
 	markChatRead: harness.markChatRead,
 	getChatDraft: harness.getChatDraft,
 	saveChatDraft: harness.saveChatDraft,

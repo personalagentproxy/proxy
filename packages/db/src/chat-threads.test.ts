@@ -18,11 +18,14 @@ import {
 	listChatThreads,
 	listEntries,
 	listPersonas,
+	listThreadsWithoutSummary,
 	lockThread,
 	markChatRead,
+	markThreadDone,
 	openThread,
 	replyInThread,
 	saveChatDraft,
+	writeThreadStanding,
 	type JobRow,
 	type ThreadOpening,
 	type ThreadRow,
@@ -492,5 +495,179 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		expect(await openTurns(thread.id)).toBe(1);
 		expect(unwrap(await listEntries(chat.id))).toEqual([]);
 		expect(await openTurns(chat.id)).toBe(0);
+	});
+
+	// Ends the thread's queued turn with an answer of `text`, as `workerId`.
+	async function answer(thread: ThreadRow, workerId: string, text: string): Promise<void> {
+		const job = await claim(thread.id, workerId);
+		unwrap(
+			await completeInference(
+				job.id,
+				workerId,
+				thread.id,
+				said(text),
+				{end: {outcome: text}},
+				readyForInference,
+			),
+		);
+	}
+
+	// The thread's standing, as the chat lists it.
+	async function standingOf(thread: ThreadRow) {
+		return unwrap(await getChatThread(chat.id, thread.id, []))?.standing;
+	}
+
+	// The seq of the thread's last entry.
+	async function lastSeq(thread: ThreadRow): Promise<number> {
+		return unwrap(await listEntries(thread.id)).at(-1)?.seq ?? 0;
+	}
+
+	test('a thread opens done with no summary; where it stands is written as its turn ended, and the member’s reply takes it up, waiting for nobody', async () => {
+		const thread = await open('Add a date filter to the activity log, plan first');
+		expect(await standingOf(thread)).toEqual({
+			waitingForMember: false,
+			summary: null,
+			summarySeq: null,
+		});
+		// Nothing is written while the thread is at work.
+		expect(
+			unwrap(
+				await writeThreadStanding(
+					thread.id,
+					{summary: 'Planning.', waitingForMember: true},
+					await lastSeq(thread),
+				),
+			),
+		).toBe(false);
+
+		await answer(thread, 'worker-st1', 'I have a plan. Should it cover the CSV export too?');
+		const upTo = await lastSeq(thread);
+		const summary = 'Has a plan, and asks whether the date range should cover the CSV export too.';
+		expect(
+			unwrap(await writeThreadStanding(thread.id, {summary, waitingForMember: true}, upTo)),
+		).toBe(true);
+		expect(await standingOf(thread)).toEqual({waitingForMember: true, summary, summarySeq: upTo});
+
+		unwrap(await replyInThread(chat.id, thread.id, 'Yes, include it', readyForInference));
+		expect(await standingOf(thread)).toEqual({waitingForMember: false, summary, summarySeq: upTo});
+		// Written up to before the reply, as a model that read the thread before it came would, it is
+		// not written: the reply's turn writes for it as it ends.
+		await answer(thread, 'worker-st2', 'Added it, CSV export included.');
+		expect(
+			unwrap(
+				await writeThreadStanding(thread.id, {summary: 'Stale.', waitingForMember: true}, upTo),
+			),
+		).toBe(false);
+		expect((await standingOf(thread))?.waitingForMember).toBe(false);
+
+		// Without saying whether it waits, as the script writes for threads from before, that is left
+		// as it is.
+		expect(
+			unwrap(
+				await writeThreadStanding(
+					thread.id,
+					{summary: 'Added the date range.'},
+					await lastSeq(thread),
+				),
+			),
+		).toBe(true);
+		expect(await standingOf(thread)).toMatchObject({
+			waitingForMember: false,
+			summary: 'Added the date range.',
+		});
+		// A chat has no standing to write.
+		expect(
+			unwrap(await writeThreadStanding(chat.id, {summary: 'No.', waitingForMember: true}, 0)),
+		).toBe(false);
+	});
+
+	test('an alert that fires takes a thread waiting for the member up, and a summary from before it is not written over it', async () => {
+		const thread = await open('Tell me when the nightly backup fails');
+		await answer(thread, 'worker-st3', 'Watching for it. Should I look into why when it does?');
+		const upTo = await lastSeq(thread);
+		unwrap(
+			await writeThreadStanding(
+				thread.id,
+				{
+					summary: 'Watches the backup, and asks whether to look into failures.',
+					waitingForMember: true,
+				},
+				upTo,
+			),
+		);
+		const alert = await db.agentAlert.create({
+			data: {
+				orgId,
+				userId,
+				threadId: thread.id,
+				title: 'Backup',
+				brief: 'Check it.',
+				at: new Date(),
+			},
+		});
+
+		unwrap(await fireAlert(alert, 'The alert “Backup” is due now.', readyForInference));
+
+		expect((await standingOf(thread))?.waitingForMember).toBe(false);
+		await answer(thread, 'worker-st4', 'It failed twice over the weekend.');
+		expect(
+			unwrap(await writeThreadStanding(thread.id, {summary: 'Old.', waitingForMember: true}, upTo)),
+		).toBe(false);
+	});
+
+	test('the member marks a thread of their chat done; a thread of another chat is not theirs to mark', async () => {
+		const thread = await open('Check the coverage of the api package');
+		await answer(thread, 'worker-st5', 'Should I include the scripts?');
+		unwrap(
+			await writeThreadStanding(
+				thread.id,
+				{summary: 'Asks whether to include the scripts.', waitingForMember: true},
+				await lastSeq(thread),
+			),
+		);
+
+		expect(unwrap(await markThreadDone(chat.id, thread.id))).toBe(true);
+		expect(await standingOf(thread)).toMatchObject({
+			waitingForMember: false,
+			summary: 'Asks whether to include the scripts.',
+		});
+		expect(unwrap(await markThreadDone(chat.id, 'no-such-thread'))).toBe(false);
+		expect(unwrap(await markThreadDone('another-chat', thread.id))).toBe(false);
+		expect(unwrap(await markThreadDone(chat.id, chat.id))).toBe(false);
+	});
+
+	test('the threads without a summary are every chat’s threads that have none, the oldest first, no chat among them', async () => {
+		const first = await open('Bump vite to 8.4');
+		const second = await open('Fix the login test on main');
+		await answer(first, 'worker-st6', 'Bumped.');
+		await answer(second, 'worker-st7', 'Fixed in #411.');
+		unwrap(
+			await writeThreadStanding(
+				second.id,
+				{summary: 'Fixed in #411.', waitingForMember: false},
+				await lastSeq(second),
+			),
+		);
+
+		const ids = unwrap(await listThreadsWithoutSummary()).map((thread) => thread.id);
+		const mine = new Set(
+			(await db.agentThread.findMany({where: {orgId}, select: {id: true}})).map(
+				(thread) => thread.id,
+			),
+		);
+		const listed = ids.filter((id) => mine.has(id));
+
+		expect(listed).toContain(first.id);
+		expect(listed).not.toContain(second.id);
+		expect(listed).not.toContain(chat.id);
+		const created = await db.agentThread.findMany({
+			where: {id: {in: listed}},
+			select: {id: true, createdAt: true},
+			orderBy: [{createdAt: 'asc'}, {id: 'asc'}],
+		});
+		expect(listed).toEqual(created.map((thread) => thread.id));
+		expect(
+			unwrap(await listThreadsWithoutSummary()).find((thread) => thread.id === first.id)?.chatId,
+		).toBe(chat.id);
 	});
 });

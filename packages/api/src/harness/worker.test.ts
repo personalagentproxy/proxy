@@ -7,6 +7,7 @@ import type {ClaimedJob, JobRow} from '@proxy/db/harness';
 
 import type {Harnesses} from '../backends/harness';
 import {type FakeStore, fakeStore} from './fake-store';
+import type {StandingModel} from './thread-standing';
 
 type Run = (store: FakeStore, job: JobRow, workerId: string) => Promise<Result<void, ApiError>>;
 type RunTurn = (store: FakeStore, harnesses: Harnesses, job: JobRow, workerId: string, woken: boolean) => Promise<Result<void, ApiError>>;
@@ -122,5 +123,78 @@ describe('the worker', () => {
 
 		const noteFor = store.failJob.mock.calls.find((call) => call[0] === 'j2')?.[3];
 		expect(noteFor?.(tool)).toEqual({kind: 'answer', callId: 'c1', text: 'This call could not be run: boom'});
+	});
+
+	test('as a turn’s job ends, done or failed, where the thread stands is read after it, and the job is what it was however that goes', async () => {
+		const {startHarnessWorker} = await import('./worker');
+		runInference.mockResolvedValueOnce(Ok(undefined)).mockResolvedValueOnce(Err(ApiErr.internalError(new Error('OpenRouter refused the request (400): too long'))));
+		store.claimJob
+			.mockResolvedValueOnce(Ok(claimed(inference)))
+			.mockResolvedValueOnce(Ok(claimed(tool)))
+			.mockResolvedValueOnce(Ok(claimed({...inference, id: 'j3', threadId: 't3'})))
+			.mockResolvedValueOnce(Ok(claimed({...wake, threadId: 't5'})))
+			.mockResolvedValue(Ok(null));
+		// The model on the key never answers: the worker goes on to the next job all the same.
+		const ask = mock<StandingModel['ask']>(() => new Promise(() => {}));
+		const row = (threadId: string) => ({
+			id: threadId,
+			orgId: 'org-1',
+			agentId: 'login-1',
+			personaId: 'persona-1',
+			userId: 'user-1',
+			parentThreadId: 'chat-1',
+			title: 'Pricing review with Dana',
+			taskId: null,
+			harness: null,
+			harnessSession: null,
+			createdAt: now,
+		});
+		const said = {
+			id: 'e1',
+			seq: 1,
+			threadId: 't1',
+			kind: 'person' as const,
+			text: 'Find the pricing review with Dana',
+			pending: false,
+			toolCalls: null,
+			callId: null,
+			isError: false,
+			inputTokens: null,
+			outputTokens: null,
+			coversSeq: null,
+			system: null,
+			harness: null,
+			model: null,
+			jobId: null,
+			createdAt: now,
+		};
+		store.getJobThread.mockImplementation(async (threadId) => Ok(row(threadId)));
+		store.getChatThread.mockImplementation(async (_chatId, threadId) =>
+			Ok({...row(threadId), state: {kind: 'stopped'}, standing: {waitingForMember: false, summary: null, summarySeq: null}, entries: [said], attachments: []}),
+		);
+
+		const worker = startHarnessWorker(store, harness, {key: 'sk-or-1', ask});
+		await settle();
+		await worker.stop();
+
+		// Each turn's thread, the failed one's too, after its job; not a tool job's.
+		expect(store.getJobThread.mock.calls.map((call) => call[0]).toSorted()).toEqual(['t1', 't3', 't5']);
+		expect(store.failJob).toHaveBeenCalledTimes(1);
+		expect(store.failJob).toHaveBeenCalledWith('j3', expect.any(String), 'OpenRouter refused the request (400): too long', expect.any(Function));
+		expect(runToolJob).toHaveBeenCalledTimes(1);
+		expect(ask).toHaveBeenCalledTimes(3);
+		expect(store.writeThreadStanding).not.toHaveBeenCalled();
+	});
+
+	test('without a model to read it, where a thread stands is not read', async () => {
+		const {startHarnessWorker} = await import('./worker');
+		store.claimJob.mockResolvedValueOnce(Ok(claimed(inference))).mockResolvedValue(Ok(null));
+
+		const worker = startHarnessWorker(store, harness);
+		await settle();
+		await worker.stop();
+
+		expect(runInference).toHaveBeenCalledTimes(1);
+		expect(store.getJobThread).not.toHaveBeenCalled();
 	});
 });

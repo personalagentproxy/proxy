@@ -56,6 +56,9 @@ export function taskFor(thread: ThreadRow, work: {title: string; goal: string}):
 	};
 }
 
+/** The calls a thread shows, as what the persona told the person as it went: its messages to them. */
+export const SHOWN_CALLS = [SEND_TO_PERSON_TOOL];
+
 export const SENT_TO_PERSON = 'Sent.';
 
 /** What a message to the person is answered with where its arguments are no good. */

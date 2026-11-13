@@ -47,15 +47,37 @@ A new agent runs on the first harness offered, Claude where the server has it, w
 first model. A harness that isn't offered can't be chosen, and an agent that was set to one runs on
 the first that is.
 
+Whichever harness runs an agent, where each [thread](#threads) stands, the word over it and the
+sentence under what opened it, is written by a small model on the server's OpenRouter key,
+gpt-oss-120b, as the command bar's reading of what you type is: it reads what the thread shows,
+what you said, with the names of the files you attached, what the agent answered and the alerts
+that came into it, never the calls the agent made, and only on hosts that keep nothing of what is
+sent. A server without an `OPENROUTER_KEY` writes none: a thread is **Done** once the agent stops,
+with the start of its latest answer in place of the sentence.
+
 ## Threads
 
 Say what you want done. Every message you send in the chat opens a thread of its own, about that
 one piece of work, and the agent works on it there. The chat lists its threads, the one with
-something said in it last at the bottom: each by what opened it, your message, with
-**In progress** over it while the agent is at work, the start of the latest thing the agent said
-in it, and how many messages it holds, with when the last came. Several threads can be in progress
-at once, each on its own; everything keeps running after you leave the page, and the chat shows
-each thread as it is when you come back.
+something said in it last at the bottom: each by what opened it, your message, with a word over it
+saying where it stands, a sentence saying where it is, and how many messages it holds, with when
+the last came. A thread is:
+
+- **In progress** while the agent is at work on it, or asleep until it goes on.
+- **Waiting for you** once the agent has stopped and can't go on until you answer or do something,
+  as when it asks whether its plan should cover one more thing.
+- **Done** once the agent has stopped and needs nothing more of you.
+
+The sentence is about the thread as a whole, such as "Merged #412 once its checks passed.", and is
+written as the agent's turn ends, with whether the thread waits for you, by a
+[small model](#what-runs-an-agent). Once something more is said in the thread, by you, the agent or
+an alert, the start of the latest thing the agent said takes its place until the next is written.
+A thread waiting for you has a **Done** button, in the list and at the foot of the thread when it
+is open: press it when there is nothing more to answer, and the thread is done. A reply, or an alert
+that comes into the thread, takes it up again, and it no longer waits.
+
+Several threads can be in progress at once, each on its own; everything keeps running after you
+leave the page, and the chat shows each thread as it is when you come back.
 
 Choose a thread to open it beside the chat, or across the whole page, and reply in it with the box
 at its foot: a reply goes on with the same work, and the agent reads it with everything said in the
@@ -89,7 +111,7 @@ said in it as before.
 What you said in a chat before it was made of threads is kept as threads too: the conversation
 itself as one thread, **Earlier conversation**, and each piece of work the agent did in it as a
 thread of its own, under its title, opened by what you said that led to it. They read as any thread
-does, and a reply in one goes on from what it shows.
+does, are **Done**, and a reply in one goes on from what it shows.
 
 ## Unread and notifications
 
@@ -126,8 +148,10 @@ last turn on your account, so it is as of that turn, not live.
 The threads of your chat with such an agent run on the
 [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview) under your account: what you
 say goes to Anthropic directly, as it would from Claude Code, not through OpenRouter, on the model
-chosen for the agent. Everything else is the same: the agent's tools, sleeping, alerts, the
-activity log and what a thread shows. Connecting an account moves nothing by itself: an
+chosen for the agent. Only where each thread stands is written on the server's OpenRouter key,
+from what the thread shows, as for any agent ([What runs an agent](#what-runs-an-agent)).
+Everything else is the same: the agent's tools, sleeping, alerts, the activity log and what a
+thread shows. Connecting an account moves nothing by itself: an
 agent on OpenRouter stays there until it is set to Claude. When the token has run out
 or Anthropic refused it, the agent says so in the thread and the card shows it, and nothing
 more is asked of Anthropic with it; connecting again takes it up. When your plan's limit is

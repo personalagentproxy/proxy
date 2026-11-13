@@ -846,6 +846,16 @@ model AgentThread {
   // What the member has typed in the chat and not sent, kept so it is there when they come back,
   // on any device; the message they send empties it. Null when there is none, and for a thread.
   draft   String?
+  // Whether a thread's agent stopped needing the member to answer or act before it can go on,
+  // as a small model read the thread when its turn ended. The member's reply, an alert that takes
+  // the thread up, and the member marking it done clear it. False for a chat.
+  waitingForMember Boolean @default(false)
+  // Where a thread stands, in one sentence, as the same model wrote it when its turn ended; null
+  // before one was written, where it couldn't be, and for a chat.
+  summary          String?
+  // The `seq` of the last entry the summary was written from: once anything is said in the
+  // thread past it, the summary is stale until the next one is written.
+  summarySeq       Int?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt

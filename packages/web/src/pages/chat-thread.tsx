@@ -1,7 +1,9 @@
 import type {
 	ChatAttachment,
 	ChatHarness,
+	ChatThread,
 	ThreadMessage,
+	ThreadStanding,
 	ThreadView,
 } from '@proxy/contracts/harness';
 import {memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
@@ -19,7 +21,7 @@ import {
 	MessageScrollerViewport,
 } from '@/components/chat/message-scroller';
 import {PictureViewer, type ViewedPicture} from '@/components/chat/picture-viewer';
-import {EventLine, PersonBubble} from '@/components/chat/thread-parts';
+import {DoneButton, EventLine, PersonBubble} from '@/components/chat/thread-parts';
 import {WorkingLine} from '@/components/chat/working-line';
 import {type ImageOf, Markdown} from '@/components/markdown';
 import type {AttachmentInput} from '@/hooks/use-attachments';
@@ -47,6 +49,9 @@ export type ThreadContext = {
 	// The thread as it is shown, for the title bar, the list beside it and what is read; null once
 	// it is closed.
 	onShown: (view: ThreadView | null) => void;
+	// Where a thread stands on the page, the person's Done taken in, and saying it is done.
+	standingOf: (thread: ChatThread) => ThreadStanding;
+	onDone: (thread: ChatThread) => void;
 };
 
 // The file kept with an answer that a link of it names; undefined for any other link.
@@ -146,15 +151,18 @@ function personText(message: ThreadMessage): string | null {
 // Nothing to take out on the server: a thread's box is the page's alone.
 function keepNothing() {}
 
-// One of the chat's threads: everything said in it, read again as it works, and a box to reply
-// in, which has the keyboard's focus as it opens. What the person replies shows at once, the
-// persona at work under it, before the server has it.
+// One of the chat's threads: everything said in it, read again as it works, under it the button
+// that says it is done where it waits for the person, and a box to reply in, which has the
+// keyboard's focus as it opens. What the person replies shows at once, the persona at work under
+// it, before the server has it.
 function Thread({
 	loaded,
 	harnesses,
 	full,
 	managing,
 	onShown,
+	standingOf,
+	onDone,
 }: ThreadContext & {loaded: ThreadView}) {
 	const org = useOrgSlug();
 	const [view, setView] = useState<ThreadView>(loaded);
@@ -162,6 +170,7 @@ function Thread({
 	const threadId = loaded.thread.id;
 	const sending = useSending(view.messages, personText);
 	const busy = view.busy || sending.waiting;
+	const waiting = !busy && standingOf(view.thread) === 'waiting';
 	// What the thread had as it opened: what comes after it rises into place.
 	const [opened] = useState(() => new Set(loaded.messages.map((message) => message.id)));
 	const [focusRequested, setFocusRequested] = useState(true);
@@ -266,6 +275,11 @@ function Thread({
 								<div data-enter="fade">
 									<WorkingLine />
 								</div>
+							</MessageScrollerItem>
+						)}
+						{waiting && (
+							<MessageScrollerItem>
+								<DoneButton onDone={() => onDone(view.thread)} />
 							</MessageScrollerItem>
 						)}
 					</MessageScrollerContent>

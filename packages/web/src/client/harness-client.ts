@@ -167,6 +167,11 @@ export function removeAttachment(org: string, personaId: string, attachment: Cha
 	} satisfies z.input<typeof removeAttachmentBodySchema>);
 }
 
+/** Says a thread waiting for the person is done: it no longer waits for them. */
+export function markThreadDone(org: string, personaId: string, threadId: string) {
+	return apiSend('POST', `${orgApi(org)}/chat/personas/${personaId}/threads/${threadId}/done`);
+}
+
 export function markRead(org: string, personaId: string, entryId: string) {
 	return apiSend('POST', `${orgApi(org)}/chat/personas/${personaId}/read`, {
 		entryId,

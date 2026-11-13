@@ -5,6 +5,7 @@ import type {
 	ChatThread,
 	ChatThreads,
 	Persona,
+	ThreadStanding,
 	ThreadView,
 } from '@proxy/contracts/harness';
 import {Maximize2Icon, Minimize2Icon, PencilIcon, Trash2Icon, XIcon} from 'lucide-react';
@@ -22,6 +23,7 @@ import {Link, Outlet, useLocation, useNavigate, useParams} from 'react-router';
 import {
 	createPersona,
 	deletePersona,
+	markThreadDone,
 	openThread,
 	removeAttachment,
 	updatePersona,
@@ -44,7 +46,7 @@ import {
 	MessageScrollerItem,
 	MessageScrollerViewport,
 } from '@/components/chat/message-scroller';
-import {EventLine, PersonBubble, ThreadStatus} from '@/components/chat/thread-parts';
+import {DoneButton, EventLine, PersonBubble, ThreadStatus} from '@/components/chat/thread-parts';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {LiveHead} from '@/components/head';
 import {IconButton} from '@/components/icon-button';
@@ -297,15 +299,17 @@ function PersonaList({
 	);
 }
 
-// The open thread's cell of the title bar: its name, what it is up to, and, at the right, the
+// The open thread's cell of the title bar: its name, where it stands, and, at the right, the
 // buttons that give it the page's width and back, and close it.
 function ThreadHeader({
 	thread,
+	standing,
 	expanded,
 	onExpand,
 	closeTo,
 }: {
 	thread: ChatThread | null;
+	standing: ThreadStanding | null;
 	expanded: boolean;
 	onExpand: () => void;
 	closeTo: string;
@@ -317,7 +321,7 @@ function ThreadHeader({
 			) : (
 				<>
 					<span className="min-w-0 truncate text-sm font-medium">{thread.title || 'Thread'}</span>
-					<ThreadStatus state={thread.state} />
+					{standing !== null && <ThreadStatus standing={standing} />}
 				</>
 			)}
 			<span className="flex-1" />
@@ -362,6 +366,36 @@ export function ChatPage() {
 	const [editing, setEditing] = useState<'new' | ChatPersona | null>(null);
 	const [deleting, setDeleting] = useState<ChatPersona | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	// The threads the person said are done here, each by its id with when it last had a message
+	// then: until something more is said in it, it is done on the page, whatever a read from before
+	// the server had it says.
+	const [markedDone, setMarkedDone] = useState<ReadonlyMap<string, string>>(() => new Map());
+	const standingOf = useCallback(
+		(thread: ChatThread): ThreadStanding =>
+			thread.standing === 'waiting' && markedDone.get(thread.id) === thread.lastMessageAt
+				? 'done'
+				: thread.standing,
+		[markedDone],
+	);
+	// Says a thread waiting for the person is done, on the page at once and then on the server;
+	// where the server can't be told, it waits again, and the chat's box says why.
+	const markDone = useCallback(
+		async (thread: ChatThread) => {
+			setMarkedDone((before) => new Map(before).set(thread.id, thread.lastMessageAt));
+			const marked = await markThreadDone(org, current, thread.id);
+			if (marked.isOk()) {
+				setError(null);
+				return;
+			}
+			setMarkedDone((before) => {
+				const after = new Map(before);
+				after.delete(thread.id);
+				return after;
+			});
+			setError(describeFetchError(marked.error));
+		},
+		[org, current],
+	);
 	// A chat picked in the list, or in the command bar, focuses its box once that chat has loaded.
 	// Nothing is requested on an ordinary page load, so it does not steal focus or open a phone's
 	// keyboard just because the Chat page was visited.
@@ -454,6 +488,8 @@ export function ChatPage() {
 		full,
 		managing: editing !== null || deleting !== null,
 		onShown: setShownThread,
+		standingOf,
+		onDone: markDone,
 	};
 	const side: Side | undefined =
 		threadId === undefined
@@ -463,6 +499,7 @@ export function ChatPage() {
 					header: (
 						<ThreadHeader
 							thread={openThread}
+							standing={openThread === null ? null : standingOf(openThread)}
 							expanded={full}
 							onExpand={() => setExpanded(full ? null : threadId)}
 							closeTo={chatTo}
@@ -522,6 +559,8 @@ export function ChatPage() {
 					onShownSaid={setShownSaid}
 					onShownDraft={setShownDraft}
 					onShownThreads={setShownThreads}
+					standingOf={standingOf}
+					onDone={markDone}
 					managing={editing !== null || deleting !== null}
 					listError={error}
 					focusRequested={focusRequestedFor === current}
@@ -588,6 +627,9 @@ type Opened = {
 	onShownSaid: (shown: ShownSaid) => void;
 	onShownDraft: (shown: ShownDraft) => void;
 	onShownThreads: (threads: ChatThread[]) => void;
+	// Where a thread stands on the page, the person's Done taken in, and saying it is done.
+	standingOf: (thread: ChatThread) => ThreadStanding;
+	onDone: (thread: ChatThread) => void;
 	// An agent is being made, changed or deleted in a dialog.
 	managing: boolean;
 	// What deleting an agent from the list failed with.
@@ -619,22 +661,27 @@ function Opener({opener, open}: {opener: ChatThread['opener']; open: boolean}) {
 	return <PersonBubble text={opener.text} attachments={opener.attachments} outlined={open} />;
 }
 
-// One thread in the chat, opening it beside the chat: what it is up to, what opened it, the start
-// of the latest thing the persona said in it, and how many messages it holds with when the last
-// came. The one open has a band behind it, the width of the chat. The whole of it is a link, under
-// what it shows, so the files in what opened it are still links of their own. It is drawn again
-// only as it changes; one that came while the chat was open rises into place.
+// One thread in the chat, opening it beside the chat: where it stands, what opened it, where it
+// stands in a sentence, or, without a current one, the start of the latest thing the persona said
+// in it, how many messages it holds with when the last came, and, where it waits for the person,
+// the button that says it is done. The one open has a band behind it, the width of the chat. The
+// whole of it is a link, under what it shows, so the files in what opened it are still links of
+// their own, and the button is a button, opening nothing. It is drawn again only as it changes;
+// one that came while the chat was open rises into place.
 const ThreadItem = memo(function ThreadItem({
 	thread,
 	to,
 	open,
 	fresh,
+	onDone,
 }: {
 	thread: ChatThread;
 	to: string;
 	open: boolean;
 	fresh: boolean;
+	onDone: (thread: ChatThread) => void;
 }) {
+	const said = thread.summary ?? thread.latest;
 	const count = `${thread.messageCount} ${thread.messageCount === 1 ? 'message' : 'messages'}`;
 	return (
 		<div
@@ -647,16 +694,20 @@ const ThreadItem = memo(function ThreadItem({
 				aria-current={open ? 'page' : undefined}
 				className="absolute inset-0 outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset"
 			/>
-			<div className="page-column pointer-events-none relative mx-auto flex w-full max-w-4xl flex-col items-start gap-2.5 [&_a]:pointer-events-auto">
-				{/* What it is up to, over it; nothing once it has stopped. */}
-				<ThreadStatus state={thread.state} />
+			<div className="page-column pointer-events-none relative mx-auto flex w-full max-w-4xl flex-col items-start gap-2.5 [&_a]:pointer-events-auto [&_button]:pointer-events-auto">
+				<ThreadStatus standing={thread.standing} />
 				<Opener opener={thread.opener} open={open} />
-				{thread.latest !== null && (
-					<p className="line-clamp-2 max-w-[44rem] text-sm leading-relaxed">{thread.latest}</p>
+				{said !== null && (
+					<p className="line-clamp-2 max-w-[44rem] text-sm leading-relaxed">{said}</p>
 				)}
 				<p className="text-xs text-muted-foreground">
 					{count} · {formatMessageTime(thread.lastMessageAt)}
 				</p>
+				{thread.standing === 'waiting' && (
+					<div className="flex pt-1">
+						<DoneButton onDone={() => onDone(thread)} />
+					</div>
+				)}
 			</div>
 		</div>
 	);
@@ -687,6 +738,8 @@ const Chat = memo(function Chat({
 	onShownSaid,
 	onShownDraft,
 	onShownThreads,
+	standingOf,
+	onDone,
 	managing,
 	listError,
 	focusRequested,
@@ -698,8 +751,12 @@ const Chat = memo(function Chat({
 	const current = loaded.persona;
 	const sending = useSending(loaded.threads, openerText);
 	const threads = useMemo(
-		() => inOrder(sending.entries, fresher?.thread ?? null),
-		[sending.entries, fresher],
+		() =>
+			inOrder(sending.entries, fresher?.thread ?? null).map((thread) => {
+				const standing = standingOf(thread);
+				return standing === thread.standing ? thread : {...thread, standing};
+			}),
+		[sending.entries, fresher, standingOf],
 	);
 	// What the chat had as it opened: what comes after it rises into place.
 	const [opened] = useState(() => new Set(loaded.threads.map((thread) => thread.id)));
@@ -772,7 +829,9 @@ const Chat = memo(function Chat({
 			id: key,
 			title: preview(message),
 			state: {kind: 'working'},
+			standing: 'in_progress',
 			opener: {kind: 'person', text: message, attachments: files},
+			summary: null,
 			latest: null,
 			latestEntryId: null,
 			latestAnswerId: null,
@@ -818,6 +877,7 @@ const Chat = memo(function Chat({
 										to={`/${org}/chat/${personaId}/threads/${thread.id}`}
 										open={thread.id === threadId}
 										fresh={!opened.has(key)}
+										onDone={onDone}
 									/>
 								</MessageScrollerItem>
 							);

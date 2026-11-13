@@ -33,7 +33,9 @@ import type {NewAgentTask} from './task';
  * jobs. A chat runs no agent of its own: it keeps what the member typed and hasn't sent, the files
  * in its input and how far they have read, and every message they post in it opens a thread, whose
  * agent answers them there. The member's reply, or an alert set in the thread, takes the thread up
- * again; its answer with no calls ends its turn. Every persona acts through the organization's one
+ * again; its answer with no calls ends its turn, and where it then stands, whether it waits for the
+ * member and a sentence saying where it is, is written after (writeThreadStanding), as the api
+ * reads it. Every persona acts through the organization's one
  * built-in agent login, whose grants and activity log are every persona's. Every change to a
  * thread's log or its jobs is made with its chat's row locked, so whatever a transaction writes in
  * a chat or any of its threads, it locks that one row first, and no two transactions wait on each
@@ -1105,9 +1107,21 @@ export async function replyInThread(
 	);
 }
 
-/** One of a chat's threads, with what it is up to, the entries of it the member sees, and the files attached to them. */
+/**
+ * Where a thread stands as written when its turn last ended: whether its agent waits for the
+ * member, and the sentence saying where it is, with the `seq` of the last entry it was written
+ * from; null before one was written, and where it couldn't be.
+ */
+export type ThreadStandingRow = {
+	waitingForMember: boolean;
+	summary: string | null;
+	summarySeq: number | null;
+};
+
+/** One of a chat's threads, with what it is up to, where it stands, the entries of it the member sees, and the files attached to them. */
 export type ChatThreadRow = ThreadRow & {
 	state: ThreadState;
+	standing: ThreadStandingRow;
 	entries: EntryRow[];
 	attachments: AttachmentRow[];
 };
@@ -1144,6 +1158,9 @@ async function readChatThreads(
 			where: {...where, parentThreadId: chatId},
 			select: {
 				...threadSelect,
+				waitingForMember: true,
+				summary: true,
+				summarySeq: true,
 				jobs: openJobsSelect,
 				entries: {
 					where: shownInThread(calls),
@@ -1154,11 +1171,12 @@ async function readChatThreads(
 			orderBy: {createdAt: 'asc'},
 		});
 		const attachments = await attachmentsIn(threads.map((thread) => thread.id));
-		return threads.map(({jobs, entries, ...thread}) => {
+		return threads.map(({jobs, entries, waitingForMember, summary, summarySeq, ...thread}) => {
 			const shown = new Set(entries.map((entry) => entry.id));
 			return {
 				...toThread(thread),
 				state: threadState(jobs, now),
+				standing: {waitingForMember, summary, summarySeq},
 				entries: entries.map(toEntry),
 				attachments: attachments.filter((attachment) => shown.has(attachment.entryId)),
 			};
@@ -1189,6 +1207,79 @@ export async function getChatThread(
 	return (await readChatThreads(chatId, {id: threadId}, calls, now)).map(
 		(threads) => threads[0] ?? null,
 	);
+}
+
+/**
+ * Writes where the thread stands, as its turn ended: the sentence, written from the log up to
+ * `upToSeq`, and, where given, whether its agent waits for the member; left as it was otherwise.
+ * Written only while it is still so: not where the thread is at work again, or anything came into
+ * it past `upToSeq`, the member's reply or an alert, which a later turn's end writes for. `Ok(false)`
+ * where it was not written.
+ */
+export async function writeThreadStanding(
+	threadId: string,
+	standing: {summary: string | null; waitingForMember?: boolean},
+	upToSeq: number,
+): Promise<Result<boolean, ApiError>> {
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			const thread = await lockThread(tx, threadId);
+			if (!thread || thread.parentThreadId === null) {
+				return false;
+			}
+			const [came, open] = await Promise.all([
+				tx.agentEntry.count({
+					where: {threadId, kind: {in: ['person', 'event']}, seq: {gt: upToSeq}},
+				}),
+				tx.agentJob.count({where: {threadId, status: {in: ['queued', 'running']}}}),
+			]);
+			if (came > 0 || open > 0) {
+				return false;
+			}
+			await tx.agentThread.update({
+				where: {id: threadId},
+				data: {
+					summary: standing.summary,
+					summarySeq: upToSeq,
+					...(standing.waitingForMember === undefined
+						? {}
+						: {waitingForMember: standing.waitingForMember}),
+				},
+				select: {id: true},
+			});
+			return true;
+		}),
+	);
+}
+
+/** The member says the thread is done: it no longer waits for them. `Ok(false)` for no such thread of the chat. */
+export async function markThreadDone(
+	chatId: string,
+	threadId: string,
+): Promise<Result<boolean, ApiError>> {
+	return wrapDb(async () => {
+		const {count} = await db.agentThread.updateMany({
+			where: {id: threadId, parentThreadId: chatId},
+			data: {waitingForMember: false},
+		});
+		return count > 0;
+	});
+}
+
+/** Every chat's threads with no summary, by id with their chat, the oldest first: what the one-off script writes summaries for. */
+export async function listThreadsWithoutSummary(): Promise<
+	Result<Array<{id: string; chatId: string}>, ApiError>
+> {
+	return wrapDb(async () => {
+		const threads = await db.agentThread.findMany({
+			where: {parentThreadId: {not: null}, summary: null},
+			select: {id: true, parentThreadId: true},
+			orderBy: [{createdAt: 'asc'}, {id: 'asc'}],
+		});
+		return threads.flatMap(({id, parentThreadId}) =>
+			parentThreadId === null ? [] : [{id, chatId: parentThreadId}],
+		);
+	});
 }
 
 // Keeps the files an entry goes with, in the order given.
@@ -1713,7 +1804,7 @@ export function writeInline<T, A>(
 /**
  * Lands what wakes a thread's agent, the member's reply or an alert's event, with the files it
  * goes with, and wakes it: one that had stopped takes it up, its task under way again
- * (takeUpTask); one at work reads it once its current call is answered; and one asleep is woken
+ * (takeUpTask), no longer waiting for the member; one at work reads it once its current call is answered; and one asleep is woken
  * now, its sleep's job due now, which answers the sleep as any wake-up does, the message after it,
  * or its wake-up due now, which reads the message. With the thread locked.
  */
@@ -1728,6 +1819,12 @@ export async function wakeWith(
 	if (thread.taskId !== null) {
 		await takeUpTask(tx, {...thread, taskId: thread.taskId}, now);
 	}
+	// Taken up, it waits for nobody: where it stands is written again as this turn ends.
+	await tx.agentThread.update({
+		where: {id: thread.id},
+		data: {waitingForMember: false},
+		select: {id: true},
+	});
 	// Only a sleep's job, the sleep's own or the wake-up that answers it, is due later; one a worker
 	// has claimed is no longer queued, and answers as it would.
 	await tx.agentJob.updateMany({

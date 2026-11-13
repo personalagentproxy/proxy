@@ -208,6 +208,18 @@ export const chatThreadStateSchema = z.discriminatedUnion('kind', [
 export type ChatThreadState = z.infer<typeof chatThreadStateSchema>;
 
 /**
+ * Where one of the chat's threads stands, the word over it: in progress while its agent is at work
+ * or asleep (`chatThreadStateSchema`); waiting for the person, its agent stopped needing them to
+ * answer or act before it can go on; or done, needing nothing of them. A small model reads which
+ * as the thread's turn ends; without one, or where it can't, the thread is done.
+ * `POST chat/personas/:personaId/threads/:threadId/done`, with no body: the person says a thread
+ * waiting for them is done.
+ */
+export const threadStandingSchema = z.enum(['in_progress', 'waiting', 'done']);
+
+export type ThreadStanding = z.infer<typeof threadStandingSchema>;
+
+/**
  * Something said in a thread, as its page shows it: what the person said, with the files they
  * attached to it; what the persona answered, or told them as it went, with the files its words
  * show, which is what went wrong where its turn failed; or an event, an alert set in the thread
@@ -225,8 +237,11 @@ export const threadMessageSchema = z.object({
 export type ThreadMessage = z.infer<typeof threadMessageSchema>;
 
 /**
- * One of the chat's threads, as the chat lists it: its title; what it is up to; what opened it,
- * the person's message with the files they attached, or an event's text; the start of the latest
+ * One of the chat's threads, as the chat lists it: its title; what it is up to, and where it
+ * stands (`threadStandingSchema`); what opened it, the person's message with the files they
+ * attached, or an event's text; where it stands in one sentence, as written when its turn last
+ * ended, null before one was, where none could be, and once anything was said in it since, until
+ * the next is; the start of the latest
  * thing the persona said in it, cut to a line, null before it said anything, and the entry that
  * came from, an answer or one whose step told the person something as it went; the persona's
  * latest answer in words in it, the kind `GET chat/answers` reports and
@@ -237,6 +252,7 @@ export const chatThreadSchema = z.object({
 	id: z.string(),
 	title: z.string(),
 	state: chatThreadStateSchema,
+	standing: threadStandingSchema,
 	opener: z
 		.discriminatedUnion('kind', [
 			z.object({
@@ -247,6 +263,7 @@ export const chatThreadSchema = z.object({
 			z.object({kind: z.literal('event'), text: z.string()}),
 		])
 		.nullable(),
+	summary: z.string().nullable(),
 	latest: z.string().nullable(),
 	latestEntryId: z.string().nullable(),
 	latestAnswerId: z.string().nullable(),
