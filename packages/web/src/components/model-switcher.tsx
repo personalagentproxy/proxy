@@ -27,12 +27,12 @@ type Props = {
 const PANEL_ID = 'model-switcher-models';
 const tabId = (harnessId: string) => `model-switcher-${harnessId}`;
 
-// What runs the agent, under the conversation's input: the model, with the harness beside it. For
+// What runs the agent, under the chat's input: the model, with the harness beside it. For
 // whoever may change the agent it opens on the harnesses as tabs, the app's ghost pills, and under
 // them the models of the one looked at, the model chosen checked on a gray row, and a gray tick on
 // whichever other is pointed at. Looking at another harness changes nothing; picking a model takes
 // its harness with it. For anyone else it only says what runs the agent. The choice is the
-// agent's, for every member's conversation with it, from the next turn on. Nothing where the
+// agent's, for every thread of every member's chat with it, from the next turn on. Nothing where the
 // server has no harness.
 export function ModelSwitcher({harnesses, chosen, mayChange, onPick}: Props) {
 	const harness = harnesses.find((candidate) => candidate.id === chosen.harness) ?? harnesses[0];

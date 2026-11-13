@@ -57,7 +57,7 @@ export const activityTaskSchema = z.object({
 	id: z.string(),
 	agentId: z.string(),
 	/**
-	 * The persona of the Chat page a sub-agent ran it as, with its head; null for every other
+	 * The persona of the Chat page a thread ran it as, with its head; null for every other
 	 * task, and for one whose persona is gone.
 	 */
 	persona: z

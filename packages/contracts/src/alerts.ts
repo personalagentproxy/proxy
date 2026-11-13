@@ -3,7 +3,7 @@ import {z} from 'zod';
 
 /**
  * The Alerts page (`/api/orgs/:org/alerts`): the person's alerts, those the agents they talk with
- * on the Chat page set in their conversations, to be woken outside them: at a time, or a watch on a
+ * on the Chat page set in their chats' threads, to be woken outside them: at a time, or a watch on a
  * collection of some connections, which fires for each new record there that carries any of its
  * words. An alert is gone once it fires, or when the agent or the person cancels it.
  */
@@ -13,7 +13,7 @@ export const alertSchema = z.object({
 	title: z.string(),
 	/** What the agent noted for it: what to tell the person at the time, or what the watch is for. */
 	brief: z.string(),
-	/** The agent it was set with, whose conversation it is told in. */
+	/** The agent it was set with, in whose chat it is told. */
 	persona: z.object({
 		id: z.string(),
 		name: z.string(),

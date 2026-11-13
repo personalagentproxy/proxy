@@ -27,7 +27,7 @@ import type {PapAnswer, ScriptHost} from './run-script';
  * - `pap.call(connection, tool, params?)`: runs a tool, one that reads or one that changes something.
  * - `pap.feedback({message, connection?, tool?})`: feedback for the makers of Personal Agent Proxy.
  * The task is the run's: the one it was started for, or the one the script started, kept here,
- * so a script can only use its agent's own, as any call can. The built-in agent's sub-agents
+ * so a script can only use its agent's own, as any call can. The built-in agent's threads
  * have a task the loop keeps for them, so theirs start and finish none. Code in a sandbox calling
  * these over HTTP (cli/route.ts) has its task fixed by its token too, and reaches no Sandboxes
  * connection: `connections` leaves them out, and their tools are refused.

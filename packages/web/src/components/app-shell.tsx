@@ -1,17 +1,21 @@
 import {
 	createContext,
+	type CSSProperties,
 	type ReactNode,
 	Suspense,
 	useContext,
 	useEffect,
 	useMemo,
+	useRef,
 	useState,
 } from 'react';
 import {createPortal} from 'react-dom';
 import {useLoaderData, useLocation, useNavigate} from 'react-router';
+import {ResizeHandle} from '@/components/resize-handle';
 import {ContentBoundary} from '@/components/route-error';
 import {InSidebar} from '@/components/sidebar-panel';
 import {Skeleton} from '@proxy/ui/components/skeleton';
+import {useStoredWidth} from '@/hooks/use-stored-width';
 import {useTitleBarHeader} from '@/hooks/use-title-bar-header';
 import {type Later, Redirected} from '@/lib/loader-utils';
 import {cn} from '@proxy/ui/lib/utils';
@@ -40,7 +44,32 @@ type Props = {
 	scroll?: 'page' | 'inside';
 	// What stands for the content while it loads; rows of a list, unless the page has its own.
 	waiting?: ReactNode;
+	// What the content is, which it is drawn anew for, as it loads again; the address, unless the
+	// page keeps its content across addresses, as Chat keeps an agent's chat while its threads open
+	// and close beside it.
+	contentKey?: string;
+	// A column beside the content, on a page that scrolls inside, as a thread of Chat's, with its
+	// own cell of the title bar (`Side`).
+	side?: Side;
 };
+
+/**
+ * A column beside a page's content, at the right: its cell of the title bar, and what is under it.
+ * `full`, it takes the page's width, the content hidden but kept as it is; on a narrow window it
+ * always does.
+ */
+export type Side = {header: ReactNode; content: ReactNode; full: boolean};
+
+// The side's width beside the content, the same in the title bar and under it: as wide as the
+// person dragged the line between them, on this device (`--side-width`), or its own width until
+// they do, but never so wide that the content has less than `SIDE_ROOM` beside it. The cap is
+// worked out in each cell, against the row it is in, so the header's, whose row starts after the
+// title bar's inset, keeps the room less that inset (`--side-room`), and the two cells line up.
+const SIDE_WIDTH = 'lg:w-[min(var(--side-width),_100%_-_var(--side-room))]';
+const SIDE_MIN = 320;
+const SIDE_ROOM = 320;
+const SIDE_DEFAULTS = '[--side-width:min(580px,45vw)] [--side-room:320px]';
+const HEADER_SIDE_ROOM = '[--side-room:calc(320px_-_var(--title-bar-inset,1rem))]';
 
 // Where in the header the content puts what only it knows, once loaded: the title and its
 // actions. Null until the frame has drawn them, and where it has none.
@@ -67,9 +96,11 @@ export function PageHeader({title, actions}: {title?: ReactNode; actions?: React
 // for, is there at once.
 const LATE = 'animate-in delay-350 duration-200 fill-mode-both fade-in-0 motion-reduce:duration-0';
 
-// What stands for a page's content while it loads: the rows of a list. On a page that scrolls
-// inside, which lays out its own column, it lays out one as well.
-function Waiting({column}: {column: boolean}) {
+/**
+ * What stands for a page's content while it loads: the rows of a list. On a page that scrolls
+ * inside, which lays out its own column, it lays out one as well.
+ */
+export function Waiting({column}: {column: boolean}) {
 	return (
 		<div
 			role="status"
@@ -147,6 +178,8 @@ export function AppShell({
 	panelLabel = 'Panel',
 	scroll = 'page',
 	waiting,
+	contentKey,
+	side,
 }: Props) {
 	const {pathname} = useLocation();
 	const titleBarHeader = useTitleBarHeader();
@@ -154,53 +187,131 @@ export function AppShell({
 	const [actionsSlot, setActionsSlot] = useState<HTMLElement | null>(null);
 	const slots = useMemo(() => ({title: titleSlot, actions: actionsSlot}), [titleSlot, actionsSlot]);
 	useFollowRedirect();
+	const page = useRef<HTMLDivElement>(null);
+	const sideColumn = useRef<HTMLDivElement>(null);
+	const {width: storedSideWidth, setWidth: setSideWidth} = useStoredWidth('proxy-side-width');
 	const heading = loadsTitle ? <span ref={setTitleSlot} className="contents" /> : title;
-
+	// Each address has its own content, and its own failure, unless the page says what it is.
+	const key = contentKey ?? pathname;
+	const content = (
+		<Suspense
+			key={key}
+			fallback={
+				<>
+					{loadsTitle && <PageHeader title={<TitleWaiting />} />}
+					{waiting ?? <Waiting column={scroll === 'inside'} />}
+				</>
+			}
+		>
+			<ContentBoundary key={key}>{children}</ContentBoundary>
+		</Suspense>
+	);
 	return (
 		<FrameSlots value={slots}>
 			{panel !== undefined && <InSidebar label={panelLabel}>{panel}</InSidebar>}
 			<div
 				data-page
+				ref={page}
 				className={cn(
 					'relative flex w-full min-w-0 flex-1 flex-col bg-background text-foreground',
 					scroll === 'inside' ? 'h-dvh overflow-hidden' : 'min-h-dvh',
+					SIDE_DEFAULTS,
 				)}
+				style={
+					storedSideWidth === null
+						? undefined
+						: ({'--side-width': `${storedSideWidth}px`} as CSSProperties)
+				}
 			>
 				{/* Sticky only when the window scrolls. It is the title bar's cell over the page's
 				    column (index.css). */}
 				<header
 					ref={titleBarHeader}
 					className={cn(
-						'z-20 flex shrink-0 items-center justify-between gap-4 border-b bg-background pr-4',
+						'z-20 flex shrink-0 items-center border-b bg-background',
+						HEADER_SIDE_ROOM,
 						scroll === 'page' && 'sticky top-0',
 					)}
 				>
-					<div className="flex min-w-0 flex-1 items-center gap-2">{heading}</div>
-					<div className="flex shrink-0 items-center gap-2">
-						{actions}
-						<div ref={setActionsSlot} className="contents" />
+					{/* The content's cell and the side's, each always where it is, so neither is drawn
+					    anew as the side opens or closes. */}
+					<div
+						className={cn(
+							'flex h-full min-w-0 flex-1 items-center justify-between gap-4 pr-4',
+							side !== undefined && 'max-lg:hidden',
+							side?.full && 'hidden',
+						)}
+					>
+						<div className="flex min-w-0 flex-1 items-center gap-2">{heading}</div>
+						<div className="flex shrink-0 items-center gap-2">
+							{actions}
+							<div ref={setActionsSlot} className="contents" />
+						</div>
 					</div>
+					{side !== undefined && (
+						<div
+							className={cn(
+								'flex h-full min-w-0 flex-1 items-center gap-2.5 pr-2.5',
+								!side.full && cn('lg:flex-none lg:border-l', SIDE_WIDTH),
+							)}
+						>
+							{/* Beside the content, its name starts where the side's column does, past the
+							    line between them; with the page's width, where the content's would. */}
+							{!side.full && <span aria-hidden className="w-2.5 shrink-0 max-lg:hidden" />}
+							{side.header}
+						</div>
+					)}
 				</header>
 				<main
 					className={cn(
-						'flex w-full flex-1 flex-col',
+						'flex w-full flex-1',
 						// Scrolling inside, the page lays out its own column, so its scroller can
-						// reach the window's edge.
-						scroll === 'inside' ? 'min-h-0' : 'page-column mx-auto max-w-3xl gap-4 pt-6 pb-12',
+						// reach the window's edge, and a side may stand beside it.
+						scroll === 'inside'
+							? 'min-h-0'
+							: 'page-column mx-auto max-w-3xl flex-col gap-4 pt-6 pb-12',
 					)}
 				>
-					{/* Each address has its own content, and its own failure. */}
-					<Suspense
-						key={pathname}
-						fallback={
-							<>
-								{loadsTitle && <PageHeader title={<TitleWaiting />} />}
-								{waiting ?? <Waiting column={scroll === 'inside'} />}
-							</>
-						}
-					>
-						<ContentBoundary key={pathname}>{children}</ContentBoundary>
-					</Suspense>
+					{scroll === 'page' ? (
+						content
+					) : (
+						<>
+							<div
+								className={cn(
+									'flex min-h-0 min-w-0 flex-1 flex-col',
+									side !== undefined && 'max-lg:hidden',
+									side?.full && 'hidden',
+								)}
+							>
+								{content}
+							</div>
+							{side !== undefined && (
+								<div
+									ref={sideColumn}
+									className={cn(
+										'relative flex min-h-0 min-w-0 flex-1 flex-col',
+										!side.full && cn('lg:flex-none lg:border-l', SIDE_WIDTH),
+									)}
+								>
+									{side.content}
+									{!side.full && (
+										<ResizeHandle
+											label="Resize thread"
+											grows="left"
+											measure={() => sideColumn.current?.getBoundingClientRect().width ?? SIDE_MIN}
+											bounds={() => ({
+												min: SIDE_MIN,
+												max: (page.current?.getBoundingClientRect().width ?? 0) - SIDE_ROOM,
+											})}
+											apply={(next) => page.current?.style.setProperty('--side-width', `${next}px`)}
+											commit={setSideWidth}
+											className="absolute inset-y-0 left-0 z-10 -translate-x-1/2 max-lg:hidden"
+										/>
+									)}
+								</div>
+							)}
+						</>
+					)}
 				</main>
 			</div>
 		</FrameSlots>

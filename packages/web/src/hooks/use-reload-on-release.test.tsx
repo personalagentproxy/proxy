@@ -48,7 +48,30 @@ function SecondPage() {
 	return <Link to="/first">First</Link>;
 }
 
-function renderPage(reload: () => void) {
+// A box that says a reload loses it nothing until something is typed in it.
+function Box({label}: {label: string}) {
+	const [message, setMessage] = useState('');
+	useReloadWhileHidden(message === '');
+	return (
+		<textarea
+			aria-label={label}
+			value={message}
+			onChange={(event) => setMessage(event.target.value)}
+		/>
+	);
+}
+
+// A page of two parts that each say so, as a chat and the thread open beside it.
+function TwoBoxPage() {
+	return (
+		<>
+			<Box label="Message" />
+			<Box label="Reply" />
+		</>
+	);
+}
+
+function renderPage(reload: () => void, at = '/first') {
 	const router = createMemoryRouter(
 		[
 			{
@@ -56,10 +79,11 @@ function renderPage(reload: () => void) {
 				children: [
 					{path: '/first', element: <Page />},
 					{path: '/second', element: <SecondPage />},
+					{path: '/both', element: <TwoBoxPage />},
 				],
 			},
 		],
-		{initialEntries: ['/first']},
+		{initialEntries: [at]},
 	);
 	render(<RouterProvider router={router} />);
 }
@@ -216,6 +240,21 @@ describe('useReloadOnRelease', () => {
 
 		setVisibility('hidden');
 		expect(reloads).toBe(0);
+	});
+
+	test('does not reload out of view a page one part of which holds something, whatever the others say', async () => {
+		let reloads = 0;
+		renderPage(() => reloads++, '/both');
+		fireEvent.change(screen.getByLabelText('Reply'), {target: {value: 'Pricing review'}});
+		await findNewRelease();
+
+		setVisibility('hidden');
+		expect(reloads).toBe(0);
+
+		setVisibility('visible');
+		fireEvent.change(screen.getByLabelText('Reply'), {target: {value: ''}});
+		setVisibility('hidden');
+		expect(reloads).toBe(1);
 	});
 
 	test('reloads out of view once a write on its way has landed', async () => {

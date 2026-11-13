@@ -2,13 +2,13 @@ import type {Result} from 'ts-results-es';
 
 import type {ApiError} from '@proxy/utils';
 import type {HarnessSession} from '@proxy/utils/harness';
-import type {ContextEntry, SubAgent} from '@proxy/utils/harness-context';
+import type {ContextEntry} from '@proxy/utils/harness-context';
 
 /**
  * What a harness is to the api: the loop that runs one turn of the built-in Chat agent's model on
  * one thread's log, behind a contract this package owns, so that the loop can be swapped. The api
- * keeps everything around a turn: the log, the jobs, the sub-agents, the sleeps, the alerts, the
- * tasks and what the person sees; a harness is given the log as the api has it, with the system
+ * keeps everything around a turn: the log, the jobs, the sleeps, the alerts, the tasks and what
+ * the person sees; a harness is given the log as the api has it, with the system
  * prompt and the tools the api built, and tells what the model did as a stream of events. The
  * first harness is the api's own loop over OpenRouter (the api's proxy-harness.ts); a harness
  * around an agent SDK, which keeps a session of its own and runs tools itself, is designed for
@@ -90,8 +90,8 @@ export type HarnessEvent =
 export type HarnessAuth = {kind: 'oauth'; accessToken: string; scopes: string[]} | {kind: 'api_key'; key: string};
 
 export type HarnessTurn = {
-	/** The thread the turn is on; a sub-agent's has the thread it was started from. */
-	thread: {id: string; parentThreadId: string | null};
+	/** The thread the turn is on. */
+	thread: {id: string};
 	/** The job the turn is run for, the same on every attempt at it: what the log has from it already is an earlier attempt's, cut short. */
 	job: string;
 	/** The member's credential to reach the model with, where the harness is chosen for one; none where the harness runs with the server's key. */
@@ -100,8 +100,6 @@ export type HarnessTurn = {
 	session: HarnessSession;
 	/** The whole log as the api has it; a harness with a session reads what came after it. */
 	entries: HarnessEntry[];
-	/** Who said each event in the log, for the lead-ins: the thread's sub-agents, where it has any. */
-	subAgents?: SubAgent[];
 	/** Whether the job is a wake-up after a sleep rather than something new in the log. */
 	woken: boolean;
 	/** The system prompt, built by the api. */

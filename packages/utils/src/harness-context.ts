@@ -32,31 +32,27 @@ export type EntryImage = {
 
 /** An entry of the log, as much of it as reading the log needs: its kind and text, its calls or the call it answers, its place, how far a summary reaches, and what an answer cost; and, for what the person said, the pictures they attached that the model is to see with it. */
 export type ContextEntry = {
-	kind: 'person' | 'assistant' | 'tool_result' | 'event' | 'summary' | 'note';
+	kind: 'person' | 'assistant' | 'tool_result' | 'event' | 'summary';
 	text: string;
 	images?: EntryImage[];
 	toolCalls: ToolCall[] | null;
 	callId: string | null;
 	isError: boolean;
-	// A sub-agent's person entry the member wrote in its chat, rather than the agent it works for.
-	direct: boolean;
 	seq: number;
 	coversSeq: number | null;
 	inputTokens: number | null;
 };
 
 /**
- * The log as the model reads it, here rather than in the api so that the admin (the internal
- * repo) can rebuild what the model was sent from a log it reads. An event, what a sub-agent said to the agent that started it, is
- * read as a message, since it came on its own, after the call that started the sub-agent was
- * answered with its id; which sub-agent, by that call, is known from the thread's sub-agents
- * (`SubAgent`), given alongside the log. An alert's event answers no call. A log that has grown long
+ * A thread's log as the model reads it, here rather than in the api so that the admin (the
+ * internal repo) can rebuild what the model was sent from a log it reads. An event, an alert set in
+ * the thread that came, is read as a message, led in as not the person's. A log that has grown long
  * is summarized: a summary entry stands for every entry up to the one it covers, and the model
  * reads the summary, then what came since. Of that, the person's last turns are kept as said,
  * except what tools answered and what events brought in the turns before the current one, which
- * is cleared: it is the bulk, and the model can ask again. A log with one turn of the person, a
- * sub-agent's brief and the work on it, keeps its last steps instead. The log to be summarized
- * is given to the model as plain text, the calls and their answers written out.
+ * is cleared: it is the bulk, and the model can ask again. A log with one turn of the person, the
+ * message that opened the thread and the work on it, keeps its last steps instead. The log to be
+ * summarized is given to the model as plain text, the calls and their answers written out.
  */
 
 /** Once a request to the model was this many tokens, the log is summarized before the next. */
@@ -66,64 +62,25 @@ export const COMPACT_AT_TOKENS = 80_000;
 const KEEP_TURNS = 2;
 
 // How many of the model's steps are kept behind a summary where the log has fewer turns of the
-// person than that: a sub-agent's, one brief and the calls made on it.
+// person than that: one message and the calls made on it.
 const KEEP_STEPS = 3;
 
 const SUMMARY_LEAD = 'A summary of what came before; not from the person.';
 
 const CLEARED = '(This was cleared from the conversation to save room. Ask again if you need it.)';
 
-/** A sub-agent of the thread, as much of it as the log needs: which call started it, its id and its title. */
-export type SubAgent = {id: string; parentCallId: string | null; title: string | null};
+/**
+ * How an event, an alert set in the thread that came, is led in for the model. Exported for a
+ * harness that renders the log as text itself, so the model reads an event the same way on every
+ * harness.
+ */
+export const EVENT_LEAD = 'An alert you set; not from the person.';
 
 // The call an entry answers, by the id the model gave it, found in the log.
 function callOf(entries: ContextEntry[], callId: string | null): ToolCall | undefined {
 	return entries
 		.flatMap((entry) => entry.toolCalls ?? [])
 		.find((candidate) => candidate.id === callId);
-}
-
-/**
- * How an event is led in, for the model: which sub-agent said it, by the call that started it; an
- * alert's, which answers no call. Exported for a harness that renders the log as text itself, so
- * the model reads an event the same way on every harness.
- */
-export function eventLead(subAgents: SubAgent[], event: ContextEntry): string {
-	if (event.callId === null) {
-		return 'An alert you set; not from the person.';
-	}
-	const from = subAgents.find((candidate) => candidate.parentCallId === event.callId);
-	const who = from
-		? `the sub-agent “${from.title ?? ''}” (${from.id})`
-		: `your call ${event.callId ?? ''}`;
-	if (event.isError) {
-		return `${who} failed; not from the person.`;
-	}
-	return `From ${who}; not from the person.`;
-}
-
-/**
- * How what the person wrote in a sub-agent's chat is led in, for the model: in the sub-agent's
- * thread, as theirs rather than the agent's it works for; in the conversation, as a note of what
- * they wrote to which sub-agent, by the call that started it. Null for what is led in as nothing
- * but itself. Exported for a harness that renders the log as text itself.
- */
-export function directLead(subAgents: SubAgent[], entry: ContextEntry): string | null {
-	if (entry.kind === 'person' && entry.direct) {
-		return 'From the person themselves, written in your chat, where they see what you answer; not from the agent you work for.';
-	}
-	if (entry.kind !== 'note') {
-		return null;
-	}
-	const to = subAgents.find((candidate) => candidate.parentCallId === entry.callId);
-	const who = to ? `the sub-agent “${to.title ?? ''}” (${to.id})` : 'one of your sub-agents';
-	return `The person wrote this to ${who} themselves, in its chat, where they see what it answers; not to you. Its answer comes to you as its messages do.`;
-}
-
-// The entry's text, led in where it is what the person wrote in a sub-agent's chat.
-function directText(subAgents: SubAgent[], entry: ContextEntry, gap: string): string {
-	const lead = directLead(subAgents, entry);
-	return lead === null ? entry.text : `${lead}${gap}${entry.text}`;
 }
 
 // What the person said with pictures: each picture under its file's name, then their words.
@@ -137,17 +94,19 @@ function withPictures(text: string, images: EntryImage[]): ModelContentPart[] {
 	];
 }
 
-function toMessage(subAgents: SubAgent[], entry: ContextEntry): ModelMessage {
-	if (entry.kind === 'person' || entry.kind === 'note') {
-		const text = directText(subAgents, entry, '\n\n');
+function toMessage(entry: ContextEntry): ModelMessage {
+	if (entry.kind === 'person') {
 		const images = entry.images ?? [];
-		return {role: 'user', content: images.length === 0 ? text : withPictures(text, images)};
+		return {
+			role: 'user',
+			content: images.length === 0 ? entry.text : withPictures(entry.text, images),
+		};
 	}
 	if (entry.kind === 'tool_result') {
 		return {role: 'tool', tool_call_id: entry.callId ?? '', content: entry.text};
 	}
 	if (entry.kind === 'event') {
-		return {role: 'user', content: `${eventLead(subAgents, entry)}\n\n${entry.text}`};
+		return {role: 'user', content: `${EVENT_LEAD}\n\n${entry.text}`};
 	}
 	if (entry.kind === 'summary') {
 		return {role: 'user', content: `${SUMMARY_LEAD}\n\n${entry.text}`};
@@ -192,41 +151,36 @@ export function isSilent(entry: ContextEntry): boolean {
  * what events brought before the person's current turn is cleared, once there is a summary: that
  * is how the model reads a log, where a summary is made from the log as it is.
  */
-
 export function toMessages(
 	entries: ContextEntry[],
-	subAgents: SubAgent[],
 	{clearOld}: {clearOld: boolean},
 ): ModelMessage[] {
 	const {summary, tail: all} = sinceSummary(entries);
-	// An answer of nothing, as the agent talking with the person may give, isn't sent again: a
-	// model's message has to say something or make a call.
+	// An answer of nothing isn't sent again: a model's message has to say something or make a call.
 	const tail = all.filter((entry) => !isSilent(entry));
 	if (!summary) {
-		return tail.map((entry) => toMessage(subAgents, entry));
+		return tail.map(toMessage);
 	}
 	const current = clearOld ? tail.findLastIndex((entry) => entry.kind === 'person') : -1;
 	const bulky = (entry: ContextEntry) => entry.kind === 'tool_result' || entry.kind === 'event';
 	return [
-		toMessage(subAgents, summary),
+		toMessage(summary),
 		...tail.map((entry, index) =>
-			bulky(entry) && index < current
-				? toMessage(subAgents, {...entry, text: CLEARED})
-				: toMessage(subAgents, entry),
+			bulky(entry) && index < current ? toMessage({...entry, text: CLEARED}) : toMessage(entry),
 		),
 	];
 }
 
 // An entry as the transcript has it.
-function toLine(entries: ContextEntry[], subAgents: SubAgent[], entry: ContextEntry): string {
-	if (entry.kind === 'person' || entry.kind === 'note') {
-		return `Person:\n${directText(subAgents, entry, '\n')}`;
+function toLine(entries: ContextEntry[], entry: ContextEntry): string {
+	if (entry.kind === 'person') {
+		return `Person:\n${entry.text}`;
 	}
 	if (entry.kind === 'tool_result') {
 		return `${callOf(entries, entry.callId)?.name ?? 'The call'} answered${entry.isError ? ' with an error' : ''}:\n${entry.text}`;
 	}
 	if (entry.kind === 'event') {
-		return `${eventLead(subAgents, entry)}\n${entry.text}`;
+		return `${EVENT_LEAD}\n${entry.text}`;
 	}
 	if (entry.kind === 'summary') {
 		return `${SUMMARY_LEAD}\n${entry.text}`;
@@ -242,10 +196,10 @@ function toLine(entries: ContextEntry[], subAgents: SubAgent[], entry: ContextEn
  * what they answered written out, since a request that carries them as such has to carry the
  * tools too, which a summary needs none of.
  */
-export function toTranscript(entries: ContextEntry[], subAgents: SubAgent[]): string {
+export function toTranscript(entries: ContextEntry[]): string {
 	const {summary, tail} = sinceSummary(entries);
 	return [...(summary ? [summary] : []), ...tail.filter((entry) => !isSilent(entry))]
-		.map((entry) => toLine(entries, subAgents, entry))
+		.map((entry) => toLine(entries, entry))
 		.join('\n\n');
 }
 
@@ -350,7 +304,7 @@ export function withAttachments(
 			return file === undefined ? '' : `[${file.name}]`;
 		})
 		.trim();
-	const lead = `The person attached ${attachments.length === 1 ? 'a file' : `${attachments.length} files`}, kept in their drive. files_read {id, version} on its connection reads one whole, as a sub-agent can; in a sandbox, pap files pull <connection> --id <id> --version <version> brings one in as it is.`;
+	const lead = `The person attached ${attachments.length === 1 ? 'a file' : `${attachments.length} files`}, kept in their drive. files_read {id, version} on its connection reads one whole; in a sandbox, pap files pull <connection> --id <id> --version <version> brings one in as it is.`;
 	return [
 		...(text === '' ? [] : [text]),
 		lead,

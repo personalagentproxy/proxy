@@ -9,6 +9,7 @@ import {runDataMigrations} from './data-migrations/run';
 import {harnessStore} from './harness/store';
 import {startAlertSweeper, type AlertSweeper} from './harness/alert-sweep';
 import {startHarnessWorker, type HarnessWorker} from './harness/worker';
+import {askForJson} from './llm/open-router';
 import {claudeCredentialFor, markClaudeCredentialRefused, recordClaudeUsage} from './me/claude-credential';
 import {chatFiles} from './native/files/chat';
 import {startFilesSweeper} from './native/files/sweeper';
@@ -85,13 +86,18 @@ async function startApiServer(): Promise<void> {
 		log.info(`@proxy/api listening on http://localhost:${port}`);
 		// After listening, since signing in to a provider to name an account can take a while.
 		void runDataMigrations();
-		// The built-in agent's worker, on the harnesses this server has (backends/registry.ts).
-		worker = startHarnessWorker(harnessStore, {
-			registry: serverHarnesses(),
-			credentials: {claudeCredentialFor, markRefused: markClaudeCredentialRefused, recordUsage: recordClaudeUsage},
-			picture: chatFiles.picture,
-			pinned: chatFiles.pinned,
-		});
+		// The built-in agent's worker, on the harnesses this server has (backends/registry.ts), with
+		// the small model on the server's OpenRouter key that reads where a thread stands, if any.
+		worker = startHarnessWorker(
+			harnessStore,
+			{
+				registry: serverHarnesses(),
+				credentials: {claudeCredentialFor, markRefused: markClaudeCredentialRefused, recordUsage: recordClaudeUsage},
+				picture: chatFiles.picture,
+				pinned: chatFiles.pinned,
+			},
+			{key: env.OPENROUTER_KEY, ask: askForJson},
+		);
 		sweeper = startAlertSweeper(harnessStore);
 		void startSandboxSweeper();
 		void startFilesSweeper();

@@ -6,12 +6,18 @@ import {hasWriteInFlight} from '@/lib/writes-in-flight';
 // How often a tab out of view is looked at again, once there is a new release.
 const RETRY_MS = 3 * 1000;
 
-// How many pages say a reload loses them nothing, for now (`useReloadWhileHidden`).
-let pagesSafeToReload = 0;
+// How many parts of the page in view say whether a reload loses them anything, and how many of
+// them say it loses nothing, for now (`useReloadWhileHidden`).
+let partsSaying = 0;
+let partsSafeToReload = 0;
 
-/** Whether the page in view says a reload loses it nothing, for now (`useReloadWhileHidden`). */
+/**
+ * Whether the page in view says a reload loses it nothing, for now (`useReloadWhileHidden`): every
+ * part of it that says so at all does, as a chat's box and its open thread's each do, and one
+ * holding something unsent keeps the page.
+ */
 export function pageSaysSafeToReload(): boolean {
-	return pagesSafeToReload > 0;
+	return partsSaying > 0 && partsSafeToReload === partsSaying;
 }
 
 function reloadPage(): void {
@@ -19,19 +25,17 @@ function reloadPage(): void {
 }
 
 /**
- * Says the page loses nothing to a reload while `safe`: nothing typed and not kept, no dialog
- * open, nothing shown that can't be loaded again. A new release is then loaded while the tab is
- * out of view, too, not only at the next page.
+ * Says this part of the page loses nothing to a reload while `safe`: nothing typed and not kept,
+ * no dialog open, nothing shown that can't be loaded again. A new release is then loaded while the
+ * tab is out of view, too, not only at the next page, as long as every part that says so agrees.
  */
 export function useReloadWhileHidden(safe: boolean): void {
 	useEffect(() => {
-		if (!safe) {
-			return;
-		}
-
-		pagesSafeToReload += 1;
+		partsSaying += 1;
+		partsSafeToReload += safe ? 1 : 0;
 		return () => {
-			pagesSafeToReload -= 1;
+			partsSaying -= 1;
+			partsSafeToReload -= safe ? 1 : 0;
 		};
 	}, [safe]);
 }

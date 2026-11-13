@@ -19,6 +19,7 @@ import {FILES_DEFAULT_ACTIONS, FILES_INTEGRATION_ID, VAULT_DEFAULT_ACTIONS, VAUL
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {isBuiltIn, parseActionChanges, requireIntegration} from '../utils/connection-actions';
 import {requireViewer} from '../utils/user-org';
+import {ensureChatConnection} from '../native/chat/connections';
 import {ensureFilesConnection, filesOffered} from '../native/files/connections';
 import {NAMED_AFTER_ORGANIZATION} from '../orgs/starter-connections';
 import {ensureSandboxConnection} from '../native/sandbox/connections';
@@ -34,6 +35,7 @@ export function handleListConnectionsRoute(request: AuthenticatedRequest): Promi
 		const viewer = $(await requireViewer(request));
 		$(await ensureSandboxConnection(viewer));
 		$(await ensureFilesConnection(viewer));
+		$(await ensureChatConnection(viewer));
 		return {connections: $(await respondAll($(await listConnectionsWithCredential(viewer))))};
 	});
 }

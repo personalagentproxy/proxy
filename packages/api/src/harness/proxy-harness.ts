@@ -18,10 +18,9 @@ import type {askForTurn as askForTurnOverRouter, ModelTool} from '../llm/open-ro
  * refused the request, or turned the key down, is not.
  */
 
-// How a long log is summarized, by the same model, for itself: a conversation's, or a
-// sub-agent's, whose messages from the person are from the agent it works for.
+// How a thread's long log is summarized, by the same model, for itself.
 const SUMMARIZE =
-	'Summarize this conversation between a person and their agent, with the agent’s calls and their answers, so the agent can go on from the summary alone. Keep what the person asked for and wants; what was done and found, with names, ids, dates and numbers; what they were told; and what is still open or planned, such as after a sleep or a sub-agent’s answer, and which sub-agent ids are on what. Plain prose, from the agent’s side, no title.';
+	'Summarize this conversation between a person and their agent, with the agent’s calls and their answers, so the agent can go on from the summary alone. Keep what the person asked for and wants; what was done and found, with names, ids, dates and numbers; what they were told; and what is still open or planned, such as after a sleep or an alert. Plain prose, from the agent’s side, no title.';
 const SUMMARIZE_NOW = 'Write the summary now.';
 
 const MAX_TOKENS = 4000;
@@ -65,7 +64,6 @@ export function proxyHarness(deps: ProxyHarnessDeps): HarnessBackend {
 				yield failed(ApiErr.unavailable(`The proxy harness has no model ${model}`));
 				return;
 			}
-			const subAgents = input.subAgents ?? [];
 			let entries: ContextEntry[] = input.entries;
 			const cut = compactionCut(entries);
 			const last = cut === null ? undefined : entries[cut - 1];
@@ -75,7 +73,7 @@ export function proxyHarness(deps: ProxyHarnessDeps): HarnessBackend {
 					model,
 					messages: [
 						{role: 'system', content: SUMMARIZE},
-						{role: 'user', content: `${toTranscript(entries.slice(0, cut), subAgents)}\n\n${SUMMARIZE_NOW}`},
+						{role: 'user', content: `${toTranscript(entries.slice(0, cut))}\n\n${SUMMARIZE_NOW}`},
 					],
 					tools: [],
 					maxTokens: MAX_TOKENS,
@@ -94,7 +92,6 @@ export function proxyHarness(deps: ProxyHarnessDeps): HarnessBackend {
 					toolCalls: null,
 					callId: null,
 					isError: false,
-					direct: false,
 					seq: (entries.at(-1)?.seq ?? 0) + 1,
 					coversSeq: last.seq,
 					inputTokens: null,
@@ -104,7 +101,7 @@ export function proxyHarness(deps: ProxyHarnessDeps): HarnessBackend {
 			const turn = await deps.askForTurn({
 				key: deps.key,
 				model,
-				messages: [{role: 'system', content: input.system}, ...toMessages(entries, subAgents, {clearOld: true})],
+				messages: [{role: 'system', content: input.system}, ...toMessages(entries, {clearOld: true})],
 				tools: toModelTools(input),
 				maxTokens: MAX_TOKENS,
 				timeoutMs: TIMEOUT_MS,

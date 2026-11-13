@@ -5,20 +5,19 @@ import {callArguments, isRecord, OUTCOME_UNKNOWN, SLEEP_TOOL, sleepUntil, type T
 import type {JobRow, ThreadRow} from '@proxy/db/harness';
 
 import {CANCEL_ALERT_TOOL, SET_ALERT_TOOL} from './alerts';
-import {failureNote} from './conversation';
+import {failureNote} from './thread-rules';
 import type {HarnessStore} from './store';
 import {type AlertCallOutcome, alertCall, BAD_SLEEP_ARGS, error, NOT_JSON, noSuchTool, runGateTool, setText, type ToolAnswerStore} from './tool-answers';
 import {isGateTool} from './tool-surface';
 
 /**
  * A tool job: one call the model made, run and answered in the log, which is how a harness that
- * leaves its calls open has them run (inference.ts). The agent talking with the person has two:
- * setting an alert, at a time or a watch on the connections it may read with the collection
- * (alerts.ts), and cancelling one; starting a sub-agent and messaging one are done as the answer
- * is written (conversation.ts planCall). A sub-agent's scripts make their calls through the gate
- * as the sub-agent acting as the member, for its task, logged like any agent's call. A sleep
- * answers with the time, since its job was due when the sleep ended, or when a message woke it,
- * which follows the answer. A script, which may change something, is never run twice: a worker
+ * leaves its calls open has them run (inference.ts). A thread's alert calls set an alert, at a
+ * time or a watch on the connections it may read with the collection (alerts.ts), or cancel one;
+ * its message to the person is answered as the answer is written (thread-rules.ts planCall). Its
+ * scripts make their calls through the gate as the thread's agent acting as the member, for the
+ * thread's task, logged like any agent's call. A sleep answers with the time, since its job was
+ * due when the sleep ended, or when a reply woke it, which follows the answer. A script, which may change something, is never run twice: a worker
  * that was interrupted mid-script leaves the outcome unknown, and the model is told so rather than
  * the script being run again; a call that sets an alert sets it in the transaction that answers
  * it, so a job run again after it was answered sets nothing more. What each tool answers is shared
@@ -34,16 +33,16 @@ function answer(store: ToolJobStore, thread: ThreadRow, job: JobRow, call: ToolC
 		if (!isRecord(args)) {
 			return error(NOT_JSON);
 		}
-		if ((call.name === SET_ALERT_TOOL || call.name === CANCEL_ALERT_TOOL) && thread.parentThreadId === null) {
+		if (call.name === SET_ALERT_TOOL || call.name === CANCEL_ALERT_TOOL) {
 			return $(await alertCall(store, thread, call, args, now));
 		}
-		if (call.name === SLEEP_TOOL && thread.parentThreadId !== null) {
+		if (call.name === SLEEP_TOOL) {
 			if (sleepUntil(args, now) === null) {
 				return error(BAD_SLEEP_ARGS);
 			}
 			return {text: `Woken at ${now.toISOString()}.`, isError: false};
 		}
-		if (!isGateTool(call.name) || thread.parentThreadId === null) {
+		if (!isGateTool(call.name)) {
 			return noSuchTool(call.name);
 		}
 		// A script run by a worker that lost the job mid-call may have changed something.

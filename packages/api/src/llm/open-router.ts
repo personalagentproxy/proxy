@@ -13,7 +13,8 @@ import type {LlmRequestStatus} from '@proxy/observability';
  * `OPENROUTER_KEY`, each with a host policy of its own:
  *
  * - `askForJson`: gpt-oss-120b on Cerebras, the fastest host, else Groq, answering JSON held to a
- *   schema: the command bar's model, which fills in a widget's fields and answers what Ask asks.
+ *   schema: the command bar's model, which fills in a widget's fields and answers what Ask asks,
+ *   and says where a Chat thread stands as its turn ends (harness/thread-standing.ts).
  * - `askForTurn`: the built-in agent's model on the proxy harness, Claude Sonnet 5.5, or GLM 5.3
  *   for a persona that was switched to it, answering a conversation with text, tool calls, or both. One
  *   call per turn; the loop (harness/inference.ts) runs the calls and asks again.

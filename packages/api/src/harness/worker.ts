@@ -2,25 +2,26 @@ import {randomBytes} from 'node:crypto';
 import {hostname} from 'node:os';
 import {setTimeout as sleep} from 'node:timers/promises';
 
-import {Result} from 'ts-results-es';
+import {Err, Result} from 'ts-results-es';
 
-import type {ApiError} from '@proxy/utils';
+import {ApiErr, type ApiError} from '@proxy/utils';
 import type {JobRow} from '@proxy/db/harness';
 
 import {cappedHarness, type Harnesses} from '../backends/harness';
 import {log, serializeError} from '../observability/log';
 import {agentMetrics} from '../observability/metrics';
 import {runInContext} from '../observability/request-context';
-import {failureNote} from './conversation';
+import {failureNote} from './thread-rules';
 import {type InferenceStore, runInference} from './inference';
 import type {HarnessStore} from './store';
+import {standAfterTurn, type StandingModel, type StandingStore} from './thread-standing';
 import {runToolJob, type ToolJobStore} from './tool-job';
 
 /**
  * The worker that runs the built-in agents' jobs, a few at a time, in each api instance: it
  * claims the next job due while it has room, keeps each job's lease while it runs, and claims
- * the next as soon as one is done, so a turn's calls, the sub-agents started side by side and the
- * next turn follow each other without waiting; nothing due, it looks again in a moment. The queue
+ * the next as soon as one is done, so a turn's calls, threads at work side by side and the next
+ * turn follow one another without waiting; nothing due, it looks again in a moment. The queue
  * is the database, so instances need nothing of each other: one that goes down mid-job loses its
  * lease, and another picks the job up. Stopping, as for a deploy, the worker claims nothing more
  * and finishes the jobs it is on, up to a point. An inference job is a turn of a harness
@@ -30,7 +31,9 @@ import {runToolJob, type ToolJobStore} from './tool-job';
  * (inference.ts). The turns of personas on the SDK harness, each a subprocess, are capped
  * (backends/harness.ts): the worker counts those it runs, and, at the cap, claims only the other
  * jobs, so a turn it has no subprocess for stays in the queue, for it later or for another
- * instance, rather than taking up room here while it waits.
+ * instance, rather than taking up room here while it waits. As a thread's turn ends, a small model
+ * reads where it stands, after the turn's job and beside the next (thread-standing.ts); stopping,
+ * the worker waits for those readings as it does for its jobs.
  */
 
 const POLL_MS = 500;
@@ -45,8 +48,11 @@ const STOP_MS = 8_000;
 
 export type HarnessWorker = {stop: () => Promise<void>};
 
-/** What the worker needs of the store: the queue, and what the jobs it runs need. */
-export type WorkerStore = Pick<HarnessStore, 'claimJob' | 'renewLease' | 'failJob'> & InferenceStore & ToolJobStore;
+/** What the worker needs of the store: the queue, what the jobs it runs need, and where a thread stands. */
+export type WorkerStore = Pick<HarnessStore, 'claimJob' | 'renewLease' | 'failJob'> & InferenceStore & ToolJobStore & StandingStore;
+
+// Without the server's OpenRouter key, no thread's standing is read: each is done, with no summary.
+const NO_STANDING: StandingModel = {key: undefined, ask: async () => Err(ApiErr.unavailable('No model reads where a thread stands'))};
 
 // One name per worker, so a lease says who holds it.
 function workerName(): string {
@@ -76,13 +82,13 @@ function describe(failure: ApiError): string {
 	return failure.kind;
 }
 
-// Marks the job failed, saying why, with what that leaves in its thread (conversation.ts).
+// Marks the job failed, saying why, with what that leaves in its thread (thread-rules.ts).
 async function fail(store: WorkerStore, job: JobRow, workerId: string, error: string): Promise<void> {
 	await store.failJob(job.id, workerId, error, failureNote(error));
 }
 
 // Runs the job with its lease kept, and marks it failed where it throws or fails.
-async function runClaimed(store: WorkerStore, harnesses: Harnesses, job: JobRow, workerId: string): Promise<void> {
+async function runOrFail(store: WorkerStore, harnesses: Harnesses, job: JobRow, workerId: string): Promise<void> {
 	if (job.attempts > MAX_ATTEMPTS) {
 		await fail(store, job, workerId, `Given up after ${job.attempts - 1} attempts`);
 		return;
@@ -108,14 +114,30 @@ async function runClaimed(store: WorkerStore, harnesses: Harnesses, job: JobRow,
 	await fail(store, job, workerId, message.slice(0, 1000));
 }
 
-/** Starts the worker on the store, its inference jobs run by the harness `harnesses` has for each thread; it runs until stopped. */
-export function startHarnessWorker(store: WorkerStore, harnesses: Harnesses): HarnessWorker {
+/** Starts the worker on the store, its inference jobs run by the harness `harnesses` has for each thread, and where a thread stands as its turn ends read by `standing`; it runs until stopped. */
+export function startHarnessWorker(store: WorkerStore, harnesses: Harnesses, standing: StandingModel = NO_STANDING): HarnessWorker {
 	const workerId = workerName();
 	const cap = cappedHarness(harnesses.registry);
 	let stopping = false;
 	const running = new Set<Promise<void>>();
+	// Where threads stand, being written after their turns' jobs: none takes a job's room.
+	const standings = new Set<Promise<void>>();
 	// How many of the jobs running are turns on the capped harness.
 	let cappedTurns = 0;
+
+	// Runs the job, and, a turn's job over, however it went, has where its thread stands written
+	// after, in the background, so the worker goes on to the next job meanwhile: the thread's turn
+	// may have ended, and where it hasn't, nothing is written (thread-standing.ts).
+	const runClaimed = async (job: JobRow): Promise<void> => {
+		await runOrFail(store, harnesses, job, workerId);
+		if (job.kind !== 'inference' && job.kind !== 'wake') {
+			return;
+		}
+		const written: Promise<void> = standAfterTurn(store, standing, job.threadId).finally(() => {
+			standings.delete(written);
+		});
+		standings.add(written);
+	};
 
 	const loop = async (): Promise<void> => {
 		while (!stopping) {
@@ -136,7 +158,7 @@ export function startHarnessWorker(store: WorkerStore, harnesses: Harnesses): Ha
 			const {capped, ...row} = claimed.value;
 			cappedTurns += capped ? 1 : 0;
 			// Every line written for the job says which it was, as a request's say which request.
-			const job: Promise<void> = runInContext({jobId: row.id, jobKind: row.kind, threadId: row.threadId, workerId}, () => runClaimed(store, harnesses, row, workerId)).finally(() => {
+			const job: Promise<void> = runInContext({jobId: row.id, jobKind: row.kind, threadId: row.threadId, workerId}, () => runClaimed(row)).finally(() => {
 				running.delete(job);
 				cappedTurns -= capped ? 1 : 0;
 			});
@@ -149,7 +171,13 @@ export function startHarnessWorker(store: WorkerStore, harnesses: Harnesses): Ha
 	return {
 		stop: async () => {
 			stopping = true;
-			await Promise.race([Promise.all(running), sleep(STOP_MS)]);
+			// A job done has begun writing where its thread stands by then, so those are waited for
+			// after the jobs.
+			const settled = async (): Promise<void> => {
+				await Promise.all(running);
+				await Promise.all(standings);
+			};
+			await Promise.race([settled(), sleep(STOP_MS)]);
 		},
 	};
 }

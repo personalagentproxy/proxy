@@ -11,10 +11,10 @@ import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import type {OrgViewer} from '../utils/user-org';
 
 /**
- * Files in a conversation: what the person attaches to what they say. A file attached is one of a
- * drive's (native/files), named by its connection, its id there and the version it held when it
- * was attached, which is what the conversation goes on meaning; the log keeps its name, kind and
- * size as they were, and the first of its text. A file put in a conversation's input is uploaded
+ * Files in a chat: what the person attaches to what they say. A file attached is one of a drive's
+ * (native/files), named by its connection, its id there and the version it held when it was
+ * attached, which is what the thread goes on meaning; the log keeps its name, kind and size as
+ * they were, and the first of its text. A file put in a chat's input is uploaded
  * at once and kept there, as what is typed is kept as the draft, so it is there on any device
  * until the message it goes with is sent. The person sees it with what they said; the model
  * reads what they said with each file under it (@proxy/utils/harness-context withAttachments),
@@ -30,13 +30,13 @@ import type {OrgViewer} from '../utils/user-org';
 export type AttachmentRef = z.infer<typeof postMessageBodySchema>['attachments'][number];
 
 export type ChatFiles = {
-	/** A file uploaded from the conversation's input into the person's own drive, to be attached to what they say next: the request's body is the file. */
+	/** A file uploaded from the chat's input, or a thread's, into the person's own drive, to be attached to what they say next: the request's body is the file. */
 	upload: (viewer: OrgViewer, persona: {name: string}, request: AuthenticatedRequest) => Promise<Result<ChatAttachment, ApiError>>;
 	/** A file `upload` put in the person's drive taken out again for good, as when the input it was for refused it. */
 	discard: (viewer: OrgViewer, attachment: Pick<ChatAttachment, 'connectionId' | 'fileId'>) => Promise<Result<void, ApiError>>;
 	/** The files named, each one the person can read, as the log keeps them; refused where one isn't. */
 	resolve: (viewer: OrgViewer, refs: AttachmentRef[]) => Promise<Result<EntryAttachment[], ApiError>>;
-	/** A file the log or the conversation's input keeps, as the page shows it, with whether its version is gone from its drive since. */
+	/** A file the log or the chat's input keeps, as the page shows it, with whether its version is gone from its drive since. */
 	shown: (attachment: DraftAttachment & {gone: boolean}) => ChatAttachment;
 	/** A file the log keeps as a picture for a model that sees pictures (`PictureOf`). */
 	picture: PictureOf;
@@ -87,8 +87,7 @@ export function withAttached(entries: EntryRow[], attachments: AttachmentRow[], 
 		return entries;
 	}
 	return entries.map((entry) => {
-		// What the person said, and the note of what they wrote in a sub-agent's chat.
-		const own = entry.kind === 'person' || entry.kind === 'note' ? attachments.filter((attachment) => attachment.entryId === entry.id) : [];
+		const own = entry.kind === 'person' ? attachments.filter((attachment) => attachment.entryId === entry.id) : [];
 		if (own.length === 0) {
 			return entry;
 		}

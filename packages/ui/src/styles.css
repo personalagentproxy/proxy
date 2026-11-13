@@ -57,6 +57,7 @@
 	--color-sidebar-primary: var(--sidebar-primary);
 	--color-sidebar-foreground: var(--sidebar-foreground);
 	--color-sidebar: var(--sidebar);
+	--color-waiting: var(--waiting);
 	--color-avatar-mono: var(--avatar-mono);
 	--color-avatar-red: var(--avatar-red);
 	--color-avatar-orange: var(--avatar-orange);
@@ -134,6 +135,8 @@
 	--sidebar-accent-foreground: #292720;
 	--sidebar-border: #dcdcd8;
 	--sidebar-ring: #9d9c96;
+	/* A chat thread waiting for the person: an orange that reads as text on the page. */
+	--waiting: #c2620c;
 	/* A persona's avatar colors (@proxy/utils/harness AVATAR_COLORS), one hue each, and mono, the page's ink. */
 	--avatar-mono: #292720;
 	--avatar-red: oklch(0.64 0.21 25);
@@ -178,6 +181,7 @@
 	--sidebar-accent-foreground: #e9e8e8;
 	--sidebar-border: #29261f;
 	--sidebar-ring: #615f5a;
+	--waiting: #e8873f;
 	--avatar-mono: #e9e8e8;
 	--avatar-red: oklch(0.7 0.19 25);
 	--avatar-orange: oklch(0.76 0.16 55);

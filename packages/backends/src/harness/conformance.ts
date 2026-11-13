@@ -24,7 +24,7 @@ const TOOLS = [
 	{name: 'run', description: 'Runs', inputSchema: {type: 'object', properties: {}}, readOnly: false},
 ];
 
-const ENTRIES = [{kind: 'person' as const, text: 'Hi', toolCalls: null, callId: null, isError: false, direct: false, seq: 1, coversSeq: null, inputTokens: null, jobId: null}];
+const ENTRIES = [{kind: 'person' as const, text: 'Hi', toolCalls: null, callId: null, isError: false, seq: 1, coversSeq: null, inputTokens: null, jobId: null}];
 
 const TERMINAL = new Set<HarnessEvent['kind']>(['done', 'failed']);
 
@@ -35,12 +35,11 @@ const USAGE_WINDOWS = new Set(['fiveHour', 'sevenDay']);
 // gives one to a harness chosen for it; a harness that runs with the server's key ignores it.
 function turnInput(signal = new AbortController().signal): HarnessTurn {
 	return {
-		thread: {id: 'thread-1', parentThreadId: null},
+		thread: {id: 'thread-1'},
 		job: 'job-1',
 		auth: {kind: 'api_key', key: 'test-key'},
 		session: null,
 		entries: ENTRIES,
-		subAgents: [],
 		woken: false,
 		system: 'You are a test.',
 		tools: fakeToolSurface(TOOLS),

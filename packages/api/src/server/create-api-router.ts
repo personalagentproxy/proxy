@@ -266,26 +266,26 @@ export function createApiRouter(): express.Router {
 	org.get('/widgets/accounts', withAuthResult('Widget bank accounts route', handleBankAccountsRoute));
 	org.get('/widgets/transactions', withAuthResult('Widget bank transactions route', handleBankTransactionsRoute));
 
-	// The Chat page: the organization's built-in agents and the member's conversations with them.
-	// Nothing here runs the model: the worker in each api instance does (harness/worker.ts); a
-	// message queues its work.
+	// The Chat page: the organization's built-in agents and the member's chats with them, each a list
+	// of threads. Nothing here runs the model: the worker in each api instance does
+	// (harness/worker.ts); a message queues its work.
 	const chat = chatRoutes(harnessStore, serverHarnesses, chatFiles);
 	org.get('/chat/personas', withAuthResult('List personas route', chat.handleListPersonasRoute));
 	org.get('/chat/answers', withAuthResult('List answers route', chat.handleListAnswersRoute));
 	org.post('/chat/personas', withAuthResult('Create persona route', chat.handleCreatePersonaRoute));
 	org.put('/chat/personas/:personaId', withAuthResult('Update persona route', chat.handleUpdatePersonaRoute));
 	org.delete('/chat/personas/:personaId', withAuthResult('Delete persona route', chat.handleDeletePersonaRoute));
-	org.get('/chat/personas/:personaId/thread', withAuthResult('Get chat thread route', chat.handleGetThreadRoute));
-	org.post('/chat/personas/:personaId/messages', withAuthResult('Post chat message route', chat.handlePostMessageRoute));
 	org.post('/chat/personas/:personaId/attachments', withAuthResult('Upload chat attachment route', chat.handleUploadAttachmentRoute));
 	org.delete('/chat/personas/:personaId/attachments', withAuthResult('Remove chat attachment route', chat.handleRemoveAttachmentRoute));
-	org.get('/chat/personas/:personaId/tasks/:taskId', withAuthResult('Get chat task route', chat.handleGetTaskRoute));
-	org.post('/chat/personas/:personaId/tasks/:taskId/messages', withAuthResult('Post chat task message route', chat.handlePostTaskMessageRoute));
-	org.post('/chat/personas/:personaId/tasks/:taskId/attachments', withAuthResult('Upload chat task attachment route', chat.handleUploadTaskAttachmentRoute));
-	org.put('/chat/personas/:personaId/tasks/:taskId/pin', withAuthResult('Pin chat task route', chat.handlePinTaskRoute));
 	org.post('/chat/personas/:personaId/read', withAuthResult('Mark chat read route', chat.handleMarkReadRoute));
 	org.put('/chat/personas/:personaId/draft', withAuthResult('Save chat draft route', chat.handleSaveDraftRoute));
-	// The Alerts page: what the agents set in the member's conversations, to be woken outside them.
+	org.get('/chat/personas/:personaId/threads', withAuthResult('List chat threads route', chat.handleListThreadsRoute));
+	org.post('/chat/personas/:personaId/threads', withAuthResult('Open chat thread route', chat.handleOpenThreadRoute));
+	org.get('/chat/personas/:personaId/threads/:threadId', withAuthResult('Get chat thread route', chat.handleGetChatThreadRoute));
+	org.post('/chat/personas/:personaId/threads/:threadId/messages', withAuthResult('Reply in chat thread route', chat.handleReplyInThreadRoute));
+	org.post('/chat/personas/:personaId/threads/:threadId/attachments', withAuthResult('Upload chat thread attachment route', chat.handleUploadThreadAttachmentRoute));
+	org.post('/chat/personas/:personaId/threads/:threadId/done', withAuthResult('Mark chat thread done route', chat.handleMarkThreadDoneRoute));
+	// The Alerts page: what the agents set in the member's threads, to be woken outside them.
 	const alerts = alertRoutes(harnessStore);
 	org.get('/alerts', withAuthResult('List alerts route', alerts.handleListAlertsRoute));
 	org.delete('/alerts/:alertId', withAuthResult('Delete alert route', alerts.handleDeleteAlertRoute));

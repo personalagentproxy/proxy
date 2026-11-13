@@ -174,7 +174,7 @@ export const envSchema = z.object({
 	OPENROUTER_KEY: documented(z.string().min(1).optional(), {
 		group: 'Core',
 		description:
-			'An OpenRouter API key, for the model that fills in the fields of the widget Jev picks in the command bar (gpt-oss-120b, on Cerebras or Groq), and for the built-in agent on the Chat page in an organization with the `openrouter` experiment on, where an agent can be set to run on it (Claude Sonnet 5.5, or GLM 5.3). What is typed there is sent to it. Without it, or without `TYPESAFE_API_KEY`, the command bar says it is not set up; everything else works as before.',
+			'An OpenRouter API key, for the model that fills in the fields of the widget Jev picks in the command bar (gpt-oss-120b, on Cerebras or Groq), which also writes where each thread on the Chat page stands as its turn ends, from what the thread shows, and for the built-in agent on the Chat page in an organization with the `openrouter` experiment on, where an agent can be set to run on it (Claude Sonnet 5.5, or GLM 5.3). What is typed there is sent to it. Without it, or without `TYPESAFE_API_KEY`, the command bar says it is not set up, and without it a Chat thread is done once its agent stops, with no summary; everything else works as before.',
 	}),
 	CLAUDE_AGENT_SDK: documented(z.enum(['on', 'off']).default('on'), {
 		group: 'Core',

@@ -1,6 +1,9 @@
 export {applies, effectiveActions, requiredAction} from './access';
 export type {OwnSettings} from './access';
 export {
+	CHAT_BUILT_IN_ACTIONS,
+	CHAT_INTEGRATION_ID,
+	CHAT_STANDINGS,
 	FILES_DEFAULT_ACTIONS,
 	FILES_INTEGRATION_ID,
 	FILES_READ_CHARACTERS,

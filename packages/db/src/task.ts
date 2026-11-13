@@ -11,7 +11,7 @@ import {type Viewer, visibleTo} from './viewer';
 export type AgentTaskRow = {
 	id: string;
 	agentId: string;
-	// The persona a Chat page sub-agent ran it as; null for every other task.
+	// The persona a Chat page thread ran it as; null for every other task.
 	personaId: string | null;
 	// The task this one is a sub-task of; null for one started on its own.
 	parentId: string | null;
@@ -52,7 +52,7 @@ export type NewAgentTask = {
 	orgId: string;
 	agentId: string;
 	ownerUserId: string | null;
-	// The persona a Chat page sub-agent runs it as; null for every other task.
+	// The persona a Chat page thread runs it as; null for every other task.
 	personaId?: string | null;
 	parentId: string | null;
 	title: string;

@@ -3,12 +3,11 @@ import {z} from 'zod';
 
 /**
  * The built-in agent's log, as the api writes it and the web app reads it: what is shared between
- * them. The log is the transcript: the person's messages, the model's answers with the tool calls
- * it made, what each call answered, events that came since (what a sub-agent said to it), and, once it
- * has grown long, summaries of it up to a point, which the model reads in place of what they
- * cover. A call is pending until its result is in the log, and the model is run again only once
- * none is: starting a sub-agent is answered at once, with its id, and what it says lands as an
- * event when it says it.
+ * them. Each thread of a chat has a log, and the log is the transcript: the person's messages, the
+ * model's answers with the tool calls it made, what each call answered, events that came since (an
+ * alert set in the thread that came), and, once it has grown long, summaries of it up to a point,
+ * which the model reads in place of what they cover. A call is pending until its result is in the
+ * log, and the model is run again only once none is.
  */
 
 /** A tool call the model made, as the model API gives it: its arguments are the JSON it wrote. */
@@ -26,11 +25,10 @@ export function cut(text: string, max: number): string {
 }
 
 export type LogEntry = {
-	kind: 'person' | 'assistant' | 'tool_result' | 'event' | 'summary' | 'note';
+	kind: 'person' | 'assistant' | 'tool_result' | 'event' | 'summary';
 	text: string;
 	toolCalls: ToolCall[] | null;
-	// A tool_result's or an event's call, by the id the model gave it; a note's, the call that
-	// started the sub-agent it was written to.
+	// A tool_result's call, by the id the model gave it.
 	callId: string | null;
 };
 
@@ -60,31 +58,22 @@ export const CALL_INTERRUPTED = 'This call was interrupted before it was answere
 
 /**
  * Whether the model should be run on the log: something has come since it last answered, and
- * every call it made has its result. A note, what the person wrote to one of the agent's
- * sub-agents in its chat, is not something come: the agent reads it with what wakes it next, the
- * sub-agent's answer among it.
+ * every call it made has its result.
  */
 export function readyForInference(entries: LogEntry[]): boolean {
 	if (pendingToolCalls(entries).length > 0) {
 		return false;
 	}
-	const last = entries.findLast((entry) => entry.kind !== 'note');
+	const last = entries.at(-1);
 	if (!last) {
 		return false;
 	}
 	return last.kind !== 'assistant';
 }
 
-/** The names of the agent talking with the person's two tools: a sub-agent, started on a brief, and a message to one. */
-export const CREATE_SUBAGENT_TOOL = 'create_subagent';
-export const SEND_TO_SUBAGENT_TOOL = 'send_to_subagent';
-
-/** The names of a sub-agent's two tools beyond its connections: a message to the agent it works for, and a wake-up later. */
-export const SEND_TO_PARENT_TOOL = 'send_to_parent';
+/** The names of a thread's two tools beyond its connections and its alerts: a wake-up later, and a message to the person while it goes on. */
 export const SLEEP_TOOL = 'sleep_until';
-
-// How long a sub-agent's title may be: a task's.
-const MAX_TITLE = 120;
+export const SEND_TO_PERSON_TOOL = 'send_to_person';
 
 /** Whether a call's arguments are a JSON object, as a tool takes them. */
 export function isRecord(args: unknown): args is Record<string, unknown> {
@@ -95,24 +84,8 @@ function isText(value: unknown): value is string {
 	return typeof value === 'string' && value.trim() !== '';
 }
 
-/** A create_subagent call's arguments: the sub-agent's title, cut to a task's, and its brief. Null when they are not that. */
-export function subAgentArgs(args: unknown): {title: string; brief: string} | null {
-	if (!isRecord(args) || !isText(args.title) || !isText(args.brief)) {
-		return null;
-	}
-	return {title: cut(args.title.trim(), MAX_TITLE), brief: args.brief.trim()};
-}
-
-/** A send_to_subagent call's arguments: which sub-agent, by id, and the message. Null when they are not that. */
-export function subAgentMessageArgs(args: unknown): {subagent: string; text: string} | null {
-	if (!isRecord(args) || !isText(args.subagent) || !isText(args.text)) {
-		return null;
-	}
-	return {subagent: args.subagent.trim(), text: args.text.trim()};
-}
-
-/** A send_to_parent call's arguments: the message. Null when there is none. */
-export function parentMessageArgs(args: unknown): {text: string} | null {
+/** A send_to_person call's arguments: the message. Null when there is none. */
+export function personMessageArgs(args: unknown): {text: string} | null {
 	if (!isRecord(args) || !isText(args.text)) {
 		return null;
 	}
@@ -144,7 +117,7 @@ export function sleepUntil(args: unknown, now: Date): Date | null {
 	return new Date(Math.min(earliest, now.getTime() + MAX_SLEEP_MS));
 }
 
-/** What a job of the built-in agent is: a turn of the model, one tool call of its, or a wake-up of it after a sleep. */
+/** What a job of a thread's agent is: a turn of the model, one tool call of its, or a wake-up of it after a sleep. */
 export type JobKind = 'inference' | 'tool' | 'wake';
 
 /**

@@ -15,8 +15,9 @@ import type {HarnessStore} from './store';
 
 /**
  * The Alerts page's routes, under the organization: the member's own alerts, those the agents they
- * talk with on the Chat page set in their conversations, each with the connections it watches, and
- * deleting one. Nothing here sets an alert: the agent does, asked to in its conversation (tool-job.ts).
+ * talk with on the Chat page set in their chats' threads, each with the connections it watches,
+ * and deleting one. Nothing here sets an alert: the agent does, asked to in its thread
+ * (tool-job.ts).
  */
 
 /** What the Alerts page's routes need of the store. */

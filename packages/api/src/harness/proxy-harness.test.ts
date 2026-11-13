@@ -5,7 +5,7 @@ import type {HarnessEntry, HarnessEvent, HarnessTurn} from '@proxy/backends/harn
 import {harnessConformance, type ScriptedModel} from '@proxy/backends/harness/conformance';
 import {fakeToolSurface} from '@proxy/backends/harness/fake';
 import {ApiErr} from '@proxy/utils';
-import {COMPACT_AT_TOKENS, type ContextEntry} from '@proxy/utils/harness-context';
+import {COMPACT_AT_TOKENS, type ContextEntry, EVENT_LEAD} from '@proxy/utils/harness-context';
 
 import type {askForTurn as askForTurnOverRouter} from '../llm/open-router';
 import {proxyHarness} from './proxy-harness';
@@ -35,7 +35,6 @@ function entry(kind: ContextEntry['kind'], text: string, extra: Partial<Pick<Con
 		toolCalls: extra.toolCalls ?? null,
 		callId: extra.callId ?? null,
 		isError: false,
-		direct: false,
 		seq,
 		coversSeq: extra.coversSeq ?? null,
 		inputTokens: extra.inputTokens ?? null,
@@ -47,11 +46,10 @@ const read = {name: 'read', description: 'Reads', inputSchema: {type: 'object', 
 
 function turnInput(entries: HarnessEntry[], extra: Partial<HarnessTurn> = {}): HarnessTurn {
 	return {
-		thread: {id: 'thread-1', parentThreadId: null},
+		thread: {id: 'thread-1'},
 		job: 'job-1',
 		session: null,
 		entries,
-		subAgents: [],
 		woken: false,
 		system: 'You are signed in.',
 		tools: fakeToolSurface([read]),
@@ -98,17 +96,12 @@ describe('proxyHarness', () => {
 		]);
 	});
 
-	test('leads an event in with which sub-agent said it', async () => {
-		const log = [
-			entry('person', 'Hi'),
-			entry('assistant', 'Looking.', {toolCalls: [{id: 'c1', name: 'create_subagent', arguments: '{}'}]}),
-			entry('tool_result', 'Started', {callId: 'c1'}),
-			entry('event', 'Found three.', {callId: 'c1'}),
-		];
+	test('leads an event in as an alert that came, not the person’s', async () => {
+		const log = [entry('person', 'Tell me when the invoice comes'), entry('assistant', 'I will.'), entry('event', 'The alert “Invoice from Dana” matched a new one of the emails.')];
 
-		await Array.fromAsync(harness.turn(turnInput(log, {subAgents: [{id: 'thread-2', parentCallId: 'c1', title: 'Find the invoices'}]})));
+		await Array.fromAsync(harness.turn(turnInput(log)));
 
-		expect(requests()[0]?.messages.at(-1)).toEqual({role: 'user', content: expect.stringContaining('From the sub-agent “Find the invoices” (thread-2); not from the person.')});
+		expect(requests()[0]?.messages.at(-1)).toEqual({role: 'user', content: `${EVENT_LEAD}\n\nThe alert “Invoice from Dana” matched a new one of the emails.`});
 	});
 
 	test('a log grown long is summarized first, by the same model, as text, and the summary yielded for the api to store, then read in place of what it covers', async () => {

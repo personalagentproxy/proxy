@@ -182,7 +182,7 @@ describe.skipIf(!databaseUrl)('pap files, as a sandbox reaches a drive', () => {
 		const forced = await (await push('Reports/2026/q3.csv', 'third', {force: '1'})).json();
 		expect(forced.file.version).not.toBe(second);
 		expect(await (await pull({path: 'Reports/2026/q3.csv'})).text()).toBe('third');
-		// An earlier version, by the file's id, as a file attached to a conversation is named.
+		// An earlier version, by the file's id, as a file attached in a thread is named.
 		expect(await (await pull({id: written.file.id, version: first})).text()).toBe('date,amount\n2026-07-01,12\n');
 		const none = await pull({id: written.file.id, version: 'no-such-version'});
 		expect((await none.json()).message).toBe('q3.csv has no version no-such-version.');

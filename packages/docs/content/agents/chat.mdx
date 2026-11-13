@@ -14,21 +14,13 @@ inside them: what the agents may do with each connection is set in its column, o
 and every call any of them makes is in the activity log, by the task it was made for, which says
 which agent it was.
 
-Your conversation with an agent is yours alone, as a direct message is, General's too: nobody else
-in the organization sees it. In it, the agent acts as you, so it reaches what you use: the connections
+Your chat with an agent is yours alone, as a direct message is, General's too: nobody else in the
+organization sees it. In it, the agent acts as you, so it reaches what you use: the connections
 shared with everyone, the ones shared with you by name, the ones you connected yourself and your
 own vault. Chat has a column on every connection's **Permissions**, beside your other agents, which
 whoever changes the connection's defaults changes: you on your own connections, the organization's
 owner too on the ones shared with everyone. On a connection shared with you by name, its owner's
-settings for Chat are yours too. What it does in your conversation is in your activity log alone.
-
-The agent you talk with does nothing to your accounts itself. It hands each piece of work to a
-sub-agent: an agent with the same access, started on a brief, which does the work and answers.
-The two keep talking: a sub-agent can ask the agent a question or say how far it has got while it
-works, and the agent can send it more to do, or a follow-up to what it found, since the sub-agent
-keeps everything it did and found. A sub-agent's work is one task in the activity log, titled as
-the agent titled the sub-agent, with every call it made under it: finished, with what it answered
-as the outcome, each time the sub-agent stops, and under way again when a message takes it up.
+settings for Chat are yours too. What it does in your chat is in your activity log alone.
 
 What it does differently from an agent you connect is where it runs: in Personal Agent Proxy, not
 on another company's servers. Unless you choose otherwise, the model is Claude Sonnet 5.5, on each
@@ -36,17 +28,17 @@ member's own [Claude account](#your-claude-subscription).
 
 ## What runs an agent
 
-Under the message box, a conversation says what runs its agent: the **model**, and beside it the
+Under the message box, a chat says what runs its agent: the **model**, and beside it the
 **harness**, the loop that runs its turns. For whoever may change the agent, you for one of your
 own and the organization's owner for General, it opens the harnesses down the side, each by its
 mark, with the models of the one you look at beside them to switch between. The choice is the
-agent's: it holds for every conversation with the agent, each member's with General, and for the
-sub-agents it starts, from the next turn on, and a conversation goes on from where it was.
+agent's: it holds for every thread of every chat with the agent, each member's with General, from
+the next turn on, and a thread goes on from where it was.
 
 - **Claude** runs on each member's own [Claude account](#your-claude-subscription), with
   Claude Sonnet 5.5, Claude Opus 5.5 or Claude Fable 5.2, and counts against that member's plan.
-  A member who hasn't connected a Claude account is told to, in the conversation, and nothing of
-  theirs runs on the server's key in its place.
+  A member who hasn't connected a Claude account is told to, in the thread, and nothing of theirs
+  runs on the server's key in its place.
 - **OpenRouter** runs on the server's key, for every member alike, with Claude Sonnet 5.5 or
   GLM 5.3, each only on hosts that keep nothing of what is sent. It is only offered to an
   organization that has it [turned on](#openrouter).
@@ -55,44 +47,91 @@ A new agent runs on the first harness offered, Claude where the server has it, w
 first model. A harness that isn't offered can't be chosen, and an agent that was set to one runs on
 the first that is.
 
-## How a conversation runs
+Whichever harness runs an agent, where each [thread](#threads) stands, the word over it and the
+sentence under what opened it, is written by a small model on the server's OpenRouter key,
+gpt-oss-120b, as the command bar's reading of what you type is: it reads what the thread shows,
+what you said, with the names of the files you attached, what the agent answered and the alerts
+that came into it, never the calls the agent made, and only on hosts that keep nothing of what is
+sent. A server without an `OPENROUTER_KEY` writes none: a thread is **Done** once the agent stops,
+with the start of its latest answer in place of the sentence.
 
-Say what you want done. The agent answers, in a conversation and nothing else: the sub-agents it
-starts, what they asked for and what they found are in the activity log, not on the page, each as
-a task with the agent's head beside it. Sub-agents started together run side by side, and the agent
-is free while they work: you can say more, and it answers; what a sub-agent says comes to it as a
-message, and it tells you what matters of it, answers the sub-agent, or starts the next piece. A
-call a sub-agent is not allowed is refused and logged as blocked, as it would be for any agent.
-Everything keeps running after you leave the page, and the page shows the conversation as it is
-when you come back.
+## Threads
 
-A sub-agent can also wait: asked to check on something later, or to do something at a time, it
-sleeps until then, and the page says until when. It wakes with its own log and nothing else, so it
-says what it will do before it sleeps; a message from the agent wakes it earlier.
+Say what you want done. Every message you send in the chat opens a thread of its own, about that
+one piece of work, and the agent works on it there. The chat lists its threads, the one with
+something said in it last at the bottom: each by what opened it, your message, with a word over it
+saying where it stands, a sentence saying where it is, and how many messages it holds, with when
+the last came. A thread is:
+
+- **In progress** while the agent is at work on it, or asleep until it goes on.
+- **Waiting for you** once the agent has stopped and can't go on until you answer or do something,
+  as when it asks whether its plan should cover one more thing.
+- **Done** once the agent has stopped and needs nothing more of you.
+
+The sentence is about the thread as a whole, such as "Merged #412 once its checks passed.", and is
+written as the agent's turn ends, with whether the thread waits for you, by a
+[small model](#what-runs-an-agent). Once something more is said in the thread, by you, the agent or
+an alert, the start of the latest thing the agent said takes its place until the next is written.
+A thread waiting for you has a **Done** button, in the list and at the foot of the thread when it
+is open: press it when there is nothing more to answer, and the thread is done. A reply, or an alert
+that comes into the thread, takes it up again, and it no longer waits.
+
+Several threads can be in progress at once, each on its own; everything keeps running after you
+leave the page, and the chat shows each thread as it is when you come back.
+
+Choose a thread to open it beside the chat, or across the whole page, and reply in it with the box
+at its foot: a reply goes on with the same work, and the agent reads it with everything said in the
+thread before. The chat's own box always opens a new thread. A thread shows what you said and what
+the agent answered, and what it told you as it went on longer work; the calls it made to get there
+are in the activity log, not on the page.
+
+In a thread, the agent works with your connections as the permissions say, through the same gate
+as any agent: a call it is not allowed is refused and logged as blocked. Each thread's work is one
+task in the activity log, titled with a line of what opened it and with the agent's head
+beside it, with every call it made under it: finished, with what the agent answered as the
+outcome, each time it answers, and under way again when you reply.
+
+A thread can also wait: asked to check on something later, or to do something at a time, the agent
+sleeps until then, and the thread stays in progress meanwhile. It wakes with the thread and nothing
+else, so it says what it will do before it sleeps; a reply wakes it earlier.
 
 The agent can also come back to you later. Ask to be told at a time, and it sets an alert, which
-wakes it then with what it noted, so it can tell you or do what you asked. Ask to be told when
-something happens in your accounts, such as an email from a certain sender arriving, an issue
-changing or a meeting being moved, and it sets a watch on the connections it may read: each new
-email, issue or calendar event there that contains any of the words the agent noted comes to it,
-with a link, for it to pass on. A watch matches words,
-not meaning, so say what to look for the way it will be written. **Alerts** in the sidebar lists
-what is set, with the agent that set each; delete one there, or ask the agent to cancel it.
+wakes the thread it was set in then, with what it noted, so it can tell you or do what you asked.
+Ask to be told when something happens in your accounts, such as an email from a certain sender
+arriving, an issue changing or a meeting being moved, and it sets a watch on the connections it may
+read: each new email, issue or calendar event there that contains any of the words the agent noted
+comes into that thread, with a link, for it to pass on. A watch matches words, not meaning, so say
+what to look for the way it will be written. **Alerts** in the sidebar lists what is set, with the
+agent that set each; delete one there, or ask the agent to cancel it, in any thread: an agent is
+told of all your alerts, whichever thread each was set in.
 
-A conversation can go on for as long as you like. Once it has grown long, the agent reads a
-summary of the earlier part in place of it, and keeps the last turns as they were; the page shows
-the whole conversation as before.
+### Asking about your other threads
+
+Since every message opens a thread of its own, what you ask about earlier work, such as "what is
+waiting for me?" or "what did we decide about the pricing review?", is a thread too. Its agent
+reads your other threads, with every agent of yours, through your
+[Chat connection](/connections/chat): each by its title, where it stands and the sentence that says
+so, and what was said in the ones that matter. It answers with what it found and a link to the
+thread, which opens beside the chat; to go on with that work, reply there. An agent never writes
+into another thread.
+
+A thread can go on for as long as you like. Once it has grown long, the agent reads a summary of
+the earlier part in place of it, and keeps the last turns as they were; the thread shows everything
+said in it as before.
+
+What you said in a chat before it was made of threads is kept as threads too: the conversation
+itself as one thread, **Earlier conversation**, and each piece of work the agent did in it as a
+thread of its own, under its title, opened by what you said that led to it. They read as any thread
+does, are **Done**, and a reply in one goes on from what it shows.
+
+## Unread and notifications
 
 An answer that comes while you are elsewhere, on another page or away from the app, is unread
-until you open the conversation: the agent's row in the list is marked, **Chat** in the sidebar
-counts the conversations with something new, and so does the window's title. To be told as it
-comes, turn on notifications on the **Account** page: a notification of the system's, on that
-device, with the agent's name and what it said, which opens the conversation when clicked. In the
-browser this asks the browser's leave, which it asks you for once; in the desktop app the count is
-on the app's icon too.
-
-**Activity** under the input opens the activity log, where every sub-agent's task is listed with
-the agent's head and name.
+until you open the chat: the agent's row in the list is marked, **Chat** in the sidebar counts the
+chats with something new, and so does the window's title. To be told as it comes, turn on
+notifications on the **Account** page: a notification of the system's, on that device, with the
+agent's name and what it said, which opens the chat when clicked. In the browser this asks the
+browser's leave, which it asks you for once; in the desktop app the count is on the app's icon too.
 
 ## Your Claude subscription
 
@@ -100,7 +139,7 @@ An agent set to the Claude [harness](#what-runs-an-agent) runs on your own Claud
 subscription rather than on the server's key, so what you say to it goes to Anthropic under your
 account, as it would from Claude Code, and counts against your plan rather than the server's.
 Connect it under **Claude** on the **Account** page; it is yours, in every organization you are in,
-and nobody else's turns run under it: another member's conversation with the same agent runs under
+and nobody else's turns run under it: another member's chat with the same agent runs under
 theirs.
 
 The credential is a token good for a year, the same one `claude setup-token` makes. The desktop
@@ -117,13 +156,15 @@ token: when the year is up, the card says so and you connect again. The card als
 your plan's five-hour and seven-day windows is used, as Anthropic reported it during the agent's
 last turn on your account, so it is as of that turn, not live.
 
-Your conversations with such an agent, and the sub-agents they start, run on the
+The threads of your chat with such an agent run on the
 [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview) under your account: what you
 say goes to Anthropic directly, as it would from Claude Code, not through OpenRouter, on the model
-chosen for the agent. Everything else is the same: the agent's tools, sleeping, alerts, the
-activity log and what the conversation shows. Connecting an account moves nothing by itself: an
+chosen for the agent. Only where each thread stands is written on the server's OpenRouter key,
+from what the thread shows, as for any agent ([What runs an agent](#what-runs-an-agent)).
+Everything else is the same: the agent's tools, sleeping, alerts, the activity log and what a
+thread shows. Connecting an account moves nothing by itself: an
 agent on OpenRouter stays there until it is set to Claude. When the token has run out
-or Anthropic refused it, the agent says so in the conversation and the card shows it, and nothing
+or Anthropic refused it, the agent says so in the thread and the card shows it, and nothing
 more is asked of Anthropic with it; connecting again takes it up. When your plan's limit is
 reached, the agent says so, with when the limit resets, and goes on when you write again after
 that. **Disconnect** on the card deletes the credential, and deleting your account deletes it too;

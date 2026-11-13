@@ -23,8 +23,8 @@ import {PICTURE_SOURCE_BYTES, toPicture} from './picture';
 import {readVersion} from './text';
 
 /**
- * A conversation's files, on the drives' side (harness/attachments.ts ChatFiles). What the person
- * drops into a conversation is kept in their own drive, as any file of theirs is, in a folder of
+ * A chat's files, on the drives' side (harness/attachments.ts ChatFiles). What the person drops
+ * into a chat or one of its threads is kept in their own drive, as any file of theirs is, in a folder of
  * the persona's under Chats, so it is there afterwards, with its versions, for them and their
  * agents alike. What they attach is named by where it is and the version it holds, read here as
  * the person, who may attach any file of a drive they use: the log keeps what it was, and the
@@ -168,7 +168,7 @@ export const chatFiles: ChatFiles = {
 			return attachments;
 		}),
 	shown: ({connectionId, fileId, version, name, type, size, gone}) => ({connectionId, fileId, version, name, type, size, shown: isShownImage(type), gone}),
-	// Read as the conversation's own, not as anyone's: the person attached it for the model to see.
+	// Read as the thread's own, not as anyone's: the person attached it for the model to see.
 	picture: (attachment) =>
 		Do(async ($) => {
 			if (!isShownImage(attachment.type) || attachment.size > PICTURE_SOURCE_BYTES) {

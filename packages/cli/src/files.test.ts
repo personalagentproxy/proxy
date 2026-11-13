@@ -129,7 +129,7 @@ describe('pap files', () => {
 		});
 	});
 
-	test('pull takes a file by its id and an earlier version of it, as a file attached to the conversation is named', async () => {
+	test('pull takes a file by its id and an earlier version of it, as a file attached in a thread is named', async () => {
 		const {asked, pap} = harness(() => bytesOf('old', {...q3, version: 'v0'}));
 
 		expect(

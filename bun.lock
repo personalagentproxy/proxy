@@ -99,6 +99,7 @@
         "ts-results-es": "^7.1.0",
       },
       "devDependencies": {
+        "@electric-sql/pglite": "0.4.3",
         "@prisma/dev": "0.25.2",
         "@types/bun": "latest",
         "typescript": "~6.0.2",

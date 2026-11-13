@@ -2113,6 +2113,101 @@ const mcp: Integration = {
 	collections: [],
 };
 
+export const CHAT_INTEGRATION_ID = 'chat';
+
+/** Where a thread stands, as its record says it and a list of threads is narrowed by: the Chat page's own words. */
+export const CHAT_STANDINGS = {
+	in_progress: 'In progress',
+	waiting: 'Waiting for you',
+	done: 'Done',
+} as const;
+
+// Chat: the person's own threads with their agents on the Chat page, and the alerts set in them,
+// as records, so that an agent can be asked about the others: what waits for the person, what was
+// found in one, which alerts are set. Every member has one, theirs alone, as they have a vault,
+// made once the organization has used Chat. A thread is read, never written: whoever reads one
+// points the person to it by its url, its page in Chat, and they go on there. An alert is seen and
+// cancelled; one is set in a thread, by its agent, since it comes back to that thread.
+const chat: Integration = {
+	id: CHAT_INTEGRATION_ID,
+	name: 'Chat',
+	description: 'Your threads with your agents on the Chat page, and the alerts set in them',
+	native: true,
+	actions: [
+		{
+			id: 'readThreads',
+			label: 'Read threads',
+			description: 'List your threads in Chat and read what was said in them',
+			risk: 'low',
+		},
+		{
+			id: 'readAlerts',
+			label: 'See alerts',
+			description: 'List the alerts set in your threads',
+			risk: 'low',
+		},
+		{
+			id: 'cancelAlerts',
+			label: 'Cancel alerts',
+			description: 'Cancel an alert, which then never comes',
+			risk: 'medium',
+			requires: 'readAlerts',
+		},
+	],
+	collections: [
+		{
+			id: 'threads',
+			name: 'Threads',
+			singular: 'thread',
+			titleField: 'title',
+			summaryField: 'summary',
+			filterField: 'standing',
+			openIn: 'Chat',
+			read: 'readThreads',
+			writes: {},
+			searchHint: 'Matches the words in the title or the summary, in any case.',
+			fields: [
+				{key: 'title', label: 'Title', type: 'text', system: true},
+				{key: 'agent', label: 'Agent', type: 'text', system: true},
+				{
+					key: 'standing',
+					label: 'Standing',
+					type: 'select',
+					options: Object.values(CHAT_STANDINGS),
+					system: true,
+				},
+				{key: 'summary', label: 'Summary', type: 'longtext', system: true},
+				{key: 'lastMessageAt', label: 'Last message', type: 'datetime', system: true},
+				{key: 'messages', label: 'Messages', type: 'longtext', system: true},
+			],
+		},
+		{
+			id: 'alerts',
+			name: 'Alerts',
+			singular: 'alert',
+			titleField: 'title',
+			summaryField: 'comes',
+			openIn: 'Chat',
+			read: 'readAlerts',
+			writes: {delete: 'cancelAlerts'},
+			fields: [
+				{key: 'title', label: 'Title', type: 'text', system: true},
+				{key: 'comes', label: 'Comes', type: 'text', system: true},
+				{key: 'note', label: 'Note', type: 'longtext', system: true},
+				{key: 'thread', label: 'Thread', type: 'text', system: true},
+				{key: 'agent', label: 'Agent', type: 'text', system: true},
+			],
+		},
+	],
+};
+
+/**
+ * What the organization's built-in agent, which the Chat page's personas act through, may do with
+ * a member's Chat by default: everything. Any other agent starts with nothing, since a thread may
+ * say what came from a connection that agent was never given.
+ */
+export const CHAT_BUILT_IN_ACTIONS: string[] = chat.actions.map((action) => action.id);
+
 export const INTEGRATIONS: Integration[] = [
 	vault,
 	email,
@@ -2129,6 +2224,7 @@ export const INTEGRATIONS: Integration[] = [
 	mysql,
 	sandbox,
 	files,
+	chat,
 	mcp,
 ];
 

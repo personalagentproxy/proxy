@@ -45,11 +45,10 @@ describe('isShownImage', () => {
 });
 
 describe('chatFolder', () => {
-	test('is the persona’s folder under Chats, and a sub-agent’s title’s in it, each as a folder may be named', () => {
-		expect(chatFolder('Coding Agent', null)).toBe('Chats/Coding Agent');
-		expect(chatFolder('Coding Agent', 'Show all active tasks in sidebar')).toBe('Chats/Coding Agent/Show all active tasks in sidebar');
-		expect(chatFolder('R&D / Ops', 'Q3 a/b test')).toBe('Chats/R&D   Ops/Q3 a b test');
-		// What can't be a folder's name: the persona's is Agent, as for what the person attaches; a title's is left out.
-		expect(chatFolder('..', '  ')).toBe('Chats/Agent');
+	test('is the persona’s folder under Chats, as a folder may be named', () => {
+		expect(chatFolder('Coding Agent')).toBe('Chats/Coding Agent');
+		expect(chatFolder('R&D / Ops')).toBe('Chats/R&D   Ops');
+		// What can't be a folder's name is Agent, as for what the person attaches.
+		expect(chatFolder('..')).toBe('Chats/Agent');
 	});
 });

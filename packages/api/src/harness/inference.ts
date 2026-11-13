@@ -5,7 +5,7 @@ import {ApiErr, type ApiError, Do, requirePresent, semaphore, type Semaphore} fr
 import {CALL_INTERRUPTED, type HarnessSession, OUTCOME_UNKNOWN, pendingToolCalls, type ToolCall} from '@proxy/utils/harness';
 import type {EntryAttachment} from '@proxy/utils/harness-context';
 import type {SignedInAgent} from '@proxy/db/agent';
-import type {AssistantTurn, EntryRow, JobRow, NewTurnEntry, RanOn, SubAgentRow, ThreadRow, ThreadSession} from '@proxy/db/harness';
+import type {AssistantTurn, EntryRow, JobRow, NewTurnEntry, RanOn, ThreadRow, ThreadSession} from '@proxy/db/harness';
 
 import {chosenFor, type ClaudeCredentials, type HarnessChoice, type Harnesses, harnessFor, needsCredential, offeredTo, RECONNECT_CLAUDE} from '../backends/harness';
 import {agentInstructions, SCRIPT_TOOL} from '../mcp/tools';
@@ -13,7 +13,7 @@ import {chatFolder} from '../native/files/names';
 import {log, serializeError} from '../observability/log';
 import {alertsParagraph} from './alerts';
 import {picturesOf, withAttached} from './attachments';
-import {afterAnswer, failureNote, jobLost, planCalls} from './conversation';
+import {afterAnswer, jobLost, planCalls} from './thread-rules';
 import type {HarnessStore} from './store';
 import {type ToolSurfaceStore, toolSurfaceFor} from './tool-surface';
 
@@ -28,35 +28,34 @@ import {type ToolSurfaceStore, toolSurfaceFor} from './tool-surface';
  * assistant entry then, the result after it, so the log reads in order and a worker that dies
  * mid-turn leaves what was done; the first such entry carries the system prompt. What is left as
  * the turn is done, the model's last words and the calls it left open, goes in with the job's
- * end, each open call planned (conversation.ts planCall): a tool job, due now or, for a sleep,
- * when the sleep ends; or an answer at once, which is what starting a sub-agent gets, with its id,
- * a message to one, with what it was up to, a message to the agent a sub-agent works for, and a
- * call with arguments that are no good. A harness that keeps a session between turns leaves it on
- * the thread then, with its id, and is given it back only while the thread's turns are its: a
- * thread that moved to another harness, its persona switched to it, starts there without one, on
- * the log. A turn that failed and is worth trying again, the model out of reach,
- * is tried again a few times, then the person is told; a credential the model turned down is noted
- * on the member's account, for the Account page to say so, and the person is told to connect
- * again; a member's account at its plan's limit is told them, with when it resets, and not tried
- * again; any other failure fails the job, which tells them too (conversation.ts failureNote). A
- * turn runs for minutes on a harness that takes many steps, so what is timed within it, a sleep,
- * an alert, a retry, is timed by the clock as it is then, not as the job began. What the model's provider says of the member's plan as a turn
- * on their credential runs is kept on their account too, for the card, as best it can be: a
- * failure to keep it is logged, and the turn goes on. A sub-agent's answer with no calls goes to the agent it works for, and stops its
- * work for now, unless a message came while it answered. An answer of nothing, no words and no
- * calls, is written as that said: the person would otherwise see nothing, and the model refuses a
- * log with an empty turn in it. The harness and the model are the thread's persona's, read at each
- * turn, a sub-agent's the persona's it works as (backends/harness.ts), and each answer is written
- * with the two it ran on. An answer of the agent talking with the person is written with the files it shows them,
- * pictures among its words that link to files the agent may read, each at the version it holds
- * then (native/files/chat.ts), as best they can be read: one that can't is left a link, and the
- * answer is written all the same. The answer is written with the system prompt the model was sent, which is built
- * from the login's grants as they are then and, for the agent talking with the person, its
- * sub-agents as they are then, so that what the model read can be told later; the rest of the
- * request is rebuilt from the log. The agent talking with the person is told the alerts set in the
- * conversation too, by id, so it can cancel one. A wake job, the wake-up after a sleep the harness
- * answered itself, is run the same way, the harness told it was woken. Without a harness for the
- * thread, as a server without an OpenRouter key has none, the person is told so.
+ * end, each open call planned (thread-rules.ts planCall): a tool job, due now or, for a sleep,
+ * when the sleep ends; or an answer at once, which is what a message to the person gets, and a
+ * call with arguments that are no good. An answer with no calls ends the thread's turn, its task
+ * finished, and tells nobody else: the member reads it in the thread. A harness that keeps a
+ * session between turns leaves it on the thread then, with its id, and is given it back only while
+ * the thread's turns are its: a thread that moved to another harness, its persona switched to it,
+ * starts there without one, on the log. A turn that failed and is worth trying again, the model
+ * out of reach, is tried again a few times, then the person is told; a credential the model turned
+ * down is noted on the member's account, for the Account page to say so, and the person is told to
+ * connect again; a member's account at its plan's limit is told them, with when it resets, and
+ * not tried again; any other failure fails the job, which tells them too (thread-rules.ts
+ * failureNote). A turn runs for minutes on a harness that takes many steps, so what is timed
+ * within it, a sleep, an alert, a retry, is timed by the clock as it is then, not as the job
+ * began. What the model's provider says of the member's plan as a turn on their credential runs is
+ * kept on their account too, for the card, as best it can be: a failure to keep it is logged, and
+ * the turn goes on. An answer of nothing, no words and no calls, is written as that said: the
+ * person would otherwise see nothing, and the model refuses a log with an empty turn in it; but
+ * one to an alert that came, rather than to the person, may pass in silence. The
+ * harness and the model are the thread's persona's, read at each turn, and each answer is written
+ * with the two it ran on, and with the files it shows the person, pictures among its words that
+ * link to files the agent may read, each at the version it holds then (native/files/chat.ts), as
+ * best they can be read: one that can't is left a link, and the answer is written all the same.
+ * The answer is written with the system prompt the model was sent, which is built from the login's
+ * grants as they are then and the alerts set in the thread, by id, so it can cancel one, so that
+ * what the model read can be told later; the rest of the request is rebuilt from the log. A wake
+ * job, the wake-up after a sleep the harness answered itself, is run the same way, the harness
+ * told it was woken. Without a harness for the thread, as a server without an OpenRouter key has
+ * none, the person is told so.
  *
  * A turn tried again, the worker that ran it before having died, may find the log's last answer
  * with calls still open: a harness that runs its tools itself wrote the step and died before the
@@ -76,10 +75,8 @@ export type InferenceStore = Pick<
 	| 'getPersonaName'
 	| 'listEntries'
 	| 'listAttachments'
-	| 'listSubAgents'
-	| 'listThreadAlerts'
+	| 'listMemberAlerts'
 	| 'finishJob'
-	| 'failJob'
 	| 'requeueJob'
 	| 'appendSummary'
 	| 'appendTurnEntries'
@@ -87,21 +84,14 @@ export type InferenceStore = Pick<
 > &
 	ToolSurfaceStore;
 
-// How the agent talking with the person is to go about it: it does nothing itself, and hands
-// every piece of work to a sub-agent, which it can go on talking with, and which the person can
-// open as a task, read and write to themselves.
-const MAIN_FLOW =
-	'You are chatting with the person on Personal Agent Proxy’s Chat page. Answer in short Markdown: sentences, a list or table where clearer, no headings. To show the person a picture, such as a chart or a screenshot, have it put in a drive and write it as a Markdown image of its Link: ![what it shows](Link); a picture anywhere else is shown as a link only. You can’t reach their accounts yourself: sub-agents do it for you, so the pap calls these instructions name go in a sub-agent’s brief. Give one question to one sub-agent, even across accounts; start several only for separate, sizeable jobs. Start a new sub-agent for each new request from the person. Message one already started only when what the person says is about its work: a follow-up on what it found, an answer to its question, an update, or a change to what it is doing. While sub-agents work, tell the person in a few words what you are looking into, and stop. Never mention sub-agents, briefs or messages: to the person, you do the work. When a sub-agent’s message needs no word to the person yet, as while others are still at work, answer with nothing. The person sees each sub-agent as a task they can open, read and write to: what they wrote to one comes to you as a note, and its answer as its messages do; they saw that answer, so don’t repeat it, and answer with nothing unless there is something to add. For something at a time, or something new in their accounts, set an alert rather than a sub-agent. Don’t mention summaries of the conversation.';
+// How a thread's agent is to go about it: the member's message opened the thread and their replies
+// come into it, and it works on that piece of work itself, answering them there.
+const THREAD_FLOW =
+	'You are talking with the person in a thread on Personal Agent Proxy’s Chat page. Their message opened this thread, and their replies come into it. Each new request of theirs gets a thread of its own, so this one is about one piece of work. Answer in short Markdown: sentences, a list or table where clearer, no headings. To show the person a picture, such as a chart or a screenshot, have it put in a drive and write it as a Markdown image of its Link: ![what it shows](Link); a picture anywhere else is shown as a link only. Work in scripts; check pap.tools before using a tool you haven’t used. Your task is kept for you. For something at a time, or something new in their accounts, set an alert. To ask something you can’t go on without, answer with the question and no tool call. An answer without a tool call ends your turn: say what you did and found, with the names, ids, dates and numbers that matter, and what you couldn’t do. Don’t mention summaries of the conversation.';
 
-// How a sub-agent is to go about it: a brief, its tools, messages to and from the agent it works
-// for, and an answer when it stops.
-const SUB_FLOW =
-	'You are a sub-agent of the Chat agent of Personal Agent Proxy. Your brief and later messages come from that agent, except those marked as the person’s own: the person can open your chat, see what you answer and the agent’s messages, and write to you there. Work in scripts; check pap.tools before using a tool you haven’t used. Your task is kept for you. To ask something you can’t go on without, answer with the question and no tool call. Your first answer without a tool call is handed to the agent and stops you: say what you did and found, with the names, ids, dates and numbers that matter, and what you couldn’t do. A later message takes you up again with this log.';
-
-// How many answers the model may give in a row without the person saying anything, calls,
-// sub-agents' messages and wake-ups included, before it stops and waits for them; a message that
-// comes after the stop is acted on, and the count starts over. For a sub-agent, the person is the
-// agent it works for, whose messages are what it hears.
+// How many answers the model may give in a row without the person saying anything, calls, alerts
+// and wake-ups included, before it stops and waits for them; a reply that comes after the stop is
+// acted on, and the count starts over.
 const MAX_TURNS_ALONE = 30;
 
 // How often a model that can't be reached is tried, and how long to wait between tries.
@@ -123,15 +113,13 @@ function limitReached(resetsAt: Date | null): string {
 	return `Your Claude account has reached its limit for now${resets}. Say something to try again after that.`;
 }
 const TOO_LONG = `I have taken ${MAX_TURNS_ALONE} steps without hearing from you, so I have stopped. Tell me to go on if you want me to.`;
-const TOO_LONG_SUB = `I took ${MAX_TURNS_ALONE} steps without hearing from you, so I stopped. This is not a complete answer: tell me to go on if you want me to.`;
 const NOTHING = 'I had nothing to say to that. Say something to go on.';
-const NOTHING_SUB = 'I stopped without saying anything.';
 
 // Whether the answer is the model stopping for the person, at the cap: the count starts over
-// from it, so a sub-agent's message that comes after the stop is acted on rather than answered
-// with the stop again, once per message.
+// from it, so an alert that comes after the stop is acted on rather than answered with the stop
+// again, once per alert.
 function isStop(entry: EntryRow): boolean {
-	return entry.kind === 'assistant' && (entry.text === TOO_LONG || entry.text === TOO_LONG_SUB);
+	return entry.kind === 'assistant' && entry.text === TOO_LONG;
 }
 
 // How many answers the model has given since the person last spoke, or since it last stopped for
@@ -160,15 +148,12 @@ type TurnOutcome =
 	  }
 	| {kind: 'failed'; error: ApiError; retry: boolean; limitReached?: {resetsAt: Date | null}};
 
-// The answer as it goes in the log: an answer of nothing says so, but for the agent talking with
-// the person woken by a sub-agent's message or an alert rather than by them, which may let it pass
-// in silence; the page shows no answer without words, and the model doesn't read it again.
-function said(thread: ThreadRow, entries: EntryRow[], turn: {text: string; toolCalls: ToolCall[]}): string {
+// The answer as it goes in the log: an answer of nothing says so, but for one to an alert that came
+// rather than to the person, which the agent may let pass in silence; the page shows no answer
+// without words, and the model doesn't read it again.
+function said(entries: EntryRow[], turn: {text: string; toolCalls: ToolCall[]}): string {
 	if (turn.text.trim() !== '' || turn.toolCalls.length > 0) {
 		return turn.text;
-	}
-	if (thread.parentThreadId !== null) {
-		return NOTHING_SUB;
 	}
 	if (entries.findLast((entry) => entry.kind === 'person' || entry.kind === 'event')?.kind === 'event') {
 		return '';
@@ -177,53 +162,15 @@ function said(thread: ThreadRow, entries: EntryRow[], turn: {text: string; toolC
 }
 
 // Answers the person with `text` alone, as the model would, when the model can't be run: no
-// prompt was built. A job no longer the worker's is a conflict.
-function answerWith(store: InferenceStore, job: JobRow, workerId: string, thread: ThreadRow, text: string): Promise<Result<void, ApiError>> {
+// prompt was built, and the thread's turn ends with it. A job no longer the worker's is a
+// conflict.
+function answerWith(store: InferenceStore, job: JobRow, workerId: string, text: string): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
 		const turn: AssistantTurn = {text, toolCalls: [], inputTokens: 0, outputTokens: 0, system: null};
-		if (!$(await store.completeInference(job.id, workerId, job.threadId, turn, afterAnswer(thread, turn, {})))) {
+		if (!$(await store.completeInference(job.id, workerId, job.threadId, turn, afterAnswer(turn, {})))) {
 			return $(Err(jobLost()));
 		}
 	});
-}
-
-// Tells of a turn that can't be run, with `why`: the person is answered with it; a sub-agent's
-// job fails with it, and the sub-agent stops with it as an error, as a turn that failed does
-// (conversation.ts failureNote), so the agent it works for isn't left waiting.
-function answerFailure(store: InferenceStore, job: JobRow, workerId: string, thread: ThreadRow, why: string): Promise<Result<void, ApiError>> {
-	if (thread.parentThreadId === null) {
-		return answerWith(store, job, workerId, thread, why);
-	}
-	return Do(async ($) => {
-		if (!$(await store.failJob(job.id, workerId, why, failureNote(why)))) {
-			return $(Err(jobLost()));
-		}
-	});
-}
-
-// A sub-agent as the roster has it: its id, its title, and what it is up to.
-function rosterLine(subAgent: SubAgentRow): string {
-	const doing = subAgent.state.kind === 'working' ? 'at work' : subAgent.state.kind === 'asleep' ? `asleep until ${subAgent.state.until.toISOString()}` : 'stopped';
-	return `- ${subAgent.id}: “${subAgent.title ?? ''}”, ${doing}`;
-}
-
-// How many of the sub-agents that have stopped the roster lists, the latest: a long conversation
-// starts more than its prompt should carry, and those at work or asleep are listed whatever their
-// number.
-const MAX_STOPPED_LISTED = 10;
-
-// The main agent's sub-agents, for its system prompt: what it has started, by id, and what each
-// is doing now, which a summary of the conversation might have lost; of those that have stopped,
-// the latest, with how many older ones there are.
-function roster(subAgents: SubAgentRow[]): string {
-	if (subAgents.length === 0) {
-		return 'No sub-agents yet.';
-	}
-	const stopped = subAgents.filter((subAgent) => subAgent.state.kind === 'stopped');
-	const unlisted = new Set(stopped.slice(0, -MAX_STOPPED_LISTED).map((subAgent) => subAgent.id));
-	const listed = subAgents.filter((subAgent) => !unlisted.has(subAgent.id)).map(rosterLine);
-	const older = unlisted.size === 0 ? [] : [`- ${unlisted.size} older stopped ones, not listed`];
-	return `Sub-agents:\n${[...older, ...listed].join('\n')}`;
 }
 
 // Why the model couldn't be reached, for the job's record.
@@ -233,17 +180,16 @@ function unreachable(failure: ApiError): string {
 }
 
 // The system prompt: the instructions any agent with the login gets, for the agent as it acts in
-// the thread, as the member whose conversation it is, how to go about it on this thread, and, for
-// the agent talking with the person, its sub-agents and the alerts set in the conversation. What the
-// agent makes goes beside what the person attached: in the persona's folder, a sub-agent's in one
-// of its title's there, a title being kept as the sub-agent was started.
-function systemPrompt(store: InferenceStore, thread: ThreadRow, signedIn: SignedInAgent, subAgents: SubAgentRow[], now: Date): Promise<Result<string, ApiError>> {
+// the thread, as the member whose chat it is of, how to go about it on a thread, and the member's
+// alerts, whichever of their threads each was set in. What the agent makes goes beside what the person attached, in the persona's
+// folder.
+function systemPrompt(store: InferenceStore, thread: ThreadRow, signedIn: SignedInAgent, now: Date): Promise<Result<string, ApiError>> {
 	return Do(async ($) => {
 		const persona = $(await store.getPersonaName(thread));
-		const folder = persona === null ? undefined : chatFolder(persona, thread.parentThreadId === null ? null : thread.title);
-		const instructions = $(await agentInstructions(signedIn, thread.parentThreadId === null ? MAIN_FLOW : SUB_FLOW, folder));
-		const about = thread.parentThreadId === null ? [roster(subAgents), alertsParagraph($(await store.listThreadAlerts(thread.id)))] : [];
-		return [instructions, ...about, `The time now is ${now.toISOString()}.`].join('\n\n');
+		const folder = persona === null ? undefined : chatFolder(persona);
+		const instructions = $(await agentInstructions(signedIn, THREAD_FLOW, folder));
+		const alerts = alertsParagraph($(await store.listMemberAlerts(thread.orgId, thread.userId)), thread.id);
+		return [instructions, alerts, `The time now is ${now.toISOString()}.`].join('\n\n');
 	});
 }
 
@@ -255,13 +201,12 @@ type Pin = (text: string) => Promise<EntryAttachment[]>;
 
 const PINS_NOTHING: Pin = async () => [];
 
-// The files the answers of the agent talking with the person show them, read as the agent acts for
-// them; a sub-agent's answers are for the agent it works for, and show the person nothing. What
-// can't be read is logged, and the answer goes without them: the model has answered, and a turn
-// run again for a picture would answer anew.
+// The files the thread's answers show the person, read as the agent acts for them. What can't be
+// read is logged, and the answer goes without them: the model has answered, and a turn run again
+// for a picture would answer anew.
 function pinFor(harnesses: Harnesses, thread: ThreadRow, signedIn: SignedInAgent): Pin {
 	const {pinned} = harnesses;
-	if (pinned === undefined || thread.parentThreadId !== null) {
+	if (pinned === undefined) {
 		return PINS_NOTHING;
 	}
 	return async (text) => {
@@ -403,9 +348,8 @@ function usageSink(credentials: ClaudeCredentials, choice: HarnessChoice, thread
 // The harness's turn on the log, with the system prompt built for it as the turn starts, within
 // the harness's cap, and the credential the harness was chosen with, if any. The session is the
 // thread's where the harness is the one that kept it, and none where the thread's last turn was
-// another's. The thread's sub-agents are read once, for the prompt and for whose each message in
-// the log is; a sub-agent's thread has none. The signal is never aborted: stopping the worker lets
-// the turns under way finish, as it always has.
+// another's. The signal is never aborted: stopping the worker lets the turns under way finish, as
+// it always has.
 function askOnLog(
 	store: InferenceStore,
 	harnesses: Harnesses,
@@ -421,11 +365,9 @@ function askOnLog(
 		Do(async ($) => {
 			const {credentials, picture} = harnesses;
 			const now = clock();
-			const subAgents = thread.parentThreadId === null ? $(await store.listSubAgents(thread.id, now)) : [];
 			const signedIn = $(requirePresent($(await store.getThreadAgent(thread)), ApiErr.notFound('agent', thread.agentId)));
-			const system = $(await systemPrompt(store, thread, signedIn, subAgents, now));
-			// What the person attached is read with what they said: in the conversation, and in a
-			// sub-agent's thread what they wrote in its chat, its brief being the agent's own words.
+			const system = $(await systemPrompt(store, thread, signedIn, now));
+			// What the person attached is read with what they said.
 			const attached = $(await store.listAttachments(thread.id));
 			// A model that sees pictures is given those of the person's last turns beside their words.
 			const sees = choice.harness.models.some((model) => model.id === choice.model && model.images === true);
@@ -437,12 +379,11 @@ function askOnLog(
 					workerId,
 					{system, ranOn: {harness: choice.harness.id, model: choice.model}},
 					choice.harness.turn({
-						thread: {id: thread.id, parentThreadId: thread.parentThreadId},
+						thread: {id: thread.id},
 						job: job.id,
 						...(choice.auth === null ? {} : {auth: choice.auth}),
 						session: thread.harness === choice.harness.id ? thread.harnessSession : null,
 						entries: withAttached(entries, attached, pictures),
-						subAgents,
 						woken,
 						system,
 						tools: toolSurfaceFor(store, thread, job, workerId, clock),
@@ -459,7 +400,7 @@ function askOnLog(
 }
 
 // Writes what the turn ended with: its last step, said, and what follows it, each open call as
-// planned; a sub-agent's last step without calls stops it. A turn that wrote to the log as it
+// planned; a last step without calls ends the thread's turn. A turn that wrote to the log as it
 // went and has nothing left, as one ends that answered a sleep, writes no entry more. The session
 // goes on the thread where the harness kept one, or the thread records a harness already, whose
 // session is then no longer the thread's, so a harness that keeps nothing writes nothing on a
@@ -477,12 +418,12 @@ function writeBack(
 	return Do(async ($) => {
 		const {harness} = choice;
 		const session: ThreadSession | undefined = outcome.session !== null || thread.harness !== null ? {harness: harness.id, session: outcome.session} : undefined;
-		const plans = planCalls(thread, outcome.open, now);
+		const plans = planCalls(outcome.open, now);
 		const nothingLeft = outcome.wroteInline && outcome.text.trim() === '' && outcome.toolCalls.length === 0;
 		const turn: AssistantTurn | null = nothingLeft
 			? null
 			: {
-					text: said(thread, entries, outcome),
+					text: said(entries, outcome),
 					...(outcome.attachments.length === 0 ? {} : {attachments: outcome.attachments}),
 					toolCalls: outcome.toolCalls,
 					inputTokens: outcome.inputTokens,
@@ -490,7 +431,7 @@ function writeBack(
 					system: outcome.system,
 					ranOn: {harness: harness.id, model: choice.model},
 				};
-		const after = turn === null ? {plans} : afterAnswer(thread, turn, plans);
+		const after = turn === null ? {plans} : afterAnswer(turn, plans);
 		if (!$(await store.completeInference(job.id, workerId, job.threadId, turn, after, ...(session === undefined ? [] : [session])))) {
 			return $(Err(jobLost()));
 		}
@@ -564,12 +505,12 @@ export function runInference(store: InferenceStore, harnesses: Harnesses, job: J
 		}
 		const entries = $(await readyLog(store, job, workerId, thread));
 		if (turnsAlone(entries) >= MAX_TURNS_ALONE) {
-			$(await answerWith(store, job, workerId, thread, thread.parentThreadId === null ? TOO_LONG : TOO_LONG_SUB));
+			$(await answerWith(store, job, workerId, TOO_LONG));
 			return;
 		}
 		const choice = $(await chooseHarness(store, harnesses, thread));
 		if (choice.harness === null) {
-			$(await answerFailure(store, job, workerId, thread, choice.why));
+			$(await answerWith(store, job, workerId, choice.why));
 			return;
 		}
 		const outcome = $(await askOnLog(store, harnesses, choice, job, workerId, thread, entries, woken, clock));
@@ -579,12 +520,12 @@ export function runInference(store: InferenceStore, harnesses: Harnesses, job: J
 			if (marked.isErr()) {
 				log.warn('The model turned the member’s Claude credential down, which could not be noted on their account', {userId: thread.userId, ...serializeError(marked.error)});
 			}
-			$(await answerFailure(store, job, workerId, thread, RECONNECT_CLAUDE));
+			$(await answerWith(store, job, workerId, RECONNECT_CLAUDE));
 			return;
 		}
 		if (outcome.kind === 'failed' && outcome.limitReached) {
 			log.warn('The model’s provider takes no more from the member’s account for now', {userId: thread.userId, resetsAt: outcome.limitReached.resetsAt?.toISOString() ?? null});
-			$(await answerFailure(store, job, workerId, thread, limitReached(outcome.limitReached.resetsAt)));
+			$(await answerWith(store, job, workerId, limitReached(outcome.limitReached.resetsAt)));
 			return;
 		}
 		if (outcome.kind === 'failed' && !outcome.retry) {
@@ -596,7 +537,7 @@ export function runInference(store: InferenceStore, harnesses: Harnesses, job: J
 				$(await store.requeueJob(job.id, workerId, thread.id, new Date(clock().getTime() + RETRY_MS * job.attempts), unreachable(outcome.error)));
 				return;
 			}
-			$(await answerWith(store, job, workerId, thread, UNREACHABLE));
+			$(await answerWith(store, job, workerId, UNREACHABLE));
 			return;
 		}
 		$(await writeBack(store, job, workerId, thread, entries, choice, outcome, clock()));

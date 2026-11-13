@@ -99,21 +99,27 @@ async function answer(path: string, method: string): Promise<Response> {
 		return Response.json({fields: await fields, ms: 1});
 	}
 	if (path.endsWith('/chat/personas') && method === 'GET') {
-		return Response.json({personas, pinnedTasks: [], workingTasks: [], harnesses: []});
+		return Response.json({personas, harnesses: []});
 	}
 	if (path.endsWith('/chat/personas') && method === 'POST') {
 		return Response.json({persona: persona('made', 'Stretch reminders', false)});
 	}
-	if (path.endsWith('/messages')) {
+	if (path.endsWith('/threads')) {
 		await messageSent;
 		return Response.json({
-			entry: {
-				id: 'e1',
-				kind: 'person',
-				text: '',
-				isError: false,
-				at: '2026-10-20T10:00:00Z',
-				attachments: [],
+			thread: {
+				id: 't1',
+				title: 'Plan my trip',
+				state: {kind: 'working'},
+				standing: 'in_progress',
+				standingPending: false,
+				opener: {kind: 'person', text: '', attachments: []},
+				summary: null,
+				latest: null,
+				latestEntryId: null,
+				latestAnswerId: null,
+				messageCount: 1,
+				lastMessageAt: '2026-10-20T10:00:00Z',
 			},
 		});
 	}
@@ -143,7 +149,7 @@ beforeEach(() => {
 		if (holdsConnections && input.endsWith('/connections')) {
 			return new Promise<Response>(() => undefined);
 		}
-		if (refusesMessages && input.endsWith('/messages')) {
+		if (refusesMessages && input.endsWith('/threads')) {
 			return Response.json({error: 'unavailable', message: 'Try again later.'}, {status: 503});
 		}
 		return answer(input, method);
@@ -359,7 +365,7 @@ describe('the command bar over any page', () => {
 		fireEvent.keyDown(input, {key: 'Enter'});
 
 		await arrivedAt('/acme/chat/general');
-		expect(posts('/chat/personas/general/messages').map((one) => one.body)).toEqual([
+		expect(posts('/chat/personas/general/threads').map((one) => one.body)).toEqual([
 			{text: 'plan my trip to Lisbon in March', attachments: []},
 		]);
 		expect(barIsOpen()).toBe(false);
@@ -375,7 +381,7 @@ describe('the command bar over any page', () => {
 		fireEvent.click(within(card).getByRole('button', {name: 'Send'}));
 
 		await arrivedAt('/acme/chat/finance');
-		expect(posts('/chat/personas/finance/messages')).toHaveLength(1);
+		expect(posts('/chat/personas/finance/threads')).toHaveLength(1);
 	});
 
 	test('an agent picked for one message is not kept for a text said to another by name', async () => {
@@ -403,8 +409,8 @@ describe('the command bar over any page', () => {
 		fireEvent.keyDown(input, {key: 'Enter'});
 
 		await arrivedAt('/acme/chat/general');
-		expect(posts('/messages').map((one) => one.path)).toEqual([
-			'/api/orgs/acme/chat/personas/general/messages',
+		expect(posts('/threads').map((one) => one.path)).toEqual([
+			'/api/orgs/acme/chat/personas/general/threads',
 		]);
 	});
 
@@ -430,7 +436,7 @@ describe('the command bar over any page', () => {
 		expect(posts('/chat/personas').map((one) => one.body)).toMatchObject([
 			{name: 'Stretch reminders'},
 		]);
-		expect(posts('/chat/personas/general/messages')).toEqual([]);
+		expect(posts('/chat/personas/general/threads')).toEqual([]);
 	});
 
 	test('Enter pressed before the answer has come sends once it says no quick action does it, whole or not', async () => {
@@ -444,11 +450,11 @@ describe('the command bar over any page', () => {
 		fireEvent.change(input, {target: {value: 'hello there'}});
 		fireEvent.keyDown(input, {key: 'Enter'});
 		expect(await screen.findByRole('status', {name: 'Working it out'}, SOON)).toBeTruthy();
-		expect(posts('/messages')).toEqual([]);
+		expect(posts('/threads')).toEqual([]);
 		resolve({widget: 'incomplete'});
 
 		await arrivedAt('/acme/chat/general');
-		expect(posts('/chat/personas/general/messages').map((one) => one.body)).toEqual([
+		expect(posts('/chat/personas/general/threads').map((one) => one.body)).toEqual([
 			{text: 'hello there', attachments: []},
 		]);
 	});
@@ -483,7 +489,7 @@ describe('the command bar over any page', () => {
 		fireEvent.change(input, {target: {value: 'plan my trip to Lisbon in March'}});
 		await cardNamed('Send to an agent');
 		fireEvent.keyDown(input, {key: 'Enter'});
-		await waitFor(() => expect(posts('/messages')).toHaveLength(1));
+		await waitFor(() => expect(posts('/threads')).toHaveLength(1));
 		fireEvent.keyDown(input, {key: 'Escape'});
 		await waitFor(() => expect(barIsOpen()).toBe(false));
 		settle();
@@ -505,7 +511,7 @@ describe('the command bar over any page', () => {
 		fireEvent.keyDown(input, {key: 'Enter'});
 
 		await arrivedAt('/acme/chat/finance');
-		expect(posts('/chat/personas/finance/messages').map((one) => one.body)).toEqual([
+		expect(posts('/chat/personas/finance/threads').map((one) => one.body)).toEqual([
 			{text: 'what is on my calendar tomorrow', attachments: []},
 		]);
 		expect(posts('/intent')).toEqual([]);
@@ -534,7 +540,7 @@ describe('the command bar over any page', () => {
 
 		await arrivedAt('/acme/chat/made');
 		expect(posts('/chat/personas').map((one) => one.body)).toMatchObject([{name: 'Stretch'}]);
-		expect(posts('/chat/personas/made/messages').map((one) => one.body)).toEqual([
+		expect(posts('/chat/personas/made/threads').map((one) => one.body)).toEqual([
 			{text: 'Remind me to stretch every hour.', attachments: []},
 		]);
 	});
@@ -554,7 +560,7 @@ describe('the command bar over any page', () => {
 		await arrivedAt('/acme/chat/made');
 		expect(posts('/chat/personas').map((one) => one.body)).toMatchObject([{name: 'Finance watch'}]);
 		// With nothing to tell it yet, it is made and opened, and told nothing.
-		expect(posts('/messages')).toEqual([]);
+		expect(posts('/threads')).toEqual([]);
 	});
 
 	test('a message the api refuses stays in the bar, with why, to send again', async () => {
@@ -571,7 +577,7 @@ describe('the command bar over any page', () => {
 		refusesMessages = false;
 		fireEvent.keyDown(input, {key: 'Enter'});
 		await arrivedAt('/acme/chat/general');
-		expect(posts('/chat/personas/general/messages')).toHaveLength(2);
+		expect(posts('/chat/personas/general/threads')).toHaveLength(2);
 	});
 
 	test('a new agent whose first message the api refuses is made all the same, the message kept in its conversation as typed', async () => {
@@ -643,8 +649,8 @@ describe('the command bar over any page', () => {
 		fireEvent.keyDown(input, {key: 'Enter'});
 
 		await arrivedAt('/acme/chat/general');
-		expect(posts('/messages').map((one) => one.path)).toEqual([
-			'/api/orgs/acme/chat/personas/general/messages',
+		expect(posts('/threads').map((one) => one.path)).toEqual([
+			'/api/orgs/acme/chat/personas/general/threads',
 		]);
 	});
 

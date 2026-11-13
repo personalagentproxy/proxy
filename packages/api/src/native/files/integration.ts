@@ -3,7 +3,7 @@ import {readsAttached} from './attached';
 import {filesConnector} from './connector';
 import {runFilesCreate, runFilesMove, runFilesRead, runFilesRestore, runFilesTrash, runFilesUntrash, runFilesVersions, runFilesWrite} from './tools';
 
-/** Files, in Personal Agent Proxy itself: a drive's tree as records, read, and every write and every read of a version as tools of its own; a version the person attached to a conversation is read by its agents whatever their access. */
+/** Files, in Personal Agent Proxy itself: a drive's tree as records, read, and every write and every read of a version as tools of its own; a version the person attached in a thread is read by its agent whatever its access. */
 export const FILES_INTEGRATION: ApiIntegration = {
 	id: 'files',
 	connectors: {files: filesConnector},

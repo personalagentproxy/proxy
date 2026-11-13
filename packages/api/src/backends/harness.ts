@@ -15,8 +15,8 @@ import type {ClaudeCredential} from '../me/claude-credential';
  * Claude credential they connected on the Account page, and the api's own loop over OpenRouter, on
  * the server's key, where there is one and the organization has the `openrouter` experiment. The choice is
  * the persona's, made where it is made or changed, with the model it answers with, one of those
- * the harness lists; its sub-agents' turns go the same way. It is read anew for each turn, so a
- * persona switched to another harness moves every member's conversation with it from the next
+ * the harness lists. It is read anew for each turn, so a persona switched to another harness
+ * moves every member's chat with it, each of its threads, from the next
  * turn on: the log is the record on either, and a harness whose session the thread hasn't got is
  * given the log in its place. A harness the organization isn't offered, as the SDK harness on a
  * server that turned it off, or OpenRouter without the experiment, is read as the first it is,
@@ -71,8 +71,8 @@ export function authFor(credential: ClaudeCredential): HarnessAuth {
 	return {kind: 'api_key', key: credential.key};
 }
 
-// The Account page, where a member connects their Claude account, as a link in what the
-// conversation tells them, which the Chat page opens in place.
+// The Account page, where a member connects their Claude account, as a link in what the thread
+// tells them, which the Chat page opens in place.
 const ACCOUNT_PAGE = '[Account page](/account)';
 
 /** What the person is told where the persona runs on their own Claude account and they connected none. */

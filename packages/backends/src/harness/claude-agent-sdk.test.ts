@@ -12,7 +12,7 @@ import {Err, Ok} from 'ts-results-es';
 
 import {ApiErr} from '@proxy/utils';
 import {CALL_INTERRUPTED, OUTCOME_UNKNOWN} from '@proxy/utils/harness';
-import type {ContextEntry} from '@proxy/utils/harness-context';
+import {type ContextEntry, EVENT_LEAD} from '@proxy/utils/harness-context';
 
 import type {HarnessEntry, HarnessEvent, HarnessTurn} from './backend';
 import {claudeAgentSdkHarness, type ClaudeAgentSdkDeps, proxyToolServer, type SdkPrompt, type SdkQuery} from './claude-agent-sdk';
@@ -263,7 +263,6 @@ function entry(kind: ContextEntry['kind'], text: string, extra: Partial<Pick<Har
 		toolCalls: extra.toolCalls ?? null,
 		callId: extra.callId ?? null,
 		isError: extra.isError ?? false,
-		direct: false,
 		seq,
 		coversSeq: extra.coversSeq ?? null,
 		inputTokens: null,
@@ -278,12 +277,11 @@ const SINCE = 'That is where the record ends. What came since, for you to answer
 
 function turnInput(extra: Partial<HarnessTurn> = {}): HarnessTurn {
 	return {
-		thread: {id: 'thread-1', parentThreadId: null},
+		thread: {id: 'thread-1'},
 		job: 'job-1',
 		auth: {kind: 'api_key', key: 'test-key'},
 		session: null,
 		entries: [entry('person', 'Hi')],
-		subAgents: [],
 		woken: false,
 		system: 'You are a test.',
 		tools: fakeToolSurface(TOOLS),
@@ -416,13 +414,13 @@ describe('claudeAgentSdkHarness', () => {
 		const step = entry('assistant', 'Looking.', {
 			toolCalls: [
 				{id: 'c1', name: 'read', arguments: '{}'},
-				{id: 'c2', name: 'create_subagent', arguments: '{}'},
+				{id: 'c2', name: 'set_alert', arguments: '{}'},
 			],
 			jobId: 'job-0',
 		});
-		const started = entry('tool_result', 'Started sa1.', {callId: 'c2', jobId: 'job-0'});
+		const started = entry('tool_result', 'Set the alert.', {callId: 'c2', jobId: 'job-0'});
 		const refused = entry('tool_result', 'No such connection.', {callId: 'c1', isError: true, jobId: 'job-0'});
-		const said = entry('event', 'Found it.', {callId: 'c2', jobId: 'job-of-sa1'});
+		const said = entry('event', 'Found it.');
 		const summary = entry('summary', 'Earlier: hi.', {coversSeq: seen.seq});
 		const again = entry('person', 'And then?');
 
@@ -430,10 +428,9 @@ describe('claudeAgentSdkHarness', () => {
 			...turnInput(),
 			session: {id: 'sdk-session-9', state: {lastSeq: seen.seq, job: 'job-0'}},
 			entries: [seen, step, started, refused, said, summary, again],
-			subAgents: [{id: 'sa1', parentCallId: 'c2', title: 'Finder'}],
 		});
 
-		expect(fake.calls[0]?.prompt).toBe(['From the sub-agent “Finder” (sa1); not from the person.\n\nFound it.', 'And then?'].join('\n\n'));
+		expect(fake.calls[0]?.prompt).toBe([`${EVENT_LEAD}\n\nFound it.`, 'And then?'].join('\n\n'));
 		expect(fake.calls[0]?.options?.resume).toBe('sdk-session-9');
 		expect(events.at(-1)).toMatchObject({kind: 'done', session: {id: SESSION, state: {lastSeq: again.seq, job: 'job-1'}}});
 	});
@@ -498,9 +495,9 @@ describe('claudeAgentSdkHarness', () => {
 		const found = entry('assistant', 'Three invoices from Dana.', {jobId: 'job-a'});
 		const next = entry('person', 'File them');
 		const summary = entry('summary', 'The person asked for their invoices; three from Dana were found.', {coversSeq: found.seq});
-		const step = entry('assistant', 'Filing.', {toolCalls: [{id: 'c1', name: 'create_subagent', arguments: '{"title":"File"}'}], jobId: 'job-b'});
-		const started = entry('tool_result', 'Started sa1.', {callId: 'c1', jobId: 'job-b'});
-		const said = entry('event', 'Filed all three.', {callId: 'c1'});
+		const step = entry('assistant', 'Filing.', {toolCalls: [{id: 'c1', name: 'set_alert', arguments: '{"title":"File"}'}], jobId: 'job-b'});
+		const started = entry('tool_result', 'Set the alert.', {callId: 'c1', jobId: 'job-b'});
+		const said = entry('event', 'Filed all three.');
 		const again = entry('person', 'Thanks. Any from before October?');
 
 		await collect(fake, {
@@ -508,7 +505,6 @@ describe('claudeAgentSdkHarness', () => {
 			// A session that isn't this harness's own is none.
 			session: {id: 'other', state: null},
 			entries: [old, found, next, summary, step, started, said, again],
-			subAgents: [{id: 'sa1', parentCallId: 'c1', title: 'File'}],
 		});
 
 		expect(fake.calls[0]?.prompt).toBe(
@@ -516,10 +512,10 @@ describe('claudeAgentSdkHarness', () => {
 				RECORD,
 				'A summary of what came before; not from the person.\nThe person asked for their invoices; three from Dana were found.',
 				'Person:\nFile them',
-				'Agent:\nFiling.\nAgent called create_subagent with {"title":"File"}',
-				'create_subagent answered:\nStarted sa1.',
+				'Agent:\nFiling.\nAgent called set_alert with {"title":"File"}',
+				'set_alert answered:\nSet the alert.',
 				SINCE,
-				'From the sub-agent “File” (sa1); not from the person.\n\nFiled all three.',
+				`${EVENT_LEAD}\n\nFiled all three.`,
 				'Thanks. Any from before October?',
 			].join('\n\n'),
 		);
@@ -566,7 +562,7 @@ describe('claudeAgentSdkHarness', () => {
 		const sessionStore = memorySessionStore();
 
 		await collect(fake, {...turnInput(), model: 'opus'}, {sessionStore, pathToClaudeCodeExecutable: '/opt/claude'});
-		await collect(fake, {...turnInput(), model: 'glm-5', thread: {id: 'thread-2', parentThreadId: 'thread-1'}});
+		await collect(fake, {...turnInput(), model: 'glm-5', thread: {id: 'thread-2'}});
 
 		const options = fake.calls[0]?.options;
 		expect(options).toMatchObject({

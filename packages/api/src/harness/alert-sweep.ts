@@ -15,9 +15,9 @@ import type {HarnessStore} from './store';
 /**
  * The alerts' sweep, in each api instance: every minute it takes the timed alerts due and the polls
  * due, each moved on ten minutes as it is taken, so that one instance takes each. A timed alert
- * fires: what the agent noted lands in its conversation as the alert is deleted. A poll is looked
+ * fires: what the agent noted lands in its thread as the alert is deleted. A poll is looked
  * at once for every watch on it: its connector says what is new since where the last look left
- * off (`changes`), and what carries any of a watch's words lands in the watch's conversation,
+ * off (`changes`), and what carries any of a watch's words lands in the watch's thread,
  * after a check that the agent may still read the connection for the member whose watch it is,
  * all in the transaction that moves the poll's cursor on. Every turn is one transaction, so one
  * that fails, or is cut short as the instance stops, writes nothing; it is logged, and comes again
@@ -66,8 +66,8 @@ function mayStillRead(store: SweepStore, watch: AlertRow, poll: PollRow): Promis
 }
 
 // What each watch is told of the changes: those that carry its words, where its agent may still
-// read the connection; a check per conversation, since the watches set in one share the member
-// and the agent.
+// read the connection; a check per thread, since the watches set in one share the member and the
+// agent.
 function watchMatches(store: SweepStore, watches: AlertRow[], changes: Change[], poll: PollRow): Promise<Result<WatchMatch[], ApiError>> {
 	return Do(async ($) => {
 		const allowed = new Map<string, boolean>();

@@ -53,7 +53,7 @@ function taskRefusal(error: ApiError): ApiError {
 
 /**
  * The agent as it was signed in when the command was run. A shared agent acting for a member, as
- * the built-in agent does in a member's conversation (@proxy/db/harness getThreadAgent), reaches
+ * the built-in agent does in a member's chat (@proxy/db/harness getThreadAgent), reaches
  * their own connections beside the shared ones, so it is signed in as them again, while they are
  * still a member; an agent of a member's own is theirs alone, and one that has changed hands since
  * the token was given is refused.

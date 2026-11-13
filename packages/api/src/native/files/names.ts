@@ -74,7 +74,7 @@ const TYPES: Record<string, string> = {
 // A media type as a header may carry it: a type, a slash and a subtype, nothing a header ends at.
 const MEDIA_TYPE = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/;
 
-/** The folder at the top of a drive that the conversations' folders are in. */
+/** The folder at the top of a drive that the personas' folders are in. */
 export const CHATS_FOLDER = 'Chats';
 
 /** A name, such as a persona's, as a folder's: its slashes made spaces; null where it can't be one. */
@@ -84,13 +84,11 @@ export function asFolderName(name: string): string | null {
 }
 
 /**
- * Where a conversation's files are kept in the person's own drive, as a path: the persona's folder
- * under Chats, where what the person attaches goes, and in it, for a sub-agent, one of its title's.
+ * Where a chat's files are kept in the person's own drive, as a path: the persona's folder under
+ * Chats, where what the person attaches goes, and what its threads make.
  */
-export function chatFolder(persona: string, title: string | null): string {
-	const own = [CHATS_FOLDER, asFolderName(persona) ?? 'Agent'].join('/');
-	const task = title === null ? null : asFolderName(title);
-	return task === null ? own : `${own}/${task}`;
+export function chatFolder(persona: string): string {
+	return [CHATS_FOLDER, asFolderName(persona) ?? 'Agent'].join('/');
 }
 
 /** A name as it is kept, trimmed; a validation error for one that can't be a file's. */

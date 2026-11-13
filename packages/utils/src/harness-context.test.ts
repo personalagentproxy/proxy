@@ -5,6 +5,7 @@ import {
 	compactionCut,
 	type ContextEntry,
 	type AttachedFile,
+	EVENT_LEAD,
 	toMessages,
 	toTranscript,
 	withAttachments,
@@ -17,9 +18,7 @@ function entry(
 	seq: number,
 	kind: Kind,
 	text: string,
-	extra: Partial<
-		Pick<ContextEntry, 'toolCalls' | 'callId' | 'inputTokens' | 'coversSeq' | 'direct'>
-	> = {},
+	extra: Partial<Pick<ContextEntry, 'toolCalls' | 'callId' | 'inputTokens' | 'coversSeq'>> = {},
 ): ContextEntry {
 	return {
 		seq,
@@ -28,7 +27,6 @@ function entry(
 		toolCalls: extra.toolCalls ?? null,
 		callId: extra.callId ?? null,
 		isError: false,
-		direct: extra.direct ?? false,
 		inputTokens: extra.inputTokens ?? null,
 		coversSeq: extra.coversSeq ?? null,
 	};
@@ -63,16 +61,16 @@ describe('toMessages', () => {
 			entry(4, 'event', 'And one from Sam.', {callId: 'c2'}),
 		];
 
-		expect(toMessages(log, [], {clearOld: true}).map((message) => message.role)).toEqual([
+		expect(toMessages(log, {clearOld: true}).map((message) => message.role)).toEqual([
 			'user',
 			'user',
 			'user',
 		]);
-		expect(toTranscript(log, [])).not.toContain('Agent:');
+		expect(toTranscript(log)).not.toContain('Agent:');
 	});
 
 	test('gives the log in the chat form, as it is, where it has no summary', () => {
-		expect(toMessages(long.slice(0, 4), [], {clearOld: true})).toEqual([
+		expect(toMessages(long.slice(0, 4), {clearOld: true})).toEqual([
 			{role: 'user', content: 'One'},
 			{
 				role: 'assistant',
@@ -87,7 +85,7 @@ describe('toMessages', () => {
 	test('reads the last summary in place of what it covers, and clears the results of turns before the current one', () => {
 		const log = [...long, entry(12, 'summary', 'The person asked for one.', {coversSeq: 4})];
 
-		const messages = toMessages(log, [], {clearOld: true});
+		const messages = toMessages(log, {clearOld: true});
 
 		expect(messages[0]).toEqual({
 			role: 'user',
@@ -111,119 +109,47 @@ describe('toMessages', () => {
 			},
 			{role: 'tool', tool_call_id: 'c3', content: 'rows three'},
 		]);
-		expect(toMessages(log, [], {clearOld: false})[3]).toEqual({
+		expect(toMessages(log, {clearOld: false})[3]).toEqual({
 			role: 'tool',
 			tool_call_id: 'c2',
 			content: 'rows two',
 		});
 	});
 
-	test('reads what a sub-agent said as a message, led in with whose it is, by id, and clears old ones too', () => {
-		const delegated = entry(1, 'person', 'Find my invoices');
-		const call = entry(2, 'assistant', 'Looking.', {
-			toolCalls: [
-				{
-					id: 'd1',
-					name: 'create_subagent',
-					arguments: '{"title":"Find the invoices","brief":"Search the mailbox."}',
-				},
-			],
+	test('reads an alert that came as a message, led in as not the person’s, and clears old ones too', () => {
+		const asked = entry(1, 'person', 'Tell me when Dana’s invoice comes');
+		const call = entry(2, 'assistant', '', {
+			toolCalls: [{id: 'a1', name: 'set_alert', arguments: '{"title":"Invoice from Dana"}'}],
 			inputTokens: 10,
 		});
-		const started = entry(3, 'tool_result', 'Started, id sub-1.', {callId: 'd1'});
-		const report = entry(4, 'event', 'Three invoices from Dana.', {callId: 'd1'});
-		const failed = {
-			...entry(5, 'event', 'The sub-agent failed: boom', {callId: 'd1'}),
-			isError: true,
-		};
-		const subAgents = [{id: 'sub-1', parentCallId: 'd1', title: 'Find the invoices'}];
+		const set = entry(3, 'tool_result', 'Set the alert.', {callId: 'a1'});
+		const answer = entry(4, 'assistant', 'I will tell you.', {inputTokens: 10});
+		const came = entry(
+			5,
+			'event',
+			'The alert “Invoice from Dana” matched a new one of the emails.',
+		);
 
-		const messages = toMessages([delegated, call, started, report, failed], subAgents, {
-			clearOld: true,
-		});
+		const messages = toMessages([asked, call, set, answer, came], {clearOld: true});
 
-		expect(messages[3]).toEqual({
-			role: 'user',
-			content: expect.stringContaining(
-				'From the sub-agent “Find the invoices” (sub-1); not from the person.',
-			),
-		});
-		expect(String(messages[3]?.content)).toContain('Three invoices from Dana.');
 		expect(messages[4]).toEqual({
 			role: 'user',
-			content: expect.stringContaining(
-				'the sub-agent “Find the invoices” (sub-1) failed; not from the person.',
-			),
+			content: `${EVENT_LEAD}\n\nThe alert “Invoice from Dana” matched a new one of the emails.`,
 		});
 
 		const later = [
-			delegated,
+			asked,
 			call,
-			started,
-			report,
-			entry(6, 'assistant', 'Three invoices.', {inputTokens: 10}),
+			set,
+			answer,
+			came,
+			entry(6, 'assistant', 'It came.', {inputTokens: 10}),
 			entry(7, 'person', 'Thanks'),
-			entry(8, 'summary', 'Invoices were found.', {coversSeq: 1}),
+			entry(8, 'summary', 'An alert was set.', {coversSeq: 1}),
 		];
-		const cleared = toMessages(later, subAgents, {clearOld: true});
-		expect(String(cleared[3]?.content)).toContain('cleared');
-		expect(String(cleared[3]?.content)).not.toContain('Dana');
-	});
-
-	test('leads in what the person wrote in a sub-agent’s chat: in its thread as theirs, in the conversation as a note of which sub-agent they wrote to', () => {
-		const subAgents = [{id: 'sub-1', parentCallId: 'd1', title: 'Find flights'}];
-		const brief = entry(1, 'person', 'Find flights to Lisbon.');
-		const direct = entry(2, 'person', 'Only mornings.', {direct: true});
-		const note = entry(3, 'note', 'Only mornings.', {callId: 'd1'});
-		const stray = entry(4, 'note', 'Hello.', {callId: 'gone'});
-
-		const [fromAgent, fromPerson, noted, strayNote] = toMessages(
-			[brief, direct, note, stray],
-			subAgents,
-			{clearOld: false},
-		);
-
-		expect(fromAgent).toEqual({role: 'user', content: 'Find flights to Lisbon.'});
-		expect(fromPerson).toEqual({
-			role: 'user',
-			content: expect.stringMatching(
-				/^From the person themselves, written in your chat.*\n\nOnly mornings\.$/,
-			),
-		});
-		expect(noted).toEqual({
-			role: 'user',
-			content: expect.stringMatching(
-				/^The person wrote this to the sub-agent “Find flights” \(sub-1\) themselves.*\n\nOnly mornings\.$/,
-			),
-		});
-		expect(strayNote).toEqual({
-			role: 'user',
-			content: expect.stringContaining('to one of your sub-agents'),
-		});
-		expect(toTranscript([direct, note], subAgents)).toContain(
-			'Person:\nThe person wrote this to the sub-agent “Find flights” (sub-1)',
-		);
-	});
-
-	test('leads a message in by the call where no sub-agent was started by it', () => {
-		const call = entry(2, 'assistant', '', {
-			toolCalls: [{id: 'd1', name: 'create_subagent', arguments: '{"title":'}],
-			inputTokens: 10,
-		});
-		const messages = toMessages(
-			[
-				entry(1, 'person', 'Go'),
-				call,
-				entry(3, 'tool_result', 'Started.', {callId: 'd1'}),
-				entry(4, 'event', 'Done.', {callId: 'd1'}),
-			],
-			[],
-			{clearOld: true},
-		);
-		expect(messages[3]).toEqual({
-			role: 'user',
-			content: expect.stringContaining('From your call d1; not from the person.'),
-		});
+		const cleared = toMessages(later, {clearOld: true});
+		expect(String(cleared[4]?.content)).toContain('cleared');
+		expect(String(cleared[4]?.content)).not.toContain('matched');
 	});
 
 	test('with summaries on summaries, only the last counts', () => {
@@ -233,7 +159,7 @@ describe('toMessages', () => {
 			entry(13, 'summary', 'Second.', {coversSeq: 8}),
 		];
 
-		const messages = toMessages(log, [], {clearOld: true});
+		const messages = toMessages(log, {clearOld: true});
 
 		expect(String(messages[0]?.content)).toContain('Second.');
 		expect(messages).toHaveLength(4);
@@ -287,7 +213,7 @@ describe('compactionCut', () => {
 		expect(compactionCut(grown)).toBe(13);
 	});
 
-	test('covers a log with one turn of the person, a sub-agent’s brief, before the model’s last three steps', () => {
+	test('covers a log with one turn of the person, the message that opened the thread, before the model’s last three steps', () => {
 		const log = [
 			entry(1, 'person', 'Search the mailbox.'),
 			read(2, 'c1'),
@@ -312,37 +238,30 @@ describe('compactionCut', () => {
 });
 
 describe('toTranscript', () => {
-	test('writes the log out as text from its last summary on, the calls, their answers and the sub-agents’ messages with whose they are', () => {
-		const delegated = entry(1, 'person', 'Find my invoices');
-		const call = entry(2, 'assistant', 'Looking.', {
-			toolCalls: [
-				{
-					id: 'd1',
-					name: 'create_subagent',
-					arguments: '{"title":"Find the invoices","brief":"Search the mailbox."}',
-				},
-			],
+	test('writes the log out as text from its last summary on, the calls, their answers and the alerts that came', () => {
+		const asked = entry(1, 'person', 'Tell me when Dana’s invoice comes');
+		const call = entry(2, 'assistant', 'Watching.', {
+			toolCalls: [{id: 'a1', name: 'set_alert', arguments: '{"title":"Invoice from Dana"}'}],
 			inputTokens: 10,
 		});
-		const started = entry(3, 'tool_result', 'Started, id sub-1.', {callId: 'd1'});
-		const report = entry(4, 'event', 'Three invoices from Dana.', {callId: 'd1'});
+		const set = entry(3, 'tool_result', 'Set the alert.', {callId: 'a1'});
+		const came = entry(4, 'event', 'Three invoices from Dana.');
 		const failed = {...entry(5, 'tool_result', 'No such tool.', {callId: 'x9'}), isError: true};
-		const subAgents = [{id: 'sub-1', parentCallId: 'd1', title: 'Find the invoices'}];
 
-		expect(toTranscript([delegated, call, started, report, failed], subAgents)).toBe(
+		expect(toTranscript([asked, call, set, came, failed])).toBe(
 			[
-				'Person:\nFind my invoices',
-				'Agent:\nLooking.\nAgent called create_subagent with {"title":"Find the invoices","brief":"Search the mailbox."}',
-				'create_subagent answered:\nStarted, id sub-1.',
-				'From the sub-agent “Find the invoices” (sub-1); not from the person.\nThree invoices from Dana.',
+				'Person:\nTell me when Dana’s invoice comes',
+				'Agent:\nWatching.\nAgent called set_alert with {"title":"Invoice from Dana"}',
+				'set_alert answered:\nSet the alert.',
+				`${EVENT_LEAD}\nThree invoices from Dana.`,
 				'The call answered with an error:\nNo such tool.',
 			].join('\n\n'),
 		);
 
-		const transcript = toTranscript(
-			[...long, entry(12, 'summary', 'The person asked for one.', {coversSeq: 4})],
-			[],
-		);
+		const transcript = toTranscript([
+			...long,
+			entry(12, 'summary', 'The person asked for one.', {coversSeq: 4}),
+		]);
 		expect(transcript.startsWith('A summary of what came before')).toBe(true);
 		expect(transcript).toContain('The person asked for one.\n\nPerson:\nTwo');
 		expect(transcript).not.toContain('rows one');
@@ -381,7 +300,7 @@ describe('withAttachments', () => {
 
 		expect(read.split('\n\n')).toEqual([
 			'What do these say?',
-			'The person attached 2 files, kept in their drive. files_read {id, version} on its connection reads one whole, as a sub-agent can; in a sandbox, pap files pull <connection> --id <id> --version <version> brings one in as it is.',
+			'The person attached 2 files, kept in their drive. files_read {id, version} on its connection reads one whole; in a sandbox, pap files pull <connection> --id <id> --version <version> brings one in as it is.',
 			'pricing.md (text/markdown, 2 KB): connection drive-1, id file-1, version v1. Its text:\n"""\n# Pricing\n"""',
 			'long.txt (text/plain, 2 KB): connection drive-1, id file-2, version v1. The first of its text, files_read having the rest:\n"""\nThe first part\n"""',
 		]);
@@ -438,7 +357,7 @@ describe('withAttachments', () => {
 		]);
 
 		expect(read.split('\n\n')).toEqual([
-			'The person attached 2 files, kept in their drive. files_read {id, version} on its connection reads one whole, as a sub-agent can; in a sandbox, pap files pull <connection> --id <id> --version <version> brings one in as it is.',
+			'The person attached 2 files, kept in their drive. files_read {id, version} on its connection reads one whole; in a sandbox, pap files pull <connection> --id <id> --version <version> brings one in as it is.',
 			'archive.zip (application/zip, 2 KB): connection drive-1, id file-1, version v1. Not text, so nothing of it is here.',
 			'empty.txt (text/markdown, 2 KB): connection drive-1, id file-1, version v1. It is empty.',
 		]);
@@ -454,7 +373,6 @@ describe('toMessages with pictures', () => {
 
 		const messages = toMessages(
 			[said, entry(2, 'assistant', 'A chart.'), entry(3, 'person', 'Thanks')],
-			[],
 			{clearOld: false},
 		);
 

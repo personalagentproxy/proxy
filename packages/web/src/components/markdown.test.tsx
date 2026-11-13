@@ -64,6 +64,31 @@ describe('Markdown', () => {
 		expect(container.querySelector('img')).toBeNull();
 	});
 
+	test('opens a thread of the app’s Chat given by its whole address in place, as an agent hands one over, and any other page of the app as any address', async () => {
+		const origin = window.location.origin;
+		const router = createMemoryRouter(
+			[
+				{
+					path: '/:org/*',
+					element: (
+						<Markdown
+							text={`It is in [Pricing review](${origin}/acme/chat/persona-1/threads/thread-1), beside [the file](${origin}/acme/connections/drive-1?file=file-1); not [theirs](https://elsewhere.example.com/acme/chat/persona-1/threads/thread-1).`}
+						/>
+					),
+				},
+			],
+			{initialEntries: ['/acme/chat/persona-1']},
+		);
+		render(<RouterProvider router={router} />);
+
+		const thread = await screen.findByRole('link', {name: 'Pricing review'});
+		expect(thread.getAttribute('href')).toBe('/acme/chat/persona-1/threads/thread-1');
+		expect(thread.getAttribute('target')).toBeNull();
+		expect(thread.querySelector('img')).toBeNull();
+		expect(screen.getByRole('link', {name: /the file/}).getAttribute('target')).toBe('_blank');
+		expect(screen.getByRole('link', {name: /theirs/}).getAttribute('target')).toBe('_blank');
+	});
+
 	test('hides a favicon that cannot be loaded', () => {
 		const {container, rerender} = render(<Markdown text="[Example](https://example.com)" />);
 		const favicon = container.querySelector('img');

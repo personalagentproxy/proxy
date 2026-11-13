@@ -22,8 +22,9 @@ import {notify} from '@/lib/notifications';
 const POLL_MS = 20 * 1000;
 const VISIBLE_POLL_GAP_MS = 5 * 1000;
 // How long an answer stays unread before it is told of: past what the Chat page takes to show it
-// and send it as read, in the window the person reads it in, as it reads the conversation again
-// every 4 seconds (pages/chat-page.tsx).
+// and send it as read, in the window the person reads it in, as it reads the chat again every 4
+// seconds while a thread of it is in progress, and at once when an answer this provider found
+// isn't in it (pages/chat-page.tsx).
 const CONFIRM_MS = 5 * 1000;
 
 // Whether a read that failed may land sent again: not one the api refused, as for an answer or a

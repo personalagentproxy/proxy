@@ -9,15 +9,14 @@ import {ensureThreadTask} from './thread-task';
 
 const now = new Date('2026-10-21T10:00:00Z');
 const MINUTE = 60 * 1000;
-// A sub-agent's thread, at work on its task.
+// A thread of a chat, at work on its task.
 const thread: ThreadRow = {
 	id: 'thread-1',
 	orgId: 'org-1',
 	agentId: 'agent-1',
 	personaId: 'persona-1',
 	userId: 'user-1',
-	parentThreadId: 'thread-0',
-	parentCallId: 'c0',
+	parentThreadId: 'chat-1',
 	title: 'Find the invoices',
 	taskId: 'task-1',
 	harness: null,
@@ -64,7 +63,7 @@ describe('ensureThreadTask', () => {
 		expect(store.setThreadTask).toHaveBeenCalledWith('thread-1', 'task-2');
 	});
 
-	test('one finished while the sub-agent is at work is replaced with a new one for the same work', async () => {
+	test('one finished while the thread is at work is replaced with a new one for the same work', async () => {
 		store.getAgentTask.mockResolvedValue(Ok({...task, finishedAt: new Date('2026-10-21T09:00:00Z')}));
 		const result = await ensureThreadTask(store, thread);
 

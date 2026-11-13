@@ -268,3 +268,19 @@ body:has([data-slot='sidebar'][data-state])::before,
 		animation: chat-fade 160ms ease-out both;
 	}
 }
+
+/* While a column's edge is dragged (components/resize-handle.tsx): the pointer stays a resize
+   cursor wherever it goes, nothing is selected, and what slides as the navigation folds follows
+   the pointer at once rather than easing after it. */
+:root[data-resizing],
+:root[data-resizing] * {
+	cursor: col-resize !important;
+	user-select: none;
+}
+
+:root[data-resizing]
+	:is([data-slot='sidebar-gap'], [data-slot='sidebar-container'], [data-title-bar-history]),
+:root[data-resizing] [data-slot='sidebar-wrapper']::before,
+:root[data-resizing] [data-slot='sidebar-wrapper']::after {
+	transition: none;
+}

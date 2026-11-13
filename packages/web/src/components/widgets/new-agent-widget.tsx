@@ -1,7 +1,7 @@
 import {useRef, useState} from 'react';
 import {AGENT_NAME_MAX} from '@proxy/utils/agent-providers';
 import {AVATAR_COLORS, shuffleLook} from '@proxy/utils/harness';
-import {createPersona, postMessage, saveDraft} from '@/client/harness-client';
+import {createPersona, openThread, saveDraft} from '@/client/harness-client';
 import type {Intent} from '@/client/intent-client';
 import {LiveHead} from '@/components/head';
 import {EnterButton} from '@/components/widgets/enter-button';
@@ -62,7 +62,7 @@ export function NewAgentWidget({
 		const {id} = made.value.persona;
 		const said = task.trim();
 		if (said !== '') {
-			const sent = await postMessage(org, id, said);
+			const sent = await openThread(org, id, said);
 			// The agent is made all the same: what it was to be told waits in its conversation, as
 			// typed and not sent.
 			if (sent.isErr()) {

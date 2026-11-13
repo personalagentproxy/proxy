@@ -1,6 +1,7 @@
 import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
 import {
+	CHAT_INTEGRATION_ID,
 	FILES_INTEGRATION_ID,
 	SANDBOX_INTEGRATION_ID,
 	VAULT_INTEGRATION_ID,
@@ -72,9 +73,9 @@ function needsName(connection: Connection): boolean {
 // picks the list, in the address as `?for=me` or `?for=everyone`: what is theirs alone, or what is
 // shared, by them or with them, with every member or some by name, opening on what is theirs
 // alone, the shared one showing the face of who connected each, whose account agents act as, and
-// the faces of who it is shared with. The person's own vault and Sandboxes come first among what
-// is theirs alone, each opening its connection's page, as every connection does, where what it
-// holds is the first tab. A right click on a row renames or deletes a connection the person may
+// the faces of who it is shared with. The person's own vault, Sandboxes, drive and Chat come first
+// among what is theirs alone, each opening its connection's page, as every connection does, where
+// what a vault, the Sandboxes or a drive holds is the first tab. A right click on a row renames or deletes a connection the person may
 // change: their own, or, as the organization's owner, one shared with every member; and, in
 // someone with another organization, moves their own into it.
 export function ConnectionsPage() {
@@ -107,6 +108,7 @@ function Connections() {
 	const vaults = builtIn(VAULT_INTEGRATION_ID);
 	const sandboxes = builtIn(SANDBOX_INTEGRATION_ID);
 	const drives = builtIn(FILES_INTEGRATION_ID);
+	const chats = builtIn(CHAT_INTEGRATION_ID);
 
 	const activeOrg = human.org;
 	const connections = side.shown;
@@ -147,6 +149,7 @@ function Connections() {
 				<BuiltInRow connections={vaults} agents={agents} />
 				<BuiltInRow connections={sandboxes} agents={agents} />
 				<BuiltInRow connections={drives} agents={agents} />
+				<BuiltInRow connections={chats} agents={agents} />
 				{connections.length === 0 && (
 					<SideEmpty
 						side={side}
