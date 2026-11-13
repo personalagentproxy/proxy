@@ -10,6 +10,9 @@ import {type FakeStore, fakeStore} from './fake-store';
 // The agent as it acts in the thread: signed in as the member whose chat it is of.
 const signedIn = {agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'proxy', name: 'Finance', orgSlug: 'acme', experiments: []};
 
+// A thread started from one answers with its page, under the app's address, which the env holds;
+// ci has no .env, so it is mocked.
+mock.module('../utils/env', () => ({env: {NODE_ENV: 'test', APP_URL: 'http://localhost:5173'}}));
 const callMcpTool = mock();
 mock.module('../mcp/tools', () => ({callMcpTool}));
 
@@ -147,6 +150,27 @@ describe('runToolJob', () => {
 
 		expect(callMcpTool).not.toHaveBeenCalled();
 		expect(completeToolJob).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', {callId: 'c1', text: expect.stringContaining('outcome of this call is unknown'), isError: true});
+	});
+
+	test('start_thread opens the thread as the call is answered, and once only: a worker interrupted in it may have opened it, so it is not opened again', async () => {
+		const {runToolJob} = await import('./tool-job');
+		store.startThread.mockResolvedValue(Ok({...thread, id: 'thread-2', title: 'Book a table'}));
+		store.getOrgSlug.mockResolvedValue(Ok('acme'));
+		getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name: 'start_thread', arguments: '{"text":"Book a table"}'}])));
+
+		await runToolJob(store, job('c1'), 'w1', now);
+
+		expect(store.startThread).toHaveBeenCalledTimes(1);
+		expect(completeToolJob).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-1', {
+			callId: 'c1',
+			text: expect.stringContaining('http://localhost:5173/acme/chat/persona-1/threads/thread-2'),
+			isError: false,
+		});
+
+		await runToolJob(store, job('c1', 2), 'w1', now);
+
+		expect(store.startThread).toHaveBeenCalledTimes(1);
+		expect(completeToolJob).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-1', {callId: 'c1', text: expect.stringContaining('outcome of this call is unknown'), isError: true});
 	});
 
 	test('bad arguments, an unknown tool and a missing call are answered or failed, never thrown', async () => {

@@ -2,12 +2,13 @@ import {Err, Ok, type Result} from 'ts-results-es';
 
 import type {HarnessTool, ToolAnswer, ToolSurface} from '@proxy/backends/harness/backend';
 import {type ApiError, Do, requirePresent} from '@proxy/utils';
-import {callArguments, isRecord, personMessageArgs, SEND_TO_PERSON_TOOL, SLEEP_TOOL, sleepUntil, type ToolCall} from '@proxy/utils/harness';
+import {callArguments, isRecord, personMessageArgs, SEND_TO_PERSON_TOOL, SLEEP_TOOL, sleepUntil, START_THREAD_TOOL, type ToolCall} from '@proxy/utils/harness';
 import type {InlineJob, ThreadRow} from '@proxy/db/harness';
 
 import type {ModelTool} from '../llm/open-router';
 import {SCRIPT_TOOL, scriptToolDescription} from '../mcp/tools';
 import {CANCEL_ALERT_TOOL, SET_ALERT_PARAMETERS, SET_ALERT_TOOL} from './alerts';
+import {type StartThreadStore, startThreadCall} from './start-thread';
 import {BAD_PERSON_MESSAGE_ARGS, jobLost, SENT_TO_PERSON} from './thread-rules';
 import type {HarnessStore} from './store';
 import {alertCall, BAD_SLEEP_ARGS, error, NOT_JSON, noSuchTool, runGateTool, setText, type ToolAnswerStore} from './tool-answers';
@@ -17,7 +18,8 @@ import {alertCall, BAD_SLEEP_ARGS, error, NOT_JSON, noSuchTool, runGateTool, set
  * finishing tasks, since every call it makes is for the thread's own task and the loop fills it in
  * (tool-answers.ts); a message to the person while it goes on, which is answered at once, the call
  * being what the person reads; a sleep; and an alert, a wake-up of the thread at a time or when
- * something new in the person's accounts carries certain words, set or cancelled. Nothing else:
+ * something new in the person's accounts carries certain words, set or cancelled; and a new thread
+ * in the person's chat, for a piece of work apart from this one (start-thread.ts). Nothing else:
  * everything done to the person's accounts goes through the same gate as Claude's calls.
  *
  * The harness (@proxy/backends/harness) is given them as a surface: the tools, none of which only
@@ -61,6 +63,20 @@ const SLEEP: ModelTool = {
 	},
 };
 
+const START_THREAD: ModelTool = {
+	name: START_THREAD_TOOL,
+	description:
+		'Starts a new thread in the person’s chat with you, for a piece of work apart from this one, as if they had sent it: its own agent begins on `text` at once, knowing nothing else of this thread, and the person sees it in their chat. Only when the person asked for it, or for something that is not this thread’s work; say in your answer that you did, with its link.',
+	parameters: {
+		type: 'object',
+		properties: {
+			text: {type: 'string', description: 'What the new thread is to work on, all it needs to know, in Markdown'},
+		},
+		required: ['text'],
+		additionalProperties: false,
+	},
+};
+
 const SET_ALERT: ModelTool = {
 	name: SET_ALERT_TOOL,
 	description:
@@ -92,8 +108,8 @@ const SCRIPT: ModelTool = {
 	},
 };
 
-/** The tools a thread's agent is given: the MCP server's script, a message to the person, a sleep, and setting an alert and cancelling one. */
-export const THREAD_TOOLS: ModelTool[] = [SCRIPT, SEND_TO_PERSON, SLEEP, SET_ALERT, CANCEL_ALERT];
+/** The tools a thread's agent is given: the MCP server's script, a message to the person, a sleep, setting an alert and cancelling one, and starting another thread. */
+export const THREAD_TOOLS: ModelTool[] = [SCRIPT, SEND_TO_PERSON, SLEEP, SET_ALERT, CANCEL_ALERT, START_THREAD];
 
 // A tool as the harness is given it. None only reads: a script may change something, and the
 // rest tell or set something.
@@ -102,7 +118,7 @@ function toHarnessTool(tool: ModelTool): HarnessTool {
 }
 
 /** What running a call inline needs of the store: what answering one needs, and the fenced writes beside the log. */
-export type ToolSurfaceStore = ToolAnswerStore & Pick<HarnessStore, 'setAlertInline' | 'scheduleWake'>;
+export type ToolSurfaceStore = ToolAnswerStore & StartThreadStore & Pick<HarnessStore, 'setAlertInline' | 'scheduleWake'>;
 
 // An alert call, at once: one set, in a transaction of its own fenced by the job, or cancelled.
 function alertInline(store: ToolSurfaceStore, thread: ThreadRow, job: InlineJob, call: ToolCall, args: Record<string, unknown>, now: Date): Promise<Result<ToolAnswer, ApiError>> {
@@ -132,7 +148,7 @@ function sleepInline(store: ToolSurfaceStore, job: InlineJob, args: Record<strin
 
 // What a call does, at once: the person told, which is the call itself, read where the thread is
 // shown, so nothing is written for it; a sleep as a wake job, the answer ending the turn; an alert
-// set or cancelled; or a script run.
+// set or cancelled; a thread started; or a script run.
 function execute(store: ToolSurfaceStore, thread: ThreadRow, job: InlineJob, call: ToolCall, args: Record<string, unknown>, now: Date): Promise<Result<ToolAnswer, ApiError>> {
 	return Do(async ($) => {
 		if (call.name === SEND_TO_PERSON_TOOL) {
@@ -143,6 +159,9 @@ function execute(store: ToolSurfaceStore, thread: ThreadRow, job: InlineJob, cal
 		}
 		if (call.name === SET_ALERT_TOOL || call.name === CANCEL_ALERT_TOOL) {
 			return $(await alertInline(store, thread, job, call, args, now));
+		}
+		if (call.name === START_THREAD_TOOL) {
+			return $(await startThreadCall(store, thread, args));
 		}
 		if (isGateTool(call.name)) {
 			return $(await runGateTool(store, thread, args));

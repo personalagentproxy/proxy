@@ -28,6 +28,7 @@ import {
 	openThread,
 	replyInThread,
 	saveChatDraft,
+	startThread,
 	writeThreadStanding,
 	type JobRow,
 	type ThreadOpening,
@@ -248,6 +249,57 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 				readyForInference,
 			),
 		);
+	});
+
+	test('a thread started from another is opened under the same chat with its task, opened by an event, which wakes it; from a chat, or no thread, nothing is opened', async () => {
+		const from = await open('Plan the offsite');
+
+		const started = unwrap(
+			await startThread(
+				from.id,
+				'Started for the person from the thread “Plan the offsite”: Book a table',
+				opening('Book a table'),
+				readyForInference,
+			),
+		);
+		if (!started) {
+			throw new Error('no thread started');
+		}
+
+		expect(started).toMatchObject({
+			parentThreadId: chat.id,
+			title: 'Book a table',
+			personaId: chat.personaId,
+			userId,
+		});
+		expect(await taskOf(started)).toMatchObject({
+			title: 'Book a table',
+			ownerUserId: userId,
+			finishedAt: null,
+		});
+		expect(unwrap(await listEntries(started.id)).map(({kind, text}) => ({kind, text}))).toEqual([
+			{
+				kind: 'event',
+				text: 'Started for the person from the thread “Plan the offsite”: Book a table',
+			},
+		]);
+		expect(await openTurns(started.id)).toBe(1);
+
+		expect(
+			unwrap(
+				await startThread(chat.id, 'Book a table', opening('Book a table'), readyForInference),
+			),
+		).toBeNull();
+		expect(
+			unwrap(
+				await startThread(
+					'no-such-thread',
+					'Book a table',
+					opening('Book a table'),
+					readyForInference,
+				),
+			),
+		).toBeNull();
 	});
 
 	test('an answer without calls ends the thread’s turn, its task finished with the outcome, telling the chat nothing; a reply that came meanwhile is read next', async () => {

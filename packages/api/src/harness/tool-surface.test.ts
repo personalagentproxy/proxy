@@ -32,8 +32,9 @@ function tool(name: string) {
 }
 
 describe('a thread’s tools', () => {
-	test('are the MCP server’s script, a message to the person, a sleep, and setting an alert and cancelling one', () => {
-		expect(THREAD_TOOLS.map((candidate) => candidate.name)).toEqual(['script', 'send_to_person', 'sleep_until', 'set_alert', 'cancel_alert']);
+	test('are the MCP server’s script, a message to the person, a sleep, setting an alert and cancelling one, and starting another thread', () => {
+		expect(THREAD_TOOLS.map((candidate) => candidate.name)).toEqual(['script', 'send_to_person', 'sleep_until', 'set_alert', 'cancel_alert', 'start_thread']);
+		expect(tool('start_thread').parameters.required).toEqual(['text']);
 		expect(tool('send_to_person').parameters.required).toEqual(['text']);
 		expect(tool('send_to_person').description).toContain('Tells the person something while you go on');
 		expect(tool('set_alert').parameters.required).toEqual(['title', 'brief']);
@@ -121,8 +122,38 @@ describe('running a call inline', () => {
 	});
 
 	test('gives the harness the thread’s tools', () => {
-		expect(surface().tools.map((candidate) => candidate.name)).toEqual(['script', 'send_to_person', 'sleep_until', 'set_alert', 'cancel_alert']);
+		expect(surface().tools.map((candidate) => candidate.name)).toEqual(['script', 'send_to_person', 'sleep_until', 'set_alert', 'cancel_alert', 'start_thread']);
 		expect(surface().tools.every((candidate) => !candidate.readOnly)).toBe(true);
+	});
+
+	test('start_thread opens a thread in the member’s chat, opened by what it is to work on as an event naming this thread, and answers with its page', async () => {
+		const started: ThreadRow = {...thread, id: 'thread-2', title: 'Book a table for four on Friday', taskId: 'task-2'};
+		store.startThread.mockResolvedValue(Ok(started));
+		store.getOrgSlug.mockResolvedValue(Ok('acme'));
+
+		const answer = (await run('start_thread', JSON.stringify({text: 'Book a table for four on Friday'}))).unwrap();
+
+		expect(answer).toEqual({
+			text: 'Started the thread “Book a table for four on Friday”: http://localhost:5173/acme/chat/persona-1/threads/thread-2. Its agent works on it from there; nothing of it comes back here.',
+			isError: false,
+		});
+		expect(store.startThread).toHaveBeenCalledWith(
+			'thread-1',
+			'Started for the person from the thread “Pricing review with Dana”: Book a table for four on Friday',
+			expect.objectContaining({
+				title: 'Book a table for four on Friday',
+				task: expect.objectContaining({goal: 'Book a table for four on Friday', personaId: 'persona-1', ownerUserId: 'user-1', parentId: null}),
+			}),
+		);
+	});
+
+	test('start_thread without text, or from no thread of a chat, starts nothing and says why', async () => {
+		expect((await run('start_thread', JSON.stringify({text: '  '}))).unwrap()).toEqual({text: 'Give text, what the new thread is to work on.', isError: true});
+		expect(store.startThread).not.toHaveBeenCalled();
+
+		store.startThread.mockResolvedValue(Ok(null));
+		expect((await run('start_thread', JSON.stringify({text: 'Book a table'}))).unwrap()).toEqual({text: 'This is not a thread of a chat, so no thread can be started from it.', isError: true});
+		expect(store.getOrgSlug).not.toHaveBeenCalled();
 	});
 
 	test('a script goes through the MCP dispatch as the agent acting as the member, for the thread’s task, a refusal answered as an error, and a long result cut', async () => {

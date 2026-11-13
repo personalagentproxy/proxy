@@ -1063,28 +1063,69 @@ export async function openThread(
 			}
 			await tx.agentThread.update({where: {id: chatId}, data: {draft: null}});
 			await tx.agentEntryAttachment.deleteMany({where: inInput(chatId)});
-			const now = new Date();
-			const task = await tx.agentTask.create({
-				data: {...opening.task, createdAt: now, lastActiveAt: now},
-				select: {id: true},
-			});
-			const thread = toThread(
-				await tx.agentThread.create({
-					data: {
-						orgId: chat.orgId,
-						agentId: chat.agentId,
-						personaId: chat.personaId,
-						userId: chat.userId,
-						parentThreadId: chat.id,
-						title: opening.title,
-						taskId: task.id,
-					},
-					select: threadSelect,
-				}),
-			);
+			const thread = await createChatThread(tx, chat, opening);
 			const entry = await appendEntry(tx, thread, {kind: 'person', text}, wakes);
 			await attach(tx, thread.id, entry.id, attachments);
 			return {thread, entry};
+		}),
+	);
+}
+
+// A new thread under the chat, locked by the caller, with its task, and nothing said in it yet.
+async function createChatThread(
+	tx: Tx,
+	chat: ThreadRow,
+	opening: ThreadOpening,
+): Promise<ThreadRow> {
+	const now = new Date();
+	const task = await tx.agentTask.create({
+		data: {...opening.task, createdAt: now, lastActiveAt: now},
+		select: {id: true},
+	});
+	return toThread(
+		await tx.agentThread.create({
+			data: {
+				orgId: chat.orgId,
+				agentId: chat.agentId,
+				personaId: chat.personaId,
+				userId: chat.userId,
+				parentThreadId: chat.id,
+				title: opening.title,
+				taskId: task.id,
+			},
+			select: threadSelect,
+		}),
+	);
+}
+
+/**
+ * Opens a thread beside one of a chat's threads, as that thread's agent asked, in one
+ * transaction: the thread, under the same chat, with its task, and `text` as its first entry, an
+ * event, since the member didn't say it, which wakes its agent. `Ok(null)` means no such thread
+ * of a chat.
+ */
+export async function startThread(
+	fromThreadId: string,
+	text: string,
+	opening: ThreadOpening,
+	wakes: Wakes,
+): Promise<Result<ThreadRow | null, ApiError>> {
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			const from = await tx.agentThread.findUnique({
+				where: {id: fromThreadId},
+				select: {parentThreadId: true},
+			});
+			if (!from?.parentThreadId) {
+				return null;
+			}
+			const chat = await lockChat(tx, from.parentThreadId);
+			if (!chat) {
+				return null;
+			}
+			const thread = await createChatThread(tx, chat, opening);
+			await appendEntry(tx, thread, {kind: 'event', text}, wakes);
+			return thread;
 		}),
 	);
 }

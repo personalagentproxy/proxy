@@ -71,9 +71,10 @@ export function readyForInference(entries: LogEntry[]): boolean {
 	return last.kind !== 'assistant';
 }
 
-/** The names of a thread's two tools beyond its connections and its alerts: a wake-up later, and a message to the person while it goes on. */
+/** The names of a thread's tools beyond its connections and its alerts: a wake-up later, a message to the person while it goes on, and a new thread of the same chat. */
 export const SLEEP_TOOL = 'sleep_until';
 export const SEND_TO_PERSON_TOOL = 'send_to_person';
+export const START_THREAD_TOOL = 'start_thread';
 
 /** Whether a call's arguments are a JSON object, as a tool takes them. */
 export function isRecord(args: unknown): args is Record<string, unknown> {
@@ -90,6 +91,11 @@ export function personMessageArgs(args: unknown): {text: string} | null {
 		return null;
 	}
 	return {text: args.text.trim()};
+}
+
+/** A start_thread call's arguments: what the new thread is to work on. Null when there is none. */
+export function startThreadArgs(args: unknown): {text: string} | null {
+	return personMessageArgs(args);
 }
 
 // How long a sleep may be at most.

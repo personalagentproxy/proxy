@@ -5,6 +5,7 @@ import {readyForInference} from '@proxy/utils/harness';
 import type {EntryAttachment} from '@proxy/utils/harness-context';
 import * as alerts from '@proxy/db/alerts';
 import type {AlertRow, MemberAlertRow, NewAlert, PollRow, WatchMatch} from '@proxy/db/alerts';
+import {getOrgSlug} from '@proxy/db/chat';
 import {type ConnectionRow, getConnectionWithCredentialById, listConnectionsByIds} from '@proxy/db/connection';
 import * as harness from '@proxy/db/harness';
 import type {
@@ -84,6 +85,10 @@ export type HarnessStore = {
 	listAttachments: (threadId: string) => Promise<Result<AttachmentRow[], ApiError>>;
 	/** A thread opened in the member's chat with what they said, with the files they attached to it, as its first entry. */
 	openThread: (chatId: string, text: string, opening: ThreadOpening, attachments?: EntryAttachment[]) => Promise<Result<{thread: ThreadRow; entry: EntryRow} | null, ApiError>>;
+	/** A thread opened beside one of a chat's threads, as its agent asked, with `text` as its first entry, an event; null for no such thread of a chat. */
+	startThread: (fromThreadId: string, text: string, opening: ThreadOpening) => Promise<Result<ThreadRow | null, ApiError>>;
+	/** The organization's slug, which a thread's page in Chat begins with; null for no such organization. */
+	getOrgSlug: (orgId: string) => Promise<Result<string | null, ApiError>>;
 	/** What the member replies in one of their chat's threads, with the files they attached to it. */
 	replyInThread: (chatId: string, threadId: string, text: string, attachments?: EntryAttachment[]) => Promise<Result<EntryRow | null, ApiError>>;
 	listChatThreads: (chatId: string, calls: string[], now: Date) => Promise<Result<ChatThreadRow[], ApiError>>;
@@ -156,6 +161,8 @@ export const harnessStore: HarnessStore = {
 	ensureMemberChat: harness.ensureMemberChat,
 	listAttachments: harness.listAttachments,
 	openThread: (chatId, text, opening, attachments) => harness.openThread(chatId, text, opening, readyForInference, attachments),
+	startThread: (fromThreadId, text, opening) => harness.startThread(fromThreadId, text, opening, readyForInference),
+	getOrgSlug,
 	replyInThread: (chatId, threadId, text, attachments) => harness.replyInThread(chatId, threadId, text, readyForInference, attachments),
 	listChatThreads: harness.listChatThreads,
 	getChatThread: harness.getChatThread,
