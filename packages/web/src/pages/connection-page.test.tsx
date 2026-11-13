@@ -575,7 +575,7 @@ describe('ConnectionPage', () => {
 		globalThis.fetch = realFetch;
 	});
 
-	test('a GitHub connection opens on the repositories it reaches, by the account the app is installed on', async () => {
+	test('a GitHub connection opens on its permissions, the repositories it reaches, by the account the app is installed on, a tab after', async () => {
 		renderConnectionPage(
 			'/acme/connections/conn-1',
 			{...mailbox, integrationId: 'github', account: 'alexkim', defaults: ['read']},
@@ -604,13 +604,17 @@ describe('ConnectionPage', () => {
 			},
 		);
 
-		expect(await screen.findByRole('button', {name: /acme\/api/})).toBeDefined();
+		expect(await screen.findByRole('checkbox', {name: 'All by default'})).toBeDefined();
 		expect(tabs()).toEqual([
-			['Repositories1', 'page'],
-			['Permissions', null],
+			['Permissions', 'page'],
+			['Repositories1', null],
 			['Sharing', null],
 			['Recent activity', null],
 		]);
+		expect(screen.queryByRole('button', {name: /acme\/api/})).toBeNull();
+
+		fireEvent.click(tab(/Repositories/));
+		expect(await screen.findByRole('button', {name: /acme\/api/})).toBeDefined();
 		expect(screen.getByRole('link', {name: 'Add repositories'})).toBeDefined();
 	});
 });

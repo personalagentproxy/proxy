@@ -93,9 +93,9 @@ function ConnectionDetail() {
 	// A vault's entries are kept here, so no provider sees anyone.
 	const actingAs = integration.native ? null : actsAs(connection, human);
 	// A vault a member made is deleted, with its entries, where another connection is disconnected.
-	// The page's parts, one shown at a time: what a vault, the Sandboxes or a drive hold, or a
-	// GitHub connection reaches, comes first, being what it is opened for, and a built-in
-	// connection, which is never shared, has no Sharing.
+	// The page's parts, one shown at a time: what a vault, the Sandboxes or a drive hold comes
+	// first, being what it is opened for; the repositories a GitHub connection reaches follow its
+	// Permissions; and a built-in connection, which is never shared, has no Sharing.
 	const tabs: Array<
 		PageTab<
 			'entries' | 'sandboxes' | 'files' | 'repositories' | 'permissions' | 'sharing' | 'activity'
@@ -108,10 +108,10 @@ function ConnectionDetail() {
 			? []
 			: [{id: 'sandboxes' as const, label: 'Sandboxes', count: sandboxes.length}]),
 		...(files === null ? [] : [{id: 'files' as const, label: 'Files'}]),
+		{id: 'permissions', label: 'Permissions'},
 		...(github === null
 			? []
 			: [{id: 'repositories' as const, label: 'Repositories', count: reachedRepositories(github)}]),
-		{id: 'permissions', label: 'Permissions'},
 		...(connection.builtIn ? [] : [{id: 'sharing' as const, label: 'Sharing'}]),
 		{id: 'activity', label: 'Recent activity'},
 	];
