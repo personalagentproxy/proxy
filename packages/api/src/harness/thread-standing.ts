@@ -130,8 +130,8 @@ export function threadForModel(thread: ChatThreadRow): string {
 	return [first, ...(skipped === 0 ? [] : [`(${skipped} earlier ${skipped === 1 ? 'message' : 'messages'} left out)`]), ...kept].join('\n\n');
 }
 
-// The model's answer, or a failure where it gives none in `ms`.
-async function inTime<T>(work: Promise<Result<T, ApiError>>, ms: number): Promise<Result<T, ApiError>> {
+/** The model's answer, or a failure where it gives none in `ms`. */
+export async function inTime<T>(work: Promise<Result<T, ApiError>>, ms: number): Promise<Result<T, ApiError>> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const late = new Promise<Result<T, ApiError>>((resolve) => {
 		timer = setTimeout(() => resolve(Err(ApiErr.providerUnreachable(new Error(`The model gave no answer in ${ms} ms`)))), ms);

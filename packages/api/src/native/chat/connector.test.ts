@@ -166,6 +166,8 @@ describe('the Chat connection’s threads', () => {
 			harness: null,
 			harnessSession: null,
 			createdAt: at(0),
+			startedFromThreadId: null,
+			titleWritten: false,
 			state: {kind: 'stopped'},
 			standing: {waitingForMember: true, summary: 'Asks which day suits Dana.', summarySeq: 2},
 			entries: [entry('e1', 1, 'person', 'Move the pricing review'), entry('e2', 2, 'assistant', 'Which day suits Dana?')],

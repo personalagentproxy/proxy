@@ -122,6 +122,8 @@ describe('contracts', () => {
 			latest: 'I have a plan, and one question before I build.',
 			latestEntryId: 'e2',
 			latestAnswerId: 'e2',
+			startedByAgent: false,
+			titled: false,
 			messageCount: 2,
 			lastMessageAt: '2026-03-02T09:24:00.000Z',
 		};

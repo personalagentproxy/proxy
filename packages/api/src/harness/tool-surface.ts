@@ -66,11 +66,11 @@ const SLEEP: ModelTool = {
 const START_THREAD: ModelTool = {
 	name: START_THREAD_TOOL,
 	description:
-		'Starts a new thread in the person’s chat with you, for a piece of work apart from this one, as if they had sent it: its own agent begins on `text` at once, knowing nothing else of this thread, and the person sees it in their chat. Only when the person asked for it, or for something that is not this thread’s work; say in your answer that you did, with its link.',
+		'Starts a new thread in the person’s chat with you, for a piece of work apart from this one: `text` opens it as the person’s message would, so write it as they would ask, with all it needs, since its own agent begins on it at once knowing nothing else of this thread. The person sees it in their chat, marked as started from another thread. Only when the person asked for it, or for something that is not this thread’s work; say in your answer that you did, with its link.',
 	parameters: {
 		type: 'object',
 		properties: {
-			text: {type: 'string', description: 'What the new thread is to work on, all it needs to know, in Markdown'},
+			text: {type: 'string', description: 'The message that opens the thread, as the person would write it, in Markdown'},
 		},
 		required: ['text'],
 		additionalProperties: false,

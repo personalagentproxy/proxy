@@ -126,7 +126,7 @@ describe('running a call inline', () => {
 		expect(surface().tools.every((candidate) => !candidate.readOnly)).toBe(true);
 	});
 
-	test('start_thread opens a thread in the member’s chat, opened by what it is to work on as an event naming this thread, and answers with its page', async () => {
+	test('start_thread opens a thread in the member’s chat with what it is to work on, as their message would, and answers with its page', async () => {
 		const started: ThreadRow = {...thread, id: 'thread-2', title: 'Book a table for four on Friday', taskId: 'task-2'};
 		store.startThread.mockResolvedValue(Ok(started));
 		store.getOrgSlug.mockResolvedValue(Ok('acme'));
@@ -139,7 +139,7 @@ describe('running a call inline', () => {
 		});
 		expect(store.startThread).toHaveBeenCalledWith(
 			'thread-1',
-			'Started for the person from the thread “Pricing review with Dana”: Book a table for four on Friday',
+			'Book a table for four on Friday',
 			expect.objectContaining({
 				title: 'Book a table for four on Friday',
 				task: expect.objectContaining({goal: 'Book a table for four on Friday', personaId: 'persona-1', ownerUserId: 'user-1', parentId: null}),

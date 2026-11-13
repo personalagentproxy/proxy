@@ -39,6 +39,7 @@ export function fakeStore(): FakeStore {
 		listAttachments: mock<HarnessStore['listAttachments']>(),
 		openThread: mock<HarnessStore['openThread']>(),
 		startThread: mock<HarnessStore['startThread']>(),
+		writeThreadTitle: mock<HarnessStore['writeThreadTitle']>(),
 		getOrgSlug: mock<HarnessStore['getOrgSlug']>(),
 		replyInThread: mock<HarnessStore['replyInThread']>(),
 		listChatThreads: mock<HarnessStore['listChatThreads']>(),

@@ -15,6 +15,7 @@ import {failureNote} from './thread-rules';
 import {type InferenceStore, runInference} from './inference';
 import type {HarnessStore} from './store';
 import {standAfterTurn, type StandingModel, type StandingStore} from './thread-standing';
+import {titleAtStart, type TitleModel, type TitleStore} from './thread-title';
 import {runToolJob, type ToolJobStore} from './tool-job';
 
 /**
@@ -49,10 +50,13 @@ const STOP_MS = 8_000;
 export type HarnessWorker = {stop: () => Promise<void>};
 
 /** What the worker needs of the store: the queue, what the jobs it runs need, and where a thread stands. */
-export type WorkerStore = Pick<HarnessStore, 'claimJob' | 'renewLease' | 'failJob'> & InferenceStore & ToolJobStore & StandingStore;
+export type WorkerStore = Pick<HarnessStore, 'claimJob' | 'renewLease' | 'failJob'> & InferenceStore & ToolJobStore & StandingStore & TitleStore;
 
 // Without the server's OpenRouter key, no thread's standing is read: each is done, with no summary.
 const NO_STANDING: StandingModel = {key: undefined, ask: async () => Err(ApiErr.unavailable('No model reads where a thread stands'))};
+
+// Without it, no thread is named: each keeps the line of the message it was opened with.
+const NO_TITLE: TitleModel = {key: undefined, ask: async () => Err(ApiErr.unavailable('No model names a thread'))};
 
 // One name per worker, so a lease says who holds it.
 function workerName(): string {
@@ -114,13 +118,14 @@ async function runOrFail(store: WorkerStore, harnesses: Harnesses, job: JobRow, 
 	await fail(store, job, workerId, message.slice(0, 1000));
 }
 
-/** Starts the worker on the store, its inference jobs run by the harness `harnesses` has for each thread, and where a thread stands as its turn ends read by `standing`; it runs until stopped. */
-export function startHarnessWorker(store: WorkerStore, harnesses: Harnesses, standing: StandingModel = NO_STANDING): HarnessWorker {
+/** Starts the worker on the store, its inference jobs run by the harness `harnesses` has for each thread, where a thread stands as its turn ends read by `standing`, and a thread named as its first turn starts by `title`; it runs until stopped. */
+export function startHarnessWorker(store: WorkerStore, harnesses: Harnesses, standing: StandingModel = NO_STANDING, title: TitleModel = NO_TITLE): HarnessWorker {
 	const workerId = workerName();
 	const cap = cappedHarness(harnesses.registry);
 	let stopping = false;
 	const running = new Set<Promise<void>>();
-	// Where threads stand, being written after their turns' jobs: none takes a job's room.
+	// Where threads stand, being written after their turns' jobs, and their titles, written beside
+	// their first: none takes a job's room.
 	const standings = new Set<Promise<void>>();
 	// How many of the jobs running are turns on the capped harness.
 	let cappedTurns = 0;
@@ -129,6 +134,14 @@ export function startHarnessWorker(store: WorkerStore, harnesses: Harnesses, sta
 	// after, in the background, so the worker goes on to the next job meanwhile: the thread's turn
 	// may have ended, and where it hasn't, nothing is written (thread-standing.ts).
 	const runClaimed = async (job: JobRow): Promise<void> => {
+		// A turn's job names its thread beside it, where nothing has yet (thread-title.ts), so the
+		// title comes while the turn is still at work.
+		if (job.kind === 'inference') {
+			const named: Promise<void> = titleAtStart(store, title, job.threadId).finally(() => {
+				standings.delete(named);
+			});
+			standings.add(named);
+		}
 		await runOrFail(store, harnesses, job, workerId);
 		if (job.kind !== 'inference' && job.kind !== 'wake') {
 			return;

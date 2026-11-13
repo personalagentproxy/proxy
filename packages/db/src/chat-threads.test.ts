@@ -29,6 +29,7 @@ import {
 	replyInThread,
 	saveChatDraft,
 	startThread,
+	writeThreadTitle,
 	writeThreadStanding,
 	type JobRow,
 	type ThreadOpening,
@@ -251,13 +252,13 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		);
 	});
 
-	test('a thread started from another is opened under the same chat with its task, opened by an event, which wakes it; from a chat, or no thread, nothing is opened', async () => {
+	test('a thread started from another is opened under the same chat with its task, marked as started from it, opened as the member’s message would be, which wakes it; from a chat, or no thread, nothing is opened', async () => {
 		const from = await open('Plan the offsite');
 
 		const started = unwrap(
 			await startThread(
 				from.id,
-				'Started for the person from the thread “Plan the offsite”: Book a table',
+				'Book a table for four on Friday',
 				opening('Book a table'),
 				readyForInference,
 			),
@@ -278,12 +279,11 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 			finishedAt: null,
 		});
 		expect(unwrap(await listEntries(started.id)).map(({kind, text}) => ({kind, text}))).toEqual([
-			{
-				kind: 'event',
-				text: 'Started for the person from the thread “Plan the offsite”: Book a table',
-			},
+			{kind: 'person', text: 'Book a table for four on Friday'},
 		]);
 		expect(await openTurns(started.id)).toBe(1);
+		expect(unwrap(await getChatThread(chat.id, started.id, []))?.startedFromThreadId).toBe(from.id);
+		expect(unwrap(await getChatThread(chat.id, from.id, []))?.startedFromThreadId).toBeNull();
 
 		expect(
 			unwrap(
@@ -300,6 +300,24 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 				),
 			),
 		).toBeNull();
+	});
+
+	test('a thread’s title is written from its message once, and kept; a chat has none written', async () => {
+		const thread = await open('can you look into how i renew my passport');
+		expect(unwrap(await getChatThread(chat.id, thread.id, []))).toMatchObject({
+			title: 'can you look into how i renew my passport',
+			titleWritten: false,
+		});
+
+		expect(unwrap(await writeThreadTitle(thread.id, 'Renew the passport'))).toBe(true);
+		expect(unwrap(await getChatThread(chat.id, thread.id, []))).toMatchObject({
+			title: 'Renew the passport',
+			titleWritten: true,
+		});
+
+		expect(unwrap(await writeThreadTitle(thread.id, 'Passport renewal'))).toBe(false);
+		expect(unwrap(await getChatThread(chat.id, thread.id, []))?.title).toBe('Renew the passport');
+		expect(unwrap(await writeThreadTitle(chat.id, 'A chat'))).toBe(false);
 	});
 
 	test('an answer without calls ends the thread’s turn, its task finished with the outcome, telling the chat nothing; a reply that came meanwhile is read next', async () => {

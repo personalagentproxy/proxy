@@ -1063,7 +1063,7 @@ export async function openThread(
 			}
 			await tx.agentThread.update({where: {id: chatId}, data: {draft: null}});
 			await tx.agentEntryAttachment.deleteMany({where: inInput(chatId)});
-			const thread = await createChatThread(tx, chat, opening);
+			const thread = await createChatThread(tx, chat, opening, null);
 			const entry = await appendEntry(tx, thread, {kind: 'person', text}, wakes);
 			await attach(tx, thread.id, entry.id, attachments);
 			return {thread, entry};
@@ -1071,11 +1071,13 @@ export async function openThread(
 	);
 }
 
-// A new thread under the chat, locked by the caller, with its task, and nothing said in it yet.
+// A new thread under the chat, locked by the caller, with its task, and nothing said in it yet;
+// started by the agent of another of its threads, `startedFromThreadId`, or by the member, null.
 async function createChatThread(
 	tx: Tx,
 	chat: ThreadRow,
 	opening: ThreadOpening,
+	startedFromThreadId: string | null,
 ): Promise<ThreadRow> {
 	const now = new Date();
 	const task = await tx.agentTask.create({
@@ -1092,6 +1094,7 @@ async function createChatThread(
 				parentThreadId: chat.id,
 				title: opening.title,
 				taskId: task.id,
+				startedFromThreadId,
 			},
 			select: threadSelect,
 		}),
@@ -1100,9 +1103,9 @@ async function createChatThread(
 
 /**
  * Opens a thread beside one of a chat's threads, as that thread's agent asked, in one
- * transaction: the thread, under the same chat, with its task, and `text` as its first entry, an
- * event, since the member didn't say it, which wakes its agent. `Ok(null)` means no such thread
- * of a chat.
+ * transaction: the thread, under the same chat, with its task, marked as started from that
+ * thread, and `text` as its first entry, a message as the member's would be, which wakes its
+ * agent. `Ok(null)` means no such thread of a chat.
  */
 export async function startThread(
 	fromThreadId: string,
@@ -1123,8 +1126,8 @@ export async function startThread(
 			if (!chat) {
 				return null;
 			}
-			const thread = await createChatThread(tx, chat, opening);
-			await appendEntry(tx, thread, {kind: 'event', text}, wakes);
+			const thread = await createChatThread(tx, chat, opening, fromThreadId);
+			await appendEntry(tx, thread, {kind: 'person', text}, wakes);
 			return thread;
 		}),
 	);
@@ -1196,6 +1199,10 @@ const shownEntrySelect = {
  * opened it alone.
  */
 export type ChatThreadRow = ThreadRow & {
+	// The thread whose agent started this one, by its id; null for one the member's message opened.
+	startedFromThreadId: string | null;
+	// Whether its title is the one written from the message that opened it.
+	titleWritten: boolean;
 	state: ThreadState;
 	standing: ThreadStandingRow;
 	entries: ShownEntryRow[];
@@ -1235,6 +1242,8 @@ async function readChatThreads(
 			where,
 			select: {
 				...threadSelect,
+				startedFromThreadId: true,
+				titleWritten: true,
 				waitingForMember: true,
 				summary: true,
 				summarySeq: true,
@@ -1252,16 +1261,29 @@ async function readChatThreads(
 				(files === 'opener' ? entries.slice(0, 1) : entries).map((entry) => entry.id),
 			),
 		);
-		return threads.map(({jobs, entries, waitingForMember, summary, summarySeq, ...thread}) => {
-			const shown = new Set(entries.map((entry) => entry.id));
-			return {
-				...toThread(thread),
-				state: threadState(jobs, now),
-				standing: {waitingForMember, summary, summarySeq},
-				entries: entries.map((entry) => ({...entry, toolCalls: toToolCalls(entry.toolCalls)})),
-				attachments: attachments.filter((attachment) => shown.has(attachment.entryId)),
-			};
-		});
+		return threads.map(
+			({
+				jobs,
+				entries,
+				waitingForMember,
+				summary,
+				summarySeq,
+				startedFromThreadId,
+				titleWritten,
+				...thread
+			}) => {
+				const shown = new Set(entries.map((entry) => entry.id));
+				return {
+					...toThread(thread),
+					startedFromThreadId,
+					titleWritten,
+					state: threadState(jobs, now),
+					standing: {waitingForMember, summary, summarySeq},
+					entries: entries.map((entry) => ({...entry, toolCalls: toToolCalls(entry.toolCalls)})),
+					attachments: attachments.filter((attachment) => shown.has(attachment.entryId)),
+				};
+			},
+		);
 	});
 }
 
@@ -1356,6 +1378,24 @@ export async function writeThreadStanding(
 			return true;
 		}),
 	);
+}
+
+/**
+ * Gives one of a chat's threads the title written from the message that opened it, once: a thread
+ * given one already keeps it. `Ok(false)` for no such thread of a chat, or one titled already.
+ */
+export async function writeThreadTitle(
+	threadId: string,
+	title: string,
+): Promise<Result<boolean, ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.agentThread.updateMany({
+				where: {id: threadId, parentThreadId: {not: null}, titleWritten: false},
+				data: {title, titleWritten: true},
+			}),
+		)
+	).map(({count}) => count > 0);
 }
 
 /** The member says the thread is done: it no longer waits for them. `Ok(false)` for no such thread of the chat. */

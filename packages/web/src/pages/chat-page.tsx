@@ -8,7 +8,16 @@ import type {
 	ThreadStanding,
 	ThreadView,
 } from '@proxy/contracts/harness';
-import {CheckIcon, Maximize2Icon, Minimize2Icon, PencilIcon, Trash2Icon, XIcon} from 'lucide-react';
+import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';
+import {
+	BotIcon,
+	CheckIcon,
+	Maximize2Icon,
+	Minimize2Icon,
+	PencilIcon,
+	Trash2Icon,
+	XIcon,
+} from 'lucide-react';
 import {
 	memo,
 	Suspense,
@@ -51,6 +60,7 @@ import {
 	DoneButton,
 	EventLine,
 	PersonBubble,
+	TitleBubble,
 	ThreadStatus,
 } from '@/components/chat/thread-parts';
 import {ConfirmDialog} from '@/components/confirm-dialog';
@@ -58,7 +68,8 @@ import {LiveHead} from '@/components/head';
 import {IconButton} from '@/components/icon-button';
 import {PersonaDialog} from '@/components/persona-dialog';
 import {ContentBoundary} from '@/components/route-error';
-import {preview} from '@proxy/utils/harness';
+import {ATTACHMENT_MARK, preview} from '@proxy/utils/harness';
+import {RewriteText} from '@/components/chat/rewrite-text';
 import {cn} from '@proxy/ui/lib/utils';
 import type {AttachmentInput} from '@/hooks/use-attachments';
 import {useChatDraft} from '@/hooks/use-chat-draft';
@@ -323,7 +334,9 @@ function ThreadName({
 	}
 	return (
 		<>
-			<span className="min-w-0 truncate text-sm font-medium">{thread.title || 'Thread'}</span>
+			<span className="min-w-0 truncate text-sm font-medium">
+				<RewriteText text={thread.title || 'Thread'} />
+			</span>
 			{standing !== null && standing !== 'done' && <ThreadStatus standing={standing} />}
 		</>
 	);
@@ -690,15 +703,37 @@ function openerText(thread: ChatThread): string | null {
 	return thread.opener?.kind === 'person' ? thread.opener.text : null;
 }
 
-// What opened a thread: what the person said, or the event that came into it.
-function Opener({opener, open}: {opener: ChatThread['opener']; open: boolean}) {
+// What opened a thread: what the person said, or the event that came into it. Once the thread has
+// a title written from what they said, the title stands for it, rewritten there from what they
+// said where that was shown before; the thread keeps what they said as they said it.
+function Opener({
+	opener,
+	title,
+	open,
+}: {
+	opener: ChatThread['opener'];
+	title: string | null;
+	open: boolean;
+}) {
+	// What the person's bubble showed last before the title came, to rewrite it from.
+	const [said, setSaid] = useState<string | null>(null);
+	const plain =
+		opener?.kind === 'person' && title === null
+			? opener.text.replaceAll(ATTACHMENT_MARK, ' ').replace(/\s+/g, ' ').trim()
+			: null;
+	if (plain !== null && plain !== said) {
+		setSaid(plain);
+	}
 	if (opener === null) {
 		return null;
 	}
 	if (opener.kind === 'event') {
 		return <EventLine text={opener.text} />;
 	}
-	return <PersonBubble text={opener.text} attachments={opener.attachments} outlined={open} />;
+	if (title === null) {
+		return <PersonBubble text={opener.text} attachments={opener.attachments} outlined={open} />;
+	}
+	return <TitleBubble title={title} from={said} attachments={opener.attachments} outlined={open} />;
 }
 
 // One thread in the chat, opening it beside the chat: where it stands, what opened it, where it
@@ -743,11 +778,14 @@ const ThreadItem = memo(function ThreadItem({
 			)}
 			<div className="page-column pointer-events-none relative mx-auto flex w-full max-w-4xl flex-col items-start gap-2.5 [&_a]:pointer-events-auto [&_button]:pointer-events-auto">
 				<ThreadStatus standing={thread.standing} />
-				<Opener opener={thread.opener} open={open} />
+				<Opener opener={thread.opener} title={thread.titled ? thread.title : null} open={open} />
 				{said !== null && (
-					<p className="line-clamp-2 max-w-[44rem] text-sm leading-relaxed">{said}</p>
+					<p className="line-clamp-2 max-w-[44rem] text-sm leading-relaxed">
+						<RewriteText text={said} />
+					</p>
 				)}
 				<div className="flex h-5 items-center gap-1">
+					{thread.startedByAgent && <StartedByAgent />}
 					<p className="text-xs text-muted-foreground">
 						{count} · {formatMessageTime(thread.lastMessageAt)}
 					</p>
@@ -757,6 +795,27 @@ const ThreadItem = memo(function ThreadItem({
 		</div>
 	);
 });
+
+// The mark of a thread the agent of another thread started, not the person: a robot, which says
+// so when hovered or focused.
+function StartedByAgent() {
+	return (
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<span
+						tabIndex={0}
+						aria-label="This was started from another thread"
+						className="pointer-events-auto inline-flex text-muted-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+					/>
+				}
+			>
+				<BotIcon className="size-3.5" />
+			</TooltipTrigger>
+			<TooltipContent>This was started from another thread</TooltipContent>
+		</Tooltip>
+	);
+}
 
 // The threads in the order the chat lists them, by when each last had a message, the last last,
 // those the page has fresher in their place.
@@ -887,6 +946,8 @@ const Chat = memo(function Chat({
 			latest: null,
 			latestEntryId: null,
 			latestAnswerId: null,
+			startedByAgent: false,
+			titled: false,
 			messageCount: 1,
 			lastMessageAt: at,
 		});
@@ -1041,7 +1102,7 @@ function ChatComposer({
 			persona={persona}
 			harnesses={harnesses}
 			label="Message"
-			placeholder={`Message ${persona.name}`}
+			placeholder={`Start a new thread with ${persona.name}`}
 			input={input}
 			keptFiles={keptFiles}
 			openingText={opening.text}

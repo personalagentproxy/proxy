@@ -266,6 +266,10 @@ export const chatThreadSchema = z.object({
 			z.object({kind: z.literal('event'), text: z.string()}),
 		])
 		.nullable(),
+	/** Whether the agent of another of the chat's threads started it (start_thread), not the person. */
+	startedByAgent: z.boolean(),
+	/** Whether `title` was written from the message that opened it, to stand for it in the list, rather than being a line of it. */
+	titled: z.boolean(),
 	summary: z.string().nullable(),
 	latest: z.string().nullable(),
 	latestEntryId: z.string().nullable(),

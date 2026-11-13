@@ -828,6 +828,13 @@ model AgentThread {
   parentThreadId String?
   // A thread's title, a line of the message that opened it; null for a chat.
   title   String?
+  // The thread whose agent started this one (start_thread), by its id: a plain id rather than a
+  // relation, so it stays as it was when that thread is gone. Null for a thread the member's own
+  // message opened, and for a chat.
+  startedFromThreadId String?
+  // Whether a thread's title is the one a small model wrote from the message that opened it, as
+  // its first turn started, rather than the line of that message it was opened with.
+  titleWritten Boolean @default(false)
   // The task a thread's calls are made for, its own, finished each time its turn ends and made
   // anew when it is taken up long after; a chat has none: it runs no turns.
   taskId  String?

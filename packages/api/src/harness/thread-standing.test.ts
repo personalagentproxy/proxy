@@ -51,6 +51,8 @@ function logEntry(entry: Pick<EntryRow, 'id' | 'seq' | 'kind' | 'text'> & Partia
 function chatThread(thread: Partial<ChatThreadRow> = {}): ChatThreadRow {
 	return {
 		...row,
+		startedFromThreadId: null,
+		titleWritten: false,
 		state: {kind: 'stopped'},
 		standing: {waitingForMember: false, summary: null, summarySeq: null},
 		entries: [

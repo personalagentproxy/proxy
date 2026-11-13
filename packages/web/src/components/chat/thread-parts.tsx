@@ -3,6 +3,7 @@ import {attachedParts} from '@proxy/utils/harness';
 import {CheckIcon, ClockIcon} from 'lucide-react';
 import {Fragment} from 'react';
 import {SentChip} from '@/components/chat/attachments';
+import {RewriteText} from '@/components/chat/rewrite-text';
 import {Bubble, BubbleContent} from '@/components/chat/bubble';
 import {PillButton} from '@proxy/ui/components/pill-button';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';
@@ -84,6 +85,40 @@ export function PersonBubble({
 						<SentChip key={index} attachment={part.file} />
 					),
 				)}
+			</BubbleContent>
+		</Bubble>
+	);
+}
+
+/**
+ * What opened a thread as the chat lists it, once it has a title written from it: the title in
+ * the person's bubble, rewritten there from what they wrote, `from`, where that was shown before,
+ * and the files they attached after it.
+ */
+export function TitleBubble({
+	title,
+	from,
+	attachments,
+	outlined = false,
+}: {
+	title: string;
+	from: string | null;
+	attachments: ChatAttachment[];
+	outlined?: boolean;
+}) {
+	return (
+		<Bubble
+			variant="muted"
+			className={cn('max-w-[40rem]', outlined && '*:data-[slot=bubble-content]:border-border')}
+		>
+			<BubbleContent className="whitespace-pre-wrap">
+				<RewriteText text={title} from={from} />
+				{attachments.map((file) => (
+					<Fragment key={`${file.connectionId}:${file.fileId}`}>
+						{' '}
+						<SentChip attachment={file} />
+					</Fragment>
+				))}
 			</BubbleContent>
 		</Bubble>
 	);
