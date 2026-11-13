@@ -416,6 +416,7 @@ function toChatThread(thread: ChatThreadRow, shown: Shown[], now: Date): ChatThr
 		latestAnswerId: answer?.entryId ?? null,
 		messageCount: messages.length,
 		lastMessageAt: messages.at(-1)?.at ?? thread.createdAt.toISOString(),
+		createdAt: thread.createdAt.toISOString(),
 	};
 }
 
@@ -435,7 +436,7 @@ function requireChatThread(store: ChatStore, viewer: OrgViewer, persona: Persona
 	});
 }
 
-/** `GET /api/orgs/:org/chat/personas/:personaId/threads`: the viewer's chat with the persona, begun where there was none: what they typed in it and haven't sent, and its threads, the one that last had a message last. */
+/** `GET /api/orgs/:org/chat/personas/:personaId/threads`: the viewer's chat with the persona, begun where there was none: what they typed in it and haven't sent, and its threads in the order they were opened, the newest last, so that none moves when a message comes to it. */
 function handleListThreadsRoute(store: ChatStore, harnesses: Harnesses, files: RouteFiles, request: AuthenticatedRequest): Promise<Result<ChatThreads, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
@@ -449,7 +450,7 @@ function handleListThreadsRoute(store: ChatStore, harnesses: Harnesses, files: R
 			draft: $(draft),
 			// Put in the input from the person's drive, where a file is kept as long as it waits there.
 			draftAttachments: $(waiting).map((attachment) => files.shown({...attachment, gone: false})),
-			threads: listed.toSorted((a, b) => new Date(a.lastMessageAt).getTime() - new Date(b.lastMessageAt).getTime()),
+			threads: listed.toSorted((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
 		};
 	});
 }

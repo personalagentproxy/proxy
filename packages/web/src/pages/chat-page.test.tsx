@@ -78,6 +78,7 @@ function thread(id: string, over: Partial<ChatThread> = {}): ChatThread {
 		titled: false,
 		messageCount: 2,
 		lastMessageAt: '2026-10-21T10:01:00Z',
+		createdAt: '2026-10-21T10:01:00Z',
 		...over,
 	};
 }
@@ -96,6 +97,7 @@ function opened(text: string, attachments: ChatAttachment[] = []): ChatThread {
 		titled: false,
 		messageCount: 1,
 		lastMessageAt: '2026-10-21T11:00:00Z',
+		createdAt: '2026-10-21T11:00:00Z',
 	});
 }
 
@@ -122,6 +124,7 @@ const backup = thread('t2', {
 	titled: false,
 	messageCount: 1,
 	lastMessageAt: '2026-10-21T10:05:00Z',
+	createdAt: '2026-10-21T10:05:00Z',
 });
 
 // A thread as its page shows it.
@@ -762,6 +765,7 @@ describe('ChatPage', () => {
 			titled: false,
 			messageCount: 1,
 			lastMessageAt: '2026-10-21T10:09:00Z',
+			createdAt: '2026-10-21T10:09:00Z',
 		});
 		renderChatPage({threads: [pricing, backup, asleep]});
 
@@ -880,6 +884,7 @@ describe('ChatPage', () => {
 			summary: 'Has a plan, and asks whether the date range should cover the CSV export too.',
 			latest: 'I have a plan, and one question before I build.',
 			lastMessageAt: '2026-10-21T10:07:00Z',
+			createdAt: '2026-10-21T10:07:00Z',
 		});
 		// Its summary stale, the page has none for it: the start of the latest answer stands in.
 		renderChatPage({threads: [pricing, backup, waiting]});
