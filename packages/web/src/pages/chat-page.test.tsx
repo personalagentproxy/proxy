@@ -115,7 +115,7 @@ const backup = thread('t2', {
 
 // A thread as its page shows it.
 function view(listed: ChatThread, messages: ThreadMessage[], busy = false): ThreadView {
-	return {persona: general, thread: listed, busy, activityTaskId: null, messages};
+	return {persona: general, thread: listed, busy, messages};
 }
 
 const pricingView = view(pricing, [

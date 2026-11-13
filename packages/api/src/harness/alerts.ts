@@ -8,11 +8,11 @@ import {integrationFor} from '@proxy/integrations';
 import type {Change} from '../records/connector';
 
 /**
- * The built-in agent's alerts: a wake-up outside the conversation, set by the agent talking with
- * the person when they ask to be told at a time, or when something happens in their accounts. A
- * timed alert lands what the agent noted in the conversation when it is due. A watch is a rule on
+ * The built-in agent's alerts: a wake-up of a thread from outside it, set by the thread's agent
+ * when the person asks to be told at a time, or when something happens in their accounts. A timed
+ * alert lands what the agent noted in the thread when it is due. A watch is a rule on
  * a collection of some connections, polled every so often (alert-sweep.ts): a record new or changed
- * there that carries any of the watch's words, matched as written, lands in the conversation with
+ * there that carries any of the watch's words, matched as written, lands in the thread with
  * its link. Here: what set_alert takes, how a record is matched, and the words of it all, for the
  * agent; which connections may be watched is watch-connections.ts.
  */
@@ -145,7 +145,7 @@ export function describeAlert(alert: AlertRow): string {
 	return `${alert.id}: “${alert.title}”, watching ${collectionName(alert.collectionId) ?? ''} in connection${alert.connectionIds.length === 1 ? '' : 's'} ${alert.connectionIds.join(', ')} for ${listed(alert.terms)}`;
 }
 
-/** What the agent is told, in its instructions, of the alerts set in its conversation. */
+/** What the agent is told, in its instructions, of the alerts set in its thread. */
 export function alertsParagraph(alerts: AlertRow[]): string {
 	if (alerts.length === 0) {
 		return 'No alerts.';
@@ -153,7 +153,7 @@ export function alertsParagraph(alerts: AlertRow[]): string {
 	return `Alerts:\n${alerts.map((alert) => `- ${describeAlert(alert)}`).join('\n')}`;
 }
 
-/** What a timed alert lands in the conversation when it is due. */
+/** What a timed alert lands in its thread when it is due. */
 export function dueText(alert: AlertRow): string {
 	return `The alert “${alert.title}” is due now, which you set for ${alert.at?.toISOString() ?? ''}. What you noted for it: ${alert.brief}`;
 }
@@ -161,7 +161,7 @@ export function dueText(alert: AlertRow): string {
 // How much of a record's summary a match carries.
 const MAX_SUMMARY = 300;
 
-/** What a watch's conversation is told of the records that matched it now, with their links, for the agent to pass on. */
+/** What a watch's thread is told of the records that matched it now, with their links, for the agent to pass on. */
 export function matchText(alert: AlertRow, changes: Change[]): string {
 	const name = collectionName(alert.collectionId) ?? '';
 	const lines = changes.map((change) => `- ${change.title}${change.url ? ` (${change.url})` : ''} — ${cut(change.summary, MAX_SUMMARY)}; id ${change.id}`);

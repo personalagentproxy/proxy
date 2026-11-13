@@ -33,7 +33,7 @@ export type WatchableConnection = {id: string; name: string};
 
 /**
  * The connections the agent may watch for the collection: those it reaches, acting as the member
- * whose conversation it is, whose connector polls the collection, and which it may read, since a
+ * whose chat it is, whose connector polls the collection, and which it may read, since a
  * match tells the person what a record says. Checked when a watch is set, and again before a match
  * is told, so a read revoked since delivers nothing.
  */

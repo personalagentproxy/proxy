@@ -75,7 +75,7 @@ function line(event: HarnessEvent): string {
 
 // An entry of the log, written by `jobId`, the turn's job, where the model said it.
 function entry(seq: number, kind: ContextEntry['kind'], text: string, jobId: string | null = null): HarnessEntry {
-	return {kind, text, toolCalls: null, callId: null, isError: false, direct: false, seq, coversSeq: null, inputTokens: null, jobId};
+	return {kind, text, toolCalls: null, callId: null, isError: false, seq, coversSeq: null, inputTokens: null, jobId};
 }
 
 async function main(): Promise<void> {
@@ -86,7 +86,7 @@ async function main(): Promise<void> {
 	}
 	const dir = join(tmpdir(), 'proxy-harness-smoke');
 	const harness = claudeAgentSdkHarness({sessionStore: memorySessionStore(), workDir: join(dir, 'work'), configDir: join(dir, 'config'), maxConcurrentTurns: 1});
-	const thread = {id: `smoke-${Date.now()}`, parentThreadId: null};
+	const thread = {id: `smoke-${Date.now()}`};
 	let session: HarnessSession = null;
 	let said = '';
 

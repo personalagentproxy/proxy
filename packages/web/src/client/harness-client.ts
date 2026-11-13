@@ -143,8 +143,8 @@ export function uploadThreadAttachment(
 }
 
 /**
- * Uploads a file put in the conversation's input, which the api keeps in the person's own drive
- * and in the input, until the next message is sent: what to attach to it. The file is the request's body, sent as bytes whatever it
+ * Uploads a file put in the chat's input, which the api keeps in the person's own drive and in
+ * the input, until the next message is sent: what to attach to it. The file is the request's body, sent as bytes whatever it
  * holds, its own type beside its name in the address.
  */
 export function uploadAttachment(org: string, personaId: string, file: File) {
@@ -157,7 +157,7 @@ export function uploadAttachment(org: string, personaId: string, file: File) {
 	);
 }
 
-/** Takes a file out of the conversation's input, where the api keeps it until the next message is sent; the file stays in its drive. */
+/** Takes a file out of the chat's input, where the api keeps it until the next message is sent; the file stays in its drive. */
 export function removeAttachment(org: string, personaId: string, attachment: ChatAttachment) {
 	const {connectionId, fileId, version} = attachment;
 	return apiSend('DELETE', `${orgApi(org)}/chat/personas/${personaId}/attachments`, {

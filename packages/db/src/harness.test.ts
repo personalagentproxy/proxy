@@ -2,51 +2,41 @@ import {afterAll, beforeAll, describe, expect, test} from 'bun:test';
 import type {Result} from 'ts-results-es';
 
 import type {ApiError} from '@proxy/utils';
-import {DEFAULT_LOOK, readyForInference} from '@proxy/utils/harness';
+import {readyForInference} from '@proxy/utils/harness';
 
 import {db} from '.';
 import {
 	addDraftAttachment,
-	appendPersonMessage,
 	appendSummary,
 	appendTurnEntries,
 	claimJob,
+	type ClaimedJob,
 	completeInference,
 	completeToolJob,
 	createPersona,
 	ensureFirstPersona,
-	ensureMemberThread,
+	ensureMemberChat,
 	failJob,
 	finishJob,
+	getChatDraft,
+	getJobThread,
 	getPersona,
 	isAttachedForTask,
-	getThreadDraft,
-	listEntries,
-	listJobEvents,
-	listShownEntries,
-	listShownSubAgentEntries,
-	listWorkingTasks,
-	messageSubAgentDirectly,
-	listPinnedTasks,
-	setTaskPinned,
-	listOpenJobs,
 	listAnswers,
 	listAttachments,
 	listDraftAttachments,
+	listEntries,
+	listJobEvents,
 	listPersonas,
-	listSubAgents,
-	markThreadRead,
+	markChatRead,
+	openThread,
 	removeDraftAttachment,
+	replyInThread,
 	requeueJob,
-	saveThreadDraft,
-	type JobRow,
-	type NewEntry,
-	type SubAgentRow,
-	type SubAgentStop,
+	saveChatDraft,
 	type ThreadRow,
 } from './harness';
 import {removeMembership} from './organization';
-import type {ToolCall} from '@proxy/utils/harness';
 
 // What the harness writes, against the local database: run with it up (`bun run dev`) and the
 // environment loaded, `bun --env-file=../../.env test src/harness.test.ts` from this package.
@@ -62,23 +52,8 @@ function unwrap<T>(result: Result<T, ApiError>): T {
 	return result.value;
 }
 
-// What the agent says to a sub-agent.
-function say(text: string): NewEntry {
-	return {kind: 'person', text};
-}
-
-// A sub-agent's answer without calls, as the api composes it: the note marks it stopped.
-function stop(text: string, isError = false): SubAgentStop {
-	return {outcome: text, stopped: {text: `${text} (Stopped.)`, isError}, goingOn: {text, isError}};
-}
-
-// A turn of the parent's, with the calls it made.
-function parentTurn(toolCalls: ToolCall[]) {
-	return {text: '', toolCalls, inputTokens: 1, outputTokens: 1, system: null};
-}
-
-// A turn of a sub-agent's that says `text`, with no calls.
-function subTurn(text: string) {
+// A turn of the agent's that says `text`, with no calls.
+function said(text: string) {
 	return {text, toolCalls: [], inputTokens: 1, outputTokens: 1, system: null};
 }
 
@@ -87,7 +62,48 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 	let userId = '';
 	let orgId = '';
 	let agentId = '';
+	// The member's chat with General, and the thread the tests below go on in.
+	let chat: ThreadRow;
 	let thread: ThreadRow;
+
+	// Opens a thread in the chat with what the member says, with the files they attach, which wakes it.
+	async function open(
+		of: ThreadRow,
+		text: string,
+		attachments: Parameters<typeof openThread>[4] = [],
+	) {
+		const task = {
+			orgId,
+			agentId,
+			ownerUserId: userId,
+			personaId: of.personaId,
+			parentId: null,
+			title: text,
+			goal: text,
+			via: 'harness' as const,
+		};
+		const opened = unwrap(
+			await openThread(of.id, text, {title: text, task}, readyForInference, attachments),
+		);
+		if (!opened) {
+			throw new Error('no chat');
+		}
+		return opened;
+	}
+
+	// What the member replies in the thread, with the files they attach, which wakes it.
+	async function reply(text: string, attachments: Parameters<typeof replyInThread>[4] = []) {
+		return unwrap(await replyInThread(chat.id, thread.id, text, readyForInference, attachments));
+	}
+
+	// The next job due, which must be `threadId`'s, claimed by `workerId`.
+	async function claimFor(workerId: string, threadId: string): Promise<ClaimedJob> {
+		const job = unwrap(await claimJob(workerId, 60_000));
+		if (!job || job.threadId !== threadId) {
+			throw new Error(`expected a job of ${threadId}, got ${JSON.stringify(job)}`);
+		}
+		return job;
+	}
 
 	beforeAll(async () => {
 		const user = await db.user.create({data: {email: `harness-test-${stamp}@example.test`}});
@@ -107,44 +123,14 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		});
 		agentId = agent.id;
 		const persona = unwrap(await ensureFirstPersona(orgId));
-		thread = unwrap(await ensureMemberThread({orgId, agentId, personaId: persona.id, userId}));
+		chat = unwrap(await ensureMemberChat({orgId, agentId, personaId: persona.id, userId}));
+		thread = (await open(chat, 'Find my invoices')).thread;
 	});
 
-	// The next two jobs due, both claimed by `workerId`, one the parent's and one the sub-agent's:
-	// due at once, in either order.
-	async function claimBoth(
-		workerId: string,
-		subId: string,
-	): Promise<{parent: JobRow; sub: JobRow}> {
-		const claimed = [
-			unwrap(await claimJob(workerId, 60_000)),
-			unwrap(await claimJob(workerId, 60_000)),
-		];
-		const parent = claimed.find((job) => job?.threadId === thread.id);
-		const sub = claimed.find((job) => job?.threadId === subId);
-		if (!parent || !sub) {
-			throw new Error(`expected a job of each, got ${JSON.stringify(claimed)}`);
-		}
-		return {parent, sub};
-	}
-
-	// Ends a turn of the parent's with nothing said and no calls.
-	async function endParentTurn(job: JobRow, workerId: string): Promise<void> {
-		expect(job.kind).toBe('inference');
-		const done = await completeInference(
-			job.id,
-			workerId,
-			thread.id,
-			parentTurn([]),
-			{plans: {}},
-			readyForInference,
-		);
-		expect(unwrap(done)).toBe(true);
-	}
-
-	// The sub-agent's task as it is now.
-	function taskOf(sub: ThreadRow) {
-		return db.agentTask.findUniqueOrThrow({where: {id: sub.taskId ?? ''}});
+	// The thread's task as it is now.
+	async function taskOf(of: ThreadRow) {
+		const now = unwrap(await getJobThread(of.id));
+		return db.agentTask.findUniqueOrThrow({where: {id: now?.taskId ?? ''}});
 	}
 
 	afterAll(async () => {
@@ -158,7 +144,6 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 	});
 
 	test('a claim is noted, and so is the finish: the answer carries its prompt and its job, a call’s answer at once and a summary the job too', async () => {
-		unwrap(await appendPersonMessage(thread.id, 'Find my invoices', readyForInference));
 		const job = unwrap(await claimJob('worker-a', 60_000));
 		if (!job) {
 			throw new Error('nothing to claim');
@@ -186,8 +171,8 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 				{
 					text: 'Looking.',
 					toolCalls: [
-						{id: 'c0', name: 'send_to_subagent', arguments: '{"subagent":"x"}'},
-						{id: 'c1', name: 'send_to_subagent', arguments: '{"subagent":"x","text":"Go."}'},
+						{id: 'c0', name: 'send_to_person', arguments: '{}'},
+						{id: 'c1', name: 'script', arguments: '{"code":"return 1"}'},
 					],
 					inputTokens: 10,
 					outputTokens: 2,
@@ -195,7 +180,7 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 				},
 				{
 					plans: {
-						c0: {kind: 'answer', text: 'Give subagent and text.', isError: true},
+						c0: {kind: 'answer', text: 'Give text, the message.', isError: true},
 						c1: {kind: 'job', runAt: new Date()},
 					},
 				},
@@ -226,7 +211,7 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 	test('a tool job’s result carries the job; a requeue says why; a failure says why, and its answer carries the job', async () => {
 		const tool = unwrap(await claimJob('worker-b', 60_000));
 		if (!tool || tool.kind !== 'tool' || tool.callId !== 'c1') {
-			throw new Error(`expected the message’s tool job, got ${JSON.stringify(tool)}`);
+			throw new Error(`expected the script’s tool job, got ${JSON.stringify(tool)}`);
 		}
 		unwrap(
 			await completeToolJob(
@@ -265,7 +250,11 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 				again.id,
 				'worker-d',
 				'Given up after 4 attempts',
-				() => ({kind: 'reply', text: 'Something went wrong on my side.'}),
+				() => ({
+					kind: 'end',
+					text: 'Something went wrong on my side.',
+					end: {outcome: 'Something went wrong on my side.'},
+				}),
 				readyForInference,
 			),
 		);
@@ -288,7 +277,7 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		]);
 	});
 
-	test('the persona’s last answer is unread until the thread is read up to it, never back, and what the person says after it reads nothing', async () => {
+	test('the persona’s last answer is unread until the chat is read up to it, never back, and what the person says after it reads nothing', async () => {
 		const persona = unwrap(await ensureFirstPersona(orgId));
 		const lastAnswer = async () =>
 			unwrap(await listAnswers(orgId, userId)).find(
@@ -304,8 +293,8 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 					job.id,
 					workerId,
 					thread.id,
-					subTurn(text),
-					{plans: {}},
+					said(text),
+					{end: {outcome: text}},
 					readyForInference,
 				),
 			);
@@ -316,11 +305,11 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 			return last.answer.id;
 		};
 
-		unwrap(await appendPersonMessage(thread.id, 'Anything new?', readyForInference));
+		await reply('Anything new?');
 		const first = await answer('worker-r', 'Nothing new.');
 		expect((await lastAnswer())?.unread).toBe(true);
 
-		unwrap(await appendPersonMessage(thread.id, 'And now?', readyForInference));
+		await reply('And now?');
 		expect(await lastAnswer()).toEqual({
 			personaId: persona.id,
 			personaName: persona.name,
@@ -329,16 +318,18 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		});
 
 		const second = await answer('worker-r2', 'Still nothing.');
-		expect(unwrap(await markThreadRead(thread.id, first))).toBe(true);
+		expect(unwrap(await markChatRead(chat.id, first))).toBe(true);
 		expect((await lastAnswer())?.unread).toBe(true);
 
-		expect(unwrap(await markThreadRead(thread.id, second))).toBe(true);
+		expect(unwrap(await markChatRead(chat.id, second))).toBe(true);
 		expect((await lastAnswer())?.unread).toBe(false);
-		expect(unwrap(await markThreadRead(thread.id, first))).toBe(true);
+		expect(unwrap(await markChatRead(chat.id, first))).toBe(true);
 		expect((await lastAnswer())?.unread).toBe(false);
 
-		expect(unwrap(await markThreadRead(thread.id, 'no-such-entry'))).toBe(false);
-		expect(unwrap(await markThreadRead('no-such-thread', second))).toBe(false);
+		expect(unwrap(await markChatRead(chat.id, 'no-such-entry'))).toBe(false);
+		expect(unwrap(await markChatRead('no-such-chat', second))).toBe(false);
+		// A thread is no chat to be read.
+		expect(unwrap(await markChatRead(thread.id, second))).toBe(false);
 	});
 
 	test('the personas are listed the one last active first: the last thing said in it, or its making before anything was', async () => {
@@ -355,12 +346,10 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 
 		expect(await listed()).toEqual([billing.id, travel.id, general.id]);
 
-		const travelThread = unwrap(
-			await ensureMemberThread({orgId, agentId, personaId: travel.id, userId}),
+		const travelChat = unwrap(
+			await ensureMemberChat({orgId, agentId, personaId: travel.id, userId}),
 		);
-		unwrap(
-			await appendPersonMessage(travelThread.id, 'Book the train to Lyon.', readyForInference),
-		);
+		const travelThread = (await open(travelChat, 'Book the train to Lyon.')).thread;
 		expect(await listed()).toEqual([travel.id, billing.id, general.id]);
 
 		// The job the message woke is done with, so the tests after this claim only their own.
@@ -405,439 +394,144 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		const drafts = unwrap(
 			await createPersona(orgId, userId, {name: 'Drafts', look, color: 'teal'}),
 		);
-		const draftThread = unwrap(
-			await ensureMemberThread({orgId, agentId, personaId: drafts.id, userId}),
+		const draftChat = unwrap(
+			await ensureMemberChat({orgId, agentId, personaId: drafts.id, userId}),
 		);
 		const listedDraft = async () =>
 			unwrap(await listPersonas(orgId, userId)).find((persona) => persona.id === drafts.id)?.draft;
 
-		expect(unwrap(await getThreadDraft(draftThread.id))).toBeNull();
+		expect(unwrap(await getChatDraft(draftChat.id))).toBeNull();
 		expect(await listedDraft()).toBeNull();
 
-		expect(unwrap(await saveThreadDraft(draftThread.id, 'Pricing review with'))).toBe(true);
-		expect(unwrap(await saveThreadDraft(draftThread.id, 'Pricing review with Dana'))).toBe(true);
-		expect(unwrap(await getThreadDraft(draftThread.id))).toBe('Pricing review with Dana');
+		expect(unwrap(await saveChatDraft(draftChat.id, 'Pricing review with'))).toBe(true);
+		expect(unwrap(await saveChatDraft(draftChat.id, 'Pricing review with Dana'))).toBe(true);
+		expect(unwrap(await getChatDraft(draftChat.id))).toBe('Pricing review with Dana');
 		expect(await listedDraft()).toBe('Pricing review with Dana');
 
-		expect(unwrap(await saveThreadDraft(draftThread.id, null))).toBe(true);
-		expect(unwrap(await getThreadDraft(draftThread.id))).toBeNull();
+		expect(unwrap(await saveChatDraft(draftChat.id, null))).toBe(true);
+		expect(unwrap(await getChatDraft(draftChat.id))).toBeNull();
 
-		unwrap(await saveThreadDraft(draftThread.id, 'Move the pricing review'));
-		unwrap(await appendPersonMessage(draftThread.id, 'Move the pricing review', readyForInference));
-		expect(unwrap(await getThreadDraft(draftThread.id))).toBeNull();
-		expect(unwrap(await saveThreadDraft('no-such-thread', 'Hello'))).toBe(false);
+		unwrap(await saveChatDraft(draftChat.id, 'Move the pricing review'));
+		const sent = (await open(draftChat, 'Move the pricing review')).thread;
+		expect(unwrap(await getChatDraft(draftChat.id))).toBeNull();
+		expect(unwrap(await saveChatDraft('no-such-chat', 'Hello'))).toBe(false);
+		// A thread keeps none.
+		expect(unwrap(await saveChatDraft(sent.id, 'Hello'))).toBe(false);
 
 		// The job the message woke is done with, so the tests after this claim only their own.
-		const job = unwrap(await claimJob('worker-dr', 60_000));
-		if (job?.threadId !== draftThread.id) {
-			throw new Error(`expected the drafts thread's job, got ${JSON.stringify(job)}`);
-		}
+		const job = await claimFor('worker-dr', sent.id);
 		unwrap(await finishJob(job.id, 'worker-dr'));
 	});
 
 	test('a finish with nothing written is a done event too', async () => {
-		unwrap(await appendPersonMessage(thread.id, 'Try again', readyForInference));
-		const job = unwrap(await claimJob('worker-e', 60_000));
-		if (!job) {
-			throw new Error('nothing to claim');
-		}
+		await reply('Try again');
+		const job = await claimFor('worker-e', thread.id);
 		unwrap(await finishJob(job.id, 'worker-e'));
 		const events = unwrap(await listJobEvents(thread.id));
 		expect(events.slice(-2).map((event) => [event.jobId, event.kind, event.workerId])).toEqual([
 			[job.id, 'claimed', 'worker-e'],
 			[job.id, 'done', 'worker-e'],
 		]);
-		expect(unwrap(await listOpenJobs(thread.id))).toEqual([]);
+		expect(
+			await db.agentJob.count({where: {threadId: thread.id, status: {in: ['queued', 'running']}}}),
+		).toBe(0);
 	});
 
-	test('a sub-agent is started as the answer is written, with its task and brief; is sent messages as the answer is written, one waking it early; goes on to read one that came while it answered; stops with what it said, which reaches its parent; and is taken up again by a message, its task with it', async () => {
-		const task = {
-			orgId,
-			agentId,
-			ownerUserId: userId,
-			personaId: thread.personaId,
-			parentId: null,
-			title: 'Find the invoices',
-			goal: 'Search the mailbox for October invoices.',
-			via: 'harness' as const,
-		};
-		unwrap(await appendPersonMessage(thread.id, 'Find my invoices', readyForInference));
-		const turn = unwrap(await claimJob('worker-f', 60_000));
-		if (!turn || turn.kind !== 'inference') {
-			throw new Error(`expected a turn, got ${JSON.stringify(turn)}`);
-		}
+	test('a reply wakes a thread asleep: the sleep is answered as any wake-up is, and the reply follows it; a job no longer the worker’s writes nothing; a task that ended long ago is taken up as a new one for the same work', async () => {
+		await reply('Check again in an hour');
+		const turn = await claimFor('worker-f', thread.id);
+		const later = new Date(Date.now() + 60 * 60 * 1000);
 		unwrap(
 			await completeInference(
 				turn.id,
 				'worker-f',
 				thread.id,
-				{
-					text: 'Looking.',
-					toolCalls: [{id: 's1', name: 'create_subagent', arguments: '{}'}],
-					inputTokens: 1,
-					outputTokens: 1,
-					system: null,
-				},
-				{
-					plans: {
-						s1: {
-							kind: 'create_subagent',
-							start: {
-								callId: 's1',
-								title: 'Find the invoices',
-								task,
-								entries: [{kind: 'person', text: 'Search the mailbox for October invoices.'}],
-							},
-							started: (id) => `Started, id ${id}.`,
-						},
-					},
-				},
+				{...said(''), toolCalls: [{id: 'z1', name: 'sleep_until', arguments: '{"seconds":3600}'}]},
+				{plans: {z1: {kind: 'job', runAt: later}}},
 				readyForInference,
 			),
 		);
-		const [sub] = unwrap(await listSubAgents(thread.id));
-		if (!sub) {
-			throw new Error('expected a sub-agent');
-		}
-		expect(sub).toMatchObject({
-			parentThreadId: thread.id,
-			parentCallId: 's1',
-			title: 'Find the invoices',
-			userId,
-			state: {kind: 'working'},
+		const sleeping = await db.agentJob.findFirstOrThrow({
+			where: {threadId: thread.id, status: 'queued'},
 		});
-		expect(sub.taskId).not.toBeNull();
-		expect(unwrap(await listEntries(thread.id)).at(-1)).toMatchObject({
-			kind: 'tool_result',
-			callId: 's1',
-			text: `Started, id ${sub.id}.`,
-		});
-		expect(unwrap(await listEntries(sub.id)).map((entry) => [entry.kind, entry.text])).toEqual([
-			['person', 'Search the mailbox for October invoices.'],
-		]);
-		expect(await db.agentTask.findUniqueOrThrow({where: {id: sub.taskId ?? ''}})).toMatchObject({
-			...task,
-			finishedAt: null,
-		});
+		expect([sleeping.kind, sleeping.callId, sleeping.runAt]).toEqual(['tool', 'z1', later]);
 
-		// The sub-agent's first turn: a message to its parent, sent at once, and a sleep.
-		const first = unwrap(await claimJob('worker-g', 60_000));
-		if (!first || first.threadId !== sub.id) {
-			throw new Error(`expected the sub-agent’s turn, got ${JSON.stringify(first)}`);
-		}
-		const later = new Date(Date.now() + 60 * 60 * 1000);
+		// The reply has the sleep's job due now, and waits for its answer.
+		await reply('Check now instead.');
+		const woken = await claimFor('worker-g', thread.id);
+		expect(woken.id).toBe(sleeping.id);
 		unwrap(
-			await completeInference(
-				first.id,
+			await completeToolJob(
+				woken.id,
 				'worker-g',
-				sub.id,
-				{
-					text: '',
-					toolCalls: [
-						{id: 'p1', name: 'send_to_parent', arguments: '{"text":"Which mailbox?"}'},
-						{id: 'z1', name: 'sleep_until', arguments: '{"seconds":3600}'},
-					],
-					inputTokens: 1,
-					outputTokens: 1,
-					system: null,
-				},
-				{
-					plans: {
-						p1: {
-							kind: 'send_to_parent',
-							message: {text: 'Which mailbox?', isError: false},
-							sent: 'Sent.',
-						},
-						z1: {kind: 'job', runAt: later},
-					},
-				},
-				readyForInference,
-			),
-		);
-		expect(unwrap(await listEntries(thread.id)).at(-1)).toMatchObject({
-			kind: 'event',
-			callId: 's1',
-			text: 'Which mailbox?',
-			isError: false,
-			jobId: first.id,
-		});
-		expect(
-			unwrap(await listEntries(sub.id)).map((entry) => [entry.kind, entry.callId, entry.text]),
-		).toEqual([
-			['person', null, 'Search the mailbox for October invoices.'],
-			['assistant', null, ''],
-			['tool_result', 'p1', 'Sent.'],
-		]);
-		expect(unwrap(await listSubAgents(thread.id))[0]?.state).toEqual({
-			kind: 'asleep',
-			until: later,
-		});
-
-		// The parent answers: a message to no such sub-agent, and one to its sub-agent, sent at once, which
-		// wakes the sub-agent from its sleep: the sleep's job is due now, and the message waits for its answer.
-		const answer = unwrap(await claimJob('worker-h', 60_000));
-		if (!answer || answer.threadId !== thread.id || answer.kind !== 'inference') {
-			throw new Error(`expected the parent’s turn, got ${JSON.stringify(answer)}`);
-		}
-		const sent = (subAgent: SubAgentRow | null) =>
-			subAgent
-				? {text: `Sent; it was ${subAgent.state.kind}.`, isError: false}
-				: {text: 'No such sub-agent.', isError: true};
-		unwrap(
-			await completeInference(
-				answer.id,
-				'worker-h',
 				thread.id,
-				parentTurn([
-					{id: 'm0', name: 'send_to_subagent', arguments: '{}'},
-					{id: 'm1', name: 'send_to_subagent', arguments: '{}'},
-				]),
-				{
-					plans: {
-						m0: {
-							kind: 'send_to_subagent',
-							subAgentId: 'no-such-thread',
-							entry: say('Hello?'),
-							sent,
-						},
-						m1: {kind: 'send_to_subagent', subAgentId: sub.id, entry: say('The shared one.'), sent},
-					},
-				},
+				{callId: 'z1', text: 'Woken.', isError: false},
 				readyForInference,
 			),
 		);
 		expect(
 			unwrap(await listEntries(thread.id))
 				.slice(-2)
-				.map((entry) => [entry.callId, entry.text, entry.isError]),
-		).toEqual([
-			['m0', 'No such sub-agent.', true],
-			['m1', 'Sent; it was asleep.', false],
-		]);
-		expect(unwrap(await listSubAgents(thread.id))[0]?.state).toEqual({kind: 'working'});
-		expect(unwrap(await listEntries(sub.id))).toHaveLength(3);
-
-		// The sleep answers as any wake-up does, and the message follows it; the parent's turn, woken by
-		// the answers, ends.
-		const woken = await claimBoth('worker-i', sub.id);
-		if (woken.sub.kind !== 'tool' || woken.sub.callId !== 'z1') {
-			throw new Error(`expected the sleep’s job, got ${JSON.stringify(woken.sub)}`);
-		}
-		unwrap(
-			await completeToolJob(
-				woken.sub.id,
-				'worker-i',
-				sub.id,
-				{callId: 'z1', text: 'Woken.', isError: false},
-				readyForInference,
-			),
-		);
-		await endParentTurn(woken.parent, 'worker-i');
-		expect(
-			unwrap(await listEntries(sub.id))
-				.slice(3)
 				.map((entry) => [entry.kind, entry.callId, entry.text]),
 		).toEqual([
 			['tool_result', 'z1', 'Woken.'],
-			['person', null, 'The shared one.'],
+			['person', null, 'Check now instead.'],
 		]);
 
-		// While the sub-agent's turn runs, the person speaks and the parent sends it more: the message waits.
-		const next = unwrap(await claimJob('worker-j', 60_000));
-		if (!next || next.threadId !== sub.id || next.kind !== 'inference') {
-			throw new Error(`expected the sub-agent’s turn, got ${JSON.stringify(next)}`);
-		}
-		unwrap(await appendPersonMessage(thread.id, 'Also September', readyForInference));
-		const relay = unwrap(await claimJob('worker-k', 60_000));
-		if (!relay || relay.threadId !== thread.id) {
-			throw new Error(`expected the parent’s turn, got ${JSON.stringify(relay)}`);
-		}
-		unwrap(
-			await completeInference(
-				relay.id,
-				'worker-k',
-				thread.id,
-				parentTurn([{id: 'm2', name: 'send_to_subagent', arguments: '{}'}]),
-				{
-					plans: {
-						m2: {
-							kind: 'send_to_subagent',
-							subAgentId: sub.id,
-							entry: say('Any from September?'),
-							sent,
-						},
-					},
-				},
-				readyForInference,
-			),
-		);
-		expect(unwrap(await listEntries(thread.id)).at(-1)).toMatchObject({
-			callId: 'm2',
-			text: 'Sent; it was working.',
-		});
-
-		// The sub-agent answers without calls: a message came meanwhile, so it goes on to read it, its task
-		// under way, and the parent is told what it said, going on.
-		unwrap(
-			await completeInference(
-				next.id,
-				'worker-j',
-				sub.id,
-				subTurn('Three invoices from Dana.'),
-				{stop: stop('Three invoices from Dana.')},
-				readyForInference,
-			),
-		);
-		expect(unwrap(await listEntries(thread.id)).at(-1)).toMatchObject({
-			kind: 'event',
-			callId: 's1',
-			text: 'Three invoices from Dana.',
-		});
-		expect(unwrap(await listEntries(sub.id)).at(-1)).toMatchObject({
-			kind: 'person',
-			text: 'Any from September?',
-		});
-		expect(await taskOf(sub)).toMatchObject({finishedAt: null, outcome: null});
-
-		// It answers again with nothing come meanwhile: it stops, its task finished with the outcome, and
-		// the parent is told, with the note that it stopped.
-		const goingOn = await claimBoth('worker-l', sub.id);
-		await endParentTurn(goingOn.parent, 'worker-l');
-		unwrap(
-			await completeInference(
-				goingOn.sub.id,
-				'worker-l',
-				sub.id,
-				subTurn('Two from September.'),
-				{stop: stop('Two from September.')},
-				readyForInference,
-			),
-		);
-		expect(unwrap(await listSubAgents(thread.id))[0]?.state).toEqual({kind: 'stopped'});
-		expect(unwrap(await listEntries(thread.id)).at(-1)).toMatchObject({
-			kind: 'event',
-			callId: 's1',
-			text: 'Two from September. (Stopped.)',
-			isError: false,
-		});
-		expect(await taskOf(sub)).toMatchObject({
-			outcome: 'Two from September.',
-			finishedAt: expect.any(Date),
-		});
-
-		// A stopped sub-agent takes a message up: its thread is woken, and its task is under way again.
-		const followUp = unwrap(await claimJob('worker-m', 60_000));
-		if (!followUp || followUp.threadId !== thread.id) {
-			throw new Error(`expected the parent’s turn, got ${JSON.stringify(followUp)}`);
-		}
-		unwrap(
-			await completeInference(
-				followUp.id,
-				'worker-m',
-				thread.id,
-				parentTurn([{id: 'm3', name: 'send_to_subagent', arguments: '{}'}]),
-				{
-					plans: {
-						m3: {
-							kind: 'send_to_subagent',
-							subAgentId: sub.id,
-							entry: say('Any from August?'),
-							sent,
-						},
-					},
-				},
-				readyForInference,
-			),
-		);
-		expect(unwrap(await listEntries(thread.id)).at(-1)).toMatchObject({
-			callId: 'm3',
-			text: 'Sent; it was stopped.',
-		});
-		expect(unwrap(await listSubAgents(thread.id))[0]?.state).toEqual({kind: 'working'});
-		expect(await taskOf(sub)).toMatchObject({finishedAt: null, outcome: null});
-
-		// A sub-agent whose turn failed stops with the failure, which reaches its parent as an error.
-		const failing = await claimBoth('worker-n', sub.id);
-		await endParentTurn(failing.parent, 'worker-n');
-		unwrap(
-			await failJob(
-				failing.sub.id,
-				'worker-n',
-				'boom',
-				() => ({kind: 'stop', stop: stop('The sub-agent failed: boom', true)}),
-				readyForInference,
-			),
-		);
-		expect(unwrap(await listEntries(thread.id)).at(-1)).toMatchObject({
-			kind: 'event',
-			callId: 's1',
-			text: 'The sub-agent failed: boom (Stopped.)',
-			isError: true,
-		});
-		// Its log has the failure as its answer, so it is not run again until a message comes.
-		expect(unwrap(await listEntries(sub.id)).at(-1)).toMatchObject({
-			kind: 'assistant',
-			text: 'The sub-agent failed: boom',
-			isError: true,
-		});
-		expect(unwrap(await listSubAgents(thread.id))[0]?.state).toEqual({kind: 'stopped'});
-		expect(await taskOf(sub)).toMatchObject({
-			outcome: 'The sub-agent failed: boom',
-			finishedAt: expect.any(Date),
-		});
-
-		// A job that is no longer the worker's writes nothing.
+		// The turn the reply woke: a worker that no longer holds it writes nothing.
+		const next = await claimFor('worker-h', thread.id);
+		expect(next.kind).toBe('inference');
 		expect(
 			unwrap(
 				await completeInference(
-					failing.sub.id,
-					'worker-n',
-					sub.id,
-					subTurn('Late.'),
-					{stop: stop('Late.')},
+					next.id,
+					'worker-z',
+					thread.id,
+					said('Late.'),
+					{end: {outcome: 'Late.'}},
 					readyForInference,
 				),
 			),
 		).toBe(false);
-
-		// One that stopped more than 20 minutes ago keeps its task finished as it was, and takes a
-		// message up with a new task for the same work.
-		const anHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-		await db.agentTask.update({
-			where: {id: sub.taskId ?? ''},
-			data: {finishedAt: anHourAgo, lastActiveAt: anHourAgo},
-		});
-		const longAfter = unwrap(await claimJob('worker-o', 60_000));
-		if (!longAfter || longAfter.threadId !== thread.id) {
-			throw new Error(`expected the parent’s turn, got ${JSON.stringify(longAfter)}`);
-		}
 		unwrap(
 			await completeInference(
-				longAfter.id,
-				'worker-o',
+				next.id,
+				'worker-h',
 				thread.id,
-				parentTurn([{id: 'm4', name: 'send_to_subagent', arguments: '{}'}]),
-				{
-					plans: {
-						m4: {kind: 'send_to_subagent', subAgentId: sub.id, entry: say('Any from July?'), sent},
-					},
-				},
+				said('Nothing new.'),
+				{end: {outcome: 'Nothing new.'}},
 				readyForInference,
 			),
 		);
-		const [renewed] = unwrap(await listSubAgents(thread.id));
-		if (!renewed) {
-			throw new Error('expected the sub-agent');
-		}
-		expect(renewed.state).toEqual({kind: 'working'});
-		expect(renewed.taskId).not.toBe(sub.taskId);
-		expect(await taskOf(sub)).toMatchObject({
-			outcome: 'The sub-agent failed: boom',
+		const ended = await taskOf(thread);
+		expect(ended).toMatchObject({outcome: 'Nothing new.', finishedAt: expect.any(Date)});
+
+		// One that ended more than 20 minutes ago keeps its task finished as it was, and takes a reply
+		// up with a new task for the same work.
+		const anHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+		await db.agentTask.update({
+			where: {id: ended.id},
+			data: {finishedAt: anHourAgo, lastActiveAt: anHourAgo},
+		});
+		await reply('Any from July?');
+		const renewed = await taskOf(thread);
+		expect(renewed.id).not.toBe(ended.id);
+		expect(renewed).toMatchObject({
+			title: ended.title,
+			goal: ended.goal,
+			personaId: thread.personaId,
+			finishedAt: null,
+			outcome: null,
+		});
+		expect(await db.agentTask.findUniqueOrThrow({where: {id: ended.id}})).toMatchObject({
+			outcome: 'Nothing new.',
 			finishedAt: anHourAgo,
 		});
-		expect(await taskOf(renewed)).toMatchObject({...task, finishedAt: null, outcome: null});
+		const taken = await claimFor('worker-i', thread.id);
+		unwrap(await finishJob(taken.id, 'worker-i'));
 	});
-	test('what the person attaches lands with what they said, in order, and is the conversation’s sub-agents’ to read: that version, of that file, for their task alone', async () => {
+
+	test('what the person attaches lands with what they said, in order, and is the thread’s to read: that version, of that file, for its task alone', async () => {
 		const file = {
 			connectionId: 'drive-1',
 			fileId: 'file-1',
@@ -850,18 +544,16 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		};
 		const picture = {...file, fileId: 'file-2', name: 'chart.png', type: 'image/png', text: null};
 
-		const said = unwrap(
-			await appendPersonMessage(thread.id, 'What do these say?', readyForInference, [
-				file,
-				picture,
-			]),
-		);
-		unwrap(await appendPersonMessage(thread.id, 'And nothing with this one.', readyForInference));
+		const withFiles = await reply('What do these say?', [file, picture]);
+		await reply('And nothing with this one.');
+		// The turn they woke is done with, so the tests after this claim only their own.
+		const woken = await claimFor('worker-at', thread.id);
+		unwrap(await finishJob(woken.id, 'worker-at'));
 
 		// Versions of no drive here, so gone from it.
 		expect(unwrap(await listAttachments(thread.id))).toEqual([
-			{...file, entryId: said?.id ?? '', gone: true},
-			{...picture, entryId: said?.id ?? '', gone: true},
+			{...file, entryId: withFiles?.id ?? '', gone: true},
+			{...picture, entryId: withFiles?.id ?? '', gone: true},
 		]);
 		// A version its drive still keeps is not: both are of v1 here.
 		const drive = await db.connection.create({
@@ -894,23 +586,9 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		await db.fileBlob.delete({where: {id: blob.id}});
 		await db.connection.delete({where: {id: drive.id}});
 
-		const task = await db.agentTask.create({
-			data: {orgId, agentId, title: 'Read the files', goal: 'Read', via: 'harness'},
-		});
+		const task = await taskOf(thread);
 		const other = await db.agentTask.create({
 			data: {orgId, agentId, title: 'Something else', goal: 'Else', via: 'harness'},
-		});
-		await db.agentThread.create({
-			data: {
-				orgId,
-				agentId,
-				personaId: thread.personaId,
-				userId,
-				parentThreadId: thread.id,
-				parentCallId: 'c-attached',
-				title: 'Read the files',
-				taskId: task.id,
-			},
 		});
 		const attached = {connectionId: 'drive-1', fileId: 'file-1', version: 'v1'};
 
@@ -923,21 +601,20 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 				await isAttachedForTask({orgId, taskId: task.id}, {...attached, connectionId: 'drive-2'}),
 			),
 		).toBe(false);
-		// A task that is no sub-agent's of the conversation, and one of another organization.
+		// A task that is no thread's, and one of another organization.
 		expect(unwrap(await isAttachedForTask({orgId, taskId: other.id}, attached))).toBe(false);
 		expect(unwrap(await isAttachedForTask({orgId: 'another-org', taskId: task.id}, attached))).toBe(
 			false,
 		);
 	});
-	test('the files an answer shows land with it, whether written as the turn goes or as it ends, and hand nothing over to sub-agents', async () => {
+	test('the files an answer shows land with it, whether written as the turn goes or as it ends, and hand nothing over', async () => {
 		const own = await db.agentThread.create({
 			data: {
 				orgId,
 				agentId,
 				personaId: thread.personaId,
 				userId,
-				parentThreadId: thread.id,
-				parentCallId: 'c-shown',
+				parentThreadId: chat.id,
 				title: 'Chart it',
 			},
 		});
@@ -986,7 +663,7 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 					system: null,
 					attachments: [chart, sheet],
 				},
-				{plans: {}},
+				{end: {outcome: 'Both: ![Chart](link) ![Sheet](link)'}},
 				readyForInference,
 			),
 		);
@@ -998,7 +675,7 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 			{...sheet, entryId: answers[1]?.id ?? '', gone: true},
 		]);
 
-		// What the agent showed lets no sub-agent read it as an attachment would.
+		// What the agent showed lets no agent read it as an attachment would.
 		const task = await db.agentTask.create({
 			data: {orgId, agentId, title: 'Chart task', goal: 'Chart', via: 'harness'},
 		});
@@ -1012,7 +689,7 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 			),
 		).toBe(false);
 	});
-	test('the files put in a conversation’s input wait there in order, each once, up to as many as a message carries, are taken out one at a time, and go with the message that is sent', async () => {
+	test('the files put in a chat’s input wait there in order, each once, up to as many as a message carries, are taken out one at a time, and go with the message that is sent', async () => {
 		const file = (id: string, name: string) => ({
 			connectionId: 'drive-1',
 			fileId: id,
@@ -1023,275 +700,52 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		});
 		const notes = file('file-1', 'notes.txt');
 		const chart = file('file-2', 'chart.png');
-		const logged = unwrap(await listAttachments(thread.id));
 
-		expect(unwrap(await addDraftAttachment(thread.id, notes, 2))).toBe(true);
-		expect(unwrap(await addDraftAttachment(thread.id, chart, 2))).toBe(true);
+		expect(unwrap(await addDraftAttachment(chat.id, notes, 2))).toBe(true);
+		expect(unwrap(await addDraftAttachment(chat.id, chart, 2))).toBe(true);
 		// The same file at the same version is there once, and a full input takes no more.
-		expect(unwrap(await addDraftAttachment(thread.id, notes, 2))).toBe(true);
-		const full = await addDraftAttachment(thread.id, file('file-3', 'more.txt'), 2);
+		expect(unwrap(await addDraftAttachment(chat.id, notes, 2))).toBe(true);
+		const full = await addDraftAttachment(chat.id, file('file-3', 'more.txt'), 2);
 		expect(full.isErr() && full.error.kind).toBe('conflict');
-		expect(unwrap(await listDraftAttachments(thread.id))).toEqual([notes, chart]);
+		expect(unwrap(await listDraftAttachments(chat.id))).toEqual([notes, chart]);
 		const listed = unwrap(await listPersonas(orgId, userId)).find(
-			(persona) => persona.id === thread.personaId,
+			(persona) => persona.id === chat.personaId,
 		);
 		expect(listed?.draftAttachments).toEqual([notes, chart]);
 
 		// A save of what was typed with the files' order keeps them as they sit among the words,
 		// any it doesn't name after them, and adds or drops none.
-		expect(
-			unwrap(await saveThreadDraft(thread.id, 'See these', [chart, file('file-9', 'x')])),
-		).toBe(true);
-		expect(unwrap(await listDraftAttachments(thread.id))).toEqual([chart, notes]);
-		expect(unwrap(await getThreadDraft(thread.id))).toBe('See these');
-		expect(unwrap(await saveThreadDraft(thread.id, null, [notes]))).toBe(true);
-		expect(unwrap(await listDraftAttachments(thread.id))).toEqual([notes, chart]);
+		expect(unwrap(await saveChatDraft(chat.id, 'See these', [chart, file('file-9', 'x')]))).toBe(
+			true,
+		);
+		expect(unwrap(await listDraftAttachments(chat.id))).toEqual([chart, notes]);
+		expect(unwrap(await getChatDraft(chat.id))).toBe('See these');
+		expect(unwrap(await saveChatDraft(chat.id, null, [notes]))).toBe(true);
+		expect(unwrap(await listDraftAttachments(chat.id))).toEqual([notes, chart]);
 		// A file named twice, as a chip copied in the input, keeps where it is named first.
-		expect(unwrap(await saveThreadDraft(thread.id, null, [chart, notes, chart]))).toBe(true);
-		expect(unwrap(await listDraftAttachments(thread.id))).toEqual([chart, notes]);
-		expect(unwrap(await saveThreadDraft(thread.id, null, [notes]))).toBe(true);
+		expect(unwrap(await saveChatDraft(chat.id, null, [chart, notes, chart]))).toBe(true);
+		expect(unwrap(await listDraftAttachments(chat.id))).toEqual([chart, notes]);
+		expect(unwrap(await saveChatDraft(chat.id, null, [notes]))).toBe(true);
 
-		// What waits in the input is no part of the log, and lets no agent read it.
-		expect(unwrap(await listAttachments(thread.id))).toEqual(logged);
+		// What waits in the input is no part of a log, and lets no agent read it.
+		expect(unwrap(await listAttachments(chat.id))).toEqual([]);
 
-		expect(unwrap(await removeDraftAttachment(thread.id, notes))).toBe(true);
-		expect(unwrap(await listDraftAttachments(thread.id))).toEqual([chart]);
+		expect(unwrap(await removeDraftAttachment(chat.id, notes))).toBe(true);
+		expect(unwrap(await listDraftAttachments(chat.id))).toEqual([chart]);
 		// A later version of the file is another file to the input.
-		expect(unwrap(await removeDraftAttachment(thread.id, {...chart, version: 'v2'}))).toBe(true);
-		expect(unwrap(await listDraftAttachments(thread.id))).toEqual([chart]);
+		expect(unwrap(await removeDraftAttachment(chat.id, {...chart, version: 'v2'}))).toBe(true);
+		expect(unwrap(await listDraftAttachments(chat.id))).toEqual([chart]);
 
 		const sent = {...chart, text: null, cut: false};
-		const entry = unwrap(
-			await appendPersonMessage(thread.id, 'Here it is.', readyForInference, [sent]),
-		);
-		expect(unwrap(await listDraftAttachments(thread.id))).toEqual([]);
-		expect(unwrap(await listAttachments(thread.id))).toEqual([
-			...logged,
-			{...sent, entryId: entry?.id ?? '', gone: true},
+		const opened = await open(chat, 'Here it is.', [sent]);
+		expect(unwrap(await listDraftAttachments(chat.id))).toEqual([]);
+		expect(unwrap(await listAttachments(opened.thread.id))).toEqual([
+			{...sent, entryId: opened.entry.id, gone: true},
 		]);
-		// A thread that isn't a conversation keeps none.
-		expect(unwrap(await addDraftAttachment('no-such-thread', notes, 2))).toBe(false);
-	});
-
-	test('what the member writes in a sub-agent’s chat lands in its log as theirs, waking it, and in the conversation as a note, waking nothing; the chat shows it, and the sub-agent’s failures from the conversation', async () => {
-		const persona = unwrap(
-			await createPersona(orgId, userId, {name: 'Travel', look: DEFAULT_LOOK, color: 'teal'}),
-		);
-		const conversation = unwrap(
-			await ensureMemberThread({orgId, agentId, personaId: persona.id, userId}),
-		);
-		await db.agentEntry.create({
-			data: {threadId: conversation.id, kind: 'person', text: 'Find me flights'},
-		});
-		await db.agentEntry.create({
-			data: {
-				threadId: conversation.id,
-				kind: 'assistant',
-				text: '',
-				toolCalls: JSON.stringify([
-					{
-						id: 'c1',
-						name: 'create_subagent',
-						arguments: '{"title":"Find flights","brief":"To Lisbon"}',
-					},
-				]),
-			},
-		});
-		await db.agentEntry.create({
-			data: {threadId: conversation.id, kind: 'tool_result', callId: 'c1', text: 'Started.'},
-		});
-		await db.agentEntry.create({
-			data: {threadId: conversation.id, kind: 'assistant', text: 'On it.'},
-		});
-		const sub = await db.agentThread.create({
-			data: {
-				orgId,
-				agentId,
-				personaId: persona.id,
-				userId,
-				parentThreadId: conversation.id,
-				parentCallId: 'c1',
-				title: 'Find flights',
-			},
-		});
-		await db.agentEntry.create({data: {threadId: sub.id, kind: 'person', text: 'To Lisbon'}});
-		await db.agentEntry.create({
-			data: {threadId: sub.id, kind: 'assistant', text: 'Three direct flights.'},
-		});
-
-		expect(
-			unwrap(
-				await messageSubAgentDirectly(conversation.id, sub.id, 'Only mornings', readyForInference),
-			),
-		).toBe(true);
-
-		expect(
-			unwrap(await listEntries(sub.id)).map((entry) => [entry.kind, entry.direct, entry.text]),
-		).toEqual([
-			['person', false, 'To Lisbon'],
-			['assistant', false, 'Three direct flights.'],
-			['person', true, 'Only mornings'],
-		]);
-		expect(unwrap(await listEntries(conversation.id)).at(-1)).toMatchObject({
-			kind: 'note',
-			callId: 'c1',
-			text: 'Only mornings',
-		});
-		// The sub-agent takes it up; the agent talking with the person sleeps on.
-		const jobs = await db.agentJob.findMany({
-			where: {threadId: {in: [conversation.id, sub.id]}, status: 'queued'},
-			select: {threadId: true, kind: true},
-		});
-		expect(jobs).toEqual([{threadId: sub.id, kind: 'inference'}]);
-
-		// The conversation shows no note, but the answer that started the sub-agent, which says nothing,
-		// where its call is asked for; the chat shows the sub-agent's failure, which only the
-		// conversation's log has, and none of what else it told the conversation.
-		expect(
-			unwrap(await listShownEntries(conversation.id, ['create_subagent'])).map(
-				(entry) => entry.text,
-			),
-		).toEqual(['Find me flights', '', 'On it.']);
-		expect(unwrap(await listShownEntries(conversation.id, [])).map((entry) => entry.text)).toEqual([
-			'Find me flights',
-			'On it.',
-		]);
-		await db.agentEntry.create({
-			data: {
-				threadId: conversation.id,
-				kind: 'event',
-				callId: 'c1',
-				text: 'It failed.',
-				isError: true,
-			},
-		});
-		await db.agentEntry.create({
-			data: {threadId: conversation.id, kind: 'event', callId: 'c1', text: 'Two found.'},
-		});
-		// An answer to it without a word ends the turn, which the conversation shows where it is.
-		await db.agentEntry.create({data: {threadId: conversation.id, kind: 'assistant', text: ''}});
-		expect(
-			unwrap(await listShownEntries(conversation.id, [])).map((entry) => [entry.kind, entry.text]),
-		).toEqual([
-			['person', 'Find me flights'],
-			['assistant', 'On it.'],
-			['assistant', ''],
-		]);
-		const [subRow] = unwrap(await listSubAgents(conversation.id));
-		if (!subRow) {
-			throw new Error('expected the sub-agent');
-		}
-		expect(
-			unwrap(await listShownSubAgentEntries(subRow, ['send_to_parent'])).map((entry) => entry.text),
-		).toEqual(['To Lisbon', 'Three direct flights.', 'Only mornings', 'It failed.']);
-
-		// With files, kept with what the member wrote in the sub-agent's log, which its task may read,
-		// and with the note in the conversation.
-		const itinerary = {
-			connectionId: 'drive-1',
-			fileId: 'file-9',
-			version: 'v1',
-			name: 'itinerary.md',
-			type: 'text/markdown',
-			size: 12,
-			text: '# Day one',
-			cut: false,
-		};
-		expect(
-			unwrap(
-				await messageSubAgentDirectly(conversation.id, sub.id, 'Use this', readyForInference, [
-					itinerary,
-				]),
-			),
-		).toBe(true);
-		const written = unwrap(await listEntries(sub.id)).at(-1);
-		const noted = unwrap(await listEntries(conversation.id)).at(-1);
-		expect(unwrap(await listAttachments(sub.id))).toEqual([
-			{...itinerary, entryId: written?.id ?? '', gone: true},
-		]);
-		expect(unwrap(await listAttachments(conversation.id))).toEqual([
-			{...itinerary, entryId: noted?.id ?? '', gone: true},
-		]);
-		await db.agentEntry.deleteMany({where: {id: {in: [written?.id ?? '', noted?.id ?? '']}}});
-
-		// Only a sub-agent of the conversation, and only from the conversation.
-		expect(
-			unwrap(
-				await messageSubAgentDirectly(conversation.id, 'no-such-thread', 'Hi', readyForInference),
-			),
-		).toBe(false);
-		expect(unwrap(await messageSubAgentDirectly(thread.id, sub.id, 'Hi', readyForInference))).toBe(
-			false,
-		);
-		expect(unwrap(await messageSubAgentDirectly(sub.id, sub.id, 'Hi', readyForInference))).toBe(
-			false,
-		);
-
-		// Pinned, it is listed under its persona, the one with something said in it last first; only
-		// a sub-agent of the conversation, and only the member's own.
-		expect(unwrap(await listPinnedTasks(orgId, userId))).toEqual([]);
-		const other = await db.agentThread.create({
-			data: {
-				orgId,
-				agentId,
-				personaId: persona.id,
-				userId,
-				parentThreadId: conversation.id,
-				parentCallId: 'c2',
-				title: 'Check the calendar',
-			},
-		});
-		await db.agentEntry.create({
-			data: {
-				threadId: other.id,
-				kind: 'person',
-				text: 'Next weekend',
-				createdAt: new Date(Date.now() - 60 * 60 * 1000),
-			},
-		});
-		expect(unwrap(await setTaskPinned(conversation.id, other.id, true))).toBe(true);
-		expect(unwrap(await setTaskPinned(conversation.id, sub.id, true))).toBe(true);
-		expect(unwrap(await setTaskPinned(thread.id, sub.id, true))).toBe(false);
-		expect(unwrap(await setTaskPinned(conversation.id, conversation.id, true))).toBe(false);
-		expect(
-			unwrap(await listPinnedTasks(orgId, userId)).map(({id, personaId, title}) => ({
-				id,
-				personaId,
-				title,
-			})),
-		).toEqual([
-			{id: sub.id, personaId: persona.id, title: 'Find flights'},
-			{id: other.id, personaId: persona.id, title: 'Check the calendar'},
-		]);
-		expect(unwrap(await listPinnedTasks(orgId, 'someone-else'))).toEqual([]);
-		expect(unwrap(await setTaskPinned(conversation.id, sub.id, false))).toBe(true);
-		expect(unwrap(await listPinnedTasks(orgId, userId)).map(({id}) => id)).toEqual([other.id]);
-
-		// At work now, with a job to run now, it is listed, the one with something in its log last
-		// first; asleep, every job of it a sleep due later, or stopped, done for now, it is not; nor
-		// is a conversation, nor another member's. The member's other conversations' tasks are left out.
-		const mine = async (forUser: string) =>
-			unwrap(await listWorkingTasks(orgId, forUser)).filter(
-				({id}) => id === sub.id || id === other.id,
-			);
-		await db.agentJob.deleteMany({where: {threadId: {in: [sub.id, other.id, conversation.id]}}});
-		expect(await mine(userId)).toEqual([]);
-		await db.agentJob.createMany({
-			data: [
-				{threadId: sub.id, kind: 'inference'},
-				{threadId: other.id, kind: 'wake', runAt: new Date(Date.now() + 60 * 60 * 1000)},
-				{threadId: conversation.id, kind: 'inference'},
-			],
-		});
-		expect((await mine(userId)).map(({id, personaId, title}) => ({id, personaId, title}))).toEqual([
-			{id: sub.id, personaId: persona.id, title: 'Find flights'},
-		]);
-		expect(await mine('someone-else')).toEqual([]);
-		await db.agentJob.create({data: {threadId: other.id, kind: 'inference'}});
-		expect((await mine(userId)).map(({id}) => id)).toEqual([sub.id, other.id]);
-		await db.agentJob.updateMany({where: {threadId: sub.id}, data: {status: 'done'}});
-		expect((await mine(userId)).map(({id}) => id)).toEqual([other.id]);
-
-		await db.persona.delete({where: {id: persona.id}});
+		// Only a chat keeps an input.
+		expect(unwrap(await addDraftAttachment(thread.id, notes, 2))).toBe(false);
+		expect(unwrap(await addDraftAttachment('no-such-chat', notes, 2))).toBe(false);
+		const job = await claimFor('worker-in', opened.thread.id);
+		unwrap(await finishJob(job.id, 'worker-in'));
 	});
 });

@@ -99,7 +99,7 @@ async function answer(path: string, method: string): Promise<Response> {
 		return Response.json({fields: await fields, ms: 1});
 	}
 	if (path.endsWith('/chat/personas') && method === 'GET') {
-		return Response.json({personas, pinnedTasks: [], workingTasks: [], harnesses: []});
+		return Response.json({personas, harnesses: []});
 	}
 	if (path.endsWith('/chat/personas') && method === 'POST') {
 		return Response.json({persona: persona('made', 'Stretch reminders', false)});

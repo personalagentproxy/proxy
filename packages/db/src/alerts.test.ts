@@ -19,14 +19,14 @@ import {
 	setAlertInline,
 } from './alerts';
 import {
-	appendPersonMessage,
 	claimJob,
 	completeInference,
 	ensureFirstPersona,
-	ensureMemberThread,
+	ensureMemberChat,
 	finishJob,
 	type JobRow,
 	listEntries,
+	openThread,
 	type ThreadRow,
 } from './harness';
 
@@ -50,6 +50,10 @@ describe.skipIf(!databaseUrl)('the alerts, against the database', () => {
 	let userId = '';
 	let orgId = '';
 	let connectionId = '';
+	let agentId = '';
+	// Two of the member's chats, each with a thread an alert is set in.
+	let chat: ThreadRow;
+	let otherChat: ThreadRow;
 	let thread: ThreadRow;
 	let other: ThreadRow;
 	let timed: AlertRow;
@@ -72,20 +76,21 @@ describe.skipIf(!databaseUrl)('the alerts, against the database', () => {
 				passwordHash: '',
 			},
 		});
+		agentId = agent.id;
 		const connection = await db.connection.create({
 			data: {orgId, integrationId: 'google', account: 'dana@example.com'},
 		});
 		connectionId = connection.id;
 		poll = {connectionId, collectionId: 'emails', cursor: null};
 		const persona = unwrap(await ensureFirstPersona(orgId));
-		thread = unwrap(
-			await ensureMemberThread({orgId, agentId: agent.id, personaId: persona.id, userId}),
+		chat = unwrap(
+			await ensureMemberChat({orgId, agentId: agent.id, personaId: persona.id, userId}),
 		);
 		const second = await db.persona.create({
 			data: {orgId, name: 'Second', look: JSON.stringify(persona.look), color: persona.color},
 		});
-		other = unwrap(
-			await ensureMemberThread({orgId, agentId: agent.id, personaId: second.id, userId}),
+		otherChat = unwrap(
+			await ensureMemberChat({orgId, agentId: agent.id, personaId: second.id, userId}),
 		);
 	});
 
@@ -99,16 +104,35 @@ describe.skipIf(!databaseUrl)('the alerts, against the database', () => {
 		await db.$disconnect();
 	});
 
-	// The kinds and texts of the conversation's last `count` entries.
+	// Opens a thread in the chat with what the member says, which wakes it.
+	async function open(of: ThreadRow, text: string): Promise<ThreadRow> {
+		const task = {
+			orgId,
+			agentId,
+			ownerUserId: userId,
+			personaId: of.personaId,
+			parentId: null,
+			title: text,
+			goal: text,
+			via: 'harness' as const,
+		};
+		const opened = unwrap(await openThread(of.id, text, {title: text, task}, readyForInference));
+		if (!opened) {
+			throw new Error('no chat');
+		}
+		return opened.thread;
+	}
+
+	// The kinds and texts of the thread's last `count` entries.
 	async function lastTexts(of: ThreadRow, count: number): Promise<Array<[string, string]>> {
 		return unwrap(await listEntries(of.id))
 			.slice(-count)
 			.map((entry) => [entry.kind, entry.text]);
 	}
 
-	// The tool jobs of a turn of the conversation's that made the calls, one each.
+	// The tool jobs of a turn of the thread's that made the calls, one each.
 	async function toolJobs(callIds: string[]): Promise<JobRow[]> {
-		unwrap(await appendPersonMessage(thread.id, 'Tell me when the bank writes', readyForInference));
+		thread = await open(chat, 'Tell me when the bank writes');
 		const turn = unwrap(await claimJob('worker-a', 60_000));
 		if (!turn) {
 			throw new Error('nothing to claim');
@@ -199,8 +223,8 @@ describe.skipIf(!databaseUrl)('the alerts, against the database', () => {
 	});
 
 	test('an alert set inline, from the turn’s job, is set alone, nothing written to the log and the job still running; a worker that lost the job sets none', async () => {
-		unwrap(await appendPersonMessage(other.id, 'Remind me tomorrow', readyForInference));
-		// The next job due that is the other conversation's turn; whatever else is due is finished.
+		other = await open(otherChat, 'Remind me tomorrow');
+		// The next job due that is the other thread's turn; whatever else is due is finished.
 		let turn: JobRow | null = null;
 		while (turn === null) {
 			const claimed = unwrap(await claimJob('worker-c', 60_000));

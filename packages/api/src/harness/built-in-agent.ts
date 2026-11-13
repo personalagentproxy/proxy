@@ -15,7 +15,7 @@ import {unknownPasswordHash} from '../agents/unknown-password';
  * is set for Claude. Made the first time Chat is used, once however many open it at once, by
  * nobody in particular, so only the organization's owner changes its grants. It has a password
  * nobody knows, since it never signs in: its loop runs in the api, and in each member's
- * conversation it acts as them.
+ * chat it acts as them.
  */
 export function ensureBuiltInAgent(orgId: string): Promise<Result<AgentRow, ApiError>> {
 	return ensureSharedAgent(orgId, BUILT_IN_AGENT_PROVIDER.id, async () => ({

@@ -113,28 +113,14 @@ describe('the worker', () => {
 		await settle();
 		await worker.stop();
 
-		// With what the failure leaves in the thread (conversation.test.ts).
+		// With what the failure leaves in the thread (thread-rules.test.ts).
 		expect(store.failJob).toHaveBeenCalledWith('j1', expect.any(String), 'no longer mine', expect.any(Function));
 		expect(store.failJob).toHaveBeenCalledWith('j2', expect.any(String), 'boom', expect.any(Function));
 		expect(store.failJob).toHaveBeenCalledWith('j3', expect.any(String), 'Given up after 4 attempts', expect.any(Function));
 		expect(store.failJob).toHaveBeenCalledWith('j4', expect.any(String), 'OpenRouter refused the request (400): too long', expect.any(Function));
 		expect(runInference).toHaveBeenCalledTimes(2);
 
-		const thread = {
-			id: 't1',
-			orgId: 'o1',
-			agentId: 'a1',
-			personaId: 'p1',
-			userId: 'u1',
-			parentThreadId: null,
-			parentCallId: null,
-			title: null,
-			taskId: null,
-			harness: null,
-			harnessSession: null,
-			createdAt: now,
-		};
 		const noteFor = store.failJob.mock.calls.find((call) => call[0] === 'j2')?.[3];
-		expect(noteFor?.(tool, thread)).toEqual({kind: 'answer', callId: 'c1', text: 'This call could not be run: boom'});
+		expect(noteFor?.(tool)).toEqual({kind: 'answer', callId: 'c1', text: 'This call could not be run: boom'});
 	});
 });

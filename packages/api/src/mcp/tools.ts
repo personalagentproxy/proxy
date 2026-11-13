@@ -39,8 +39,8 @@ const LIMITS = DEFAULT_SCRIPT_LIMITS;
 
 /**
  * What the script tool does, as an MCP client is told (`mcp`), the agent page (`web`), whose
- * page keeps the task for the agent, or a sub-agent of the built-in agent (`harness`), whose task
- * the loop keeps.
+ * page keeps the task for the agent, or a thread of the built-in agent (`harness`), whose task the
+ * loop keeps.
  */
 export function scriptToolDescription(via: 'mcp' | 'web' | 'harness'): string {
 	const withTasks = via !== 'harness';
@@ -141,7 +141,7 @@ function sandboxInstructions(connections: AgentConnection[]): string[] {
 // The drives, where the agent may read one: what they are, where what it makes goes and that the
 // person is handed it by its link, a file having no other address, and, with a sandbox, that pap
 // files moves files in and out of it. Which drives there are, and what it may do in each, the
-// connections above say. In a conversation, what it makes goes in `folder`, beside what the person
+// connections above say. In a chat's thread, what it makes goes in `folder`, beside what the person
 // attached (native/files/names.ts chatFolder); an MCP client is in none.
 function filesInstructions(connections: AgentConnection[], folder: string | undefined): string[] {
 	const drives = connections.filter((connection) => connection.integrationId === FILES_INTEGRATION_ID && connection.actions.includes('readFiles'));

@@ -11,7 +11,7 @@ import {cappedHarness, type Harnesses} from '../backends/harness';
 import {log, serializeError} from '../observability/log';
 import {agentMetrics} from '../observability/metrics';
 import {runInContext} from '../observability/request-context';
-import {failureNote} from './conversation';
+import {failureNote} from './thread-rules';
 import {type InferenceStore, runInference} from './inference';
 import type {HarnessStore} from './store';
 import {runToolJob, type ToolJobStore} from './tool-job';
@@ -19,8 +19,8 @@ import {runToolJob, type ToolJobStore} from './tool-job';
 /**
  * The worker that runs the built-in agents' jobs, a few at a time, in each api instance: it
  * claims the next job due while it has room, keeps each job's lease while it runs, and claims
- * the next as soon as one is done, so a turn's calls, the sub-agents started side by side and the
- * next turn follow each other without waiting; nothing due, it looks again in a moment. The queue
+ * the next as soon as one is done, so a turn's calls, threads at work side by side and the next
+ * turn follow one another without waiting; nothing due, it looks again in a moment. The queue
  * is the database, so instances need nothing of each other: one that goes down mid-job loses its
  * lease, and another picks the job up. Stopping, as for a deploy, the worker claims nothing more
  * and finishes the jobs it is on, up to a point. An inference job is a turn of a harness
@@ -76,7 +76,7 @@ function describe(failure: ApiError): string {
 	return failure.kind;
 }
 
-// Marks the job failed, saying why, with what that leaves in its thread (conversation.ts).
+// Marks the job failed, saying why, with what that leaves in its thread (thread-rules.ts).
 async function fail(store: WorkerStore, job: JobRow, workerId: string, error: string): Promise<void> {
 	await store.failJob(job.id, workerId, error, failureNote(error));
 }

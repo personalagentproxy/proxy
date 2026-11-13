@@ -6,34 +6,29 @@ import {readyForInference} from '@proxy/utils/harness';
 
 import {db} from '.';
 import {
-	appendPersonMessage,
 	appendTurnEntries,
 	claimJob,
 	completeInference,
 	completeToolJob,
 	createPersona,
-	ensureMemberThread,
+	ensureMemberChat,
 	finishJob,
+	getChatThread,
 	getJobThread,
 	getThreadPersonaModel,
 	listEntries,
-	listOpenJobs,
-	listSubAgents,
-	messageSubAgentInline,
+	openThread,
+	replyInThread,
 	scheduleWake,
-	startSubAgentInline,
-	tellParentInline,
 	type ClaimedJob,
-	type JobRow,
 	type ThreadRow,
 } from './harness';
 
 // What a harness that runs its tools itself writes, against the local database, as harness.test.ts
 // runs: with the database up and the environment loaded, `bun --env-file=../../.env test` from
 // this package; skipped without DATABASE_URL. A turn's output appended as it goes, the session
-// kept on the thread as the job ends, a sleep as a wake job, and what the calls a harness runs
-// itself write beside the log, each fenced by the turn's job. Everything made here is one
-// organization's, deleted at the end.
+// kept on the thread as the job ends, and a sleep as a wake job, each fenced by the turn's job.
+// Everything made here is one organization's, deleted at the end.
 const databaseUrl = process.env.DATABASE_URL;
 
 function unwrap<T>(result: Result<T, ApiError>): T {
@@ -52,23 +47,17 @@ async function claimFor(workerId: string, threadId: string): Promise<ClaimedJob>
 	return job;
 }
 
-// The next two jobs due, both claimed by `workerId`, one of each thread: due at once, in either
-// order.
-async function claimBoth(
-	workerId: string,
-	parentId: string,
-	subId: string,
-): Promise<{parent: JobRow; sub: JobRow}> {
-	const claimed = [
-		unwrap(await claimJob(workerId, 60_000)),
-		unwrap(await claimJob(workerId, 60_000)),
-	];
-	const parent = claimed.find((job) => job?.threadId === parentId);
-	const sub = claimed.find((job) => job?.threadId === subId);
-	if (!parent || !sub) {
-		throw new Error(`expected a job of each, got ${JSON.stringify(claimed)}`);
-	}
-	return {parent, sub};
+// The thread's jobs still to run or running, the earliest due first.
+function openJobs(threadId: string) {
+	return db.agentJob.findMany({
+		where: {threadId, status: {in: ['queued', 'running']}},
+		orderBy: {runAt: 'asc'},
+	});
+}
+
+// What the member replies in the thread, which wakes it.
+async function reply(thread: ThreadRow, text: string): Promise<void> {
+	unwrap(await replyInThread(thread.parentThreadId ?? '', thread.id, text, readyForInference));
 }
 
 describe.skipIf(!databaseUrl)('a turn written as it goes, against the database', () => {
@@ -77,6 +66,26 @@ describe.skipIf(!databaseUrl)('a turn written as it goes, against the database',
 	let orgId = '';
 	let agentId = '';
 	let thread: ThreadRow;
+
+	// Opens a thread in a chat of the member's with the persona, with what they say, which wakes it.
+	async function open(personaId: string, text: string): Promise<ThreadRow> {
+		const chat = unwrap(await ensureMemberChat({orgId, agentId, personaId, userId}));
+		const task = {
+			orgId,
+			agentId,
+			ownerUserId: userId,
+			personaId,
+			parentId: null,
+			title: text,
+			goal: text,
+			via: 'harness' as const,
+		};
+		const opened = unwrap(await openThread(chat.id, text, {title: text, task}, readyForInference));
+		if (!opened) {
+			throw new Error('no chat');
+		}
+		return opened.thread;
+	}
 
 	beforeAll(async () => {
 		const user = await db.user.create({
@@ -108,7 +117,7 @@ describe.skipIf(!databaseUrl)('a turn written as it goes, against the database',
 				color: 'teal',
 			}),
 		);
-		thread = unwrap(await ensureMemberThread({orgId, agentId, personaId: persona.id, userId}));
+		thread = await open(persona.id, 'Find my invoices');
 	});
 
 	afterAll(async () => {
@@ -126,7 +135,6 @@ describe.skipIf(!databaseUrl)('a turn written as it goes, against the database',
 	});
 
 	test('the turn’s entries land in order, never pending, from the job that runs it alone; what the person says meanwhile waits; and the job ends with the session kept, nothing more written', async () => {
-		unwrap(await appendPersonMessage(thread.id, 'Find my invoices', readyForInference));
 		const job = await claimFor('worker-a', thread.id);
 		expect(job.kind).toBe('inference');
 
@@ -155,7 +163,7 @@ describe.skipIf(!databaseUrl)('a turn written as it goes, against the database',
 			),
 		).toBe(true);
 		// The person speaks while the turn runs: pending until it ends.
-		unwrap(await appendPersonMessage(thread.id, 'Also September', readyForInference));
+		await reply(thread, 'Also September');
 		expect(
 			unwrap(
 				await appendTurnEntries(job.id, 'worker-a', thread.id, [
@@ -212,14 +220,14 @@ describe.skipIf(!databaseUrl)('a turn written as it goes, against the database',
 			harness: 'claude-agent-sdk',
 			harnessSession: session,
 		});
-		const open = unwrap(await listOpenJobs(thread.id));
-		expect(open.map((candidate) => [candidate.kind, candidate.status])).toEqual([
+		const queued = await openJobs(thread.id);
+		expect(queued.map((candidate) => [candidate.kind, candidate.status])).toEqual([
 			['inference', 'queued'],
 		]);
 
 		// The next turn ends with a session of nothing, and the job is still ended.
 		const next = await claimFor('worker-b', thread.id);
-		expect(next.id).toBe(open[0]?.id ?? '');
+		expect(next.id).toBe(queued[0]?.id ?? '');
 		expect(
 			unwrap(
 				await completeInference(
@@ -243,76 +251,33 @@ describe.skipIf(!databaseUrl)('a turn written as it goes, against the database',
 			harness: 'proxy',
 			harnessSession: null,
 		});
-		expect(unwrap(await listOpenJobs(thread.id))).toEqual([]);
+		expect(await openJobs(thread.id)).toEqual([]);
 
 		// A session that was never one reads as none.
 		await db.agentThread.update({where: {id: thread.id}, data: {harnessSession: '{"id":4}'}});
 		expect(unwrap(await getJobThread(thread.id))).toMatchObject({harnessSession: null});
 	});
 
-	test('a sleep the harness answered itself is a wake job: one per thread, moved earlier, never later; a message pulls it to now and no second turn is queued; and a running wake-up holds what lands', async () => {
-		const task = {
-			orgId,
-			agentId,
-			ownerUserId: userId,
-			personaId: thread.personaId,
-			parentId: null,
-			title: 'Watch the mailbox',
-			goal: 'Tell me when the invoice comes.',
-			via: 'harness' as const,
-		};
-		unwrap(await appendPersonMessage(thread.id, 'Watch for the invoice', readyForInference));
-		const turn = await claimFor('worker-c', thread.id);
-		unwrap(
-			await completeInference(
-				turn.id,
-				'worker-c',
-				thread.id,
-				{
-					text: 'Watching.',
-					toolCalls: [{id: 's1', name: 'create_subagent', arguments: '{}'}],
-					inputTokens: 1,
-					outputTokens: 1,
-					system: null,
-				},
-				{
-					plans: {
-						s1: {
-							kind: 'create_subagent',
-							start: {
-								callId: 's1',
-								title: 'Watch the mailbox',
-								task,
-								entries: [{kind: 'person', text: 'Tell me when the invoice comes.'}],
-							},
-							started: (id) => `Started, id ${id}.`,
-						},
-					},
-				},
-				readyForInference,
-			),
-		);
-		const [sub] = unwrap(await listSubAgents(thread.id));
-		if (!sub) {
-			throw new Error('expected a sub-agent');
-		}
+	test('a sleep the harness answered itself is a wake job: one per thread, moved earlier, never later; a reply pulls it to now and no second turn is queued; and a running wake-up holds what lands', async () => {
+		const chatOf = (one: ThreadRow) => one.parentThreadId ?? '';
+		await reply(thread, 'Watch for the invoice');
 
-		// The sub-agent's turn: it sleeps for an hour, then asks for half an hour; a later time changes nothing.
-		const first = await claimFor('worker-d', sub.id);
+		// The turn sleeps for an hour, then asks for half an hour; a later time changes nothing.
+		const first = await claimFor('worker-d', thread.id);
 		const inAnHour = new Date(Date.now() + 60 * 60 * 1000);
 		const inHalfAnHour = new Date(Date.now() + 30 * 60 * 1000);
 		const inTwoHours = new Date(Date.now() + 2 * 60 * 60 * 1000);
-		expect(unwrap(await scheduleWake(first.id, 'worker-z', sub.id, inAnHour))).toBe(false);
-		expect(unwrap(await scheduleWake(first.id, 'worker-d', sub.id, inAnHour))).toBe(true);
-		expect(unwrap(await scheduleWake(first.id, 'worker-d', sub.id, inHalfAnHour))).toBe(true);
-		expect(unwrap(await scheduleWake(first.id, 'worker-d', sub.id, inTwoHours))).toBe(true);
-		const wakes = (await db.agentJob.findMany({where: {threadId: sub.id, kind: 'wake'}})).map(
+		expect(unwrap(await scheduleWake(first.id, 'worker-z', thread.id, inAnHour))).toBe(false);
+		expect(unwrap(await scheduleWake(first.id, 'worker-d', thread.id, inAnHour))).toBe(true);
+		expect(unwrap(await scheduleWake(first.id, 'worker-d', thread.id, inHalfAnHour))).toBe(true);
+		expect(unwrap(await scheduleWake(first.id, 'worker-d', thread.id, inTwoHours))).toBe(true);
+		const wakes = (await db.agentJob.findMany({where: {threadId: thread.id, kind: 'wake'}})).map(
 			(job) => [job.status, job.runAt],
 		);
 		expect(wakes).toEqual([['queued', inHalfAnHour]]);
 
 		unwrap(
-			await appendTurnEntries(first.id, 'worker-d', sub.id, [
+			await appendTurnEntries(first.id, 'worker-d', thread.id, [
 				{
 					kind: 'assistant',
 					text: '',
@@ -322,263 +287,57 @@ describe.skipIf(!databaseUrl)('a turn written as it goes, against the database',
 			]),
 		);
 		unwrap(
-			await completeInference(first.id, 'worker-d', sub.id, null, {plans: {}}, readyForInference, {
-				harness: 'claude-agent-sdk',
-				session: {id: 'session-2', state: null},
-			}),
+			await completeInference(
+				first.id,
+				'worker-d',
+				thread.id,
+				null,
+				{plans: {}},
+				readyForInference,
+				{
+					harness: 'claude-agent-sdk',
+					session: {id: 'session-2', state: null},
+				},
+			),
 		);
 		// Asleep until the wake-up, with no turn queued beside it: the wake-up is the turn.
-		expect(unwrap(await listSubAgents(thread.id))[0]?.state).toEqual({
+		expect(unwrap(await getChatThread(chatOf(thread), thread.id, []))?.state).toEqual({
 			kind: 'asleep',
 			until: inHalfAnHour,
 		});
-		expect(unwrap(await listOpenJobs(sub.id)).map((job) => job.kind)).toEqual(['wake']);
+		expect((await openJobs(thread.id)).map((job) => job.kind)).toEqual(['wake']);
 
-		// The parent sends a message: the wake-up is due now, and the message is in the log for it to read.
-		const answer = await claimFor('worker-e', thread.id);
-		unwrap(
-			await completeInference(
-				answer.id,
-				'worker-e',
-				thread.id,
-				{
-					text: '',
-					toolCalls: [{id: 'm1', name: 'send_to_subagent', arguments: '{}'}],
-					inputTokens: 1,
-					outputTokens: 1,
-					system: null,
-				},
-				{
-					plans: {
-						m1: {
-							kind: 'send_to_subagent',
-							subAgentId: sub.id,
-							entry: {kind: 'person', text: 'Any sign of it?'},
-							sent: (subAgent) => ({text: `Sent; it was ${subAgent?.state.kind}.`, isError: false}),
-						},
-					},
-				},
-				readyForInference,
-			),
-		);
-		expect(unwrap(await listEntries(thread.id)).at(-1)).toMatchObject({
-			callId: 'm1',
-			text: 'Sent; it was asleep.',
+		// The member replies: the wake-up is due now, and the reply is in the log for it to read.
+		await reply(thread, 'Any sign of it?');
+		const due = await openJobs(thread.id);
+		expect(due.map((job) => job.kind)).toEqual(['wake']);
+		expect(due[0]?.runAt.getTime()).toBeLessThanOrEqual(Date.now());
+		expect(unwrap(await getChatThread(chatOf(thread), thread.id, []))?.state).toEqual({
+			kind: 'working',
 		});
-		const open = unwrap(await listOpenJobs(sub.id));
-		expect(open.map((job) => job.kind)).toEqual(['wake']);
-		expect(open[0]?.runAt.getTime()).toBeLessThanOrEqual(Date.now());
-		expect(unwrap(await listSubAgents(thread.id))[0]?.state).toEqual({kind: 'working'});
-		expect(unwrap(await listEntries(sub.id)).at(-1)).toMatchObject({
+		expect(unwrap(await listEntries(thread.id)).at(-1)).toMatchObject({
 			kind: 'person',
 			text: 'Any sign of it?',
 		});
 
-		// The wake-up is claimed as any job is; while it runs, what the parent sends waits.
-		const both = await claimBoth('worker-f', thread.id, sub.id);
-		const woken = both.sub;
+		// The wake-up is claimed as any job is; while it runs, what the member replies waits.
+		const woken = await claimFor('worker-f', thread.id);
 		expect(woken.kind).toBe('wake');
-		unwrap(
-			await completeInference(
-				both.parent.id,
-				'worker-f',
-				thread.id,
-				{
-					text: '',
-					toolCalls: [{id: 'm2', name: 'send_to_subagent', arguments: '{}'}],
-					inputTokens: 1,
-					outputTokens: 1,
-					system: null,
-				},
-				{
-					plans: {
-						m2: {
-							kind: 'send_to_subagent',
-							subAgentId: sub.id,
-							entry: {kind: 'person', text: 'Still nothing?'},
-							sent: (subAgent) => ({text: `Sent; it was ${subAgent?.state.kind}.`, isError: false}),
-						},
-					},
-				},
-				readyForInference,
-			),
-		);
-		expect(unwrap(await listEntries(thread.id)).at(-1)).toMatchObject({
-			text: 'Sent; it was working.',
-		});
-		expect(unwrap(await listEntries(sub.id)).at(-1)).toMatchObject({text: 'Any sign of it?'});
+		await reply(thread, 'Still nothing?');
+		expect(unwrap(await listEntries(thread.id)).at(-1)).toMatchObject({text: 'Any sign of it?'});
 
-		// The wake-up ends as a turn does: the message takes its place, and wakes the agent again.
+		// The wake-up ends as a turn does: the reply takes its place, and wakes the agent again.
 		unwrap(
-			await appendTurnEntries(woken.id, 'worker-f', sub.id, [
+			await appendTurnEntries(woken.id, 'worker-f', thread.id, [
 				{kind: 'assistant', text: 'Nothing yet.', toolCalls: null},
 			]),
 		);
 		unwrap(
-			await completeInference(woken.id, 'worker-f', sub.id, null, {plans: {}}, readyForInference),
-		);
-		expect(
-			unwrap(await listEntries(sub.id))
-				.slice(-2)
-				.map((entry) => [entry.kind, entry.text]),
-		).toEqual([
-			['assistant', 'Nothing yet.'],
-			['person', 'Still nothing?'],
-		]);
-		expect(unwrap(await listOpenJobs(sub.id)).map((job) => [job.kind, job.status])).toEqual([
-			['inference', 'queued'],
-		]);
-		// The parent's turn, woken by the answers to its calls, is left for the next test.
-	});
-
-	test('a sub-agent started, a message to one and a message to the parent, each from the running turn’s job, land as the planned calls would, pending where a turn runs, and the job goes on; a worker that lost the job writes none', async () => {
-		const [sub] = unwrap(await listSubAgents(thread.id));
-		if (!sub) {
-			throw new Error('expected a sub-agent');
-		}
-		// Both turns under way: the parent's and the sub-agent's.
-		const {parent, sub: subTurn} = await claimBoth('worker-g', thread.id, sub.id);
-		const parentJob = (workerId: string) => ({jobId: parent.id, workerId, threadId: thread.id});
-		const subJob = (workerId: string) => ({jobId: subTurn.id, workerId, threadId: sub.id});
-		const start = {
-			callId: 'n1',
-			title: 'File the invoices',
-			task: {
-				orgId,
-				agentId,
-				ownerUserId: userId,
-				personaId: thread.personaId,
-				parentId: null,
-				title: 'File the invoices',
-				goal: 'Save them to the vault.',
-				via: 'harness' as const,
-			},
-			entries: [{kind: 'person' as const, text: 'Save them to the vault.'}] as [
-				{kind: 'person'; text: string},
-			],
-		};
-
-		expect(
-			unwrap(await startSubAgentInline(parentJob('worker-z'), start, readyForInference)),
-		).toBeNull();
-		expect(
-			unwrap(
-				await messageSubAgentInline(
-					parentJob('worker-z'),
-					sub.id,
-					{kind: 'person', text: 'x'},
-					readyForInference,
-				),
-			),
-		).toBeNull();
-		expect(
-			unwrap(
-				await tellParentInline(subJob('worker-z'), {text: 'x', isError: false}, readyForInference),
-			),
-		).toBe(false);
-		expect(unwrap(await listSubAgents(thread.id))).toHaveLength(1);
-
-		// A sub-agent started: its thread, its task and its brief, which wakes it.
-		const startedId = unwrap(
-			await startSubAgentInline(parentJob('worker-g'), start, readyForInference),
-		);
-		expect(startedId).not.toBeNull();
-		const started = unwrap(await listSubAgents(thread.id)).find(
-			(candidate) => candidate.id === startedId,
-		);
-		expect(started).toMatchObject({
-			parentThreadId: thread.id,
-			parentCallId: 'n1',
-			title: 'File the invoices',
-			state: {kind: 'working'},
-		});
-		expect(
-			unwrap(await listEntries(startedId ?? '')).map((entry) => [entry.kind, entry.text]),
-		).toEqual([['person', 'Save them to the vault.']]);
-		expect(
-			await db.agentTask.findUniqueOrThrow({where: {id: started?.taskId ?? ''}}),
-		).toMatchObject({
-			...start.task,
-			finishedAt: null,
-		});
-		expect(
-			unwrap(await listOpenJobs(startedId ?? '')).map((job) => [job.kind, job.status]),
-		).toEqual([['inference', 'queued']]);
-
-		// A message to the sub-agent at work: it waits for its turn, and its sleep, had it one, is due now.
-		const inAnHour = new Date(Date.now() + 60 * 60 * 1000);
-		unwrap(await scheduleWake(subTurn.id, 'worker-g', sub.id, inAnHour));
-		const before = unwrap(await listEntries(sub.id)).length;
-		expect(
-			unwrap(
-				await messageSubAgentInline(
-					parentJob('worker-g'),
-					'no-such-thread',
-					{kind: 'person', text: 'x'},
-					readyForInference,
-				),
-			),
-		).toEqual({subAgent: null});
-		const sent = unwrap(
-			await messageSubAgentInline(
-				parentJob('worker-g'),
-				sub.id,
-				{kind: 'person', text: 'Still there?'},
-				readyForInference,
-			),
-		);
-		expect(sent?.subAgent).toMatchObject({id: sub.id, state: {kind: 'working'}});
-		expect(unwrap(await listEntries(sub.id))).toHaveLength(before);
-		expect(await db.agentEntry.count({where: {threadId: sub.id, pending: true}})).toBe(1);
-		const wake = await db.agentJob.findFirst({
-			where: {threadId: sub.id, kind: 'wake', status: 'queued'},
-		});
-		expect(wake?.runAt.getTime()).toBeLessThanOrEqual(Date.now());
-
-		// A message to the parent, whose turn runs: it waits too.
-		const parentBefore = unwrap(await listEntries(thread.id)).length;
-		expect(
-			unwrap(
-				await tellParentInline(
-					subJob('worker-g'),
-					{text: 'Found it.', isError: false},
-					readyForInference,
-				),
-			),
-		).toBe(true);
-		expect(unwrap(await listEntries(thread.id))).toHaveLength(parentBefore);
-		expect(await db.agentEntry.count({where: {threadId: thread.id, pending: true}})).toBe(1);
-		// Both jobs still run.
-		expect(
-			await db.agentJob.count({where: {id: {in: [parent.id, subTurn.id]}, status: 'running'}}),
-		).toBe(2);
-
-		// As each turn ends, what waited takes its place and wakes the agent: the sub-agent's wake-up
-		// is turn enough, the parent gets a turn.
-		unwrap(
-			await appendTurnEntries(subTurn.id, 'worker-g', sub.id, [
-				{kind: 'assistant', text: 'Checking.', toolCalls: null},
-			]),
-		);
-		unwrap(
-			await completeInference(subTurn.id, 'worker-g', sub.id, null, {plans: {}}, readyForInference),
-		);
-		expect(
-			unwrap(await listEntries(sub.id))
-				.slice(-2)
-				.map((entry) => [entry.kind, entry.text]),
-		).toEqual([
-			['assistant', 'Checking.'],
-			['person', 'Still there?'],
-		]);
-		expect(unwrap(await listOpenJobs(sub.id)).map((job) => job.kind)).toEqual(['wake']);
-
-		unwrap(
 			await completeInference(
-				parent.id,
-				'worker-g',
+				woken.id,
+				'worker-f',
 				thread.id,
-				{text: 'Noted.', toolCalls: [], inputTokens: 1, outputTokens: 1, system: null},
+				null,
 				{plans: {}},
 				readyForInference,
 			),
@@ -586,21 +345,19 @@ describe.skipIf(!databaseUrl)('a turn written as it goes, against the database',
 		expect(
 			unwrap(await listEntries(thread.id))
 				.slice(-2)
-				.map((entry) => [entry.kind, entry.callId, entry.text]),
+				.map((entry) => [entry.kind, entry.text]),
 		).toEqual([
-			['assistant', null, 'Noted.'],
-			['event', sub.parentCallId, 'Found it.'],
+			['assistant', 'Nothing yet.'],
+			['person', 'Still nothing?'],
 		]);
-		expect(
-			unwrap(await listOpenJobs(thread.id))
-				.filter((job) => job.threadId === thread.id)
-				.map((job) => [job.kind, job.status]),
-		).toEqual([['inference', 'queued']]);
+		expect((await openJobs(thread.id)).map((job) => [job.kind, job.status])).toEqual([
+			['inference', 'queued'],
+		]);
 	});
 
-	// A thread of its own with another persona, and the queue emptied of what the tests before left
-	// due, so that what is claimed next is this thread's or nothing.
-	async function quietThread(name: string): Promise<ThreadRow> {
+	// A thread of its own, opened with `text` in a chat with another persona, and the queue emptied
+	// of what the tests before left due, so that what is claimed next is this thread's or nothing.
+	async function quietThread(name: string, text: string): Promise<ThreadRow> {
 		for (
 			let left = unwrap(await claimJob('worker-sweep', 60_000));
 			left;
@@ -615,12 +372,11 @@ describe.skipIf(!databaseUrl)('a turn written as it goes, against the database',
 				color: 'red',
 			}),
 		);
-		return unwrap(await ensureMemberThread({orgId, agentId, personaId: persona.id, userId}));
+		return open(persona.id, text);
 	}
 
 	test('a wake-up already due is not claimed while the turn that asked for it runs, nor while that turn waits for another worker after its own died, and is once the turn has ended', async () => {
-		const quiet = await quietThread('Wakes');
-		unwrap(await appendPersonMessage(quiet.id, 'Check back in a second', readyForInference));
+		const quiet = await quietThread('Wakes', 'Check back in a second');
 		const turn = await claimFor('worker-h', quiet.id);
 
 		// The sleep asked for is over before the turn is: the wake-up is due at once.
@@ -665,8 +421,7 @@ describe.skipIf(!databaseUrl)('a turn written as it goes, against the database',
 
 	test('a claim told which harness is capped says whether the job is a turn of a persona on it, and one from a worker with no room for another leaves such a turn queued, taking the other jobs', async () => {
 		const capped = (full: boolean) => ({harness: 'claude-agent-sdk', full});
-		const quiet = await quietThread('Capped');
-		unwrap(await appendPersonMessage(quiet.id, 'Hi', readyForInference));
+		const quiet = await quietThread('Capped', 'Hi');
 		const before = await claimFor('worker-k', quiet.id);
 		// On the proxy harness, as a persona is made: no turn of the capped harness's.
 		expect(before.capped).toBe(false);
@@ -723,7 +478,7 @@ describe.skipIf(!databaseUrl)('a turn written as it goes, against the database',
 		expect([turn?.kind, turn?.capped]).toEqual(['inference', true]);
 		unwrap(await finishJob(turn?.id ?? '', 'worker-k'));
 
-		unwrap(await appendPersonMessage(quiet.id, 'And?', readyForInference));
+		await reply(quiet, 'And?');
 		const uncapped = unwrap(await claimJob('worker-k', 60_000));
 		expect([uncapped?.kind, uncapped?.capped]).toEqual(['inference', false]);
 		unwrap(await finishJob(uncapped?.id ?? '', 'worker-k'));

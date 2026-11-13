@@ -374,7 +374,7 @@ export async function listMemberNames(
  * and every agent's settings on them, but for those shared with every member, which stay, the
  * organization's owner's from now on, who could change them already; what was shared with them by
  * name is no longer; and their own agents there go, with their logins and MCP clients, their
- * conversations with its built-in agents, and the personas of those that are their own. The shared agents stay, but the MCP clients they signed
+ * chats with its built-in agents, and the personas of those that are their own. The shared agents stay, but the MCP clients they signed
  * in as one are signed out, and the shared agents they made get `sharedAgentPasswordHash` and are
  * signed out everywhere. The caller has undone the connections that go at their providers first
  * (connection.ts listLeavingConnectionsWithCredential), and checked they aren't its owner.

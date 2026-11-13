@@ -12,11 +12,8 @@ import {
 	pendingToolCalls,
 	readyForInference,
 	shuffleLook,
-	parentMessageArgs,
+	personMessageArgs,
 	sleepUntil,
-	subAgentArgs,
-	subAgentMessageArgs,
-	threadRole,
 	threadState,
 	ATTACHMENT_MARK,
 	attachedParts,
@@ -37,11 +34,11 @@ const result = (callId: string): LogEntry => ({
 	toolCalls: null,
 	callId,
 });
-const event = (callId: string): LogEntry => ({
+const event = (): LogEntry => ({
 	kind: 'event',
-	text: 'report',
+	text: 'The alert “Invoice from Dana” is due now.',
 	toolCalls: null,
-	callId,
+	callId: null,
 });
 
 describe('pendingToolCalls', () => {
@@ -75,29 +72,21 @@ describe('readyForInference', () => {
 		expect(readyForInference([...calling, result('a')])).toBe(true);
 	});
 
-	test('not after a note of what the person wrote to a sub-agent, but after what comes with it', () => {
-		const note = {kind: 'note' as const, text: 'Only mornings', toolCalls: null, callId: 'd'};
-		const answered = [person('hi'), assistant('On it.')];
-		expect(readyForInference([...answered, note])).toBe(false);
-		expect(readyForInference([...answered, note, event('d')])).toBe(true);
-		expect(readyForInference([...answered, event('d'), note])).toBe(true);
-	});
-
 	test('after an event, as after the person, but not while a call is still unanswered', () => {
-		const delegated = [
+		const answered = [
 			person('hi'),
-			assistant('', [{id: 'd', name: 'create_subagent'}]),
+			assistant('', [{id: 'd', name: 'set_alert'}]),
 			result('d'),
-			assistant('Started.'),
+			assistant('Set.'),
 		];
-		expect(readyForInference(delegated)).toBe(false);
-		expect(readyForInference([...delegated, event('d')])).toBe(true);
+		expect(readyForInference(answered)).toBe(false);
+		expect(readyForInference([...answered, event()])).toBe(true);
 		expect(
 			readyForInference([
-				...delegated,
+				...answered,
 				person('and?'),
-				assistant('', [{id: 'e', name: 'create_subagent'}]),
-				event('d'),
+				assistant('', [{id: 'e', name: 'script'}]),
+				event(),
 			]),
 		).toBe(false);
 	});
@@ -120,31 +109,11 @@ describe('cut', () => {
 	});
 });
 
-describe('subAgentArgs', () => {
-	test('are a title, trimmed and cut to a task’s, and a brief, or nothing', () => {
-		expect(subAgentArgs({title: ' Find the invoices ', brief: ' Search the mailbox. '})).toEqual({
-			title: 'Find the invoices',
-			brief: 'Search the mailbox.',
-		});
-		expect(subAgentArgs({title: 'x'.repeat(130), brief: 'Go'})?.title).toHaveLength(120);
-		expect(subAgentArgs({title: 'Find', brief: ' '})).toBeNull();
-		expect(subAgentArgs({brief: 'Go'})).toBeNull();
-		expect(subAgentArgs('go')).toBeNull();
-	});
-});
-
-describe('subAgentMessageArgs and parentMessageArgs', () => {
-	test('are which sub-agent and the message, trimmed, or the message alone, or nothing', () => {
-		expect(subAgentMessageArgs({subagent: ' sub-1 ', text: ' Also the shared mailbox. '})).toEqual({
-			subagent: 'sub-1',
-			text: 'Also the shared mailbox.',
-		});
-		expect(subAgentMessageArgs({subagent: 'sub-1'})).toBeNull();
-		expect(subAgentMessageArgs({subagent: '', text: 'Go'})).toBeNull();
-		expect(subAgentMessageArgs(['sub-1', 'Go'])).toBeNull();
-		expect(parentMessageArgs({text: ' Which mailbox? '})).toEqual({text: 'Which mailbox?'});
-		expect(parentMessageArgs({text: ' '})).toBeNull();
-		expect(parentMessageArgs(null)).toBeNull();
+describe('personMessageArgs', () => {
+	test('are the message, trimmed, or nothing', () => {
+		expect(personMessageArgs({text: ' Still looking. '})).toEqual({text: 'Still looking.'});
+		expect(personMessageArgs({text: ' '})).toBeNull();
+		expect(personMessageArgs(null)).toBeNull();
 	});
 });
 
@@ -318,13 +287,5 @@ describe('attachedParts', () => {
 
 	test('a preview of a message says nothing of where its files are', () => {
 		expect(preview(`Does ${mark} match ${mark}?`)).toBe('Does match ?');
-	});
-});
-
-describe('threadRole', () => {
-	test('tells the chat, a thread the member’s message opened, and a sub-agent a call started apart', () => {
-		expect(threadRole({parentThreadId: null, parentCallId: null})).toBe('chat');
-		expect(threadRole({parentThreadId: 'chat-1', parentCallId: null})).toBe('thread');
-		expect(threadRole({parentThreadId: 'chat-1', parentCallId: 'c1'})).toBe('subagent');
 	});
 });

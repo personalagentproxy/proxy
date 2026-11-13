@@ -35,7 +35,7 @@ export type AlertRow = {
 	id: string;
 	orgId: string;
 	userId: string;
-	// The conversation it was set in, a chat or one of its threads, where what it comes to lands.
+	// The thread it was set in, where what it comes to lands.
 	threadId: string;
 	title: string;
 	brief: string;
@@ -60,7 +60,7 @@ export type NewAlert = {title: string; brief: string} & (
 /** Where a connection's collection was last looked at: `cursor` null before the first look. */
 export type PollRow = {connectionId: string; collectionId: string; cursor: string | null};
 
-/** What a look tells a watch that matched: the text that lands in its conversation. */
+/** What a look tells a watch that matched: the text that lands in its thread. */
 export type WatchMatch = {alert: AlertRow; text: string};
 
 const alertSelect = {
@@ -78,8 +78,8 @@ const alertSelect = {
 	createdAt: true,
 } as const satisfies Prisma.AgentAlertSelect;
 
-// Sets the alert in the conversation: a timed one due at its time, or a watch with the polls of
-// its connections, made where there are none yet. With the conversation locked.
+// Sets the alert in the thread: a timed one due at its time, or a watch with the polls of its
+// connections, made where there are none yet. With the thread locked.
 async function createAlert(
 	tx: Prisma.TransactionClient,
 	thread: ThreadRow,
@@ -115,7 +115,7 @@ async function createAlert(
 }
 
 /**
- * Finishes the tool job of a set_alert call: sets the alert in the conversation, a timed one due
+ * Finishes the tool job of a set_alert call: sets the alert in the thread, a timed one due
  * at its time and a watch with the polls of its connections, and answers the call as `answer`
  * says of it, in one transaction. Wakes the agent where the log then `wakes` it. `Ok(false)` when
  * the job was no longer the worker's, and nothing is set.
@@ -160,7 +160,7 @@ export async function setAlertInline(
 	return writeInline(job, null, (tx, thread) => createAlert(tx, thread, alert));
 }
 
-/** The alerts set in the conversation, oldest first: what the agent is told it has. */
+/** The alerts set in the thread, oldest first: what its agent is told it has. */
 export async function listThreadAlerts(threadId: string): Promise<Result<AlertRow[], ApiError>> {
 	return wrapDb(() =>
 		db.agentAlert.findMany({where: {threadId}, select: alertSelect, orderBy: {createdAt: 'asc'}}),
@@ -200,8 +200,8 @@ export async function listMemberAlerts(
 }
 
 /**
- * Deletes an alert: the conversation's, as the agent cancels one, or the member's, as the Alerts
- * page deletes one. `Ok(false)` when there is none such.
+ * Deletes an alert: the thread's, as its agent cancels one, or the member's, as the Alerts page
+ * deletes one. `Ok(false)` when there is none such.
  */
 export async function deleteAlert(
 	alertId: string,
@@ -245,10 +245,10 @@ export async function claimDueAlerts(
 }
 
 /**
- * Fires a timed alert: what `text` says lands in its conversation as an event, and the alert is
- * deleted, in one transaction. Wakes the agent as a message would (wakeWith): a thread asleep is
- * woken now, and its task taken up again. `Ok(false)` when
- * the alert or its conversation is gone, and nothing is written.
+ * Fires a timed alert: what `text` says lands in its thread as an event, and the alert is deleted,
+ * in one transaction. Wakes the thread's agent as a reply would (wakeWith): a thread asleep is
+ * woken now, and its task taken up again. `Ok(false)` when the alert or its thread is gone, and
+ * nothing is written.
  */
 export async function fireAlert(
 	alert: AlertRow,
@@ -308,11 +308,11 @@ export async function claimDuePolls(
 
 /**
  * Notes a look at a poll: where it left off, `cursor`, and what it matched, which lands in each
- * matching watch's conversation as an event, in one transaction, only from where the look started,
- * the cursor the poll was taken with. A watch deleted since is told nothing. The conversations are
- * locked in the order of their ids, so two looks never wait on each other in a circle. Wakes each agent where
- * its log then `wakes` it. `Ok(false)` when the poll was looked at from there since, or is gone,
- * and nothing is written.
+ * matching watch's thread as an event, in one transaction, only from where the look started, the
+ * cursor the poll was taken with. A watch deleted since is told nothing. The threads are locked in
+ * the order of their chats' ids, so two looks never wait on each other in a circle. Wakes each
+ * agent where its log then `wakes` it. `Ok(false)` when the poll was looked at from there since,
+ * or is gone, and nothing is written.
  */
 export async function recordLook(
 	poll: PollRow,
@@ -323,8 +323,8 @@ export async function recordLook(
 ): Promise<Result<boolean, ApiError>> {
 	return wrapDb(() =>
 		db.$transaction(async (tx) => {
-			// The conversations first, then the poll, as a watch set takes its conversation, then its
-			// polls. A chat's thread is locked by its chat's row, so they go in the order of their chats.
+			// The threads first, then the poll, as a watch set takes its thread, then its polls. A
+			// thread is locked by its chat's row, so they go in the order of their chats.
 			const ids = [...new Set(matched.map(({alert}) => alert.threadId))];
 			const found = await tx.agentThread.findMany({
 				where: {id: {in: ids}},

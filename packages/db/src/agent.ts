@@ -40,7 +40,7 @@ const agentSelect = {
 
 /**
  * An agent as a member sees it: its settings on the connections they use alone. The built-in
- * agent, which acts as each member in their conversation, has settings on every member's own
+ * agent, which acts as each member in their chats, has settings on every member's own
  * connections, which nobody else is shown.
  */
 function agentSelectFor(viewer: MemberViewer) {

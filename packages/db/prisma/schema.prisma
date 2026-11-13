@@ -483,8 +483,8 @@ model AgentTask {
   // The member whose own the agent is, who alone sees the task; null for a shared agent's, which
   // everyone in the organization sees.
   ownerUserId String?
-  // The persona a sub-agent of the Chat page ran the task as (Persona), for the activity log to
-  // say whose it was; null for every other task. As a column, as the agent is.
+  // The persona a thread of the Chat page ran the task as (Persona), for the activity log to say
+  // whose it was; null for every other task. As a column, as the agent is.
   personaId String?
   // When it, or the last of its sub-tasks at any depth, was started or had a request made for it:
   // one never finished is taken as left open 20 minutes after, until the next request takes it up
@@ -730,7 +730,7 @@ model FileChange {
 // A persona of the Chat page: an agent Personal Agent Proxy runs itself, named and given a head,
 // one of any number. It is whoever made it's, who alone sees it, talks to it and changes it; General,
 // which every organization starts with, is nobody's, so every member sees it and has a
-// conversation of their own with it. Every persona acts through the organization's one built-in
+// chat of their own with it. Every persona acts through the organization's one built-in
 // agent login (Agent, provider `proxy`), whose grants are every persona's: a persona is who did
 // the work, the login is what it may do.
 model Persona {
@@ -740,8 +740,8 @@ model Persona {
   // Its head: the look as JSON (`@proxy/utils/harness` Look), in one of the colors.
   look  String
   color String
-  // The harness that runs its turns, by the harness's id (@proxy/backends/harness), its
-  // sub-agents' too, and the model it answers with, by the id the harness lists it under: chosen
+  // The harness that runs its threads' turns, by the harness's id (@proxy/backends/harness), and
+  // the model it answers with, by the id the harness lists it under: chosen
   // where it is made or changed. One the server doesn't offer the organization is read as one it
   // does (the api's backends/harness.ts).
   harness   String @default("claude-agent-sdk")
@@ -765,12 +765,6 @@ model Persona {
   @@index([ownerUserId])
 }
 
-// A thread of the built-in agent, holding its log of entries: a member's conversation with a
-// persona, or a sub-agent started from it. Every call a sub-agent makes is for its thread's task,
-// as any agent's calls are, taken up again by the next where it was left open, as when it slept
-// long. A conversation has no task: its agent makes no calls but to delegate. Everything that
-// happens to the agent is an entry (AgentEntry), and everything that makes it do something is a
-// job (AgentJob).
 enum SandboxState {
   running
   asleep
@@ -811,33 +805,35 @@ model Sandbox {
   @@index([state, lastUsedAt])
 }
 
+// A member's chat with a persona, or a thread of it. The chat, of which there is one per member and
+// persona, runs no agent of its own: it keeps what the member typed and hasn't sent, the files in
+// its input and how far they have read it, and every message they post in it opens a thread. A
+// thread holds a log of entries and its agent: everything that happens to the agent is an entry
+// (AgentEntry), and everything that makes it do something is a job (AgentJob). Every call a
+// thread's agent makes is for the thread's task, as any agent's calls are, taken up again by the
+// next where it was left open, as when it slept long.
 model AgentThread {
   id      String @id @default(cuid())
   orgId   String
   // The organization's built-in agent login, which the persona acts through: its grants, its
   // activity log.
   agentId String
-  // The persona the conversation is with, or the sub-agent works as.
+  // The persona the chat is with.
   personaId String
-  // The member whose conversation with the agent it is, or, for a sub-agent's thread, whose
-  // conversation it was started from: the agent acts as them in it, reaching what they see, and
-  // nobody else sees it.
+  // The member whose chat it is, or whose chat the thread is of: the agent acts as them in it,
+  // reaching what they see, and nobody else sees it.
   userId  String
-  // A sub-agent's thread: the thread whose agent started it (AgentThread; as a column, as a
-  // task's parent is, since its agent, member and organization are the same, and go with them),
-  // and the call in that thread's log it was started by, which everything it says to that agent
-  // answers. Null for a member's conversation, of which there is one per member and agent.
+  // A thread's chat (AgentThread; as a column, as a task's parent is, since its agent, member and
+  // organization are the same, and go with them). Null for a chat.
   parentThreadId String?
-  parentCallId   String?
-  // A sub-agent's title, as the agent that started it gave it; null for a conversation.
+  // A thread's title, a line of the message that opened it; null for a chat.
   title   String?
-  // The task a sub-agent's calls are made for, the sub-agent's own, finished each time it stops
-  // and made anew when it is taken up again; a conversation has none: its agent makes no calls
-  // but to its sub-agents.
+  // The task a thread's calls are made for, its own, finished each time its turn ends and made
+  // anew when it is taken up long after; a chat has none: it runs no turns.
   taskId  String?
-  // How far the member has read their conversation: the `seq` of the last answer the Chat page
-  // showed them while they looked at it, never back. What the persona said past it is unread. A
-  // sub-agent's thread, which nobody reads, keeps 0.
+  // How far the member has read their chat, across its threads: the `seq` of the last answer the
+  // Chat page showed them while they looked at it, never back. What the persona said past it is
+  // unread. A thread keeps 0: the chat's marker is the one read.
   readSeq Int     @default(0)
   // Which harness last ran a turn on the thread, by the harness's id (@proxy/backends/harness),
   // kept with the session so one harness is never given another's; null for a thread no harness
@@ -847,13 +843,9 @@ model AgentThread {
   // (@proxy/utils/harness HarnessSession); null before the first turn, or for a harness that
   // keeps nothing between turns.
   harnessSession String?
-  // What the member has typed to the persona and not sent, kept so it is there when they come
-  // back, on any device; the message they send empties it. Null when there is none, and for a
-  // sub-agent's thread.
+  // What the member has typed in the chat and not sent, kept so it is there when they come back,
+  // on any device; the message they send empties it. Null when there is none, and for a thread.
   draft   String?
-  // When the member pinned the sub-agent, as a task of their conversation, to the Chat page's list
-  // under its persona; null for one not pinned, and for a conversation.
-  pinnedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -874,19 +866,16 @@ model AgentThread {
   @@index([orgId, createdAt])
 }
 
-// What an entry of a thread's log is: what the person said (a sub-agent's brief, in its thread),
-// what the model answered, with the tool calls it made, what one of those calls answered, an
-// event that came since (what a call run in the background came to, a sub-agent's report), a
-// summary of the log up to a point, which the model reads in place of what it covers once the log
-// has grown long, or a note: in the member's conversation, what they wrote to one of its
-// sub-agents in that sub-agent's chat, which the agent reads but is not woken by.
+// What an entry of a thread's log is: what the person said, what the model answered, with the
+// tool calls it made, what one of those calls answered, an event that came since (an alert set in
+// the thread that came), or a summary of the log up to a point, which the model reads in place of
+// what it covers once the log has grown long.
 enum AgentEntryKind {
   person
   assistant
   tool_result
   event
   summary
-  note
 }
 
 // One entry of a thread's log, in the order of `seq`. The log is the transcript the model reads:
@@ -904,13 +893,9 @@ model AgentEntry {
   text     String
   // An assistant entry's tool calls as JSON (`@proxy/utils/harness` ToolCall[]); null otherwise.
   toolCalls String?
-  // A tool_result or event entry's call, by the id the model gave it, or a note's, the call that
-  // started the sub-agent it was written to; null otherwise.
+  // A tool_result entry's call, by the id the model gave it; null otherwise.
   callId   String?
-  // A person entry of a sub-agent's thread that the member wrote in the sub-agent's chat, rather
-  // than the agent that started it; false for every other entry.
-  direct   Boolean        @default(false)
-  // A tool_result or event that is an error, in words the model can act on.
+  // A tool_result or an answer that is an error, in words the model or the member can act on.
   isError  Boolean        @default(false)
   // An assistant entry's cost.
   inputTokens  Int?
@@ -936,17 +921,16 @@ model AgentEntry {
   @@index([threadId, seq])
 }
 
-// A file the person attached to what they said in a conversation, or one the agent showed them in
-// an answer, as a picture in its words: one of a drive's (FileNode, by plain ids, so it stays as it
-// was said when the file or the drive is gone), at the version it held then, which the
-// conversation keeps meaning whatever the file holds later, with its name, kind and size as they
-// were. Without an entry, a file the member put in the conversation's input and hasn't sent, kept
-// there as the draft is, on any device, until the message they send takes its place. `text` is
-// what the model is given of it with the message: the first of the file's text, `cut` where there
-// was more; null for a file that isn't text, for one the agent showed, and for one not sent yet. A
-// file the person attached lets the conversation's agents read that version, whatever they may do
-// in its drive otherwise (api native/files/attached.ts). In the order they were attached, or sit in
-// the input, by `position`.
+// A file the person attached to what they said in a thread, or one the agent showed them in an
+// answer, as a picture in its words: one of a drive's (FileNode, by plain ids, so it stays as it was
+// said when the file or the drive is gone), at the version it held then, which the thread keeps
+// meaning whatever the file holds later, with its name, kind and size as they were. Without an
+// entry, a file the member put in the chat's input and hasn't sent, kept there as the draft is, on
+// any device, until the message they send takes its place. `text` is what the model is given of it
+// with the message: the first of the file's text, `cut` where there was more; null for a file that
+// isn't text, for one the agent showed, and for one not sent yet. A file the person attached lets
+// the thread's agent read that version, whatever it may do in its drive otherwise (api
+// native/files/attached.ts). In the order they were attached, or sit in the input, by `position`.
 model AgentEntryAttachment {
   id           String  @id @default(cuid())
   // Null for a file in the input, not sent yet.
@@ -1068,19 +1052,20 @@ model AgentJobEvent {
   @@index([threadId, at])
 }
 
-// An alert the built-in agent set in a member's conversation, to be woken outside it. Both kinds
+// An alert the built-in agent set in a thread of a member's chat, to wake the thread from outside
+// it. Both kinds
 // are taken by the alerts' sweep (api harness/alert-sweep.ts), which moves what it takes on as it
 // takes it, so one api instance takes each. A timed alert (`at`) is due at `nextAt`, its time at
-// first, and lands what the agent noted in the conversation as an event in the transaction that
+// first, and lands what the agent noted in the thread as an event in the transaction that
 // deletes it. A watch (`collectionId`) is a rule on a collection of some connections, each read
 // through its poll (ConnectionPoll), which every watch on it shares; a record new or changed there
-// that carries any of the watch's words lands in the conversation as an event. Set in the
+// that carries any of the watch's words lands in the thread as an event. Set in the
 // transaction that answers the call that set it. The person sees their alerts on the Alerts page
 // and deletes them there; the agent cancels one when asked.
 model AgentAlert {
   id       String @id @default(cuid())
   orgId    String
-  // The member whose conversation it was set in: the alert is theirs alone to see.
+  // The member whose chat's thread it was set in: the alert is theirs alone to see.
   userId   String
   threadId String
   title    String

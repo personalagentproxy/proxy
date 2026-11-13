@@ -7,21 +7,22 @@ import {readyForInference} from '@proxy/utils/harness';
 import {db} from '.';
 import {completeSetAlert, fireAlert, listMemberAlerts, listThreadAlerts} from './alerts';
 import {
+	appendEntry,
 	appendTurnEntries,
 	completeInference,
 	createPersona,
-	ensureMemberThread,
+	ensureMemberChat,
 	failJob,
 	getChatThread,
 	listAnswers,
 	listChatThreads,
 	listEntries,
 	listPersonas,
-	listSubAgents,
-	markThreadRead,
+	lockThread,
+	markChatRead,
 	openThread,
 	replyInThread,
-	saveThreadDraft,
+	saveChatDraft,
 	type JobRow,
 	type ThreadOpening,
 	type ThreadRow,
@@ -75,7 +76,7 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		const persona = unwrap(
 			await createPersona(orgId, userId, {name: 'Finance', look, color: 'teal'}),
 		);
-		chat = unwrap(await ensureMemberThread({orgId, agentId, personaId: persona.id, userId}));
+		chat = unwrap(await ensureMemberChat({orgId, agentId, personaId: persona.id, userId}));
 	});
 
 	afterAll(async () => {
@@ -148,7 +149,7 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 			text: '# Pricing',
 			cut: false,
 		};
-		unwrap(await saveThreadDraft(chat.id, 'Find the pricing review with Dana'));
+		unwrap(await saveChatDraft(chat.id, 'Find the pricing review with Dana'));
 
 		const opened = unwrap(
 			await openThread(
@@ -166,7 +167,6 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 
 		expect(thread).toMatchObject({
 			parentThreadId: chat.id,
-			parentCallId: null,
 			title: 'Pricing review with Dana',
 			personaId: chat.personaId,
 			userId,
@@ -188,8 +188,16 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		// Nothing lands in the chat itself, and nothing wakes it.
 		expect(unwrap(await listEntries(chat.id))).toEqual([]);
 		expect(await openTurns(chat.id)).toBe(0);
-		// A thread is not the chat's sub-agent.
-		expect(unwrap(await listSubAgents(chat.id))).toEqual([]);
+		// A chat runs no turns: what lands in it wakes nothing.
+		const landed = await db.$transaction(async (tx) => {
+			const locked = await lockThread(tx, chat.id);
+			if (!locked) {
+				throw new Error('no chat');
+			}
+			return appendEntry(tx, locked, {kind: 'person', text: 'Hello?'}, readyForInference);
+		});
+		expect(await openTurns(chat.id)).toBe(0);
+		await db.agentEntry.delete({where: {id: landed.id}});
 
 		const listed = unwrap(await getChatThread(chat.id, thread.id, []));
 		expect(listed?.state).toEqual({kind: 'working'});
@@ -307,24 +315,6 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 			unwrap(await replyInThread(chat.id, 'no-such-thread', 'Hi', readyForInference)),
 		).toBeNull();
 		expect(unwrap(await replyInThread(thread.id, thread.id, 'Hi', readyForInference))).toBeNull();
-		// An old sub-agent of the chat takes no reply here.
-		const sub = await db.agentThread.create({
-			data: {
-				orgId,
-				agentId,
-				personaId: chat.personaId,
-				userId,
-				parentThreadId: chat.id,
-				parentCallId: 'c-sub',
-				title: 'Find the invoices',
-			},
-		});
-		expect(unwrap(await replyInThread(chat.id, sub.id, 'Hi', readyForInference))).toBeNull();
-		expect(unwrap(await listChatThreads(chat.id, [])).map((listed) => listed.id)).not.toContain(
-			sub.id,
-		);
-		expect(unwrap(await listSubAgents(chat.id)).map((listed) => listed.id)).toEqual([sub.id]);
-		await db.agentThread.delete({where: {id: sub.id}});
 		await db.agentJob.updateMany({where: {threadId: thread.id}, data: {status: 'done'}});
 	});
 
@@ -421,27 +411,19 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 			unread: true,
 		});
 
-		expect(unwrap(await markThreadRead(chat.id, answer?.id ?? ''))).toBe(true);
+		expect(unwrap(await markChatRead(chat.id, answer?.id ?? ''))).toBe(true);
 		expect((await lastAnswer())?.unread).toBe(false);
 
-		// An entry of another chat's, or of a sub-agent of this one, is not this chat's to be read up to.
-		const sub = await db.agentThread.create({
-			data: {
-				orgId,
-				agentId,
-				personaId: persona,
-				userId,
-				parentThreadId: chat.id,
-				parentCallId: 'c-read',
-				title: 'Find the invoices',
-			},
+		// An entry of another chat's is not this chat's to be read up to.
+		const elsewhere = await db.agentThread.create({
+			data: {orgId, agentId, personaId: persona, userId, title: 'Find the invoices'},
 		});
-		const subAnswer = await db.agentEntry.create({
-			data: {threadId: sub.id, kind: 'assistant', text: 'Found them.'},
+		const elsewhereAnswer = await db.agentEntry.create({
+			data: {threadId: elsewhere.id, kind: 'assistant', text: 'Found them.'},
 		});
-		expect(unwrap(await markThreadRead(chat.id, subAnswer.id))).toBe(false);
+		expect(unwrap(await markChatRead(chat.id, elsewhereAnswer.id))).toBe(false);
+		await db.agentThread.delete({where: {id: elsewhere.id}});
 		expect((await lastAnswer())?.answer.text).toBe('Dana did.');
-		await db.agentThread.delete({where: {id: sub.id}});
 	});
 
 	test('an alert set in a thread is the thread’s: listed with it and with its persona, and when it fires it lands in the thread, taking it up', async () => {

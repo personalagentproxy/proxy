@@ -205,7 +205,7 @@ describe('handleMcpRoute', () => {
 		);
 	});
 
-	test('in a conversation, what the agent makes goes in the folder it is given', async () => {
+	test('in a chat’s thread, what the agent makes goes in the folder it is given', async () => {
 		const {agentInstructions} = await import('./tools');
 		const own = {id: 'drive-1', integrationId: 'files', account: 'Acme', shared: false, actions: ['readFiles', 'createFiles'], tools: null, name: null};
 		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [own]}));

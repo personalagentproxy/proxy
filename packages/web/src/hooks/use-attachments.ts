@@ -4,7 +4,7 @@ import {useCallback, useRef, useState} from 'react';
 import type {Result} from 'ts-results-es';
 import {describeApiError} from '@/lib/loader-utils';
 
-/** A file in the conversation's input, to go with the next message: on its way up, there, or failed, saying why. */
+/** A file in the input of a chat or a thread, to go with the next message: on its way up, there, or failed, saying why. */
 export type PendingAttachment = {
 	key: number;
 	name: string;

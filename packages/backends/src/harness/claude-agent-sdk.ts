@@ -10,7 +10,7 @@ import {Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError} from '@proxy/utils';
-import {type ContextEntry, directLead, type EntryImage, eventLead, type SubAgent, toTranscript} from '@proxy/utils/harness-context';
+import {type ContextEntry, type EntryImage, EVENT_LEAD, toTranscript} from '@proxy/utils/harness-context';
 
 import type {HarnessAuth, HarnessBackend, HarnessEntry, HarnessEvent, HarnessTurn, ToolAnswer, ToolSurface} from './backend';
 import type {SdkSessionStore} from './session-store';
@@ -156,14 +156,13 @@ function unseenBy(session: Session | null, entries: HarnessEntry[]): HarnessEntr
 }
 
 // An entry that came to the model as the prompt has it: what the person said, or an event with
-// its lead-in, or what the person wrote in a sub-agent's chat with its own.
-function pieceOf(subAgents: SubAgent[], entry: HarnessEntry): string[] {
-	if (entry.kind === 'person' || entry.kind === 'note') {
-		const lead = directLead(subAgents, entry);
-		return [lead === null ? entry.text : `${lead}\n\n${entry.text}`];
+// its lead-in.
+function pieceOf(entry: HarnessEntry): string[] {
+	if (entry.kind === 'person') {
+		return [entry.text];
 	}
 	if (entry.kind === 'event') {
-		return [`${eventLead(subAgents, entry)}\n\n${entry.text}`];
+		return [`${EVENT_LEAD}\n\n${entry.text}`];
 	}
 	return [];
 }
@@ -172,10 +171,9 @@ function pieceOf(subAgents: SubAgent[], entry: HarnessEntry): string[] {
 // the log through the last of them is written out as the record (module comment); what came after
 // it, a wake-up's note among it, is what the turn is to answer, or "Go on." where nothing did.
 function promptFor(input: HarnessTurn, session: Session | null, now: Date): string {
-	const subAgents = input.subAgents ?? [];
 	const unseen = unseenBy(session, input.entries);
 	const lastStep = unseen.findLastIndex((entry) => STEP_KINDS.has(entry.kind));
-	const news = unseen.slice(lastStep + 1).flatMap((entry) => pieceOf(subAgents, entry));
+	const news = unseen.slice(lastStep + 1).flatMap(pieceOf);
 	if (input.woken) {
 		news.push(`You were woken, and it is now ${now.toISOString()}.`);
 	}
@@ -183,7 +181,7 @@ function promptFor(input: HarnessTurn, session: Session | null, now: Date): stri
 		return news.length === 0 ? GO_ON : news.join('\n\n');
 	}
 	const record = unseen.filter((entry, index) => index <= lastStep || entry.kind === 'summary');
-	return [RECORD, toTranscript(record, subAgents), ...(news.length === 0 ? [GO_ON] : [SINCE, ...news])].join('\n\n');
+	return [RECORD, toTranscript(record), ...(news.length === 0 ? [GO_ON] : [SINCE, ...news])].join('\n\n');
 }
 
 /**

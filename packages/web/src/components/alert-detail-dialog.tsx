@@ -43,7 +43,7 @@ function Detail({label, children}: {label: string; children: ReactNode}) {
 }
 
 // An alert in full: what it is, where it watches and for which words, what the agent noted for
-// it, who set it, with a link to the conversation it is told in, and when it last matched.
+// it, who set it, with a link to the chat it is told in, and when it last matched.
 export function AlertDetailDialog({alert, onClose}: Props) {
 	return (
 		<Dialog
@@ -68,9 +68,7 @@ function AlertDetailContent({alert}: {alert: Alert}) {
 			<DialogHeader>
 				<DialogTitle className="pr-8 leading-snug break-words">{alert.title}</DialogTitle>
 				<DialogDescription>
-					{alert.at === null
-						? `Watching ${collection}`
-						: `Once, ${formatMoment(alert.at)}`}
+					{alert.at === null ? `Watching ${collection}` : `Once, ${formatMoment(alert.at)}`}
 				</DialogDescription>
 			</DialogHeader>
 			<dl className="divide-y text-sm">

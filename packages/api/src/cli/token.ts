@@ -24,7 +24,7 @@ export type CliClaims = {
 	orgId: string;
 	/**
 	 * The member the agent acted for when the command was run, as a shared agent does in a
-	 * member's conversation, as the built-in agent does; null for a shared agent acting for none.
+	 * member's chat, as the built-in agent does; null for a shared agent acting for none.
 	 */
 	ownerUserId: string | null;
 	taskId: string;

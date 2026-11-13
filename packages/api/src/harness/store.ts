@@ -14,25 +14,20 @@ import type {
 	CappedHarness,
 	ChatThreadRow,
 	ClaimedJob,
-	ConversationAnswer,
+	ChatAnswerRow,
 	DraftAttachment,
 	EntryRow,
 	FailureNote,
 	InlineJob,
 	JobRow,
 	LastMessage,
-	NewEntry,
 	NewTurnEntry,
 	Persona,
 	PersonaModel,
 	PersonaRow,
-	PinnedTaskRow,
-	SubAgentRow,
-	SubAgentStart,
 	ThreadOpening,
 	ThreadRow,
 	ThreadSession,
-	WorkingTaskRow,
 } from '@proxy/db/harness';
 import * as transcripts from '@proxy/db/harness-transcript';
 import type {TranscriptKey, TranscriptLine} from '@proxy/db/harness-transcript';
@@ -41,10 +36,11 @@ import type {SignedInAgent} from '@proxy/db/agent';
 
 /**
  * What the harness reads and writes: the job queue, each thread's log and its jobs, the Chat
- * page's personas, the member's chats and their threads, and the alerts set in the conversations with the polls their watches read, in
- * the database (@proxy/db/harness, @proxy/db/alerts). Every write is one transaction, fenced by
- * the worker's lease where it is a job's, and takes what it writes as the harness composed it:
- * the rules of the conversation are the harness's own (conversation.ts). The agent is woken where
+ * page's personas, the member's chats and their threads, and the alerts set in the threads with
+ * the polls their watches read, in the database (@proxy/db/harness, @proxy/db/alerts). Every
+ * write is one transaction, fenced by the worker's lease where it is a job's, and takes what it
+ * writes as the harness composed it: the rules of a thread are the harness's own
+ * (thread-rules.ts). The agent is woken where
  * what lands leaves its log ready for it (@proxy/utils/harness readyForInference). Each part of
  * the harness takes the store, or the part of it it uses, so its tests give it a fake one. A turn
  * whose harness runs its tools itself writes its output as it goes (`appendTurnEntries`), does
@@ -57,7 +53,7 @@ export type HarnessStore = {
 	claimJob: (workerId: string, leaseMs: number, capped?: CappedHarness | null) => Promise<Result<ClaimedJob | null, ApiError>>;
 	renewLease: (jobId: string, workerId: string, leaseMs: number) => Promise<Result<boolean, ApiError>>;
 	finishJob: (jobId: string, workerId: string) => Promise<Result<boolean, ApiError>>;
-	failJob: (jobId: string, workerId: string, error: string, noteFor: (job: JobRow, thread: ThreadRow) => FailureNote | null) => Promise<Result<boolean, ApiError>>;
+	failJob: (jobId: string, workerId: string, error: string, noteFor: (job: JobRow) => FailureNote | null) => Promise<Result<boolean, ApiError>>;
 	requeueJob: (jobId: string, workerId: string, threadId: string, runAt: Date, why: string) => Promise<Result<boolean, ApiError>>;
 
 	getJobThread: (threadId: string) => Promise<Result<ThreadRow | null, ApiError>>;
@@ -69,50 +65,36 @@ export type HarnessStore = {
 	appendSummary: (jobId: string, workerId: string, threadId: string, summary: {text: string; inputTokens: number; outputTokens: number}, coversSeq: number) => Promise<Result<boolean, ApiError>>;
 	appendTurnEntries: (jobId: string, workerId: string, threadId: string, entries: NewTurnEntry[]) => Promise<Result<boolean, ApiError>>;
 	scheduleWake: (jobId: string, workerId: string, threadId: string, runAt: Date) => Promise<Result<boolean, ApiError>>;
-	startSubAgentInline: (job: InlineJob, start: SubAgentStart) => Promise<Result<string | null, ApiError>>;
-	messageSubAgentInline: (job: InlineJob, subAgentId: string, entry: NewEntry) => Promise<Result<{subAgent: SubAgentRow | null} | null, ApiError>>;
-	tellParentInline: (job: InlineJob, message: {text: string; isError: boolean}) => Promise<Result<boolean, ApiError>>;
 	completeInference: (jobId: string, workerId: string, threadId: string, turn: AssistantTurn | null, after: AfterAnswer, session?: ThreadSession) => Promise<Result<boolean, ApiError>>;
 	completeToolJob: (jobId: string, workerId: string, threadId: string, result: {callId: string; text: string; isError: boolean}) => Promise<Result<boolean, ApiError>>;
-	listSubAgents: (parentThreadId: string, now: Date) => Promise<Result<SubAgentRow[], ApiError>>;
 	setThreadTask: (threadId: string, taskId: string) => Promise<Result<void, ApiError>>;
 	getAgentTask: (orgId: string, agentId: string, taskId: string) => Promise<Result<AgentTaskRow | null, ApiError>>;
 	createAgentTask: (task: NewAgentTask) => Promise<Result<AgentTaskRow | null, ApiError>>;
 
 	listPersonas: (orgId: string, userId: string) => Promise<Result<Array<PersonaRow & {lastMessage: LastMessage | null; draft: string | null; draftAttachments: DraftAttachment[]}>, ApiError>>;
-	listAnswers: (orgId: string, userId: string) => Promise<Result<ConversationAnswer[], ApiError>>;
+	listAnswers: (orgId: string, userId: string) => Promise<Result<ChatAnswerRow[], ApiError>>;
 	ensureFirstPersona: (orgId: string) => Promise<Result<PersonaRow, ApiError>>;
 	getPersona: (orgId: string, userId: string, personaId: string) => Promise<Result<PersonaRow | null, ApiError>>;
 	createPersona: (orgId: string, userId: string, persona: Persona) => Promise<Result<PersonaRow, ApiError>>;
 	updatePersona: (orgId: string, personaId: string, persona: Persona) => Promise<Result<boolean, ApiError>>;
 	deletePersona: (orgId: string, personaId: string) => Promise<Result<boolean, ApiError>>;
-	getMemberThread: (personaId: string, userId: string) => Promise<Result<ThreadRow | null, ApiError>>;
-	ensureMemberThread: (data: {orgId: string; agentId: string; personaId: string; userId: string}) => Promise<Result<ThreadRow, ApiError>>;
-	listShownEntries: (threadId: string, calls: string[]) => Promise<Result<EntryRow[], ApiError>>;
-	listShownSubAgentEntries: (subAgent: ThreadRow, calls: string[]) => Promise<Result<EntryRow[], ApiError>>;
-	listOpenJobs: (threadId: string) => Promise<Result<JobRow[], ApiError>>;
-	/** What the person says in their conversation, with the files they attached to it. */
-	appendPersonMessage: (threadId: string, text: string, attachments?: EntryAttachment[]) => Promise<Result<EntryRow | null, ApiError>>;
+	getMemberChat: (personaId: string, userId: string) => Promise<Result<ThreadRow | null, ApiError>>;
+	ensureMemberChat: (data: {orgId: string; agentId: string; personaId: string; userId: string}) => Promise<Result<ThreadRow, ApiError>>;
 	/** What the person attached in a thread, each with the entry it was said with. */
 	listAttachments: (threadId: string) => Promise<Result<AttachmentRow[], ApiError>>;
-	/** What the person writes in a sub-agent's chat, with the files they attached to it. */
-	messageSubAgentDirectly: (conversationId: string, subAgentId: string, text: string, attachments?: EntryAttachment[]) => Promise<Result<boolean, ApiError>>;
 	/** A thread opened in the member's chat with what they said, with the files they attached to it, as its first entry. */
 	openThread: (chatId: string, text: string, opening: ThreadOpening, attachments?: EntryAttachment[]) => Promise<Result<{thread: ThreadRow; entry: EntryRow} | null, ApiError>>;
 	/** What the member replies in one of their chat's threads, with the files they attached to it. */
 	replyInThread: (chatId: string, threadId: string, text: string, attachments?: EntryAttachment[]) => Promise<Result<EntryRow | null, ApiError>>;
 	listChatThreads: (chatId: string, calls: string[], now: Date) => Promise<Result<ChatThreadRow[], ApiError>>;
 	getChatThread: (chatId: string, threadId: string, calls: string[], now: Date) => Promise<Result<ChatThreadRow | null, ApiError>>;
-	listPinnedTasks: (orgId: string, userId: string) => Promise<Result<PinnedTaskRow[], ApiError>>;
-	listWorkingTasks: (orgId: string, userId: string) => Promise<Result<WorkingTaskRow[], ApiError>>;
-	setTaskPinned: (conversationId: string, subAgentId: string, pinned: boolean) => Promise<Result<boolean, ApiError>>;
-	markThreadRead: (threadId: string, entryId: string) => Promise<Result<boolean, ApiError>>;
-	getThreadDraft: (threadId: string) => Promise<Result<string | null, ApiError>>;
-	saveThreadDraft: (threadId: string, draft: string | null, order?: Array<Pick<DraftAttachment, 'connectionId' | 'fileId' | 'version'>>) => Promise<Result<boolean, ApiError>>;
-	/** The files in a conversation's input, not sent yet; put there after those there, at most `max`, and taken out. False for no such conversation. */
-	listDraftAttachments: (threadId: string) => Promise<Result<DraftAttachment[], ApiError>>;
-	addDraftAttachment: (threadId: string, attachment: DraftAttachment, max: number) => Promise<Result<boolean, ApiError>>;
-	removeDraftAttachment: (threadId: string, file: Pick<DraftAttachment, 'connectionId' | 'fileId' | 'version'>) => Promise<Result<boolean, ApiError>>;
+	markChatRead: (chatId: string, entryId: string) => Promise<Result<boolean, ApiError>>;
+	getChatDraft: (chatId: string) => Promise<Result<string | null, ApiError>>;
+	saveChatDraft: (chatId: string, draft: string | null, order?: Array<Pick<DraftAttachment, 'connectionId' | 'fileId' | 'version'>>) => Promise<Result<boolean, ApiError>>;
+	/** The files in a chat's input, not sent yet; put there after those there, at most `max`, and taken out. False for no such chat. */
+	listDraftAttachments: (chatId: string) => Promise<Result<DraftAttachment[], ApiError>>;
+	addDraftAttachment: (chatId: string, attachment: DraftAttachment, max: number) => Promise<Result<boolean, ApiError>>;
+	removeDraftAttachment: (chatId: string, file: Pick<DraftAttachment, 'connectionId' | 'fileId' | 'version'>) => Promise<Result<boolean, ApiError>>;
 
 	completeSetAlert: (job: {jobId: string; workerId: string; threadId: string; callId: string}, alert: NewAlert, answer: (alert: AlertRow) => string) => Promise<Result<boolean, ApiError>>;
 	setAlertInline: (job: InlineJob, alert: NewAlert) => Promise<Result<AlertRow | null, ApiError>>;
@@ -153,12 +135,8 @@ export const harnessStore: HarnessStore = {
 	appendSummary: harness.appendSummary,
 	appendTurnEntries: harness.appendTurnEntries,
 	scheduleWake: harness.scheduleWake,
-	startSubAgentInline: (job, start) => harness.startSubAgentInline(job, start, readyForInference),
-	messageSubAgentInline: (job, subAgentId, entry) => harness.messageSubAgentInline(job, subAgentId, entry, readyForInference),
-	tellParentInline: (job, message) => harness.tellParentInline(job, message, readyForInference),
 	completeInference: (jobId, workerId, threadId, turn, after, session) => harness.completeInference(jobId, workerId, threadId, turn, after, readyForInference, session),
 	completeToolJob: (jobId, workerId, threadId, result) => harness.completeToolJob(jobId, workerId, threadId, result, readyForInference),
-	listSubAgents: harness.listSubAgents,
 	setThreadTask: harness.setThreadTask,
 	getAgentTask,
 	createAgentTask,
@@ -170,24 +148,16 @@ export const harnessStore: HarnessStore = {
 	createPersona: harness.createPersona,
 	updatePersona: harness.updatePersona,
 	deletePersona: harness.deletePersona,
-	getMemberThread: harness.getMemberThread,
-	ensureMemberThread: harness.ensureMemberThread,
-	listShownEntries: harness.listShownEntries,
-	listShownSubAgentEntries: harness.listShownSubAgentEntries,
-	listOpenJobs: harness.listOpenJobs,
-	appendPersonMessage: (threadId, text, attachments) => harness.appendPersonMessage(threadId, text, readyForInference, attachments),
+	getMemberChat: harness.getMemberChat,
+	ensureMemberChat: harness.ensureMemberChat,
 	listAttachments: harness.listAttachments,
-	messageSubAgentDirectly: (conversationId, subAgentId, text, attachments) => harness.messageSubAgentDirectly(conversationId, subAgentId, text, readyForInference, attachments),
 	openThread: (chatId, text, opening, attachments) => harness.openThread(chatId, text, opening, readyForInference, attachments),
 	replyInThread: (chatId, threadId, text, attachments) => harness.replyInThread(chatId, threadId, text, readyForInference, attachments),
 	listChatThreads: harness.listChatThreads,
 	getChatThread: harness.getChatThread,
-	listPinnedTasks: harness.listPinnedTasks,
-	listWorkingTasks: harness.listWorkingTasks,
-	setTaskPinned: harness.setTaskPinned,
-	markThreadRead: harness.markThreadRead,
-	getThreadDraft: harness.getThreadDraft,
-	saveThreadDraft: harness.saveThreadDraft,
+	markChatRead: harness.markChatRead,
+	getChatDraft: harness.getChatDraft,
+	saveChatDraft: harness.saveChatDraft,
 	listDraftAttachments: harness.listDraftAttachments,
 	addDraftAttachment: harness.addDraftAttachment,
 	removeDraftAttachment: harness.removeDraftAttachment,

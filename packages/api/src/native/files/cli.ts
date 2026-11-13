@@ -26,7 +26,7 @@ import {pathOf} from './text';
  * the activity log as the read, the new file or the write it is, coming in as `cli`; a change is in the drive's journal as the
  * agent's, for that task. A file written over is written by whoever names the version it holds,
  * as the write tool has it, unless the push says to write over whatever is there. A file the
- * person attached to the conversation is read at that version whatever the agent may do in the
+ * person attached in the thread is read at that version whatever the agent may do in the
  * drive otherwise, as the read tool reads it (attached.ts).
  */
 
@@ -137,7 +137,7 @@ export async function handleCliPullFileRoute(request: CliRequest, response: Resp
 		const absent = byPath !== null && (byPath.missing.length > 0 || byPath.found.length === 0);
 		const fileId = id ?? (absent ? undefined : byPath?.found.at(-1)?.id) ?? '';
 		const params = {id: fileId, ...(asked === undefined ? {} : {version: asked})};
-		// A file the person attached to the conversation is read whatever the agent may do in the drive otherwise (attached.ts).
+		// A file the person attached in the thread is read whatever the agent may do in the drive otherwise (attached.ts).
 		const entry = {collection: TOOLS_COLLECTION_ID, action: 'files_read', title: null, query: JSON.stringify(params)};
 		return $(
 			await gateRun(drive, $(toolOf(drive, 'files_read')), params, entry, () =>
