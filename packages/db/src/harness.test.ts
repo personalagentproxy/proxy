@@ -74,12 +74,12 @@ function stop(text: string, isError = false): SubAgentStop {
 
 // A turn of the parent's, with the calls it made.
 function parentTurn(toolCalls: ToolCall[]) {
-	return {text: '', toolCalls, inputTokens: 1, outputTokens: 1, system: null};
+	return {text: '', toolCalls, inputTokens: 1, outputTokens: 1, system: null, context: null};
 }
 
 // A turn of a sub-agent's that says `text`, with no calls.
 function subTurn(text: string) {
-	return {text, toolCalls: [], inputTokens: 1, outputTokens: 1, system: null};
+	return {text, toolCalls: [], inputTokens: 1, outputTokens: 1, system: null, context: null};
 }
 
 describe.skipIf(!databaseUrl)('the harness, against the database', () => {
@@ -192,6 +192,7 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 					inputTokens: 10,
 					outputTokens: 2,
 					system: 'You are signed in.',
+					context: 'The time now is 2026-10-21T10:00:00.000Z.',
 				},
 				{
 					plans: {
@@ -204,11 +205,19 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		);
 
 		const entries = unwrap(await listEntries(thread.id));
-		expect(entries.map((entry) => [entry.kind, entry.jobId, entry.system, entry.callId])).toEqual([
-			['person', null, null, null],
-			['summary', job.id, null, null],
-			['assistant', job.id, 'You are signed in.', null],
-			['tool_result', job.id, null, 'c0'],
+		expect(
+			entries.map((entry) => [entry.kind, entry.jobId, entry.system, entry.context, entry.callId]),
+		).toEqual([
+			['person', null, null, null, null],
+			['summary', job.id, null, null, null],
+			[
+				'assistant',
+				job.id,
+				'You are signed in.',
+				'The time now is 2026-10-21T10:00:00.000Z.',
+				null,
+			],
+			['tool_result', job.id, null, null, 'c0'],
 		]);
 		const events = unwrap(await listJobEvents(thread.id));
 		expect(events.map((event) => [event.jobId, event.kind, event.workerId, event.error])).toEqual([
@@ -477,6 +486,7 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 					inputTokens: 1,
 					outputTokens: 1,
 					system: null,
+					context: null,
 				},
 				{
 					plans: {
@@ -540,6 +550,7 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 					inputTokens: 1,
 					outputTokens: 1,
 					system: null,
+					context: null,
 				},
 				{
 					plans: {
@@ -984,6 +995,7 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 					inputTokens: 1,
 					outputTokens: 1,
 					system: null,
+					context: null,
 					attachments: [chart, sheet],
 				},
 				{plans: {}},

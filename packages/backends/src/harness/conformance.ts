@@ -42,6 +42,7 @@ function turnInput(signal = new AbortController().signal): HarnessTurn {
 		entries: ENTRIES,
 		subAgents: [],
 		woken: false,
+		context: `The time now is ${new Date().toISOString()}.`,
 		system: 'You are a test.',
 		tools: fakeToolSurface(TOOLS),
 		model: 'claude',
@@ -135,13 +136,13 @@ export function harnessConformance(name: string, make: () => {harness: HarnessBa
 			}
 		});
 
-		test('done carries the system prompt the model was sent, and what the turn cost', async () => {
+		test('done carries what the turn cost', async () => {
 			const {harness, scripted} = make();
 			scripted.answers({text: 'Hello', toolCalls: []});
 
 			const done = (await collect(harness, turnInput())).at(-1);
 
-			expect(done).toMatchObject({kind: 'done', system: expect.any(String), inputTokens: expect.any(Number), outputTokens: expect.any(Number)});
+			expect(done).toMatchObject({kind: 'done', inputTokens: expect.any(Number), outputTokens: expect.any(Number)});
 		});
 
 		test('a text event is never empty', async () => {

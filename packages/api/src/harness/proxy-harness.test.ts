@@ -5,10 +5,14 @@ import type {HarnessEntry, HarnessEvent, HarnessTurn} from '@proxy/backends/harn
 import {harnessConformance, type ScriptedModel} from '@proxy/backends/harness/conformance';
 import {fakeToolSurface} from '@proxy/backends/harness/fake';
 import {ApiErr} from '@proxy/utils';
-import {COMPACT_AT_TOKENS, type ContextEntry} from '@proxy/utils/harness-context';
+import {COMPACT_AT_TOKENS, type ContextEntry, standing} from '@proxy/utils/harness-context';
 
 import type {askForTurn as askForTurnOverRouter} from '../llm/open-router';
 import {proxyHarness} from './proxy-harness';
+
+// Where things stand as the turn starts, as the api gives it, and as the model reads it, last.
+const CONTEXT = 'The time now is 2026-10-21T10:00:00.000Z.';
+const STANDING = {role: 'user' as const, content: standing(CONTEXT)};
 
 // The model over OpenRouter, as the harness asks it.
 const askForTurn = mock<typeof askForTurnOverRouter>();
@@ -53,6 +57,7 @@ function turnInput(entries: HarnessEntry[], extra: Partial<HarnessTurn> = {}): H
 		entries,
 		subAgents: [],
 		woken: false,
+		context: CONTEXT,
 		system: 'You are signed in.',
 		tools: fakeToolSurface([read]),
 		model: 'claude',
@@ -70,7 +75,7 @@ describe('proxyHarness', () => {
 		askForTurn.mockResolvedValue(Ok({text: 'Hello', toolCalls: [], inputTokens: 10, outputTokens: 2}));
 	});
 
-	test('asks the model once, with the system prompt first, the log in the chat form and the tools, with the server’s key, and yields the words, each call and done with the cost and the session it was given', async () => {
+	test('asks the model once, with the system prompt first, the log in the chat form, where things stand last and the tools, with the server’s key, and yields the words, each call and done with the cost and the session it was given', async () => {
 		askForTurn.mockResolvedValue(Ok({text: 'Looking.', toolCalls: [{id: 'c2', name: 'read', arguments: '{"a":1}'}], inputTokens: 10, outputTokens: 2}));
 		const log = [entry('person', 'Hi'), entry('assistant', '', {toolCalls: [{id: 'c1', name: 'read', arguments: '{}'}]}), entry('tool_result', 'rows', {callId: 'c1'})];
 
@@ -85,6 +90,7 @@ describe('proxyHarness', () => {
 					{role: 'user', content: 'Hi'},
 					{role: 'assistant', content: null, tool_calls: [{id: 'c1', type: 'function', function: {name: 'read', arguments: '{}'}}]},
 					{role: 'tool', tool_call_id: 'c1', content: 'rows'},
+					STANDING,
 				],
 				tools: [{name: 'read', description: 'Reads', parameters: {type: 'object', properties: {}}}],
 				maxTokens: 4000,
@@ -94,7 +100,7 @@ describe('proxyHarness', () => {
 		expect(events).toEqual([
 			{kind: 'text', text: 'Looking.'},
 			{kind: 'tool_call', id: 'c2', name: 'read', arguments: '{"a":1}'},
-			{kind: 'done', session: {id: 's1', state: {}}, system: 'You are signed in.', inputTokens: 10, outputTokens: 2},
+			{kind: 'done', session: {id: 's1', state: {}}, inputTokens: 10, outputTokens: 2},
 		]);
 	});
 
@@ -108,7 +114,7 @@ describe('proxyHarness', () => {
 
 		await Array.fromAsync(harness.turn(turnInput(log, {subAgents: [{id: 'thread-2', parentCallId: 'c1', title: 'Find the invoices'}]})));
 
-		expect(requests()[0]?.messages.at(-1)).toEqual({role: 'user', content: expect.stringContaining('From the sub-agent “Find the invoices” (thread-2); not from the person.')});
+		expect(requests()[0]?.messages.at(-2)).toEqual({role: 'user', content: expect.stringContaining('From the sub-agent “Find the invoices” (thread-2); not from the person.')});
 	});
 
 	test('a log grown long is summarized first, by the same model, as text, and the summary yielded for the api to store, then read in place of what it covers', async () => {
@@ -134,11 +140,11 @@ describe('proxyHarness', () => {
 		expect(asked[0]?.tools).toEqual([]);
 		expect(asked[0]?.messages[0]).toMatchObject({role: 'system', content: expect.stringContaining('Summarize this conversation')});
 		expect(asked[0]?.messages.slice(1)).toEqual([{role: 'user', content: 'Person:\nOne\n\nAgent called read with {}\n\nread answered:\nrows one\n\nAgent:\nDone one\n\nWrite the summary now.'}]);
-		expect(asked[1]?.messages.slice(1).map((message) => message.content)).toEqual([expect.stringContaining('The person asked for one; it was done.'), 'Two', 'Done two', 'Three', null, 'rows three']);
+		expect(asked[1]?.messages.slice(1).map((message) => message.content)).toEqual([expect.stringContaining('The person asked for one; it was done.'), 'Two', 'Done two', 'Three', null, 'rows three', STANDING.content]);
 		expect(events).toEqual([
 			{kind: 'summary', text: 'The person asked for one; it was done.', coversSeq: log[3]?.seq ?? -1, inputTokens: 90_000, outputTokens: 300},
 			{kind: 'text', text: 'Three is done too.'},
-			{kind: 'done', session: null, system: 'You are signed in.', inputTokens: 2000, outputTokens: 20},
+			{kind: 'done', session: null, inputTokens: 2000, outputTokens: 20},
 		]);
 	});
 

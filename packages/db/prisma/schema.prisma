@@ -920,6 +920,11 @@ model AgentEntry {
   // An assistant entry's system prompt, as the model was sent it: built from the login's grants
   // as they were then, which nothing else keeps. Null where the model wasn't run for the answer.
   system   String?
+  // An assistant entry's context of the turn, where things stood as the model was told after the
+  // log: the time, and for the agent talking with the person its sub-agents and alerts. Null where
+  // the model wasn't run for the answer, and for what was written before it was kept apart from
+  // the system prompt, which then had it at its end.
+  context  String?
   // An assistant entry's harness and model, by their ids, as the turn that wrote it ran; null
   // where the model wasn't run for it, and for what was written before they were kept.
   harness  String?

@@ -108,6 +108,7 @@ function logEntry(entry: Pick<EntryRow, 'id' | 'seq' | 'kind' | 'text'> & Partia
 		outputTokens: null,
 		coversSeq: null,
 		system: null,
+		context: null,
 		harness: null,
 		model: null,
 		jobId: null,

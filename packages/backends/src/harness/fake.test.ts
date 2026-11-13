@@ -14,7 +14,7 @@ harnessConformance('the fake harness', () => {
 		answers: ({text, toolCalls}) => {
 			const words: HarnessEvent[] = text === '' ? [] : [{kind: 'text', text}];
 			const calls: HarnessEvent[] = toolCalls.map((call) => ({kind: 'tool_call', ...call}));
-			harness.script([...words, ...calls, {kind: 'done', session: null, system: 'You are a test.', inputTokens: 10, outputTokens: 2}]);
+			harness.script([...words, ...calls, {kind: 'done', session: null, inputTokens: 10, outputTokens: 2}]);
 		},
 		unreachable: () => {
 			harness.script([{kind: 'failed', error: ApiErr.providerUnreachable(new Error('down')), retry: true}]);
@@ -33,6 +33,7 @@ describe('fakeHarness', () => {
 			session: null,
 			entries: [],
 			woken: false,
+			context: `The time now is ${new Date().toISOString()}.`,
 			system: 'You are a test.',
 			tools: fakeToolSurface([]),
 			model: 'claude',
@@ -41,7 +42,7 @@ describe('fakeHarness', () => {
 		};
 
 		expect(await Array.fromAsync(harness.turn(input))).toEqual([{kind: 'text', text: 'One'}]);
-		expect(await Array.fromAsync(harness.turn({...input, system: 'Second'}))).toEqual([{kind: 'done', session: null, system: 'Second', inputTokens: 0, outputTokens: 0}]);
+		expect(await Array.fromAsync(harness.turn({...input, system: 'Second'}))).toEqual([{kind: 'done', session: null, inputTokens: 0, outputTokens: 0}]);
 		expect(harness.turns.map((turn) => turn.system)).toEqual(['You are a test.', 'Second']);
 	});
 

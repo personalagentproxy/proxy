@@ -9,32 +9,31 @@ import type {ContextEntry, SubAgent} from '@proxy/utils/harness-context';
  * one thread's log, behind a contract this package owns, so that the loop can be swapped. The api
  * keeps everything around a turn: the log, the jobs, the sub-agents, the sleeps, the alerts, the
  * tasks and what the person sees; a harness is given the log as the api has it, with the system
- * prompt and the tools the api built, and tells what the model did as a stream of events. The
- * first harness is the api's own loop over OpenRouter (the api's proxy-harness.ts); a harness
- * around an agent SDK, which keeps a session of its own and runs tools itself, is designed for
- * and comes later. Every harness passes the same tests (conformance.ts); the one the api's tests
- * run on is scripted (fake.ts).
+ * prompt, where things stand and the tools the api built, and tells what the model did as a stream
+ * of events. The first harness is the api's own loop over OpenRouter (the api's proxy-harness.ts);
+ * a harness around an agent SDK, which keeps a session of its own and runs tools itself, is
+ * designed for and comes later. Every harness passes the same tests (conformance.ts); the one the
+ * api's tests run on is scripted (fake.ts).
  *
  * The grammar of a turn: zero or more `summary`, `text`, `tool_call`, `tool_result` and `usage`
- * events, then exactly one `done` or `failed`, which is the last. A `text` is one piece of the answer, in
- * order, never empty. A `tool_call` is a call the model made, its id unique within the turn; a
- * `tool_result` answers a call the same turn made, and comes from a harness that ran the call
- * itself, through the surface's `execute`. A `tool_call` with no `tool_result` by `done` means
+ * events, then exactly one `done` or `failed`, which is the last. A `text` is one piece of the
+ * answer, in order, never empty. A `tool_call` is a call the model made, its id unique within the
+ * turn; a `tool_result` answers a call the same turn made, and comes from a harness that ran the
+ * call itself, through the surface's `execute`. A `tool_call` with no `tool_result` by `done` means
  * "run it and call me again": the api runs it as a job of its own and runs the harness once more
  * when every call is answered, which is how a harness whose tools are the api's jobs works; a
  * harness that runs tools inline answers every call before `done`. A `summary` says the harness
  * compacted the log, into a summary standing for every entry up to `coversSeq`, which the api
  * stores for the model to read in place of what it covers. `done` carries the session to keep for
- * the next turn, the system prompt the model was sent, and what the turn cost. `failed` says why,
- * and whether the turn is worth trying again as it is, as when the model couldn't be reached; a
- * failure of kind `credentials_rejected` says the credential the turn was given (`auth`) was
- * turned down, which the api answers by noting it on the member's account and telling them to
- * connect again, and one with `limitReached` that the provider takes no more from the member's
- * account for now, their plan's limit reached, which the api tells them, with when it resets where
- * the provider said, rather than trying again. A `usage` is what the model's provider said of the member's plan as the turn
- * ran: how much of the five-hour or the seven-day window is used, as a share from 0 to 1, and when
- * it resets; zero or more per turn, any time before the terminal event, and a harness on the
- * server's key yields none.
+ * the next turn and what the turn cost. `failed` says why, and whether the turn is worth trying
+ * again as it is, as when the model couldn't be reached; a failure of kind `credentials_rejected`
+ * says the credential the turn was given (`auth`) was turned down, which the api answers by noting
+ * it on the member's account and telling them to connect again, and one with `limitReached` that
+ * the provider takes no more from the member's account for now, their plan's limit reached, which
+ * the api tells them, with when it resets where the provider said, rather than trying again. A
+ * `usage` is what the model's provider said of the member's plan as the turn ran: how much of the
+ * five-hour or the seven-day window is used, as a share from 0 to 1, and when it resets; zero or
+ * more per turn, any time before the terminal event, and a harness on the server's key yields none.
  *
  * A harness says, beside its id, what it is called to the person choosing one for an agent, its
  * `label`, and the `models` it can answer with, the first the one a turn gets where none of them
@@ -78,7 +77,7 @@ export type HarnessEvent =
 	| {kind: 'tool_result'; callId: string; text: string; isError: boolean}
 	| {kind: 'summary'; text: string; coversSeq: number; inputTokens: number; outputTokens: number}
 	| {kind: 'usage'; fiveHour?: UsageWindow; sevenDay?: UsageWindow}
-	| {kind: 'done'; session: HarnessSession; system: string; inputTokens: number; outputTokens: number}
+	| {kind: 'done'; session: HarnessSession; inputTokens: number; outputTokens: number}
 	| {kind: 'failed'; error: ApiError; retry: boolean; limitReached?: {resetsAt: Date | null}};
 
 /**
@@ -104,7 +103,9 @@ export type HarnessTurn = {
 	subAgents?: SubAgent[];
 	/** Whether the job is a wake-up after a sleep rather than something new in the log. */
 	woken: boolean;
-	/** The system prompt, built by the api. */
+	/** Where things stand as the turn starts, built by the api: the time, and for the agent talking with the person its sub-agents and alerts. Every harness gives it to the model as `standing` (@proxy/utils/harness-context) has it, after all else the model is given this turn and never in the system prompt, which then stays the same from turn to turn. */
+	context: string;
+	/** The system prompt, built by the api, as it is now, and given to the model as it is: a harness that keeps a session gives the model this one, not the one the session started with. */
 	system: string;
 	tools: ToolSurface;
 	/** The model to answer with: one of the harness's `models`, by its id. */

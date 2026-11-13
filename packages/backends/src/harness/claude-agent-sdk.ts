@@ -10,7 +10,7 @@ import {Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError} from '@proxy/utils';
-import {type ContextEntry, directLead, type EntryImage, eventLead, type SubAgent, toTranscript} from '@proxy/utils/harness-context';
+import {type ContextEntry, directLead, type EntryImage, eventLead, standing, type SubAgent, toTranscript} from '@proxy/utils/harness-context';
 
 import type {HarnessAuth, HarnessBackend, HarnessEntry, HarnessEvent, HarnessTurn, ToolAnswer, ToolSurface} from './backend';
 import type {SdkSessionStore} from './session-store';
@@ -18,23 +18,24 @@ import type {SdkSessionStore} from './session-store';
 /**
  * The harness on the Claude Agent SDK: a turn is one `query()` of the SDK, which spawns Claude
  * Code's own binary as a subprocess and talks to it over stdio, run as the member, on the Claude
- * credential they connected. The SDK keeps a session per thread, its transcript written through
- * the session store the api gives it (session-store.ts), so a turn resumes where the last ended
- * from any api instance: the SDK's session is the model's memory, and the api's log is the record,
- * written from the events this harness yields. The prompt of a turn is therefore not the whole
- * log but what the session hasn't got of it: the entries after the seq the session kept, less what
- * the turn that kept it said and what its calls answered, which the model remembers, and less
- * what the api summarized, since the model compacts its own context. What the person said and an
- * event, with its lead-in, are given as the api's own harness would send them; a wake-up after a
- * sleep says so, and a turn with nothing new says to go on. The pictures the person attached to
- * what the session hasn't got go with the prompt, as one message of theirs. What the log has of the model's own
- * doing that the session can't be known to have is written out before them as the record, the
- * calls with what they answered, for the model to go on from rather than do again: the steps of an
- * attempt at the turn that was cut short, the worker having died or the model gone out of reach,
- * with the api's closing of the calls it left open; an answer the api wrote in the model's place;
- * and, for a thread without a session of this harness, which another harness ran so far or whose
- * first turn here was cut short, the whole log as the model would read it, from its last summary
- * on.
+ * credential they connected. The SDK keeps a session per thread, its transcript written through the
+ * session store the api gives it (session-store.ts), so a turn resumes where the last ended from
+ * any api instance: the SDK's session is the model's memory, and the api's log is the record,
+ * written from the events this harness yields. The prompt of a turn is therefore not the whole log
+ * but what the session hasn't got of it: the entries after the seq the session kept, less what the
+ * turn that kept it said and what its calls answered, which the model remembers, and less what the
+ * api summarized, since the model compacts its own context. What the person said and an event, with
+ * its lead-in, are given as the api's own harness would send them; a wake-up after a sleep says so,
+ * and a turn with nothing new says to go on; each ends with where things stand (`standing`). The
+ * system prompt is the api's for this turn, given anew on every resume rather than the one the
+ * session recorded at its start. The pictures the person attached to what the session hasn't got go
+ * with the prompt, as one message of theirs. What the log has of the model's own doing that the
+ * session can't be known to have is written out before them as the record, the calls with what they
+ * answered, for the model to go on from rather than do again: the steps of an attempt at the turn
+ * that was cut short, the worker having died or the model gone out of reach, with the api's closing
+ * of the calls it left open; an answer the api wrote in the model's place; and, for a thread
+ * without a session of this harness, which another harness ran so far or whose first turn here was
+ * cut short, the whole log as the model would read it, from its last summary on.
  *
  * The model's tools are the api's (`ToolSurface`), served to the subprocess over an MCP server in
  * this process, which the SDK connects to the binary over stdio: every call the model makes comes
@@ -108,6 +109,9 @@ const WIND_UP_MS = 10_000;
 
 const GO_ON = 'Go on.';
 
+// What a wake-up after a sleep is told, the time following it.
+const WOKEN = 'You were woken.';
+
 // What leads in the part of the log written out for the model, and what came after it.
 const RECORD =
 	'What follows is the record of this conversation where your own memory of it stops short, written out: you are the agent in it, and it has what was said, the calls you made and what they answered. You may remember some of it. Take it as what happened: don’t make a call again that was answered, and go on from where it ends.';
@@ -170,20 +174,22 @@ function pieceOf(subAgents: SubAgent[], entry: HarnessEntry): string[] {
 
 // The prompt: what the session hasn't got of the log. Where that holds steps of the model's own,
 // the log through the last of them is written out as the record (module comment); what came after
-// it, a wake-up's note among it, is what the turn is to answer, or "Go on." where nothing did.
-function promptFor(input: HarnessTurn, session: Session | null, now: Date): string {
+// it, a wake-up's note among it, is what the turn is to answer, or "Go on." where nothing did;
+// where things stand, as the api gave it, comes last.
+function promptFor(input: HarnessTurn, session: Session | null): string {
 	const subAgents = input.subAgents ?? [];
 	const unseen = unseenBy(session, input.entries);
 	const lastStep = unseen.findLastIndex((entry) => STEP_KINDS.has(entry.kind));
 	const news = unseen.slice(lastStep + 1).flatMap((entry) => pieceOf(subAgents, entry));
 	if (input.woken) {
-		news.push(`You were woken, and it is now ${now.toISOString()}.`);
+		news.push(WOKEN);
 	}
+	const now = standing(input.context);
 	if (lastStep === -1) {
-		return news.length === 0 ? GO_ON : news.join('\n\n');
+		return [...(news.length === 0 ? [GO_ON] : news), now].join('\n\n');
 	}
 	const record = unseen.filter((entry, index) => index <= lastStep || entry.kind === 'summary');
-	return [RECORD, toTranscript(record, subAgents), ...(news.length === 0 ? [GO_ON] : [SINCE, ...news])].join('\n\n');
+	return [RECORD, toTranscript(record, subAgents), ...(news.length === 0 ? [GO_ON] : [SINCE, ...news]), now].join('\n\n');
 }
 
 /**
@@ -373,7 +379,7 @@ function reported(text: string, resetsAt: Date | null): HarnessEvent {
 // steps, which the api handles, or was interrupted after a sleep; a failure otherwise. The input
 // counted is everything the model read, the cache's part of it included, since that is what the
 // turn cost in context.
-function endOf(message: SDKResultMessage, context: {sessionId: string; lastSeq: number; job: string; system: string; interrupted: boolean; resetsAt: Date | null}): HarnessEvent {
+function endOf(message: SDKResultMessage, context: {sessionId: string; lastSeq: number; job: string; interrupted: boolean; resetsAt: Date | null}): HarnessEvent {
 	if (message.subtype === 'success' && message.is_error && !context.interrupted) {
 		return reported(message.result, context.resetsAt);
 	}
@@ -384,7 +390,6 @@ function endOf(message: SDKResultMessage, context: {sessionId: string; lastSeq: 
 	return {
 		kind: 'done',
 		session: {id: context.sessionId, state: {lastSeq: context.lastSeq, job: context.job}},
-		system: context.system,
 		inputTokens: usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens,
 		outputTokens: usage.output_tokens,
 	};
@@ -485,7 +490,11 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 			const onAbort = (): void => controller.abort();
 			input.signal.addEventListener('abort', onAbort, {once: true});
 			const options: Options = {
-				systemPrompt: input.system,
+				// The system prompt as the api built it for this turn, not as the session first recorded it,
+				// which the SDK would otherwise send on every resume: what the agent may use changes within a
+				// conversation. It stays the same between turns where nothing in it changed, so the prompt
+				// cache holds; a turn after a change misses it once.
+				systemPrompt: {type: 'custom', prompt: input.system, snapshot: false},
 				tools: [],
 				mcpServers: {[SERVER]: {type: 'sdk', name: SERVER, instance: server}},
 				canUseTool,
@@ -509,7 +518,7 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 			let interrupted = false;
 			let ended = false;
 			let done = false;
-			const started = Result.wrap(() => query({prompt: withPictures(input, session, promptFor(input, session, new Date())), options}));
+			const started = Result.wrap(() => query({prompt: withPictures(input, session, promptFor(input, session)), options}));
 			if (started.isErr()) {
 				input.signal.removeEventListener('abort', onAbort);
 				yield failed(ApiErr.providerUnreachable(started.error), true);
@@ -582,7 +591,7 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 					if (message.type === 'result') {
 						ended = true;
 						await windUp(iterator, controller);
-						const end = endOf(message, {sessionId: sessionId ?? message.session_id, lastSeq, job: input.job, system: input.system, interrupted, resetsAt});
+						const end = endOf(message, {sessionId: sessionId ?? message.session_id, lastSeq, job: input.job, interrupted, resetsAt});
 						done = end.kind === 'done';
 						yield end;
 					}
