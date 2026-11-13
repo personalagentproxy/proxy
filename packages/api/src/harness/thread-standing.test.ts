@@ -7,7 +7,7 @@ import type {ChatThreadRow, EntryRow, ThreadRow} from '@proxy/db/harness';
 
 import {log} from '../observability/log';
 import {type FakeStore, fakeStore} from './fake-store';
-import {STANDING_INSTRUCTIONS, type StandingModel, standAfterTurn, summarizeThreadsWithoutSummary, threadForModel, writeStanding} from './thread-standing';
+import {STANDING_INSTRUCTIONS, type StandingModel, standAfterTurn, summarizeThreadsWithoutSummary, threadForModel, WORKING_INSTRUCTIONS, writeStanding} from './thread-standing';
 
 const now = new Date('2026-03-02T09:00:00Z');
 
@@ -104,7 +104,7 @@ describe('where a thread stands, as its turn ends', () => {
 				'Agent: I have a plan. Should the date range cover the CSV export too?',
 			].join('\n\n'),
 		);
-		expect(store.writeThreadStanding).toHaveBeenCalledWith('thread-1', {summary: 'Has a plan, and asks whether the date range should cover the CSV export too.', waitingForMember: true}, 4);
+		expect(store.writeThreadStanding).toHaveBeenCalledWith('thread-1', {summary: 'Has a plan, and asks whether the date range should cover the CSV export too.', waitingForMember: true}, 4, false);
 	});
 
 	test('without the key, asks nothing and writes nothing: the thread is done, with no summary', async () => {
@@ -114,14 +114,21 @@ describe('where a thread stands, as its turn ends', () => {
 		expect(store.writeThreadStanding).not.toHaveBeenCalled();
 	});
 
-	test('asks nothing for a thread at work or asleep, one the member has a reply pending in, a chat, or one whose summary is current', async () => {
-		store.getChatThread.mockResolvedValueOnce(Ok(chatThread({state: {kind: 'working'}})));
+	test('asks nothing for a thread at work or asleep whose agent has told the member nothing since they spoke, one the member has a reply pending in, a chat, or one whose summary is current', async () => {
+		const asked = [logEntry({id: 'e1', seq: 1, kind: 'person', text: 'Add a date filter to the activity log, plan first'})];
+		store.getChatThread.mockResolvedValueOnce(Ok(chatThread({state: {kind: 'working'}, entries: asked})));
 		expect((await writeStanding(store, model, 'thread-1')).unwrap()).toBe('skipped');
-		store.getChatThread.mockResolvedValueOnce(Ok(chatThread({state: {kind: 'asleep', until: now}})));
+		store.getChatThread.mockResolvedValueOnce(Ok(chatThread({state: {kind: 'asleep', until: now}, entries: asked})));
+		expect((await writeStanding(store, model, 'thread-1')).unwrap()).toBe('skipped');
+		// At work again on a reply, with nothing told since it.
+		store.getChatThread.mockResolvedValueOnce(Ok(chatThread({state: {kind: 'working'}, entries: [...chatThread().entries, logEntry({id: 'e5', seq: 5, kind: 'person', text: 'Yes, include it'})]})));
 		expect((await writeStanding(store, model, 'thread-1')).unwrap()).toBe('skipped');
 		store.getChatThread.mockResolvedValueOnce(Ok(chatThread({entries: [...chatThread().entries, logEntry({id: 'e5', seq: 5, kind: 'person', text: 'Yes, include it', pending: true})]})));
 		expect((await writeStanding(store, model, 'thread-1')).unwrap()).toBe('skipped');
 		store.getChatThread.mockResolvedValueOnce(Ok(chatThread({standing: {waitingForMember: true, summary: 'Has a plan.', summarySeq: 4, archived: false}})));
+		expect((await writeStanding(store, model, 'thread-1')).unwrap()).toBe('skipped');
+		// What it told them is summed up already.
+		store.getChatThread.mockResolvedValueOnce(Ok(chatThread({state: {kind: 'working'}, standing: {waitingForMember: false, summary: 'Reading the filter bar.', summarySeq: 4}})));
 		expect((await writeStanding(store, model, 'thread-1')).unwrap()).toBe('skipped');
 		store.getJobThread.mockResolvedValueOnce(Ok({...row, parentThreadId: null}));
 		expect((await writeStanding(store, model, 'thread-1')).unwrap()).toBe('skipped');
@@ -129,6 +136,54 @@ describe('where a thread stands, as its turn ends', () => {
 		expect((await writeStanding(store, model, 'thread-1')).unwrap()).toBe('skipped');
 		expect(ask).not.toHaveBeenCalled();
 		expect(store.writeThreadStanding).not.toHaveBeenCalled();
+	});
+
+	test('while a thread works, writes the sentence each time its agent has told the member something, asked what it is doing, and leaves whether it waits alone', async () => {
+		const told = chatThread({
+			state: {kind: 'working'},
+			entries: [
+				logEntry({id: 'e1', seq: 1, kind: 'person', text: 'Add a date filter to the activity log'}),
+				logEntry({
+					id: 'e2',
+					seq: 2,
+					kind: 'assistant',
+					text: '',
+					toolCalls: [
+						{id: 'c1', name: 'send_to_person', arguments: JSON.stringify({text: 'Reading the filter bar first.'})},
+						{id: 'c2', name: 'script', arguments: JSON.stringify({code: 'return 1'})},
+					],
+				}),
+			],
+			attachments: [],
+		});
+		store.getChatThread.mockResolvedValue(Ok(told));
+		ask.mockResolvedValue(Ok({summary: 'Reading the filter bar before planning the date filter.', waitingForMember: true}));
+
+		expect((await writeStanding(store, model, 'thread-1')).unwrap()).toBe('written');
+
+		const request = ask.mock.calls[0]?.[0];
+		expect(request?.system).toBe(WORKING_INSTRUCTIONS);
+		expect(request?.user).toBe('Person: Add a date filter to the activity log\n\nAgent: Reading the filter bar first.');
+		// Whatever the model says of waiting, a thread at work waits for nobody: it is not written.
+		expect(store.writeThreadStanding).toHaveBeenCalledWith('thread-1', {summary: 'Reading the filter bar before planning the date filter.'}, 2, true);
+
+		// Asleep, it is at work too; and words said beside its calls are told as a message is.
+		store.getChatThread.mockResolvedValue(
+			Ok({
+				...told,
+				state: {kind: 'asleep', until: now},
+				entries: [
+					...told.entries,
+					logEntry({id: 'e3', seq: 5, kind: 'assistant', text: 'The bar is in filters.tsx. Checking again in an hour.', toolCalls: [{id: 'c3', name: 'sleep_until', arguments: '{"seconds":3600}'}]}),
+				],
+			}),
+		);
+		expect((await writeStanding(store, model, 'thread-1')).unwrap()).toBe('written');
+		expect(store.writeThreadStanding).toHaveBeenLastCalledWith('thread-1', expect.anything(), 5, true);
+
+		// Written past meanwhile, or something having come, it is left: not written is skipped.
+		store.writeThreadStanding.mockResolvedValue(Ok(false));
+		expect((await writeStanding(store, model, 'thread-1')).unwrap()).toBe('skipped');
 	});
 
 	test('writes again once a reply made the summary stale and the turn it began has ended', async () => {
@@ -144,7 +199,7 @@ describe('where a thread stands, as its turn ends', () => {
 		ask.mockResolvedValue(Ok({summary: 'Added the date range, CSV export included.', waitingForMember: false}));
 
 		expect((await writeStanding(store, model, 'thread-1')).unwrap()).toBe('written');
-		expect(store.writeThreadStanding).toHaveBeenCalledWith('thread-1', {summary: 'Added the date range, CSV export included.', waitingForMember: false}, 8);
+		expect(store.writeThreadStanding).toHaveBeenCalledWith('thread-1', {summary: 'Added the date range, CSV export included.', waitingForMember: false}, 8, false);
 	});
 
 	test('where something came in while the model read, the store writes nothing, and nothing is written', async () => {
@@ -155,7 +210,7 @@ describe('where a thread stands, as its turn ends', () => {
 	test('an empty sentence is no summary; one too long is cut', async () => {
 		ask.mockResolvedValueOnce(Ok({summary: '  ', waitingForMember: false}));
 		await writeStanding(store, model, 'thread-1');
-		expect(store.writeThreadStanding).toHaveBeenLastCalledWith('thread-1', {summary: null, waitingForMember: false}, 4);
+		expect(store.writeThreadStanding).toHaveBeenLastCalledWith('thread-1', {summary: null, waitingForMember: false}, 4, false);
 
 		ask.mockResolvedValueOnce(Ok({summary: 'word '.repeat(100), waitingForMember: false}));
 		await writeStanding(store, model, 'thread-1');
@@ -233,7 +288,14 @@ describe('the summaries of threads from before', () => {
 				{id: 'thread-3', chatId: 'chat-1'},
 			]),
 		);
-		store.getChatThread.mockImplementation(async (_chatId, threadId) => Ok(chatThread({id: threadId, state: threadId === 'thread-3' ? {kind: 'working'} : {kind: 'stopped'}})));
+		// The third is at work on what the member just said, its agent having told them nothing yet.
+		const working = chatThread({
+			id: 'thread-3',
+			state: {kind: 'working'},
+			entries: [logEntry({id: 'e9', seq: 9, threadId: 'thread-3', kind: 'person', text: 'Book a room for the review'})],
+			attachments: [],
+		});
+		store.getChatThread.mockImplementation(async (_chatId, threadId) => Ok(threadId === 'thread-3' ? working : chatThread({id: threadId})));
 		ask.mockResolvedValueOnce(Ok(answer)).mockResolvedValueOnce(Err(ApiErr.providerUnreachable(new Error('timeout'))));
 		const heard: string[] = [];
 
@@ -242,7 +304,7 @@ describe('the summaries of threads from before', () => {
 		expect(counts).toEqual({written: 1, skipped: 1, failed: 1});
 		expect(heard).toEqual(['thread-1 written', 'thread-2 failed', 'thread-3 skipped']);
 		expect(store.writeThreadStanding).toHaveBeenCalledTimes(1);
-		expect(store.writeThreadStanding).toHaveBeenCalledWith('thread-1', {summary: 'Has a plan, and asks whether the date range should cover the CSV export too.'}, 4);
+		expect(store.writeThreadStanding).toHaveBeenCalledWith('thread-1', {summary: 'Has a plan, and asks whether the date range should cover the CSV export too.'}, 4, false);
 		warn.mockRestore();
 	});
 });
