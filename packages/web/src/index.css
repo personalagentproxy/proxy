@@ -21,7 +21,7 @@
 .desktop-app body::before,
 body:has([data-page])::before {
 	position: fixed;
-	z-index: 60;
+	z-index: var(--z-title-bar);
 	top: 0;
 	right: 0;
 	left: 0;
@@ -48,7 +48,7 @@ body:has([data-page])::before {
 
 .desktop-window-inactive body::after {
 	position: fixed;
-	z-index: 62;
+	z-index: var(--z-title-bar-controls);
 	top: 14px;
 	left: 16px;
 	width: 14px;
@@ -67,7 +67,7 @@ body:has([data-page])::before {
    window. */
 [data-title-bar] {
 	position: fixed;
-	z-index: 62;
+	z-index: var(--z-title-bar-controls);
 	top: 0;
 	left: 0;
 	box-sizing: border-box;
@@ -125,7 +125,7 @@ body:has([data-page])::before {
 
 [data-page] > header {
 	position: sticky;
-	z-index: 61;
+	z-index: var(--z-shell-chrome);
 	top: 0;
 	height: var(--title-bar-height);
 	padding-left: var(--title-bar-inset, 1rem);
@@ -148,7 +148,7 @@ body:has([data-page])::before {
 		[data-slot='select-content']
 	)
 ) {
-	z-index: 70;
+	z-index: var(--z-floating);
 }
 
 /* The sidebar's divider is the title bar's line turned down (below), not a border of its own
@@ -196,7 +196,7 @@ body:has([data-slot='sidebar'][data-state])::before,
 [data-slot='sidebar-wrapper']:has([data-slot='sidebar'][data-state])::before,
 [data-slot='sidebar-wrapper']:has([data-slot='sidebar'][data-state])::after {
 	position: fixed;
-	z-index: 61;
+	z-index: var(--z-shell-chrome);
 	top: var(--title-bar-edge);
 	left: var(--title-bar-navigation-edge);
 	box-sizing: border-box;
@@ -222,6 +222,19 @@ body:has([data-slot='sidebar'][data-state])::before,
 	border-top: 1px solid var(--border);
 	border-left: 1px solid var(--sidebar-border);
 	border-top-left-radius: var(--title-bar-corner-radius);
+}
+
+/* With a modal open, the L-border and title bar line are under the backdrop; hide the fixed rules
+   so they do not bleed through the light scrim (the backdrop still blurs the shell beneath). */
+body:has([data-slot='dialog-overlay'][data-open], [data-slot='sheet-overlay'][data-open])
+	[data-slot='sidebar-wrapper']::before,
+body:has([data-slot='dialog-overlay'][data-open], [data-slot='sheet-overlay'][data-open])
+	[data-slot='sidebar-wrapper']::after {
+	visibility: hidden;
+}
+
+body:has([data-slot='dialog-overlay'][data-open], [data-slot='sheet-overlay'][data-open])::before {
+	border-bottom-color: transparent;
 }
 
 /* Where the window is narrow, as a phone's or a desktop window zoomed in, the sidebars are sheets

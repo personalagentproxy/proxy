@@ -186,7 +186,7 @@ export function DropToAttach({name}: {name: string}) {
 	return (
 		<div
 			aria-hidden
-			className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-background/90 p-4 backdrop-blur-sm"
+			className="pointer-events-none fixed inset-0 z-modal z-[var(--z-modal)] flex items-center justify-center bg-background/90 p-4 backdrop-blur-sm"
 		>
 			<div className="flex size-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-ring">
 				<PaperclipIcon className="size-6 text-muted-foreground" />
