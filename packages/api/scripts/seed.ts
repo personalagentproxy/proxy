@@ -897,7 +897,7 @@ for (const agent of agents) {
 		if (leftInTask === 0 || taskId === null) {
 			leftInTask = 1 + Math.floor(random() * 4);
 			const lastIndex = Math.min(index + leftInTask, requests.length) - 1;
-			// Most come in over MCP, as Claude or ChatGPT would; some through the agent pages.
+			// Most come in over MCP, as Claude or ChatGPT would; some through the agent page.
 			via = random() < 0.7 ? 'mcp' : 'web';
 			const task = await db.agentTask.create({
 				data: {

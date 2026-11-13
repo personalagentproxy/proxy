@@ -8,7 +8,7 @@ import {feedbackBodySchema, type feedbackSentSchema} from '@proxy/contracts/agen
 import type {AgentCaller} from './tools';
 
 // Feedback an agent sends the makers of Personal Agent Proxy, such as a tool that didn't work as it
-// expected, over MCP or from the agent pages, with the task it was on where it names one. It is
+// expected, over MCP or from the agent page, with the task it was on where it names one. It is
 // kept for us to read; nothing in the app shows it. The connection, the tool and the task are kept
 // as the agent gave them, unchecked: feedback is how an agent says something went wrong, such as a
 // task id that wasn't taken, so it is never refused for what it is about.

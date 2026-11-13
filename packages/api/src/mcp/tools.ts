@@ -37,13 +37,23 @@ export const SCRIPT_TOOL = 'script';
 
 const LIMITS = DEFAULT_SCRIPT_LIMITS;
 
-/** What the script tool does, as an MCP client is told, `withTasks`, or a sub-agent of the built-in agent, whose task the loop keeps. */
-export function scriptToolDescription(withTasks: boolean): string {
+/**
+ * What the script tool does, as an MCP client is told (`mcp`), the agent page (`web`), whose
+ * page keeps the task for the agent, or a sub-agent of the built-in agent (`harness`), whose task
+ * the loop keeps.
+ */
+export function scriptToolDescription(via: 'mcp' | 'web' | 'harness'): string {
+	const withTasks = via !== 'harness';
 	return [
 		'Runs JavaScript or TypeScript as the body of an async function. Answers with what it logs, then what it returns, as JSON. Do as much as you can per script: make calls in parallel, filter in code, return only what is needed. It has only these functions: no fetch, files, timers or imports.',
-		...(withTasks
+		...(via === 'mcp'
 			? [
 					'pap.startTask({title, goal, parent?}) → {task}: what you will do for the person; `goal` without their private details. The script’s later calls are for it; give its id as `task` to later scripts. With `parent`, starts a sub-task for a sub-agent instead.',
+				]
+			: []),
+		...(via === 'web'
+			? [
+					'pap.startTask({title, goal}) → {task}: what you will do for the person; `goal` without their private details. The script’s later calls are for it, and this page sends it with your later scripts until you finish it or start another.',
 				]
 			: []),
 		'pap.connections() → [{connection, integration, name?, account, shared, can}]',
@@ -51,7 +61,7 @@ export function scriptToolDescription(withTasks: boolean): string {
 		'pap.call(connection, tool, params?) → what the tool answers',
 		...(withTasks ? ['pap.finishTask({outcome?}): ends the task, saying what was done.'] : []),
 		'pap.feedback({message, connection?, tool?}): tells the makers of Personal Agent Proxy what didn’t work as expected.',
-		`A failed call throws an Error with \`kind\` and \`message\`. ${withTasks ? 'Calls need a task: `task`, or one the script started. ' : ''}Limits: ${Math.round(LIMITS.wallMs / 1000)} s, ${LIMITS.maxCalls} calls, ${LIMITS.maxConcurrentCalls} at once.`,
+		`A failed call throws an Error with \`kind\` and \`message\`. ${via === 'mcp' ? 'Calls need a task: `task`, or one the script started. ' : ''}${via === 'web' ? 'Calls need a task: one this script or an earlier one started. ' : ''}Limits: ${Math.round(LIMITS.wallMs / 1000)} s, ${LIMITS.maxCalls} calls, ${LIMITS.maxConcurrentCalls} at once.`,
 	].join('\n');
 }
 
@@ -59,7 +69,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
 	{
 		name: SCRIPT_TOOL,
 		title: 'Script',
-		description: scriptToolDescription(true),
+		description: scriptToolDescription('mcp'),
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -163,6 +173,15 @@ export function serverInstructions(signedIn: SignedInAgent): Promise<Result<stri
 	return agentInstructions(signedIn, MCP_FLOW);
 }
 
+// How an agent on the agent page is to go about it: the page keeps its task between scripts.
+const WEB_FLOW =
+	'Work in scripts: write one in the Script field, send it, and read its answer. Start with pap.startTask; this page sends its task with your later scripts. Call pap.finishTask when done, and start a new task for each request. Check pap.tools before using a tool you haven’t used.';
+
+/** What the agent page tells the agent signed in on it: the same as an MCP client, then what a script can call. */
+export function pageInstructions(signedIn: SignedInAgent): Promise<Result<string, ApiError>> {
+	return Do(async ($) => [$(await agentInstructions(signedIn, WEB_FLOW)), scriptToolDescription('web')].join('\n\n'));
+}
+
 /**
  * What any agent with this login is told: who it is, how to go about it (`flow`, which is where
  * the MCP server and the built-in agent differ), what it can use, the vault, where to send the
@@ -203,22 +222,30 @@ function failed(text: string): McpToolResult {
 
 const scriptArgsSchema = z.object({code: z.string(), task: z.string().optional()});
 
+/** A script's run in words, whether it failed, and the task its calls were for at the end, null once it finished it. */
+export type ScriptAnswer = {text: string; isError: boolean; task: string | null};
+
 /**
- * Runs a script as the signed-in agent, for the task given, or the one it starts; `via` the way
- * it came in, which for the built-in agent's loop also means a task kept for it, so the script
- * starts and finishes none.
+ * Runs `code` as the signed-in agent, for `task`, or the one it starts; `via` the way it came in,
+ * which for the built-in agent's loop also means a task kept for it, so the script starts and
+ * finishes none.
  */
-export async function callMcpTool(signedIn: SignedInAgent, args: Record<string, unknown>, via: ScriptVia = 'mcp'): Promise<McpToolResult> {
+export async function runAgentScript(signedIn: SignedInAgent, code: string, task: string | null, via: Exclude<ScriptVia, 'cli'>): Promise<ScriptAnswer> {
+	const host = agentScriptHost(signedIn, {via, task, taskTools: via !== 'harness', sandboxes: true});
+	const run = await runScript(code, host.answer, LIMITS);
+	if (run.isErr()) {
+		log.error('A script could not be run', {kind: run.error.kind});
+		return {text: 'The script could not be run; try again.', isError: true, task};
+	}
+	return {...describeRun(run.value, host.startedTask(), LIMITS), task: host.task()};
+}
+
+/** The `script` tool, over MCP or for the built-in agent's loop. */
+export async function callMcpTool(signedIn: SignedInAgent, args: Record<string, unknown>, via: 'mcp' | 'harness' = 'mcp'): Promise<McpToolResult> {
 	const parsed = scriptArgsSchema.safeParse(args);
 	if (!parsed.success || parsed.data.code.trim() === '') {
 		return failed('script takes code, and task where one was started.');
 	}
-	const host = agentScriptHost(signedIn, {via, task: parsed.data.task?.trim() || null, taskTools: via === 'mcp', sandboxes: true});
-	const run = await runScript(parsed.data.code, host.answer, LIMITS);
-	if (run.isErr()) {
-		log.error('A script could not be run', {kind: run.error.kind});
-		return failed('The script could not be run; try again.');
-	}
-	const {text, isError} = describeRun(run.value, host.startedTask(), LIMITS);
+	const {text, isError} = await runAgentScript(signedIn, parsed.data.code, parsed.data.task?.trim() || null, via);
 	return {content: [{type: 'text', text}], ...(isError ? {isError: true} : {})};
 }

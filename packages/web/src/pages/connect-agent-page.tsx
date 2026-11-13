@@ -20,7 +20,7 @@ import {
 	SelectValue,
 } from '@proxy/ui/components/select';
 import {cn} from '@proxy/ui/lib/utils';
-import {apiMessage} from '@/lib/agent-errors';
+import {apiMessage} from '@/lib/api-message';
 import {describeFetchError} from '@/lib/loader-utils';
 import {forgetPendingAgent} from '@/lib/pending-agent';
 import type {ConnectAgentData, connectAgentLoader} from '@/loaders';

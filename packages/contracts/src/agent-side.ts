@@ -1,11 +1,11 @@
-import {mcpToolSchema} from '@proxy/integrations';
 import {z} from 'zod';
 
 import {dataRecordSchema, type RecordPage} from './records';
 
 /**
- * The agent side over HTTP (`/api/agent/…`), for the web app's agent pages, signed in with the
- * agent's cookie: the same tasks, connections, tools and runs as the MCP server.
+ * The agent side: the connections and tasks an agent works with, over MCP, in the built-in agent's
+ * loop, from a sandbox's CLI, and on the agent page (`/api/agent/…`), signed in with the agent's
+ * cookie, where it writes a script and sends it.
  */
 
 /** A connection as the agent sees it: what it can do with it. */
@@ -17,12 +17,6 @@ export const agentConnectionSchema = z.object({
 	shared: z.boolean(),
 	/** The actions the agent can take with the connection. */
 	actions: z.array(z.string()),
-	/**
-	 * A custom MCP server's tools the agent may run, as the server describes them, or an
-	 * integration's own tools where it has any, as the catalog describes them; null for every
-	 * other integration.
-	 */
-	tools: z.array(mcpToolSchema).nullable(),
 	/** What the person called the connection, where they named it. */
 	name: z.string().nullable(),
 	/**
@@ -35,16 +29,36 @@ export const agentConnectionSchema = z.object({
 
 export type AgentConnection = z.infer<typeof agentConnectionSchema>;
 
+const agentSchema = z.object({id: z.string(), providerId: z.string(), name: z.string()});
+
 /**
- * `GET me`: who the agent is and what it can do with each connection; connections it can't use are
- * left out, but for one it could use once signed in to again (`signInNeeded`).
+ * Who the agent is and what it can do with each connection; connections it can't use are left
+ * out, but for one it could use once signed in to again (`signInNeeded`).
  */
-export const agentMeSchema = z.object({
-	agent: z.object({id: z.string(), providerId: z.string(), name: z.string()}),
+export const agentAccessSchema = z.object({
+	agent: agentSchema,
 	connections: z.array(agentConnectionSchema),
 });
 
-export type AgentMe = z.infer<typeof agentMeSchema>;
+/** `GET me`: who the agent is, and what it is told, as an MCP client is when it connects. */
+export const agentPageSchema = z.object({agent: agentSchema, instructions: z.string()});
+
+export type AgentPage = z.infer<typeof agentPageSchema>;
+
+/** `POST script`: the script, and the task its calls are for, one an earlier script started. */
+export const runScriptBodySchema = z.object({
+	code: z.string().trim().min(1, 'Write a script first.'),
+	task: z.string().optional(),
+});
+
+/** What a script came to, in words; whether it failed; and the task to send with the next, null once it finished it. */
+export const scriptRunSchema = z.object({
+	text: z.string(),
+	isError: z.boolean(),
+	task: z.string().nullable(),
+});
+
+export type ScriptRun = z.infer<typeof scriptRunSchema>;
 
 /** A task as an agent sees it. */
 export const agentTaskSchema = z.object({
@@ -62,11 +76,8 @@ export const agentTaskSchema = z.object({
 
 export type AgentTask = z.infer<typeof agentTaskSchema>;
 
-/** `GET tasks`: the agent's tasks still under way, newest first: it can have any number at once. */
-export const agentTaskListSchema = z.object({tasks: z.array(agentTaskSchema)});
-
 /**
- * `POST tasks`: starts a task, `{title, goal}`, both trimmed and neither empty, and `parent` where
+ * Starts a task, `{title, goal}`, both trimmed and neither empty, and `parent` where
  * it is a sub-task, the id of one of the agent's tasks not finished.
  */
 export const startTaskBodySchema = z.object({
@@ -77,12 +88,6 @@ export const startTaskBodySchema = z.object({
 
 /** Finishes the task `task`, with `outcome`, what was done or found, where the agent gives one. */
 export const finishTaskBodySchema = z.object({task: z.string(), outcome: z.string().optional()});
-
-/** `POST connections/:connectionId/tools/:toolName`: a run, for the task `task`, by its id. */
-export const runToolBodySchema = z.object({
-	task: z.string().min(1),
-	params: z.unknown().optional(),
-});
 
 /** What a tool that opened, wrote or ran on a record answered: the record after, or null once it has left the collection. */
 export const recordToolResultSchema = z.object({record: dataRecordSchema.nullable()});
@@ -95,7 +100,7 @@ export type ToolResult =
 	RecordPage | z.infer<typeof recordToolResultSchema> | z.infer<typeof serverToolResultSchema>;
 
 /**
- * `POST feedback`: feedback for the makers of Personal Agent Proxy, `{message}`, and the
+ * Feedback for the makers of Personal Agent Proxy, `{message}`, and the
  * connection, the tool and the task it is about where it names them, kept as the agent gave them.
  */
 export const feedbackBodySchema = z.object({

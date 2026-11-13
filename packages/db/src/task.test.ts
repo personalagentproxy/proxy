@@ -9,7 +9,6 @@ import {
 	createAgentTask,
 	finishAgentTask,
 	getAgentTask,
-	isAgentTaskOpen,
 	listAgentTasksBetween,
 	touchAgentTask,
 } from './task';
@@ -126,7 +125,6 @@ describe.skipIf(!databaseUrl)('tasks, against the database', () => {
 		unwrap(await finishAgentTask(orgId, agentId, parentId, 'Booked the train'));
 		const before = await read(childId);
 
-		expect(unwrap(await isAgentTaskOpen(orgId, agentId, childId))).toBe(false);
 		expect(unwrap(await touchAgentTask(orgId, agentId, before))).toBe(false);
 		const finished = unwrap(await finishAgentTask(orgId, agentId, childId, 'Found a hotel'));
 
@@ -138,7 +136,6 @@ describe.skipIf(!databaseUrl)('tasks, against the database', () => {
 		const {parentId, childId} = await leftOpenLine('Sort the photos', 41 * MINUTE);
 		const before = await read(childId);
 
-		expect(unwrap(await isAgentTaskOpen(orgId, agentId, childId))).toBe(false);
 		expect(unwrap(await touchAgentTask(orgId, agentId, before))).toBe(false);
 		const finished = unwrap(await finishAgentTask(orgId, agentId, parentId, 'Sorted them'));
 
@@ -162,16 +159,6 @@ describe.skipIf(!databaseUrl)('tasks, against the database', () => {
 
 		expect(unwrap(await touchAgentTask(orgId, agentId, await read(childId)))).toBe(true);
 		expect((await read(childId)).lastActiveAt).toEqual(aMomentAgo);
-	});
-
-	test('a task left open is read as open without being taken up again', async () => {
-		const {parentId, childId} = await leftOpenLine('Draft the agenda');
-		const before = await read(childId);
-
-		expect(unwrap(await isAgentTaskOpen(orgId, agentId, childId))).toBe(true);
-		expect(unwrap(await isAgentTaskOpen(orgId, agentId, 'no-such-task'))).toBe(false);
-		expect((await read(childId)).lastActiveAt).toEqual(before.lastActiveAt);
-		expect((await read(parentId)).lastActiveAt).toEqual(before.lastActiveAt);
 	});
 
 	test('a stretch of time holds the tasks left open that had something done for them in it, and those under way', async () => {

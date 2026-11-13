@@ -1,62 +1,35 @@
 import type {Result} from 'ts-results-es';
-import type {z} from 'zod';
 
 import {type ApiError, Do, parseSchema} from '@proxy/utils';
-import type {Tool} from '@proxy/integrations';
-import {type AgentTask, type agentMeSchema, type agentTaskListSchema, type feedbackSentSchema, runToolBodySchema, type ToolResult} from '@proxy/contracts/agent-side';
+import {type AgentPage, runScriptBodySchema, type ScriptRun} from '@proxy/contracts/agent-side';
 
+import {pageInstructions, runAgentScript} from '../mcp/tools';
 import type {AgentRequest} from '../server/middleware/require-agent';
-import {sendAgentFeedback} from './feedback';
-import {finishAgentTask, getAgentOpenTask, listAgentOpenTasks, startAgentTask} from './tasks';
-import {listAgentConnections, listAgentTools, runAgentTool} from './tools';
+import {requireAgent} from './tools';
 
-// The agent side over HTTP, for the web app's agent pages: the same tasks, connections, tools and
-// runs as the MCP server, signed in with the agent's cookie.
+// The agent page over HTTP, signed in with the agent's cookie: the `script` tool the MCP server
+// has, written in a text field and sent, the same calls through the same gate and into the same
+// log.
 
-/** Who the agent is and what it can do with each connection; connections it can't use are left out. */
-export function handleAgentMeRoute(request: AgentRequest): Promise<Result<z.infer<typeof agentMeSchema>, ApiError>> {
-	return listAgentConnections(request.agent);
-}
-
-/** `GET /api/agent/connections/:connectionId/tools`: the tools the agent has with the connection. */
-export function handleAgentListToolsRoute(request: AgentRequest): Promise<Result<{tools: Tool[]}, ApiError>> {
-	return Do(async ($) => ({tools: $(await listAgentTools(request.agent, request.params.connectionId ?? ''))}));
-}
-
-/** `GET /api/agent/tasks`: the agent's tasks still under way, newest first. */
-export function handleAgentListTasksRoute(request: AgentRequest): Promise<Result<z.infer<typeof agentTaskListSchema>, ApiError>> {
-	return listAgentOpenTasks(request.agent);
-}
-
-/**
- * `GET /api/agent/tasks/:taskId`: the task while it is not finished, as the agent pages open it
- * from their address; unknown is 404, finished, under a task finished, or left open more than 20
- * minutes ago, 409, as a run for it would be. Only read: one left open more recently is taken up
- * again by the next run made for it.
- */
-export function handleAgentGetTaskRoute(request: AgentRequest): Promise<Result<AgentTask, ApiError>> {
-	return getAgentOpenTask(request.agent, request.params.taskId ?? '');
-}
-
-/** `POST /api/agent/tasks` with `{title, goal, parent?}`: starts a task, a sub-task of `parent` where given, answering with its id as `task`. */
-export function handleAgentStartTaskRoute(request: AgentRequest): Promise<Result<AgentTask, ApiError>> {
-	return startAgentTask({agent: request.agent, via: 'web'}, request.body ?? {});
-}
-
-/** `POST /api/agent/tasks/:taskId/finish` with `{outcome?}`: marks the task finished, with what was done where given. */
-export function handleAgentFinishTaskRoute(request: AgentRequest): Promise<Result<AgentTask, ApiError>> {
-	return finishAgentTask({agent: request.agent, via: 'web'}, {...request.body, task: request.params.taskId ?? ''});
-}
-
-/** `POST /api/agent/connections/:connectionId/tools/:toolName` with `{task, params}`, `task` the id of the task the run is for. */
-export function handleAgentRunToolRoute(request: AgentRequest): Promise<Result<ToolResult, ApiError>> {
+/** `GET /api/agent/me`: who the agent is, and what it is told, as an MCP client is when it connects. */
+export function handleAgentMeRoute(request: AgentRequest): Promise<Result<AgentPage, ApiError>> {
 	return Do(async ($) => {
-		const {task, params} = $(parseSchema(runToolBodySchema, request.body ?? {}));
-		return $(await runAgentTool({agent: request.agent, via: 'web', taskId: task}, request.params.connectionId ?? '', request.params.toolName ?? '', params));
+		const agent = $(await requireAgent(request.agent));
+		return {
+			agent: {id: agent.id, providerId: agent.providerId, name: agent.name},
+			instructions: $(await pageInstructions(request.agent)),
+		};
 	});
 }
 
-/** `POST /api/agent/feedback` with `{message, connection?, tool?, task?}`: feedback for the makers of Personal Agent Proxy. */
-export function handleAgentFeedbackRoute(request: AgentRequest): Promise<Result<z.infer<typeof feedbackSentSchema>, ApiError>> {
-	return sendAgentFeedback({agent: request.agent, via: 'web'}, request.body ?? {});
+/**
+ * `POST /api/agent/script` with `{code, task?}`: runs the script as the agent, for `task`, the
+ * one the page kept from an earlier script, or the one it starts, answering with what it came to
+ * in words, and the task to send with the next, null once it finished it.
+ */
+export function handleAgentScriptRoute(request: AgentRequest): Promise<Result<ScriptRun, ApiError>> {
+	return Do(async ($) => {
+		const {code, task} = $(parseSchema(runScriptBodySchema, request.body ?? {}));
+		return await runAgentScript(request.agent, code, task?.trim() || null, 'web');
+	});
 }

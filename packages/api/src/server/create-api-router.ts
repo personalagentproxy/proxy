@@ -6,16 +6,7 @@ import {CLI_GITHUB_API_PATH, CLI_GITHUB_GIT_PATH, CLI_GITHUB_IDENTITY_PATH} from
 
 import {handleActivityTimelineRoute, handleListActivityRoute, handleTaskRunRoute} from '../activity/route';
 import {handleAgentLoginRoute, handleAgentLogoutRoute} from '../agent-auth/session';
-import {
-	handleAgentFeedbackRoute,
-	handleAgentFinishTaskRoute,
-	handleAgentGetTaskRoute,
-	handleAgentListTasksRoute,
-	handleAgentListToolsRoute,
-	handleAgentMeRoute,
-	handleAgentRunToolRoute,
-	handleAgentStartTaskRoute,
-} from '../agent-side/route';
+import {handleAgentMeRoute, handleAgentScriptRoute} from '../agent-side/route';
 import {
 	handleCreateAgentRoute,
 	handleDeleteAgentRoute,
@@ -294,19 +285,13 @@ export function createApiRouter(): express.Router {
 	org.get('/alerts', withAuthResult('List alerts route', alerts.handleListAlertsRoute));
 	org.delete('/alerts/:alertId', withAuthResult('Delete alert route', alerts.handleDeleteAlertRoute));
 
-	// The agent side: its own sign-in and cookie, and every request made for one of the agent's
-	// tasks, checked against the agent's access and logged with the task.
+	// The agent page: its own sign-in and cookie, and the scripts it sends, every call in them made
+	// for one of the agent's tasks, checked against the agent's access and logged with the task.
 	router.post('/agent-auth/login', requireBrowserOrigin, wrapAsyncRoute('Agent login route', handleAgentLoginRoute));
 	router.post('/agent-auth/logout', requireBrowserOrigin, wrapAsyncRoute('Agent logout route', handleAgentLogoutRoute));
 	router.use('/api/agent', requireBrowserOrigin);
 	router.get('/api/agent/me', withAgentAuthResult('Agent me route', handleAgentMeRoute));
-	router.get('/api/agent/tasks', withAgentAuthResult('Agent list tasks route', handleAgentListTasksRoute));
-	router.post('/api/agent/tasks', withAgentAuthResult('Agent start task route', handleAgentStartTaskRoute));
-	router.get('/api/agent/tasks/:taskId', withAgentAuthResult('Agent get task route', handleAgentGetTaskRoute));
-	router.post('/api/agent/tasks/:taskId/finish', withAgentAuthResult('Agent finish task route', handleAgentFinishTaskRoute));
-	router.get('/api/agent/connections/:connectionId/tools', withAgentAuthResult('Agent list tools route', handleAgentListToolsRoute));
-	router.post('/api/agent/connections/:connectionId/tools/:toolName', withAgentAuthResult('Agent run tool route', handleAgentRunToolRoute));
-	router.post('/api/agent/feedback', withAgentAuthResult('Agent feedback route', handleAgentFeedbackRoute));
+	router.post('/api/agent/script', withAgentAuthResult('Agent script route', handleAgentScriptRoute));
 
 	// Code in a sandbox, with the token its command was given (cli/authenticate.ts): what a
 	// script's `pap` functions do, over HTTP. No `requireBrowserOrigin`, and no cookie: the caller is

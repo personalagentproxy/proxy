@@ -18,8 +18,6 @@ mock.module('@proxy/db/task', () => ({
 	getAgentTask,
 	createAgentTask: mock(),
 	finishAgentTask: mock(),
-	isAgentTaskOpen: mock(),
-	listOpenAgentTasks: mock(),
 	touchAgentTask: mock(async () => Ok(true)),
 }));
 
@@ -178,7 +176,7 @@ describe('listAgentConnections', () => {
 
 		expect(result.unwrap()).toEqual({
 			agent: {id: 'agent-1', providerId: 'dot', name: 'Dots'},
-			connections: [{id: 'vault-1', integrationId: 'vault', account: "Alex's Workspace", shared: false, actions: ['readEntries', 'writeEntries'], tools: null, name: null, signInNeeded: false}],
+			connections: [{id: 'vault-1', integrationId: 'vault', account: "Alex's Workspace", shared: false, actions: ['readEntries', 'writeEntries'], name: null, signInNeeded: false}],
 		});
 	});
 
@@ -187,8 +185,8 @@ describe('listAgentConnections', () => {
 		const {listAgentConnections} = await import('./tools');
 
 		expect((await listAgentConnections(signedIn)).unwrap().connections).toEqual([
-			{id: 'vault-1', integrationId: 'vault', account: "Alex's Workspace", shared: false, actions: ['readEntries', 'writeEntries'], tools: null, name: null, signInNeeded: false},
-			{id: 'notion-1', integrationId: 'notion', account: 'alex@example.com · Acme', shared: false, actions: [], tools: null, name: null, signInNeeded: true},
+			{id: 'vault-1', integrationId: 'vault', account: "Alex's Workspace", shared: false, actions: ['readEntries', 'writeEntries'], name: null, signInNeeded: false},
+			{id: 'notion-1', integrationId: 'notion', account: 'alex@example.com · Acme', shared: false, actions: [], name: null, signInNeeded: true},
 		]);
 	});
 
@@ -715,7 +713,7 @@ describe('custom MCP servers', () => {
 		const {listAgentConnections, listAgentTools} = await import('./tools');
 
 		expect((await listAgentConnections(signedIn)).unwrap().connections).toEqual([
-			{id: 'mcp-1', integrationId: 'mcp', account: 'mcp.example.com/mcp', shared: false, actions: ['search_docs'], tools: [search], name: null, signInNeeded: false},
+			{id: 'mcp-1', integrationId: 'mcp', account: 'mcp.example.com/mcp', shared: false, actions: ['search_docs'], name: null, signInNeeded: false},
 		]);
 		expect((await listAgentTools(signedIn, 'mcp-1')).unwrap().map((tool) => tool.name)).toEqual(['search_docs']);
 	});
