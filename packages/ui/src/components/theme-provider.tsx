@@ -10,6 +10,7 @@ import {
 } from 'react';
 import {
 	browserStorage,
+	resolveTheme,
 	storeTheme,
 	storedTheme,
 	THEME_STORAGE_KEY,
@@ -24,11 +25,9 @@ type ThemeProviderProps = {
 
 function applyTheme(theme: Theme): void {
 	const root = document.documentElement;
-	const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-	const resolvedTheme = theme === 'system' ? systemTheme : theme;
 
 	root.classList.remove('light', 'dark');
-	root.classList.add(resolvedTheme);
+	root.classList.add(resolveTheme(theme));
 }
 
 // The theme is read from storage as an external store, so a page rendered on the server (the

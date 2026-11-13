@@ -31,15 +31,17 @@ export const FROM_COMMAND_BAR = 'command-bar';
 /** Somewhere the bar goes: what it is called, where it is, and what is drawn beside it. */
 export type Destination = {
 	id: string;
-	kind: 'page' | 'chat' | 'connection' | 'agent';
+	kind: 'page' | 'chat' | 'connection' | 'agent' | 'action';
 	label: string;
 	// What tells it from one called the same: a connection's account.
 	detail: string | null;
-	to: string;
+	// Null for an action, which does something where the bar is rather than going anywhere.
+	to: string | null;
 	// What else finds it, beside its label and detail.
 	keywords: string[];
 	mark:
 		| {kind: 'icon'; icon: LucideIcon}
+		| {kind: 'theme'}
 		| {kind: 'persona'; persona: ChatPersona}
 		| {kind: 'connection'; connection: Connection}
 		| {kind: 'agent'; providerId: string};
@@ -51,6 +53,7 @@ export const KIND_NAMES: Record<Destination['kind'], string> = {
 	chat: 'Chat',
 	connection: 'Connection',
 	agent: 'External agent',
+	action: '',
 };
 
 type Page = {
@@ -59,6 +62,9 @@ type Page = {
 	icon: LucideIcon;
 	keywords: string[];
 };
+
+/** The action that switches the theme between light and dark, whichever it is now. */
+export const TOGGLE_THEME_LABEL = 'Toggle theme';
 
 /** The id of a destination's row in the bar, which the bar's input names as the one Enter opens. */
 export function rowId(destination: Destination): string {
@@ -162,6 +168,15 @@ export function destinationsOf(lists: {
 			keywords: page.keywords,
 			mark: {kind: 'icon', icon: page.icon},
 		})),
+		{
+			id: 'action:toggle-theme',
+			kind: 'action',
+			label: TOGGLE_THEME_LABEL,
+			detail: null,
+			to: null,
+			keywords: ['dark', 'light', 'mode', 'appearance'],
+			mark: {kind: 'theme'},
+		},
 		...(lists.personas ?? []).map((persona): Destination => ({
 			id: `chat:${persona.id}`,
 			kind: 'chat',

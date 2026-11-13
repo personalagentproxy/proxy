@@ -13,6 +13,7 @@ import {FillingWidget, IntentWidget} from '@/components/widgets/intent-widget';
 import {UnsupportedWidget} from '@/components/widgets/unsupported-widget';
 import {Input} from '@proxy/ui/components/input';
 import {Skeleton} from '@proxy/ui/components/skeleton';
+import {resolveTheme, useTheme} from '@proxy/ui/lib/theme';
 import {cn} from '@proxy/ui/lib/utils';
 import {useOrgSlug} from '@/hooks/use-org';
 import {apiMessage} from '@/lib/api-message';
@@ -112,6 +113,7 @@ type Props = {
 export function CommandBar({connections, agents, personas, open: up, onClose}: Props) {
 	const org = useOrgSlug();
 	const navigate = useNavigate();
+	const {theme, setTheme} = useTheme();
 	const [text, setText] = useState('');
 	const [answer, setAnswer] = useState<Answer | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -329,7 +331,15 @@ export function CommandBar({connections, agents, personas, open: up, onClose}: P
 		leave(to);
 	};
 
-	const open = (destination: Destination) => leave(destination.to);
+	// An action is done where the bar is, which stays up, so the change can be seen; a page is gone to.
+	const open = (destination: Destination) => {
+		if (destination.to === null) {
+			setTheme(resolveTheme(theme) === 'dark' ? 'light' : 'dark');
+			input.current?.focus();
+			return;
+		}
+		leave(destination.to);
+	};
 
 	// Enter opens the lit row where what is typed leads somewhere. Otherwise it presses the main
 	// button of the widget on screen, where that is for what is typed now and can be pressed

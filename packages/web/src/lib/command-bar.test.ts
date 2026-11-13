@@ -129,6 +129,13 @@ describe('findDestinations', () => {
 		expect(found('sign out')).toEqual(['Account']);
 	});
 
+	test('finds the theme action by theme, dark, light and mode', () => {
+		expect(found('theme')).toEqual(['Toggle theme', 'Account']);
+		expect(found('dark')).toEqual(['Toggle theme']);
+		expect(found('light')).toEqual(['Toggle theme']);
+		expect(found('tog')).toEqual(['Toggle theme']);
+	});
+
 	test('finds nothing for a sentence, which is for a quick action or an agent, nor for nothing typed', () => {
 		expect(found('book lunch with Jacky tomorrow at 1')).toEqual([]);
 		expect(found('add an agent that reminds me to stretch')).toEqual([]);
