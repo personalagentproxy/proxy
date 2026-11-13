@@ -60,6 +60,15 @@ export function storeTheme(
 	Result.wrap(() => storage.setItem(storageKey, theme));
 }
 
+// The theme as it is drawn: the system's where the choice is to follow it.
+export function resolveTheme(theme: Theme): 'light' | 'dark' {
+	if (theme !== 'system') {
+		return theme;
+	}
+
+	return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
 export function useTheme(): ThemeProviderState {
 	const context = useContext(ThemeProviderContext);
 

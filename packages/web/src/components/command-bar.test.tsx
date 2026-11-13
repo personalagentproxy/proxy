@@ -126,6 +126,8 @@ beforeEach(() => {
 
 afterEach(async () => {
 	cleanup();
+	localStorage.clear();
+	document.documentElement.className = '';
 	jest.useRealTimers();
 	endTest();
 	await new Promise((resolve) => setTimeout(resolve, 0));
@@ -518,5 +520,24 @@ describe('CommandBar', () => {
 				'Quick actions are not set up: set `TYPESAFE_API_KEY` and `OPENROUTER_KEY`.',
 			),
 		).toBeTruthy();
+	});
+
+	test('toggles the theme from its row and stays up to show it', async () => {
+		localStorage.setItem('proxy-ui-theme', 'light');
+		renderBar();
+
+		const input = await typeInto('theme');
+		const row = await screen.findByRole('option', {name: /Toggle theme/});
+		expect(row.querySelector('svg.lucide-sun')).not.toBeNull();
+		fireEvent.keyDown(input, {key: 'Enter'});
+
+		await waitFor(() => expect(document.documentElement.classList.contains('dark')).toBe(true));
+		expect(localStorage.getItem('proxy-ui-theme')).toBe('dark');
+		expect(
+			screen.getByRole('option', {name: /Toggle theme/}).querySelector('svg.lucide-moon'),
+		).not.toBeNull();
+		fireEvent.click(screen.getByRole('option', {name: /Toggle theme/}));
+		await waitFor(() => expect(document.documentElement.classList.contains('light')).toBe(true));
+		expect(screen.getByRole('searchbox', {name: 'Quick actions'})).toBeTruthy();
 	});
 });

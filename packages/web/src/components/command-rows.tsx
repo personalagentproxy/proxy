@@ -1,16 +1,37 @@
-import {PlugIcon} from 'lucide-react';
+import {MoonIcon, PlugIcon, SunIcon} from 'lucide-react';
 import {useEffect, useRef} from 'react';
 import {AgentLogo, IntegrationLogo} from '@/components/brand-logo';
 import {Head} from '@/components/head';
 import {EnterHint} from '@proxy/ui/components/enter-hint';
 import {type Destination, KIND_NAMES, rowId} from '@/lib/command-bar';
+import {resolveTheme, useTheme} from '@proxy/ui/lib/theme';
 import {integrationOf} from '@/lib/integrations';
+
+// The theme's icon: the sun in the light theme, the moon in the dark one.
+function ThemeMark() {
+	const {theme} = useTheme();
+	const Icon = resolveTheme(theme) === 'dark' ? MoonIcon : SunIcon;
+	return <Icon className="size-4 text-muted-foreground" />;
+}
+
+// An action's name, its verb in the muted colour: "Toggle theme".
+function ActionLabel({label}: {label: string}) {
+	const [verb, ...rest] = label.split(' ');
+	return (
+		<span className="truncate">
+			<span className="text-muted-foreground">{verb}</span> {rest.join(' ')}
+		</span>
+	);
+}
 
 // What is drawn beside a destination: a page's icon, an agent's head, a connection's or an
 // external agent's logo.
 function Mark({mark}: {mark: Destination['mark']}) {
 	if (mark.kind === 'icon') {
 		return <mark.icon className="size-4 text-muted-foreground" />;
+	}
+	if (mark.kind === 'theme') {
+		return <ThemeMark />;
 	}
 	if (mark.kind === 'persona') {
 		return <Head look={mark.persona.look} color={mark.persona.color} size={22} />;
@@ -65,7 +86,11 @@ export function CommandRows({
 					<span aria-hidden className="flex size-6 shrink-0 items-center justify-center">
 						<Mark mark={row.mark} />
 					</span>
-					<span className="truncate">{row.label}</span>
+					{row.kind === 'action' ? (
+						<ActionLabel label={row.label} />
+					) : (
+						<span className="truncate">{row.label}</span>
+					)}
 					{row.detail !== null && (
 						<span className="min-w-0 flex-1 truncate text-muted-foreground">{row.detail}</span>
 					)}
