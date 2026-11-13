@@ -224,6 +224,19 @@ body:has([data-slot='sidebar'][data-state])::before,
 	border-top-left-radius: var(--title-bar-corner-radius);
 }
 
+/* With a modal open, the L-border and title bar line are under the backdrop; hide the fixed rules
+   so they do not bleed through the light scrim (the backdrop still blurs the shell beneath). */
+body:has([data-slot='dialog-overlay'][data-open], [data-slot='sheet-overlay'][data-open])
+	[data-slot='sidebar-wrapper']::before,
+body:has([data-slot='dialog-overlay'][data-open], [data-slot='sheet-overlay'][data-open])
+	[data-slot='sidebar-wrapper']::after {
+	visibility: hidden;
+}
+
+body:has([data-slot='dialog-overlay'][data-open], [data-slot='sheet-overlay'][data-open])::before {
+	border-bottom-color: transparent;
+}
+
 /* Where the window is narrow, as a phone's or a desktop window zoomed in, the sidebars are sheets
    from the left, which start below the title bar too. */
 [data-slot='sheet-content'][data-side='left'],

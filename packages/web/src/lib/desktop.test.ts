@@ -1,3 +1,5 @@
+import {readdirSync} from 'node:fs';
+import {join} from 'node:path';
 import {afterEach, describe, expect, test} from 'bun:test';
 
 import {hasHiddenDesktopTitleBar, type DesktopBridge} from '@/lib/desktop';
@@ -38,6 +40,9 @@ describe('title bar layout', () => {
 		expect(css).toMatch(
 			/body:has\(\[data-page\]\)::before\s*{[^}]*background:\s*var\(--background\)/s,
 		);
+		expect(css).toMatch(
+			/body:has\(\[data-slot='dialog-overlay'\]\[data-open\][\s\S]*visibility:\s*hidden/s,
+		);
 	});
 
 	test('keeps modal backdrops above shell chrome', async () => {
@@ -45,6 +50,7 @@ describe('title bar layout', () => {
 		const dialog = await Bun.file(
 			new URL('../../../ui/src/components/dialog.tsx', import.meta.url),
 		).text();
+		const webRoot = join(import.meta.dir, '../..');
 
 		const shell = /--z-shell-chrome:\s*(\d+)/.exec(styles)?.[1];
 		const modal = /--z-modal:\s*(\d+)/.exec(styles)?.[1];
@@ -52,5 +58,23 @@ describe('title bar layout', () => {
 		expect(modal).toBeDefined();
 		expect(Number(modal)).toBeGreaterThan(Number(shell));
 		expect(dialog).toContain('z-modal');
-	});
+		expect(dialog).toContain('z-[var(--z-modal)]');
+		expect(styles).toMatch(/@utility\s+z-modal\s*\{[^}]*z-index:\s*var\(--z-modal\)/s);
+
+		const build = Bun.spawn(['bun', 'run', 'build'], {
+			cwd: webRoot,
+			stdout: 'pipe',
+			stderr: 'pipe',
+		});
+		expect((await build.exited) === 0).toBe(true);
+
+		const cssFiles = readdirSync(join(webRoot, 'dist/assets')).filter((name) =>
+			name.endsWith('.css'),
+		);
+		expect(cssFiles.length).toBeGreaterThan(0);
+		const built = await Promise.all(
+			cssFiles.map((name) => Bun.file(join(webRoot, 'dist/assets', name)).text()),
+		);
+		expect(built.some((css) => /\.z-modal\{[^}]*z-index:\s*var\(--z-modal\)/.test(css))).toBe(true);
+	}, 120_000);
 });

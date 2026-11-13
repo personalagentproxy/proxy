@@ -33,6 +33,10 @@
 	--z-floating: 70;
 }
 
+@utility z-modal {
+	z-index: var(--z-modal);
+}
+
 /* A row: its box out into the container's padding by `--bleed`, its content where it was. */
 @utility bleed {
 	margin-inline: calc(var(--bleed) * -1);
@@ -107,7 +111,6 @@
 	--radius-2xl: calc(var(--radius) * 1.8);
 	--radius-3xl: calc(var(--radius) * 2.2);
 	--radius-4xl: calc(var(--radius) * 2.6);
-	--z-index-modal: var(--z-modal);
 }
 
 /* Newsprint: a warm off-white paper with near-black ink, and in dark a warm near-black with
