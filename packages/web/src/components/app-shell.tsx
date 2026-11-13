@@ -1,4 +1,3 @@
-import {PanelLeftIcon} from 'lucide-react';
 import {
 	createContext,
 	type ReactNode,
@@ -10,27 +9,19 @@ import {
 } from 'react';
 import {createPortal} from 'react-dom';
 import {useLoaderData, useLocation, useNavigate} from 'react-router';
-import {PillButton} from '@proxy/ui/components/pill-button';
-import {PanelResizeHandle} from '@/components/panel-resize-handle';
 import {ContentBoundary} from '@/components/route-error';
-import {Sheet, SheetContent, SheetTitle} from '@proxy/ui/components/sheet';
-import {SidebarTrigger} from '@proxy/ui/components/sidebar';
+import {InSidebar} from '@/components/sidebar-panel';
 import {Skeleton} from '@proxy/ui/components/skeleton';
-import {InTitleBar} from '@/components/title-bar-slot';
-import {usePanelWidth} from '@/hooks/use-panel-width';
 import {useTitleBarHeader} from '@/hooks/use-title-bar-header';
 import {type Later, Redirected} from '@/lib/loader-utils';
-import {hasHiddenDesktopTitleBar} from '@/lib/desktop';
-import {useDesktop} from '@proxy/ui/hooks/use-media-query';
 import {cn} from '@proxy/ui/lib/utils';
 
 type Props = {
 	// The page's content. It may read what the page's loader answers `later` (`useLoaded`): the
 	// frame is up at once, and shows `waiting` in its place until the answer has come.
 	children: ReactNode;
-	// The header's title, where the page knows it before anything is loaded. A page with neither
-	// this nor `loadsTitle` has no header, and on a phone the sidebar's button alone in
-	// its corner.
+	// The title, where the page knows it before anything is loaded; otherwise the page
+	// `loadsTitle`.
 	title?: ReactNode;
 	// The content names the page once loaded (`PageHeader`), as a page for one agent does; the
 	// title's place is held until then.
@@ -38,9 +29,9 @@ type Props = {
 	// The header's actions that need nothing of what the content loads; the content adds its own
 	// (`PageHeader`).
 	actions?: ReactNode;
-	// A second sidebar beside the first, as Chat's conversations: a column on desktop, as wide as
-	// the person dragged its edge to (`usePanelWidth`), and on a phone a sheet opened from the
-	// header, named by `panelLabel`. It is the frame's, so it stays as it is while the content loads.
+	// What the page puts in the sidebar in the navigation's place, as Chat its agents, under a way
+	// back up named `panelLabel`, as the page's item in the navigation is (sidebar-panel.tsx). It
+	// is the frame's, so it stays as it is while the content loads.
 	panel?: ReactNode;
 	panelLabel?: string;
 	// `inside`: the page is as tall as the window and scrolls a part of itself, as Chat scrolls its
@@ -68,28 +59,6 @@ export function PageHeader({title, actions}: {title?: ReactNode; actions?: React
 			{title !== undefined && slots.title && createPortal(title, slots.title)}
 			{actions !== undefined && slots.actions && createPortal(actions, slots.actions)}
 		</>
-	);
-}
-
-// The second sidebar on a phone: a sheet from the left. It is keyed by the path, so a move
-// elsewhere closes it.
-function PanelSheet({panel, label}: {panel: ReactNode; label: string}) {
-	const [open, setOpen] = useState(false);
-
-	return (
-		<Sheet open={open} onOpenChange={setOpen}>
-			<PillButton variant="ghost" icon aria-label={label} onClick={() => setOpen(true)}>
-				<PanelLeftIcon />
-			</PillButton>
-			<SheetContent
-				side="left"
-				showCloseButton={false}
-				className="w-72 gap-0 bg-sidebar p-0 text-sidebar-foreground"
-			>
-				<SheetTitle className="sr-only">{label}</SheetTitle>
-				{panel}
-			</SheetContent>
-		</Sheet>
 	);
 }
 
@@ -166,9 +135,9 @@ function useFollowRedirect() {
 }
 
 // The human side's frame beside its sidebar (HumanSide): a header with the page's title and
-// actions, in the desktop app the window's title bar, and the page's content in one centered column. The frame is up as
-// soon as the page opens; content that has to load first shows when it has, and until then what
-// stands for it.
+// actions, the title bar's cell over the page's column, and the page's content in one centered
+// column. The frame is up as soon as the page opens; content that has to load first shows when it
+// has, and until then what stands for it.
 export function AppShell({
 	children,
 	title,
@@ -179,10 +148,8 @@ export function AppShell({
 	scroll = 'page',
 	waiting,
 }: Props) {
-	const desktop = useDesktop();
 	const {pathname} = useLocation();
 	const titleBarHeader = useTitleBarHeader();
-	const panelWidth = usePanelWidth();
 	const [titleSlot, setTitleSlot] = useState<HTMLElement | null>(null);
 	const [actionsSlot, setActionsSlot] = useState<HTMLElement | null>(null);
 	const slots = useMemo(() => ({title: titleSlot, actions: actionsSlot}), [titleSlot, actionsSlot]);
@@ -191,55 +158,29 @@ export function AppShell({
 
 	return (
 		<FrameSlots value={slots}>
-			{panel !== undefined && desktop && (
-				<aside
-					data-desktop-panel
-					className="sticky top-0 flex h-dvh shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground"
-					style={{width: panelWidth.width}}
-				>
-					{panel}
-					<PanelResizeHandle label={`Resize ${panelLabel.toLowerCase()}`} panel={panelWidth} />
-				</aside>
-			)}
+			{panel !== undefined && <InSidebar label={panelLabel}>{panel}</InSidebar>}
 			<div
-				data-desktop-page
+				data-page
 				className={cn(
 					'relative flex w-full min-w-0 flex-1 flex-col bg-background text-foreground',
 					scroll === 'inside' ? 'h-dvh overflow-hidden' : 'min-h-dvh',
 				)}
 			>
-				{heading !== undefined && (
-					// Sticky only when the window scrolls. In the desktop app it is the title bar over
-					// the page's column (index.css), its title after back and forward.
-					<header
-						ref={titleBarHeader}
-						className={cn(
-							'z-20 flex h-12 shrink-0 items-center justify-between gap-4 border-b bg-background px-4',
-							scroll === 'page' && 'sticky top-0',
-						)}
-					>
-						<div className="flex min-w-0 flex-1 items-center gap-2">
-							{!desktop && <SidebarTrigger />}
-							{!desktop && panel !== undefined && (
-								<PanelSheet key={pathname} panel={panel} label={panelLabel} />
-							)}
-							{hasHiddenDesktopTitleBar() ? (
-								<InTitleBar place="title">{heading}</InTitleBar>
-							) : (
-								heading
-							)}
-						</div>
-						<div className="flex shrink-0 items-center gap-2">
-							{actions}
-							<div ref={setActionsSlot} className="contents" />
-						</div>
-					</header>
-				)}
-				{heading === undefined && !desktop && (
-					<div data-desktop-floating-control className="absolute top-2 left-4 z-20">
-						<SidebarTrigger />
+				{/* Sticky only when the window scrolls. It is the title bar's cell over the page's
+				    column (index.css). */}
+				<header
+					ref={titleBarHeader}
+					className={cn(
+						'z-20 flex shrink-0 items-center justify-between gap-4 border-b bg-background pr-4',
+						scroll === 'page' && 'sticky top-0',
+					)}
+				>
+					<div className="flex min-w-0 flex-1 items-center gap-2">{heading}</div>
+					<div className="flex shrink-0 items-center gap-2">
+						{actions}
+						<div ref={setActionsSlot} className="contents" />
 					</div>
-				)}
+				</header>
 				<main
 					className={cn(
 						'flex w-full flex-1 flex-col',

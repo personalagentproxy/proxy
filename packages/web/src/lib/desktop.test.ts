@@ -31,10 +31,12 @@ describe('hasHiddenDesktopTitleBar', () => {
 	});
 });
 
-describe('hidden desktop title bar layout', () => {
+describe('title bar layout', () => {
 	test('covers the column seams behind the title bar', async () => {
 		const css = await Bun.file(new URL('../index.css', import.meta.url)).text();
 
-		expect(css).toMatch(/body::before\s*{[^}]*background:\s*var\(--background\)/s);
+		expect(css).toMatch(
+			/body:has\(\[data-page\]\)::before\s*{[^}]*background:\s*var\(--background\)/s,
+		);
 	});
 });

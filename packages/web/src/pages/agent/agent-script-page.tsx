@@ -61,10 +61,10 @@ export function AgentScriptPage() {
 	};
 
 	return (
-		<div data-desktop-page className="flex min-h-dvh w-full flex-col bg-background text-foreground">
+		<div data-page className="flex min-h-dvh w-full flex-col bg-background text-foreground">
 			<header
 				ref={titleBarHeader}
-				className="sticky top-0 z-20 flex h-12 items-center justify-between gap-4 border-b bg-background px-4"
+				className="sticky top-0 z-20 flex items-center justify-between gap-4 border-b bg-background pr-4"
 			>
 				<span className="shrink-0 text-sm font-medium whitespace-nowrap">
 					Personal Agent Proxy <span className="font-normal text-muted-foreground">for agents</span>

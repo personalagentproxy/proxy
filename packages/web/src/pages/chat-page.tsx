@@ -75,6 +75,7 @@ import {useChatDraft} from '@/hooks/use-chat-draft';
 import {useExperiments} from '@/hooks/use-experiment';
 import {FROM_COMMAND_BAR} from '@/lib/command-bar';
 import {useLastLoaded, useLoaded} from '@/hooks/use-loaded';
+import {rememberedPersonaList} from '@/lib/persona-list';
 import {useListMotion} from '@/hooks/use-list-motion';
 import {useOrgSlug} from '@/hooks/use-org';
 import {usePoll} from '@/hooks/use-poll';
@@ -256,7 +257,8 @@ function tasksOf(log: ThreadLog): ChatTask[] {
 // the title of one at work, pinned or not, shimmers, as the conversation's "Working" does; one
 // asleep or stopped is listed only where it is pinned or open. A row that comes, goes or
 // changes places moves there (`useListMotion`): a task opened or closed, pinned or unpinned,
-// started or stopped, an agent made, deleted or moved up by what was said.
+// started or stopped, an agent made, deleted or moved up by what was said. At the column's foot,
+// below the agents however many, the button that makes a new agent.
 function PersonaList({
 	personas,
 	current,
@@ -266,6 +268,7 @@ function PersonaList({
 	shown,
 	recallDraft,
 	onOpen,
+	onNew,
 	onEdit,
 	onDelete,
 	onPin,
@@ -280,6 +283,7 @@ function PersonaList({
 	shown: Shown | null;
 	recallDraft: (personaId: string) => string | null;
 	onOpen: (personaId: string) => void;
+	onNew: () => void;
 	onEdit: (persona: ChatPersona) => void;
 	onDelete: (persona: ChatPersona) => void;
 	onPin: (personaId: string, taskId: string, pinned: boolean) => void;
@@ -302,138 +306,147 @@ function PersonaList({
 		})
 		.toSorted((a, b) => lastActive(b.persona, b.last) - lastActive(a.persona, a.last));
 	return (
-		<div ref={list} className="relative flex h-full min-h-0 flex-col overflow-y-auto p-2">
-			{personas.length === 0 && (
-				<span className="px-2 py-1.5 text-sm text-muted-foreground">No agents yet.</span>
-			)}
-			<ul className="flex flex-col gap-0.5">
-				{rows.map(({persona, last, draft}) => {
-					const fresh = isUnread(persona);
-					const open = persona.id === current;
-					// The row is lit while its conversation is open, and the task's under it in its place.
-					const lit = open && task === null;
-					const pinnedHere = pinned.filter((candidate) => candidate.personaId === persona.id);
-					const workingHere = working.filter(
-						(candidate) =>
-							candidate.personaId === persona.id &&
-							!pinnedHere.some((pin) => pin.id === candidate.id),
-					);
-					const listedHere: ChatTask[] = [...pinnedHere, ...workingHere];
-					const openTask =
-						open && task !== null && !listedHere.some((candidate) => candidate.id === task.id)
-							? [task]
-							: [];
-					const tasks = [...listedHere, ...openTask].map((candidate) => (
-						<TaskRow
-							key={candidate.id}
-							task={candidate}
-							to={`/${org}/chat/${persona.id}/tasks/${candidate.id}`}
-							lit={open && candidate.id === task?.id}
-							pinned={pinnedHere.some((pin) => pin.id === candidate.id)}
-							working={working.some((busy) => busy.id === candidate.id)}
-							onPin={(pin) => onPin(persona.id, candidate.id, pin)}
-						/>
-					));
-					const row = (
-						<Link
-							to={`/${org}/chat/${persona.id}`}
-							aria-current={lit ? 'page' : undefined}
-							onClick={(event) => {
-								if (
-									event.button !== 0 ||
-									event.metaKey ||
-									event.ctrlKey ||
-									event.shiftKey ||
-									event.altKey
-								) {
-									return;
-								}
-								onOpen(persona.id);
-							}}
-							className={cn(
-								'flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
-								lit && 'bg-sidebar-accent text-sidebar-accent-foreground',
-							)}
-						>
-							<LiveHead
-								look={persona.look}
-								color={persona.color}
-								size={40}
-								watching={hovered === persona.id}
-								tracking="head"
+		<div className="flex h-full min-h-0 flex-col">
+			{/* Right under the sidebar's way back up, as close as the rows are to each other. */}
+			<div
+				ref={list}
+				className="relative flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pt-0.5 pb-2"
+			>
+				{personas.length === 0 && (
+					<span className="px-2 py-1.5 text-sm text-muted-foreground">No agents yet.</span>
+				)}
+				<ul className="flex flex-col gap-0.5">
+					{rows.map(({persona, last, draft}) => {
+						const fresh = isUnread(persona);
+						const open = persona.id === current;
+						// The row is lit while its conversation is open, and the task's under it in its place.
+						const lit = open && task === null;
+						const pinnedHere = pinned.filter((candidate) => candidate.personaId === persona.id);
+						const workingHere = working.filter(
+							(candidate) =>
+								candidate.personaId === persona.id &&
+								!pinnedHere.some((pin) => pin.id === candidate.id),
+						);
+						const listedHere: ChatTask[] = [...pinnedHere, ...workingHere];
+						const openTask =
+							open && task !== null && !listedHere.some((candidate) => candidate.id === task.id)
+								? [task]
+								: [];
+						const tasks = [...listedHere, ...openTask].map((candidate) => (
+							<TaskRow
+								key={candidate.id}
+								task={candidate}
+								to={`/${org}/chat/${persona.id}/tasks/${candidate.id}`}
+								lit={open && candidate.id === task?.id}
+								pinned={pinnedHere.some((pin) => pin.id === candidate.id)}
+								working={working.some((busy) => busy.id === candidate.id)}
+								onPin={(pin) => onPin(persona.id, candidate.id, pin)}
 							/>
-							<span className="flex min-w-0 flex-1 flex-col">
-								<span className="flex items-baseline gap-2">
-									<span className="min-w-0 flex-1 truncate text-sm font-medium">
-										{persona.name}
-									</span>
-									{last && (
-										<span className="shrink-0 text-xs text-muted-foreground">
-											{formatAgo(last.at)}
-										</span>
-									)}
-								</span>
-								<span className="flex items-center gap-2">
-									<span
-										className={cn(
-											'min-w-0 flex-1 truncate text-xs',
-											fresh ? 'font-medium' : 'text-muted-foreground',
-										)}
-									>
-										{draft === null ? (
-											subtitle(last)
-										) : (
-											<>
-												<span className="font-medium text-foreground">Draft:</span> {draft}
-											</>
-										)}
-									</span>
-									{fresh && (
-										<span
-											role="status"
-											aria-label="Unread"
-											className="size-2 shrink-0 rounded-full bg-primary"
-										/>
-									)}
-								</span>
-							</span>
-						</Link>
-					);
-					return (
-						// The head watches the pointer while it is over the agent's row or its tasks'.
-						<li
-							key={persona.id}
-							onPointerEnter={() => setHovered(persona.id)}
-							onPointerLeave={() => setHovered(null)}
-						>
-							<div data-row={persona.id}>
-								{persona.mayChange ? (
-									<ContextMenu>
-										<ContextMenuTrigger render={<div />}>{row}</ContextMenuTrigger>
-										<ContextMenuContent>
-											<ContextMenuItem onClick={() => onEdit(persona)}>
-												<PencilIcon />
-												Edit
-											</ContextMenuItem>
-											<ContextMenuItem variant="destructive" onClick={() => onDelete(persona)}>
-												<Trash2Icon />
-												Delete
-											</ContextMenuItem>
-										</ContextMenuContent>
-									</ContextMenu>
-								) : (
-									row
+						));
+						const row = (
+							<Link
+								to={`/${org}/chat/${persona.id}`}
+								aria-current={lit ? 'page' : undefined}
+								onClick={(event) => {
+									if (
+										event.button !== 0 ||
+										event.metaKey ||
+										event.ctrlKey ||
+										event.shiftKey ||
+										event.altKey
+									) {
+										return;
+									}
+									onOpen(persona.id);
+								}}
+								className={cn(
+									'flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+									lit && 'bg-sidebar-accent text-sidebar-accent-foreground',
 								)}
-							</div>
-							{tasks.length > 0 && (
-								<ul aria-label={`${persona.name}’s tasks`} className="flex flex-col">
-									{tasks}
-								</ul>
-							)}
-						</li>
-					);
-				})}
-			</ul>
+							>
+								<LiveHead
+									look={persona.look}
+									color={persona.color}
+									size={40}
+									watching={hovered === persona.id}
+									tracking="head"
+								/>
+								<span className="flex min-w-0 flex-1 flex-col">
+									<span className="flex items-baseline gap-2">
+										<span className="min-w-0 flex-1 truncate text-sm font-medium">
+											{persona.name}
+										</span>
+										{last && (
+											<span className="shrink-0 text-xs text-muted-foreground">
+												{formatAgo(last.at)}
+											</span>
+										)}
+									</span>
+									<span className="flex items-center gap-2">
+										<span
+											className={cn(
+												'min-w-0 flex-1 truncate text-xs',
+												fresh ? 'font-medium' : 'text-muted-foreground',
+											)}
+										>
+											{draft === null ? (
+												subtitle(last)
+											) : (
+												<>
+													<span className="font-medium text-foreground">Draft:</span> {draft}
+												</>
+											)}
+										</span>
+										{fresh && (
+											<span
+												role="status"
+												aria-label="Unread"
+												className="size-2 shrink-0 rounded-full bg-primary"
+											/>
+										)}
+									</span>
+								</span>
+							</Link>
+						);
+						return (
+							// The head watches the pointer while it is over the agent's row or its tasks'.
+							<li
+								key={persona.id}
+								onPointerEnter={() => setHovered(persona.id)}
+								onPointerLeave={() => setHovered(null)}
+							>
+								<div data-row={persona.id}>
+									{persona.mayChange ? (
+										<ContextMenu>
+											<ContextMenuTrigger render={<div />}>{row}</ContextMenuTrigger>
+											<ContextMenuContent>
+												<ContextMenuItem onClick={() => onEdit(persona)}>
+													<PencilIcon />
+													Edit
+												</ContextMenuItem>
+												<ContextMenuItem variant="destructive" onClick={() => onDelete(persona)}>
+													<Trash2Icon />
+													Delete
+												</ContextMenuItem>
+											</ContextMenuContent>
+										</ContextMenu>
+									) : (
+										row
+									)}
+								</div>
+								{tasks.length > 0 && (
+									<ul aria-label={`${persona.name}’s tasks`} className="flex flex-col">
+										{tasks}
+									</ul>
+								)}
+							</li>
+						);
+					})}
+				</ul>
+			</div>
+			<div className="flex shrink-0 p-2">
+				<AddButton label="New agent" variant="ghost" onClick={onNew} className="w-full" />
+			</div>
 		</div>
 	);
 }
@@ -503,9 +516,12 @@ export function ChatPage() {
 	const navigate = useNavigate();
 	const reload = useReload();
 	const {id: current = '', taskId} = useParams();
-	// The agents as last listed, with each conversation, or task of one, as it loads.
+	// The agents as last listed, with each conversation, or task of one, as it loads; until the
+	// first has, as the list last came anywhere (lib/persona-list.ts), so they are there as the
+	// page opens.
 	const listed = useLastLoaded<typeof chatLoader | typeof chatTaskLoader>();
-	const personas = listed.answer?.personas ?? null;
+	const list = listed.answer ?? rememberedPersonaList(org);
+	const personas = list?.personas ?? null;
 	const name = personas?.find((persona) => persona.id === current)?.name;
 	const [shownLog, setShownLog] = useState<ShownLog | null>(null);
 	const [shownDraft, setShownDraft] = useState<ShownDraft | null>(null);
@@ -586,8 +602,8 @@ export function ChatPage() {
 		taskId !== undefined && answer !== null && 'task' in answer && answer.task.task.id === taskId
 			? answer.task
 			: null;
-	const pinned = answer?.pinnedTasks ?? [];
-	const working = answer?.workingTasks ?? [];
+	const pinned = list?.pinnedTasks ?? [];
+	const working = list?.workingTasks ?? [];
 	// The task as the header and the list name it, in the agent's place: as loaded, or, while it
 	// loads, as the page has it already, pinned or named in the conversation it was opened from. So
 	// its title and its row under the agent are there as it is opened, not once it has loaded.
@@ -665,6 +681,7 @@ export function ChatPage() {
 				shown={fresher}
 				recallDraft={recallDraft}
 				onOpen={setFocusRequestedFor}
+				onNew={() => setEditing('new')}
 				onEdit={setEditing}
 				onDelete={setDeleting}
 			/>
@@ -675,15 +692,9 @@ export function ChatPage() {
 		<>
 			<AppShell
 				title={title()}
-				actions={
-					taskId === undefined ? (
-						<AddButton label="New agent" onClick={() => setEditing('new')} />
-					) : (
-						<TaskActions task={task} />
-					)
-				}
+				actions={taskId === undefined ? undefined : <TaskActions task={task} />}
 				panel={panel()}
-				panelLabel="Agents"
+				panelLabel="Chat"
 				scroll="inside"
 			>
 				{taskId === undefined ? (

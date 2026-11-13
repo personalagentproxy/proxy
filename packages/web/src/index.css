@@ -1,29 +1,32 @@
 @import '@proxy/ui/styles.css';
 
-/* The sidebars, the navigation and Chat's agents, take the page's background: their borders alone
-   set them apart. */
+/* The sidebar takes the page's background: its divider alone sets it apart. */
 :root,
 .dark {
 	--sidebar: var(--background);
 }
 
-/* The macOS desktop window uses a hidden native title bar. Its drag surface covers the column seams
-   below it while the native traffic lights remain above; browsers keep the page's normal
-   edge-to-edge layout. */
-.desktop-app {
+/* The title bar: one bar along the window's top, in a browser as in the desktop app, made of the
+   columns' own headers, each in its cell over its column: a page's title and actions over the
+   page, and over the navigation the bar's start (components/title-bar.tsx). The macOS desktop
+   window hides its native title bar for it, so there it is also the window's drag surface, with
+   the traffic lights at its start, and it is drawn on every page, sign-in included. The drag rules
+   are the desktop app's alone: browsers ignore `-webkit-app-region`. */
+:root {
 	/* Keep in step with the traffic lights' position in desktop's window.ts, which centers them in
 	   it, the fallback in preload.ts and desktop's splash.css. */
-	--desktop-title-bar-height: 2.75rem;
+	--title-bar-height: 2.75rem;
 }
 
-.desktop-app body::before {
+.desktop-app body::before,
+body:has([data-page])::before {
 	position: fixed;
 	z-index: 60;
 	top: 0;
 	right: 0;
 	left: 0;
 	box-sizing: border-box;
-	height: var(--desktop-title-bar-height);
+	height: var(--title-bar-height);
 	background: var(--background);
 	border-bottom: 1px solid var(--border);
 	content: '';
@@ -59,170 +62,173 @@
 	pointer-events: none;
 }
 
-/* Back and forward (components/desktop-history.tsx), in the title bar to the right of the traffic
-   lights, over the drag surface and taking clicks rather than dragging the window. */
-.desktop-app [data-desktop-history] {
+/* The bar's start (components/title-bar.tsx): the navigation's toggle, after the desktop app's
+   traffic lights, and back and forward. The buttons take clicks rather than dragging the
+   window. */
+[data-title-bar] {
 	position: fixed;
 	z-index: 62;
 	top: 0;
-	left: 5.5rem;
-	height: var(--desktop-title-bar-height);
+	left: 0;
+	box-sizing: border-box;
+	height: var(--title-bar-height);
+	padding-inline: 0.5rem;
+	-webkit-app-region: drag;
+}
+
+.desktop-app [data-title-bar] {
+	/* After the traffic lights; keep in step with useTitleBarHeader. */
+	padding-left: 5.5rem;
+}
+
+/* Back and forward, at the right of the navigation's top row. Folding the navigation away, they go
+   with it, sliding left as it does and fading as they go, gone once it is; folding it out, they
+   come back the same way. Out of the bar's flow, so the page's header starts after the toggle
+   alone (useTitleBarHeader). Keep in step with the sidebar's own slide (ui's sidebar.tsx). */
+[data-title-bar-history] {
+	position: absolute;
+	top: 0;
+	left: var(--sidebar-width);
+	height: 100%;
+	padding-right: 0.5rem;
+	transform: translateX(-100%);
+	transition:
+		transform 200ms linear,
+		opacity 200ms linear;
+}
+
+[data-slot='sidebar-wrapper']:has([data-slot='sidebar'][data-state='collapsed'])
+	[data-title-bar-history] {
+	opacity: 0;
+	transform: translateX(calc(-100% - var(--sidebar-width)));
+}
+
+[data-title-bar] :is(a, button) {
 	-webkit-app-region: no-drag;
 }
 
-/* The columns themselves reach the window's top, so their backgrounds continue under the traffic
-   lights. Only their contents make room for the controls and drag surface. */
-.desktop-app [data-slot='sidebar-inner'],
-.desktop-app [data-desktop-panel],
-.desktop-app [data-desktop-page] {
-	padding-top: var(--desktop-title-bar-height);
+/* The columns themselves reach the window's top, so their backgrounds continue under the bar.
+   Only their contents make room for it. */
+[data-slot='sidebar-inner'],
+[data-page] {
+	padding-top: var(--title-bar-height);
 }
 
-/* A page's header is the title bar over its column, where a browser shows it below: as tall as the
-   bar, over its drag surface and dragging the window itself from anywhere but its controls, with
-   its contents clear of the traffic lights, back and forward and the page's controls and title
-   after them where the column begins under them, as useTitleBarHeader measures. The column then
-   starts at the window's top rather than under the bar. */
-.desktop-app [data-desktop-page]:has(> header) {
+/* A page's header is the title bar's cell over its column: as tall as the bar, over its drag
+   surface and dragging the window itself from anywhere but its controls, with its contents clear
+   of the desktop app's traffic lights and back and forward where the column begins under them, as
+   useTitleBarHeader measures. The column then starts at the window's top rather than under the
+   bar. */
+[data-page]:has(> header) {
 	padding-top: 0;
 }
 
-.desktop-app [data-desktop-page] > header {
+[data-page] > header {
 	position: sticky;
 	z-index: 61;
 	top: 0;
-	height: var(--desktop-title-bar-height);
-	padding-left: var(--desktop-header-inset, 1rem);
+	height: var(--title-bar-height);
+	padding-left: var(--title-bar-inset, 1rem);
 	-webkit-app-region: drag;
 }
 
-/* The page's title, after back and forward and the page's controls: in a detail's weight, dragging
-   the window as the rest of the bar does, and cut short before the right edge. */
-.desktop-app [data-desktop-title] {
-	max-width: 40vw;
-	-webkit-app-region: drag;
-}
-
-.desktop-app [data-desktop-title] * {
-	font-weight: 400;
-}
-
-.desktop-app
-	[data-desktop-page]
-	> header
-	:is(a, button, input, select, textarea, [role='button'], [tabindex]) {
+[data-page] > header :is(a, button, input, select, textarea, [role='button'], [tabindex]) {
 	-webkit-app-region: no-drag;
 }
 
 /* Tooltips and menus float over the title bar and the headers in it, rather than under them, as
-   the back and forward tooltips, which open below the bar, would. */
-.desktop-app
-	:has(
-		> :is(
-			[data-slot='tooltip-content'],
-			[data-slot='dropdown-menu-content'],
-			[data-slot='dropdown-menu-sub-content'],
-			[data-slot='context-menu-content'],
-			[data-slot='context-menu-sub-content'],
-			[data-slot='select-content']
-		)
-	) {
+   the bar's tooltips, which open below it, would. */
+:has(
+	> :is(
+		[data-slot='tooltip-content'],
+		[data-slot='dropdown-menu-content'],
+		[data-slot='dropdown-menu-sub-content'],
+		[data-slot='context-menu-content'],
+		[data-slot='context-menu-sub-content'],
+		[data-slot='select-content']
+	)
+) {
 	z-index: 70;
 }
 
-/* The sidebar dividers begin below the title bar. Its bottom border meets them at a clean corner
-   instead of a vertical line running between the traffic lights. */
-.desktop-app [data-slot='sidebar-container'],
-.desktop-app [data-desktop-panel] {
+/* The sidebar's divider is the title bar's line turned down (below), not a border of its own
+   running up through the bar. */
+[data-slot='sidebar-container'] {
 	border-right-width: 0;
 }
 
-.desktop-app [data-slot='sidebar-inner'],
-.desktop-app [data-desktop-panel] {
-	position: relative;
+/* Beside the navigation, the title bar and a line down the window are one upside-down L: the bar's
+   bottom border turns down at a rounded corner. With the navigation out, the line is its divider;
+   folded away, it stays, at the left edge of the traffic lights in the desktop app or of the
+   navigation's toggle in a browser, with the page's columns starting just inside it, and it slides
+   between the two as the navigation does (ui's sidebar.tsx). On a phone, where the navigation is a
+   sheet, the bar's border runs the window's width. The colors match, so only the lines need
+   moving: one fixed line along the bar's bottom, round the corner and down the window, over the
+   headers', and a fill outside its curve, so nothing scrolled under shows there. */
+[data-slot='sidebar-wrapper']:has([data-slot='sidebar'][data-state]) {
+	--title-bar-corner-radius: var(--radius);
+	--title-bar-edge: calc(var(--title-bar-height) - 1px);
+	/* Folded away: the toggle's left edge (the bar's start's padding), or the traffic lights' (16px
+	   in, as desktop's window.ts places them). */
+	--title-bar-folded-edge: 0.5rem;
+	--title-bar-navigation-edge: calc(var(--sidebar-width) - 1px);
 }
 
-/* The second sidebar's resize handle begins where its divider does, clear of the title bar. */
-.desktop-app [data-panel-resize-handle] {
-	top: var(--desktop-title-bar-height);
+.desktop-app [data-slot='sidebar-wrapper']:has([data-slot='sidebar'][data-state]) {
+	--title-bar-folded-edge: 16px;
 }
 
-.desktop-app [data-slot='sidebar-inner']::after,
-.desktop-app [data-desktop-panel]::after {
-	position: absolute;
-	top: var(--desktop-title-bar-height);
-	right: 0;
-	bottom: 0;
-	width: 1px;
-	background: var(--sidebar-border);
-	content: '';
-	pointer-events: none;
+[data-slot='sidebar-wrapper']:has([data-slot='sidebar'][data-state='collapsed']) {
+	--title-bar-navigation-edge: var(--title-bar-folded-edge);
 }
 
-/* Beside the navigation rail, the rail and the title bar are one upside-down L: the bar's bottom
-   border begins where the rail ends, and turns down into the rail's divider at a rounded corner.
-   Narrower, where the rail is a sheet, the bar's border runs the window's width as it does without
-   the rail. The colors match, so only the lines need moving: one fixed line along the bar's bottom
-   and round the corner, over the headers', a fill outside its curve, so nothing scrolled under
-   shows there, and the rail's divider beginning under the curve. */
-.desktop-app [data-slot='sidebar-wrapper']:has([data-slot='sidebar-container']) {
-	--desktop-corner-radius: var(--radius);
-	--desktop-rail-edge: calc(var(--sidebar-width-icon) - 1px);
-	--desktop-bar-edge: calc(var(--desktop-title-bar-height) - 1px);
+/* Folded away, the page's columns start just inside the line rather than at the window's edge. */
+[data-slot='sidebar-wrapper']:has([data-slot='sidebar'][data-state='collapsed'])
+	[data-slot='sidebar-gap'] {
+	width: calc(var(--title-bar-folded-edge) + 1px);
 }
 
-.desktop-app body:has([data-slot='sidebar-container'])::before,
-.desktop-app
-	[data-slot='sidebar-wrapper']:has([data-slot='sidebar-container'])
-	[data-desktop-page]
-	> header {
+body:has([data-slot='sidebar'][data-state])::before,
+[data-slot='sidebar-wrapper']:has([data-slot='sidebar'][data-state]) [data-page] > header {
 	border-bottom-color: transparent;
 }
 
-.desktop-app [data-slot='sidebar-wrapper']:has([data-slot='sidebar-container'])::before,
-.desktop-app [data-slot='sidebar-wrapper']:has([data-slot='sidebar-container'])::after {
+[data-slot='sidebar-wrapper']:has([data-slot='sidebar'][data-state])::before,
+[data-slot='sidebar-wrapper']:has([data-slot='sidebar'][data-state])::after {
 	position: fixed;
 	z-index: 61;
-	top: var(--desktop-bar-edge);
-	left: var(--desktop-rail-edge);
+	top: var(--title-bar-edge);
+	left: var(--title-bar-navigation-edge);
 	box-sizing: border-box;
-	height: var(--desktop-corner-radius);
 	content: '';
 	pointer-events: none;
+	transition: left 200ms linear;
 }
 
-.desktop-app [data-slot='sidebar-wrapper']:has([data-slot='sidebar-container'])::before {
-	width: var(--desktop-corner-radius);
+[data-slot='sidebar-wrapper']:has([data-slot='sidebar'][data-state])::before {
+	width: var(--title-bar-corner-radius);
+	height: var(--title-bar-corner-radius);
 	background: var(--background);
 	mask: radial-gradient(
 		circle at 100% 100%,
-		transparent calc(var(--desktop-corner-radius) - 1px),
-		black calc(var(--desktop-corner-radius) - 1px)
+		transparent calc(var(--title-bar-corner-radius) - 1px),
+		black calc(var(--title-bar-corner-radius) - 1px)
 	);
 }
 
-.desktop-app [data-slot='sidebar-wrapper']:has([data-slot='sidebar-container'])::after {
+[data-slot='sidebar-wrapper']:has([data-slot='sidebar'][data-state])::after {
 	right: 0;
+	bottom: 0;
 	border-top: 1px solid var(--border);
 	border-left: 1px solid var(--sidebar-border);
-	border-top-left-radius: var(--desktop-corner-radius);
+	border-top-left-radius: var(--title-bar-corner-radius);
 }
 
-.desktop-app
-	[data-slot='sidebar-wrapper']:has([data-slot='sidebar-container'])
-	[data-slot='sidebar-inner']::after {
-	top: calc(var(--desktop-bar-edge) + var(--desktop-corner-radius));
-}
-
-/* Zoom can move the 800px desktop window into the responsive layout. Keep its floating menu and
-   any left-side sheet below the traffic lights and drag surface too. */
-.desktop-app [data-desktop-floating-control] {
-	top: calc(var(--desktop-title-bar-height) + 0.5rem);
-}
-
-.desktop-app [data-slot='sheet-content'][data-side='left'],
-.desktop-app [data-mobile='true'][data-sidebar='sidebar'] {
-	padding-top: var(--desktop-title-bar-height);
+/* Where the window is narrow, as a phone's or a desktop window zoomed in, the sidebars are sheets
+   from the left, which start below the title bar too. */
+[data-slot='sheet-content'][data-side='left'],
+[data-mobile='true'][data-sidebar='sidebar'] {
+	padding-top: var(--title-bar-height);
 }
 
 /* The message scroller's viewport fades its bottom only while there is more below
@@ -261,11 +267,4 @@
 	[data-enter='rise'] {
 		animation: chat-fade 160ms ease-out both;
 	}
-}
-
-/* While the second sidebar's edge is dragged (components/panel-resize-handle.tsx), the pointer
-   keeps its resize cursor wherever it goes, and the drag selects no text on the way. */
-body[data-panel-resizing] {
-	cursor: col-resize;
-	user-select: none;
 }

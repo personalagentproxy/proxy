@@ -93,7 +93,7 @@ function JoinStep({token, invitation}: {token: string; invitation: InvitationLin
 
 	return (
 		<Frame>
-			<OrgTile org={org} className="size-10 rounded-lg text-base" />
+			<OrgTile org={org} className="size-10 text-base" />
 			<StepHeading title={`Join ${invitation.orgName}`}>
 				{invitation.invitedBy ?? 'Someone'} invited you. You work with the connections and agents
 				shared with you in {invitation.orgName}, and what you connect there stays yours unless you
