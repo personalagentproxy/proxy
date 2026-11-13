@@ -72,7 +72,7 @@ async function readCapped(url: URL, response: Response, maxBytes: number): Promi
 }
 
 // A GET that follows redirects, each one's address checked as the first was.
-function get(start: URL, accept: string, maxBytes: number): Promise<Result<Fetched, FetchError>> {
+export function get(start: URL, accept: string, maxBytes: number): Promise<Result<Fetched, FetchError>> {
 	return Do(async ($) => {
 		let url = start;
 		for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
@@ -95,7 +95,7 @@ function get(start: URL, accept: string, maxBytes: number): Promise<Result<Fetch
 }
 
 // An attribute of a tag as written, in any of its quotings.
-function attribute(tag: string, name: string): string | null {
+export function attribute(tag: string, name: string): string | null {
 	const match = new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'>]+))`, 'i').exec(tag);
 	if (!match) {
 		return null;

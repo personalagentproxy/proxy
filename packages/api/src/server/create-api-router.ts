@@ -43,6 +43,7 @@ import {
 	handleSetConnectionSharingRoute,
 } from '../connections/route';
 import {handleFaviconRoute} from '../favicons/route';
+import {handleLinkPreviewImageRoute, handleLinkPreviewRoute} from '../link-previews/route';
 import {alertRoutes} from '../harness/alerts-route';
 import {handleClientLogsRoute} from '../observability/client-logs';
 import {chatRoutes} from '../harness/route';
@@ -222,6 +223,10 @@ export function createApiRouter(): express.Router {
 
 	// A custom MCP server's logo, the icon of its site, for the person's pages and the agent's alike.
 	router.get('/api/favicons/:host', wrapAsyncRoute('Favicon route', handleFaviconRoute));
+
+	// The card over a link in a chat: what its page says of itself, and its picture, fetched here.
+	router.get('/api/link-previews', wrapAsyncRoute('Link preview route', handleLinkPreviewRoute));
+	router.get('/api/link-previews/image', wrapAsyncRoute('Link preview image route', handleLinkPreviewImageRoute));
 
 	org.get('/agents', withAuthResult('List agents route', handleListAgentsRoute));
 	org.post('/agents', withAuthResult('Create agent route', handleCreateAgentRoute));

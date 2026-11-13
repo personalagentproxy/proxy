@@ -14,7 +14,7 @@ const KEEP_SECONDS = 24 * 60 * 60;
 const KEEP_MISS_SECONDS = 60 * 60;
 
 // A signed-in person, or else a signed-in agent.
-async function signedIn(headers: IncomingHttpHeaders): Promise<Result<void, ApiError>> {
+export async function signedIn(headers: IncomingHttpHeaders): Promise<Result<void, ApiError>> {
 	const person = await authenticateApiRequest(headers);
 	if (person.isOk()) {
 		return Ok(undefined);
