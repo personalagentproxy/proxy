@@ -69,7 +69,8 @@ const CREATE_SUBAGENT: ModelTool = {
 
 const SEND_TO_SUBAGENT: ModelTool = {
 	name: SEND_TO_SUBAGENT_TOOL,
-	description: 'Sends a sub-agent a message about its work: a follow-up, an answer, an update or a change. A new request is a new sub-agent’s. It keeps what it did, so say only what is new; a stopped or asleep one is taken up again.',
+	description:
+		'Sends a sub-agent a message about its work: a follow-up, an answer, an update or a change. A new request is a new sub-agent’s. It keeps what it did, so say only what is new; a stopped or asleep one is taken up again.',
 	parameters: {
 		type: 'object',
 		properties: {
@@ -129,7 +130,7 @@ const CANCEL_ALERT: ModelTool = {
 // finishing a task, which the loop does.
 const SCRIPT: ModelTool = {
 	name: SCRIPT_TOOL,
-	description: scriptToolDescription(false),
+	description: scriptToolDescription('harness'),
 	parameters: {
 		type: 'object',
 		properties: {code: {type: 'string', description: 'The script'}},

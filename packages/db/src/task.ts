@@ -120,22 +120,6 @@ export async function touchAgentTask(
 	);
 }
 
-/**
- * Whether the agent's task and every task above it are not finished, nor left open too long ago to
- * be taken up again, read without taking any of them up; `Ok(false)` where the agent has no such
- * task.
- */
-export async function isAgentTaskOpen(
-	orgId: string,
-	agentId: string,
-	taskId: string,
-): Promise<Result<boolean, ApiError>> {
-	return wrapDb(async () => {
-		const line = await lineOf(db, {orgId, agentId, taskId}, {lock: false});
-		return isOpen(line, taskId, new Date());
-	});
-}
-
 type LineRow = {id: string; finishedAt: Date | null; lastActiveAt: Date};
 
 // The task and every task above it, from the top down; with `lock`, locked for the rest of the
@@ -270,25 +254,6 @@ async function finishSubTasks(
 		data: {finishedAt: at.finishedAt},
 	});
 	await finishSubTasks(tx, at, ids);
-}
-
-/** The agent's tasks still under way, newest first: none finished, and none left open (@proxy/utils/tasks). */
-export async function listOpenAgentTasks(
-	orgId: string,
-	agentId: string,
-): Promise<Result<AgentTaskRow[], ApiError>> {
-	return wrapDb(() =>
-		db.agentTask.findMany({
-			where: {
-				orgId,
-				agentId,
-				finishedAt: null,
-				lastActiveAt: {gt: new Date(Date.now() - TASK_LEFT_OPEN_AFTER_MS)},
-			},
-			select: taskSelect,
-			orderBy: {createdAt: 'desc'},
-		}),
-	);
 }
 
 /**

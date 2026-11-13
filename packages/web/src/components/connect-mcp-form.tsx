@@ -6,7 +6,7 @@ import {connectMcp} from '@/client/connections-client';
 import {PillButton} from '@proxy/ui/components/pill-button';
 import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
-import {apiMessage} from '@/lib/agent-errors';
+import {apiMessage} from '@/lib/api-message';
 import {handOffToBrowser, isDesktopApp} from '@/lib/desktop';
 import {NO_PASSWORD_MANAGER} from '@/lib/password-managers';
 import {useCommandEnterSubmit} from '@/hooks/use-command-enter';

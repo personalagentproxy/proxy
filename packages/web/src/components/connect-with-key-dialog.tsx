@@ -14,7 +14,7 @@ import {
 } from '@proxy/ui/components/dialog';
 import {Input} from '@proxy/ui/components/input';
 import {Label} from '@proxy/ui/components/label';
-import {apiMessage} from '@/lib/agent-errors';
+import {apiMessage} from '@/lib/api-message';
 import {NO_PASSWORD_MANAGER} from '@/lib/password-managers';
 import {useOrgSlug} from '@/hooks/use-org';
 

@@ -18,7 +18,7 @@ import {
 	SelectValue,
 } from '@proxy/ui/components/select';
 import {SuccessLine} from '@/components/success-line';
-import {apiMessage} from '@/lib/agent-errors';
+import {apiMessage} from '@/lib/api-message';
 import {NO_PASSWORD_MANAGER} from '@/lib/password-managers';
 import {useCommandEnterSubmit} from '@/hooks/use-command-enter';
 import {useOrgSlug} from '@/hooks/use-org';

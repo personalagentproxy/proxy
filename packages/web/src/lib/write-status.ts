@@ -1,5 +1,5 @@
 import type {FetchError} from '@proxy/utils';
-import {apiMessage} from '@/lib/agent-errors';
+import {apiMessage} from '@/lib/api-message';
 
 // Where a widget's write is: not yet, on its way, done (with where to see it), or refused.
 export type WriteStatus =

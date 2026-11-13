@@ -5,7 +5,7 @@ import {useEffect, useState, type ReactNode} from 'react';
 import {usePlaidLink} from 'react-plaid-link';
 import {connectPlaid, createPlaidLinkToken} from '@/client/connections-client';
 import {SuccessLine} from '@/components/success-line';
-import {apiMessage} from '@/lib/agent-errors';
+import {apiMessage} from '@/lib/api-message';
 import {useOrgSlug} from '@/hooks/use-org';
 
 function plaidErrorMessage(error: FetchError): string {

@@ -4,10 +4,11 @@ export const WEB_ROUTER_FILE = new URL('../../web/src/router.tsx', import.meta.u
 
 const ROUTE_PATH = /\bpath: '([^']+)'/g;
 
-// Every route that renders a screen: not the catch-all, and not `/`, which only redirects.
+// Every route that renders a screen: not a catch-all, such as `/agent/*`, and not `/`, which only
+// redirect.
 export function routePaths(routerSource: string): string[] {
 	const paths = [...routerSource.matchAll(ROUTE_PATH)]
 		.map((match) => match[1] ?? '')
-		.filter((path) => path !== '*' && path !== '/');
+		.filter((path) => !path.endsWith('*') && path !== '/');
 	return [...new Set(paths)];
 }

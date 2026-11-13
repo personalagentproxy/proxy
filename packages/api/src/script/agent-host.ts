@@ -33,10 +33,11 @@ import type {PapAnswer, ScriptHost} from './run-script';
  * connection: `connections` leaves them out, and their tools are refused.
  */
 
-/** Which way the calls came in: the MCP server, the built-in agent's loop, or a sandbox's CLI. */
-export type ScriptVia = Exclude<AgentCaller['via'], 'web'>;
+/** Which way the calls came in: the MCP server, the agent page, the built-in agent's loop, or a sandbox's CLI. */
+export type ScriptVia = AgentCaller['via'];
 
-const NO_TASK = 'No task: call pap.startTask first, or give `task`.';
+// The agent page keeps the task for the agent, so there is no `task` to give there.
+const noTask = (via: ScriptVia) => (via === 'web' ? 'No task: call pap.startTask first.' : 'No task: call pap.startTask first, or give `task`.');
 const OWN_TASK = 'Your task is kept for you.';
 const NO_SANDBOXES = 'Sandboxes can’t be used from inside a sandbox: run sandbox_exec from outside it.';
 
@@ -128,7 +129,7 @@ export function agentErrorMessage(error: ApiError, via: ScriptVia, tool?: string
 	return 'Something went wrong; try again.';
 }
 
-type HostState = {taskId: string | null; started: string | null};
+type HostState = {taskId: string | null; started: string | null; finished: boolean};
 
 type HostOptions = {via: ScriptVia; task: string | null; taskTools: boolean; sandboxes: boolean};
 
@@ -155,6 +156,7 @@ function answer(signedIn: SignedInAgent, options: HostOptions, state: HostState,
 			if (body.parent === undefined) {
 				state.taskId = task.task;
 				state.started = task.task;
+				state.finished = false;
 			}
 			return task;
 		}
@@ -162,10 +164,12 @@ function answer(signedIn: SignedInAgent, options: HostOptions, state: HostState,
 			const [body] = $(argsOf(options.via, method, ARGS.feedback, args));
 			return $(await sendAgentFeedback(caller, {...body, ...(state.taskId === null ? {} : {task: state.taskId})}));
 		}
-		const taskId = $(requirePresent(state.taskId, ApiErr.validationError(NO_TASK)));
+		const taskId = $(requirePresent(state.taskId, ApiErr.validationError(noTask(options.via))));
 		if (method === 'finishTask') {
 			const [body] = $(argsOf(options.via, method, ARGS.finishTask, args));
-			return $(await finishAgentTask(caller, {...body, task: taskId}));
+			const finished = $(await finishAgentTask(caller, {...body, task: taskId}));
+			state.finished = true;
+			return finished;
 		}
 		if (method === 'connections') {
 			$(argsOf(options.via, method, ARGS.connections, args));
@@ -202,8 +206,11 @@ function callError(via: ScriptVia, method: PapMethod, args: Json[], error: ApiEr
 	return `${tool} on ${connection}: ${agentErrorMessage(error, via, tool)}`;
 }
 
-/** A script's `pap` functions, and the task it started for itself, where it did. */
-export type AgentScriptHost = {answer: ScriptHost; startedTask: () => string | null};
+/**
+ * A script's `pap` functions; the task it started for itself, where it did; and the task its
+ * calls were for at the end, null once it finished it.
+ */
+export type AgentScriptHost = {answer: ScriptHost; startedTask: () => string | null; task: () => string | null};
 
 /**
  * The `pap` functions of a script the agent runs for `task`, or for the task the script starts
@@ -211,7 +218,7 @@ export type AgentScriptHost = {answer: ScriptHost; startedTask: () => string | n
  * use Sandboxes connections.
  */
 export function agentScriptHost(signedIn: SignedInAgent, options: HostOptions): AgentScriptHost {
-	const state: HostState = {taskId: options.task, started: null};
+	const state: HostState = {taskId: options.task, started: null, finished: false};
 	return {
 		answer: async (method, args): Promise<PapAnswer> => {
 			const result = await answer(signedIn, options, state, method, args);
@@ -221,5 +228,6 @@ export function agentScriptHost(signedIn: SignedInAgent, options: HostOptions): 
 			return Ok(JSON.stringify(result.value));
 		},
 		startedTask: () => state.started,
+		task: () => (state.finished ? null : state.taskId),
 	};
 }
