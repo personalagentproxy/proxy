@@ -13,7 +13,7 @@ import {getConnection, listConnections} from '@/client/connections-client';
 import {getFile, listFiles, listTrashedFiles} from '@/client/files-client';
 import {getGitHubInstallations} from '@/client/github-client';
 import {listAlerts} from '@/client/alerts-client';
-import {getTask, getThread, listPersonas} from '@/client/harness-client';
+import {getChatThread, listPersonas, listThreads} from '@/client/harness-client';
 import {getClaudeAccount, getMe, listSessions} from '@/client/me-client';
 import {getAuthorizationRequest} from '@/client/oauth-client';
 import {getInvitation, getOrg, listMembers, listOrgs} from '@/client/orgs-client';
@@ -174,29 +174,42 @@ export const chatIndexLoader = later(async (args: OrgParams) => {
 	throw redirect(`/${org}/chat/${first.id}`);
 });
 
-// The person's conversation with an agent, the agents to switch between with the tasks pinned
-// under them, and the harnesses one can run on.
+// The person's chat with an agent, its threads, the agents to switch between, and the harnesses
+// one can run on.
 export const chatLoader = later(async (args: OrgParams & {params: {id?: string}}) => {
 	const org = orgOf(args);
-	const [log, personas] = await Promise.all([
-		getThread(org, args.params.id ?? ''),
+	const [chat, personas] = await Promise.all([
+		listThreads(org, args.params.id ?? ''),
 		listPersonas(org),
 	]);
-	const {personas: listed, pinnedTasks, workingTasks, harnesses} = unwrapLoaderResult(personas);
-	return {log: unwrapLoaderResult(log), personas: listed, pinnedTasks, workingTasks, harnesses};
+	const {personas: listed, harnesses} = unwrapLoaderResult(personas);
+	return {chat: unwrapLoaderResult(chat), personas: listed, harnesses};
 });
 
-// A task an agent started in the person's conversation with it, as its chat shows it, beside the
-// agents to switch between, as the conversation's page has them.
-export const chatTaskLoader = later(
-	async (args: OrgParams & {params: {id?: string; taskId?: string}}) => {
-		const org = orgOf(args);
-		const [task, personas] = await Promise.all([
-			getTask(org, args.params.id ?? '', args.params.taskId ?? ''),
-			listPersonas(org),
-		]);
-		const {personas: listed, pinnedTasks, workingTasks, harnesses} = unwrapLoaderResult(personas);
-		return {task: unwrapLoaderResult(task), personas: listed, pinnedTasks, workingTasks, harnesses};
+// The chat is loaded again as another agent's opens, or as the page asks, not as one of its
+// threads opens beside it or closes.
+export function shouldRevalidateChat({
+	currentUrl,
+	nextUrl,
+	currentParams,
+	nextParams,
+	defaultShouldRevalidate,
+}: ShouldRevalidateFunctionArgs) {
+	if (currentUrl.pathname === nextUrl.pathname || currentParams.id !== nextParams.id) {
+		return defaultShouldRevalidate;
+	}
+	return false;
+}
+
+// One of the chat's threads, open beside it; null where the chat has no such thread.
+export const chatThreadLoader = later(
+	async (args: OrgParams & {params: {id?: string; threadId?: string}}) => {
+		const thread = await getChatThread(
+			orgOf(args),
+			args.params.id ?? '',
+			args.params.threadId ?? '',
+		);
+		return {thread: unwrapOrNull(thread)};
 	},
 );
 

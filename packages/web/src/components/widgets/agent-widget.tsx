@@ -1,6 +1,6 @@
 import type {ChatPersona} from '@proxy/contracts/harness';
 import {useRef, useState} from 'react';
-import {postMessage} from '@/client/harness-client';
+import {openThread} from '@/client/harness-client';
 import {Head} from '@/components/head';
 import {EnterButton} from '@/components/widgets/enter-button';
 import {WidgetFrame} from '@/components/widgets/widget-frame';
@@ -81,7 +81,7 @@ export function AgentWidget({
 		}
 		sending.current = true;
 		setStatus({kind: 'saving'});
-		void postMessage(org, persona.id, text).then((result) => {
+		void openThread(org, persona.id, text).then((result) => {
 			if (result.isErr()) {
 				sending.current = false;
 				setStatus({kind: 'failed', message: writeErrorMessage(result.error)});

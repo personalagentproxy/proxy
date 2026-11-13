@@ -581,34 +581,41 @@ function handlePinTaskRoute(store: ChatStore, request: AuthenticatedRequest): Pr
 // The calls a thread shows, as what the persona told the person as it went.
 const THREAD_CALLS = [SEND_TO_PERSON_TOOL];
 
+// Something a thread shows, with the entry it comes from.
+type Shown = {entryId: string; message: ThreadMessage};
+
 // What a thread shows (db/harness listChatThreads), each message with the files it went with: what
 // the person said; the events that came into it; what the persona answered in words, then what it
 // told the person as it went in the same step; not the calls it worked through.
-function threadMessages(thread: ChatThreadRow, files: RouteFiles): ThreadMessage[] {
+function threadShown(thread: ChatThreadRow, files: RouteFiles): Shown[] {
 	const attachmentsOf = (entryId: string) => thread.attachments.filter((attachment) => attachment.entryId === entryId).map(files.shown);
-	return thread.entries.flatMap((entry): ThreadMessage[] => {
+	return thread.entries.flatMap((entry): Shown[] => {
 		const at = entry.createdAt.toISOString();
+		const from = (message: ThreadMessage): Shown => ({entryId: entry.id, message});
 		if (entry.kind === 'person' || entry.kind === 'event') {
-			return [{id: entry.id, kind: entry.kind, text: entry.text, isError: entry.isError, at, attachments: attachmentsOf(entry.id)}];
+			return [from({id: entry.id, kind: entry.kind, text: entry.text, isError: entry.isError, at, attachments: attachmentsOf(entry.id)})];
 		}
 		if (entry.kind !== 'assistant') {
 			return [];
 		}
-		const said: ThreadMessage[] = entry.text === '' ? [] : [{id: entry.id, kind: 'assistant', text: entry.text, isError: entry.isError, at, attachments: attachmentsOf(entry.id)}];
-		const told = (entry.toolCalls ?? []).flatMap((call): ThreadMessage[] => {
+		const said: Shown[] = entry.text === '' ? [] : [from({id: entry.id, kind: 'assistant', text: entry.text, isError: entry.isError, at, attachments: attachmentsOf(entry.id)})];
+		const told = (entry.toolCalls ?? []).flatMap((call): Shown[] => {
 			const message = call.name === SEND_TO_PERSON_TOOL ? parentMessageArgs(callArguments(call)) : null;
-			return message ? [{id: `${entry.id}:${call.id}`, kind: 'assistant', text: message.text, isError: false, at, attachments: []}] : [];
+			return message ? [from({id: `${entry.id}:${call.id}`, kind: 'assistant', text: message.text, isError: false, at, attachments: []})] : [];
 		});
 		return [...said, ...told];
 	});
 }
 
 // A thread as the chat lists it, from what it shows: what opened it, the start of the latest
-// thing the persona said, how many messages it holds and when the last came, or, with none, when
-// it was opened.
-function toChatThread(thread: ChatThreadRow, messages: ThreadMessage[]): ChatThread {
+// thing the persona said and the entry it comes from, the persona's latest answer in words, as
+// `GET chat/answers` has a chat's last, how many messages it holds and when the last came, or,
+// with none, when it was opened.
+function toChatThread(thread: ChatThreadRow, shown: Shown[]): ChatThread {
+	const messages = shown.map(({message}) => message);
 	const first = messages[0];
-	const latest = messages.findLast((message) => message.kind === 'assistant');
+	const latest = shown.findLast(({message}) => message.kind === 'assistant');
+	const answer = shown.findLast(({entryId, message}) => message.kind === 'assistant' && message.id === entryId);
 	const opener = first?.kind === 'person' ? {kind: 'person' as const, text: first.text, attachments: first.attachments} : first?.kind === 'event' ? {kind: 'event' as const, text: first.text} : null;
 	const {state} = thread;
 	return {
@@ -616,7 +623,9 @@ function toChatThread(thread: ChatThreadRow, messages: ThreadMessage[]): ChatThr
 		title: thread.title ?? '',
 		state: state.kind === 'asleep' ? {kind: 'asleep', until: state.until.toISOString()} : state,
 		opener,
-		latest: latest ? preview(latest.text) : null,
+		latest: latest ? preview(latest.message.text) : null,
+		latestEntryId: latest?.entryId ?? null,
+		latestAnswerId: answer?.entryId ?? null,
 		messageCount: messages.length,
 		lastMessageAt: messages.at(-1)?.at ?? thread.createdAt.toISOString(),
 	};
@@ -645,7 +654,7 @@ function handleListThreadsRoute(store: ChatStore, harnesses: Harnesses, files: R
 		const persona = $(await requirePersona(store, viewer, request));
 		const chat = $(await requireThread(store, viewer, persona));
 		const [threads, draft, waiting] = await Promise.all([store.listChatThreads(chat.id, THREAD_CALLS, new Date()), store.getThreadDraft(chat.id), store.listDraftAttachments(chat.id)]);
-		const listed = $(threads).map((thread) => toChatThread(thread, threadMessages(thread, files)));
+		const listed = $(threads).map((thread) => toChatThread(thread, threadShown(thread, files)));
 		return {
 			persona: toPersona(harnesses, viewer, persona),
 			draft: $(draft),
@@ -662,13 +671,13 @@ function handleGetChatThreadRoute(store: ChatStore, harnesses: Harnesses, files:
 		const viewer = $(await requireViewer(request));
 		const persona = $(await requirePersona(store, viewer, request));
 		const thread = $(await requireChatThread(store, viewer, persona, request.params.threadId ?? ''));
-		const messages = threadMessages(thread, files);
+		const shown = threadShown(thread, files);
 		return {
 			persona: toPersona(harnesses, viewer, persona),
-			thread: toChatThread(thread, messages),
+			thread: toChatThread(thread, shown),
 			busy: thread.state.kind === 'working',
 			activityTaskId: thread.taskId,
-			messages,
+			messages: shown.map(({message}) => message),
 		};
 	});
 }
@@ -684,7 +693,7 @@ function handleOpenThreadRoute(store: ChatStore, files: RouteFiles, request: Aut
 		const opening = threadOpening(chat, {text, files: attachments.map((attachment) => attachment.name)});
 		const opened = $(requirePresent($(await store.openThread(chat.id, text, opening, attachments)), ApiErr.notFound('thread', chat.id)));
 		const thread = $(requirePresent($(await store.getChatThread(chat.id, opened.thread.id, THREAD_CALLS, new Date())), ApiErr.notFound('thread', opened.thread.id)));
-		return {thread: toChatThread(thread, threadMessages(thread, files))};
+		return {thread: toChatThread(thread, threadShown(thread, files))};
 	});
 }
 

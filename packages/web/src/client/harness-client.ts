@@ -1,17 +1,17 @@
 import {
 	type ChatAttachment,
 	chatAnswersSchema,
+	chatThreadsSchema,
 	type markReadBodySchema,
+	openedThreadSchema,
 	personaAnswerSchema,
 	personaListSchema,
 	type Persona,
-	type pinTaskBodySchema,
 	type postMessageBodySchema,
+	postedReplySchema,
 	type removeAttachmentBodySchema,
-	postedMessageSchema,
 	type saveDraftBodySchema,
-	taskChatSchema,
-	threadLogSchema,
+	threadViewSchema,
 	uploadedAttachmentSchema,
 } from '@proxy/contracts/harness';
 import type {z} from 'zod';
@@ -19,9 +19,9 @@ import {apiRequest, apiSend, apiUpload, orgApi} from '@/client/request';
 import {rememberPersonaList} from '@/lib/persona-list';
 
 // The Chat page's api: the personas the person sees, their own and General, which every member
-// does, each named and given a head, the person's own conversation with each, its turns, what
-// they say in it, and how far they have read it, and the tasks the persona started in it, each
-// with a chat of its own.
+// does, each named and given a head, and the person's own chat with each: its threads, each
+// opened by what they said in the chat and read on its own, what they reply in one, what they
+// typed in the chat and haven't sent, and how far they have read it.
 
 // How long a list asked for ahead of Chat's opening is fresh enough not to ask again.
 const PREFETCH_GAP_MS = 10 * 1000;
@@ -67,11 +67,36 @@ export function deletePersona(org: string, personaId: string) {
 	return apiSend('DELETE', `${orgApi(org)}/chat/personas/${personaId}`);
 }
 
-export function getThread(org: string, personaId: string) {
-	return apiRequest('GET', `${orgApi(org)}/chat/personas/${personaId}/thread`, threadLogSchema);
+export function listThreads(org: string, personaId: string) {
+	return apiRequest('GET', `${orgApi(org)}/chat/personas/${personaId}/threads`, chatThreadsSchema);
 }
 
-export function postMessage(
+export function getChatThread(org: string, personaId: string, threadId: string) {
+	return apiRequest(
+		'GET',
+		`${orgApi(org)}/chat/personas/${personaId}/threads/${threadId}`,
+		threadViewSchema,
+	);
+}
+
+// What the person says, with the files they attach to it, each where it sits among the words, as
+// the api takes it.
+function messageBody(
+	text: string,
+	attachments: ChatAttachment[],
+): z.input<typeof postMessageBodySchema> {
+	return {
+		text,
+		attachments: attachments.map(({connectionId, fileId, version}) => ({
+			connectionId,
+			fileId,
+			version,
+		})),
+	};
+}
+
+/** Opens a thread in the person's chat with the persona with what they say: the chat's draft goes with it. */
+export function openThread(
 	org: string,
 	personaId: string,
 	text: string,
@@ -79,16 +104,41 @@ export function postMessage(
 ) {
 	return apiRequest(
 		'POST',
-		`${orgApi(org)}/chat/personas/${personaId}/messages`,
-		postedMessageSchema,
-		{
-			text,
-			attachments: attachments.map(({connectionId, fileId, version}) => ({
-				connectionId,
-				fileId,
-				version,
-			})),
-		} satisfies z.input<typeof postMessageBodySchema>,
+		`${orgApi(org)}/chat/personas/${personaId}/threads`,
+		openedThreadSchema,
+		messageBody(text, attachments),
+	);
+}
+
+/** What the person replies in one of the chat's threads, which takes it up again. */
+export function replyInThread(
+	org: string,
+	personaId: string,
+	threadId: string,
+	text: string,
+	attachments: ChatAttachment[],
+) {
+	return apiRequest(
+		'POST',
+		`${orgApi(org)}/chat/personas/${personaId}/threads/${threadId}/messages`,
+		postedReplySchema,
+		messageBody(text, attachments),
+	);
+}
+
+/** Uploads a file put in a thread's input to the person's own drive: what to attach to what they reply next, which the page holds until then. */
+export function uploadThreadAttachment(
+	org: string,
+	personaId: string,
+	threadId: string,
+	file: File,
+) {
+	return apiUpload(
+		'POST',
+		`${orgApi(org)}/chat/personas/${personaId}/threads/${threadId}/attachments`,
+		{name: file.name},
+		file,
+		uploadedAttachmentSchema,
 	);
 }
 
@@ -115,52 +165,6 @@ export function removeAttachment(org: string, personaId: string, attachment: Cha
 		fileId,
 		version,
 	} satisfies z.input<typeof removeAttachmentBodySchema>);
-}
-
-// A task the persona started in the person's conversation with it, as its chat shows it.
-export function getTask(org: string, personaId: string, taskId: string) {
-	return apiRequest(
-		'GET',
-		`${orgApi(org)}/chat/personas/${personaId}/tasks/${taskId}`,
-		taskChatSchema,
-	);
-}
-
-// What the person writes to a task in its chat, with the files they attach to it, each where it
-// sits among the words: the task takes it up; the persona is told.
-export function postTaskMessage(
-	org: string,
-	personaId: string,
-	taskId: string,
-	text: string,
-	attachments: ChatAttachment[],
-) {
-	return apiSend('POST', `${orgApi(org)}/chat/personas/${personaId}/tasks/${taskId}/messages`, {
-		text,
-		attachments: attachments.map(({connectionId, fileId, version}) => ({
-			connectionId,
-			fileId,
-			version,
-		})),
-	} satisfies z.input<typeof postMessageBodySchema>);
-}
-
-/** Uploads a file put in a task's input to the person's own drive: what to attach to what they write to the task next, which the page holds until then. */
-export function uploadTaskAttachment(org: string, personaId: string, taskId: string, file: File) {
-	return apiUpload(
-		'POST',
-		`${orgApi(org)}/chat/personas/${personaId}/tasks/${taskId}/attachments`,
-		{name: file.name},
-		file,
-		uploadedAttachmentSchema,
-	);
-}
-
-// Pins a task of the person's conversation with the persona to the list under it, or unpins it.
-export function pinTask(org: string, personaId: string, taskId: string, pinned: boolean) {
-	return apiSend('PUT', `${orgApi(org)}/chat/personas/${personaId}/tasks/${taskId}/pin`, {
-		pinned,
-	} satisfies z.input<typeof pinTaskBodySchema>);
 }
 
 export function markRead(org: string, personaId: string, entryId: string) {

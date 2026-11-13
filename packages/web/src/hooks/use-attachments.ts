@@ -33,7 +33,7 @@ export function takenFiles(
 
 /**
  * Where an input's files go: up to the person's own drive, and out of the input again, where the
- * server keeps the input (the conversation's does; a task's is the page's alone).
+ * server keeps the input (the chat's does; a thread's is the page's alone).
  */
 export type AttachmentInput = {
 	upload: (file: File) => Promise<Result<{attachment: ChatAttachment}, FetchError>>;
@@ -41,9 +41,9 @@ export type AttachmentInput = {
 };
 
 /**
- * The files in a conversation's or a task's input, put there by the button, a paste or a drop:
- * each is uploaded at once, to the person's own drive, and, in a conversation, kept in the input
- * by the server, as what is typed is kept as the draft, so the conversation opens with those put
+ * The files in a chat's or a thread's input, put there by the button, a paste or a drop: each is
+ * uploaded at once, to the person's own drive, and, in a chat, kept in the input by the server,
+ * as what is typed is kept as the draft, so the chat opens with those put
  * there before (`kept`), on any device. They go with the message sent next, each where it sits among the words
  * (components/chat/message-editor.tsx), and the send empties the input on the server itself. One
  * that failed stays, saying why, until it is taken out; one taken out is taken out on the server

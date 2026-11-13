@@ -802,6 +802,8 @@ describe('the chat’s threads', () => {
 				state: {kind: 'stopped'},
 				opener: {kind: 'person', text: 'Find the pricing review with Dana', attachments: [shownAttachment]},
 				latest: 'It moved to Friday, with the new prices attached.',
+				latestEntryId: 'e3',
+				latestAnswerId: 'e3',
 				messageCount: 3,
 				lastMessageAt: later(2).toISOString(),
 			},
@@ -811,6 +813,8 @@ describe('the chat’s threads', () => {
 				state: {kind: 'asleep', until: later(60).toISOString()},
 				opener: {kind: 'event', text: 'The alert “Dana” matched a new one of the emails.'},
 				latest: null,
+				latestEntryId: null,
+				latestAnswerId: null,
 				messageCount: 1,
 				lastMessageAt: later(30).toISOString(),
 			},
@@ -832,6 +836,23 @@ describe('the chat’s threads', () => {
 			{id: 'e2:c1', kind: 'assistant', text: 'Looking through the shared drive.', isError: false, at: later(1).toISOString(), attachments: []},
 			{id: 'e3', kind: 'assistant', text: 'It moved to **Friday**, with the new prices attached.', isError: false, at: later(2).toISOString(), attachments: []},
 		]);
+
+		// What it told the person last, mid-turn, is its latest line; its latest answer is still the one before.
+		const told = logEntry({
+			id: 'e6',
+			seq: 6,
+			threadId: 'thread-2',
+			kind: 'assistant',
+			text: '',
+			toolCalls: [call('c3', 'send_to_person', {text: 'Checking the old prices too.'})],
+			createdAt: later(3),
+		});
+		store.getChatThread.mockResolvedValue(Ok({...review, entries: [...review.entries, told]}));
+		expect((await handleGetChatThreadRoute(request({personaId: 'persona-1', threadId: 'thread-2'}))).unwrap().thread).toMatchObject({
+			latest: 'Checking the old prices too.',
+			latestEntryId: 'e6',
+			latestAnswerId: 'e3',
+		});
 
 		store.getChatThread.mockResolvedValue(Ok(watch));
 		expect((await handleGetChatThreadRoute(request({personaId: 'persona-1', threadId: 'thread-3'}))).unwrap().messages.map((message) => message.kind)).toEqual(['event']);

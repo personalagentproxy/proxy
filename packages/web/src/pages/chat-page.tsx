@@ -1,28 +1,16 @@
 import type {
-	ChatEntry,
-	ChatHarness,
-	ChatMessage,
-	ChatPersona,
 	ChatAttachment,
-	ChatTask,
+	ChatHarness,
+	ChatPersona,
+	ChatThread,
+	ChatThreads,
 	Persona,
-	PinnedTask,
-	TaskChat,
-	ThreadLog,
-	WorkingTask,
+	ThreadView,
 } from '@proxy/contracts/harness';
+import {Maximize2Icon, Minimize2Icon, PencilIcon, Trash2Icon, XIcon} from 'lucide-react';
 import {
-	CornerDownRightIcon,
-	PaperclipIcon,
-	PencilIcon,
-	PinIcon,
-	PinOffIcon,
-	Trash2Icon,
-} from 'lucide-react';
-import {
-	Fragment,
-	type FormEvent,
 	memo,
+	Suspense,
 	useCallback,
 	useEffect,
 	useLayoutEffect,
@@ -30,35 +18,25 @@ import {
 	useRef,
 	useState,
 } from 'react';
-import {Link, useLocation, useNavigate, useParams} from 'react-router';
+import {Link, Outlet, useLocation, useNavigate, useParams} from 'react-router';
 import {
 	createPersona,
 	deletePersona,
-	getThread,
-	pinTask,
-	postMessage,
+	openThread,
 	removeAttachment,
 	updatePersona,
 	uploadAttachment,
 } from '@/client/harness-client';
 import {AddButton} from '@/components/add-button';
-import {AppShell, PageTitle, PanelWaiting, TitleWaiting} from '@/components/app-shell';
-import {ConfirmDialog} from '@/components/confirm-dialog';
-import {LiveHead} from '@/components/head';
-import {type ImageOf, Markdown} from '@/components/markdown';
-import {type ModelChoice, ModelSwitcher} from '@/components/model-switcher';
-import {PersonaDialog} from '@/components/persona-dialog';
-import {PillButton} from '@proxy/ui/components/pill-button';
-import {DropToAttach, SentChip, ShownFile} from '@/components/chat/attachments';
-import {PictureViewer, type ViewedPicture} from '@/components/chat/picture-viewer';
-import {Bubble, BubbleContent} from '@/components/chat/bubble';
 import {
-	MessageEditor,
-	type MessageEditorHandle,
-	type Typed,
-} from '@/components/chat/message-editor';
-import {InputGroup, InputGroupAddon} from '@proxy/ui/components/input-group';
-import {Message, MessageContent} from '@/components/chat/message';
+	AppShell,
+	PageTitle,
+	PanelWaiting,
+	type Side,
+	TitleWaiting,
+	Waiting,
+} from '@/components/app-shell';
+import {Composer} from '@/components/chat/composer';
 import {
 	MessageScroller,
 	MessageScrollerButton,
@@ -66,13 +44,16 @@ import {
 	MessageScrollerItem,
 	MessageScrollerViewport,
 } from '@/components/chat/message-scroller';
-import {TaskLine, WorkingLine} from '@/components/chat/task-line';
-import {markdownPictures, readFileLink} from '@proxy/utils/file-links';
-import {ATTACHMENT_MARK, attachedParts, preview} from '@proxy/utils/harness';
+import {EventLine, PersonBubble, ThreadStatus} from '@/components/chat/thread-parts';
+import {ConfirmDialog} from '@/components/confirm-dialog';
+import {LiveHead} from '@/components/head';
+import {IconButton} from '@/components/icon-button';
+import {PersonaDialog} from '@/components/persona-dialog';
+import {ContentBoundary} from '@/components/route-error';
+import {preview} from '@proxy/utils/harness';
 import {cn} from '@proxy/ui/lib/utils';
-import {type AttachmentInput, takenFiles, useAttachments} from '@/hooks/use-attachments';
+import type {AttachmentInput} from '@/hooks/use-attachments';
 import {useChatDraft} from '@/hooks/use-chat-draft';
-import {useExperiments} from '@/hooks/use-experiment';
 import {FROM_COMMAND_BAR} from '@/lib/command-bar';
 import {useLastLoaded, useLoaded} from '@/hooks/use-loaded';
 import {rememberedPersonaList} from '@/lib/persona-list';
@@ -81,15 +62,12 @@ import {useOrgSlug} from '@/hooks/use-org';
 import {usePoll} from '@/hooks/use-poll';
 import {useReload} from '@/hooks/use-reload';
 import {useSending} from '@/hooks/use-sending';
-import {useReloadWhileHidden} from '@/hooks/use-reload-on-release';
 import {useUnread} from '@/hooks/use-unread';
-import {useWindowFileDrop} from '@/hooks/use-window-file-drop';
-import {keepEntries, sameJson} from '@/lib/chat-log';
-import {chatRuns, conversationSide} from '@/lib/chat-runs';
+import {formatMessageTime} from '@/lib/chat-time';
 import {formatAgo} from '@/lib/format';
 import {describeApiError, describeFetchError} from '@/lib/loader-utils';
-import type {chatLoader, chatTaskLoader} from '@/loaders';
-import {OpenTask} from '@/pages/task-chat';
+import type {chatLoader} from '@/loaders';
+import type {ThreadContext} from '@/pages/chat-thread';
 import {
 	ContextMenu,
 	ContextMenuContent,
@@ -97,115 +75,26 @@ import {
 	ContextMenuTrigger,
 } from '@proxy/ui/components/context-menu';
 
-// How often the log is read again while the agent is at work, and while it is not: a reply, or a
-// wake-up, shows within a moment either way.
-const BUSY_POLL_MS = 1000;
-const IDLE_POLL_MS = 4000;
+// How often the chat is read again while a thread of it is in progress, so one that stops, or
+// answers, shows within a moment; and how long after the last read the page coming back into view
+// reads it again.
+const IN_PROGRESS_POLL_MS = 4000;
+const IN_PROGRESS_VISIBLE_GAP_MS = 2000;
 
-// How often the list is read again while a task in it is at work, so one that stops leaves it,
-// and one started beside it comes, within a moment; and how long after the last read the page
-// coming back into view reads it again.
-const WORKING_POLL_MS = 4000;
-const WORKING_VISIBLE_GAP_MS = 2000;
+// The band behind the thread open beside the chat, the width of the chat.
+const OPEN_BAND = 'bg-[color-mix(in_srgb,var(--muted)_55%,var(--background))]';
 
-// The file kept with an answer that a link of it names; undefined for any other link.
-function keptFile(
-	attachments: ChatMessage['attachments'],
-	src: string,
-): ChatMessage['attachments'][number] | undefined {
-	const target = readFileLink(src, window.location.origin);
-	return attachments.find(
-		(candidate) =>
-			candidate.connectionId === target?.connectionId && candidate.fileId === target.fileId,
-	);
-}
+type LastMessage = ChatPersona['lastMessage'];
 
-// The pictures an answer shows, in the order its words put them, for the viewer: each of its
-// Markdown pictures that links to a picture kept with it.
-function picturesOf(entry: ChatMessage): ViewedPicture[] {
-	return markdownPictures(entry.text).flatMap(({src, alt}) => {
-		const attachment = keptFile(entry.attachments, src);
-		return attachment?.shown === true && !attachment.gone ? [{attachment, alt}] : [];
-	});
-}
-
-// An answer's pictures as tiles, each opening the viewer at itself; any other link as it is.
-function AnswerMarkdown({entry}: {entry: ChatMessage}) {
-	const [viewing, setViewing] = useState<number | null>(null);
-	const pictures = useMemo(() => picturesOf(entry), [entry]);
-	const image: ImageOf | null =
-		entry.attachments.length === 0
-			? null
-			: (src, alt) => {
-					const attachment = keptFile(entry.attachments, src);
-					if (attachment === undefined) {
-						return null;
-					}
-					const at = pictures.findIndex((picture) => picture.attachment === attachment);
-					return (
-						<ShownFile
-							attachment={attachment}
-							alt={alt}
-							onOpen={() => setViewing(Math.max(at, 0))}
-						/>
-					);
-				};
-	return (
-		<>
-			<Markdown text={entry.text} image={image} />
-			{pictures.length > 0 && (
-				<PictureViewer pictures={pictures} index={viewing} onIndex={setViewing} />
-			)}
-		</>
-	);
-}
-
-// One turn of the conversation: what the person said in a gray bubble on the right, as they typed
-// it, with the files they attached where they put them, or what the persona answered on the left
-// as plain Markdown, without a bubble, with the files it showed where it put them, in a red one
-// where its turn failed.
-function Turn({entry}: {entry: ChatMessage}) {
-	if (entry.kind === 'person') {
-		return (
-			<Message align="end">
-				<MessageContent>
-					<Bubble align="end" variant="muted">
-						<BubbleContent className="whitespace-pre-wrap">
-							{attachedParts(entry.text, entry.attachments).map((part, index) =>
-								'text' in part ? (
-									<Fragment key={index}>{part.text}</Fragment>
-								) : (
-									<SentChip key={index} attachment={part.file} />
-								),
-							)}
-						</BubbleContent>
-					</Bubble>
-				</MessageContent>
-			</Message>
-		);
-	}
-	return (
-		<Message>
-			<MessageContent>
-				<Bubble variant={entry.isError ? 'destructive' : 'ghost'}>
-					<BubbleContent>
-						<AnswerMarkdown entry={entry} />
-					</BubbleContent>
-				</Bubble>
-			</MessageContent>
-		</Message>
-	);
-}
-
-// What a row shows under the name: the last thing said in the conversation, the person's with "You:".
-function subtitle(last: ChatPersona['lastMessage']): string {
+// What a row shows under the name: the last thing said in the chat, the person's with "You:".
+function subtitle(last: LastMessage): string {
 	if (last === null) {
 		return 'Nothing yet';
 	}
 	return last.kind === 'person' ? `You: ${last.text}` : last.text;
 }
 
-// What the person typed in a conversation and hasn't sent, cut to a line; null without any.
+// What the person typed in a chat and hasn't sent, cut to a line; null without any.
 function draftLine(draft: string | null): string | null {
 	if (draft === null || draft.trim() === '') {
 		return null;
@@ -213,80 +102,68 @@ function draftLine(draft: string | null): string | null {
 	return preview(draft);
 }
 
-// Whether something of the conversation is a turn of it, said by the person or the persona.
-function isMessage(entry: ChatEntry): entry is ChatMessage {
-	return entry.kind === 'person' || entry.kind === 'assistant';
+// The latest of what the page knows was said last, as the list has it and as the page shows it.
+function latestOf(candidates: LastMessage[]): LastMessage {
+	return candidates.reduce<LastMessage>((latest, candidate) => {
+		if (candidate === null) {
+			return latest;
+		}
+		if (latest === null || Date.parse(candidate.at) > Date.parse(latest.at)) {
+			return candidate;
+		}
+		return latest;
+	}, null);
 }
 
-// The last thing said in the open conversation, as the page has it, fresher than the list, cut
-// to a line as the list has it.
-function lastOf(log: ThreadLog): ChatPersona['lastMessage'] {
-	const last = log.entries.findLast(isMessage);
-	return last ? {kind: last.kind, text: preview(last.text), at: last.at} : null;
+// The last thing said in a thread, as it is shown, cut to a line as the list has it.
+function lastOfThread(view: ThreadView | null): LastMessage {
+	const last = view?.messages.findLast(
+		(message) => message.kind === 'person' || message.kind === 'assistant',
+	);
+	if (last === undefined || last.kind === 'event') {
+		return null;
+	}
+	return {kind: last.kind, text: preview(last.text), at: last.at};
 }
 
 // When the persona was last active: the last thing said, or its making before anything was.
-function lastActive(persona: ChatPersona, last: ChatPersona['lastMessage']): number {
+function lastActive(persona: ChatPersona, last: LastMessage): number {
 	return Date.parse(last?.at ?? persona.createdAt);
 }
 
-// A conversation as the page shows it, fresher than the list: its log, and what is being typed.
-type Shown = {personaId: string; log: ThreadLog; draft: string};
-
-// Each as its own part of the conversation says it: the log as it is drawn, what is typed as it is
-// typed, so typing draws the input and the list again, not the conversation.
-type ShownLog = {personaId: string; log: ThreadLog};
+// The open chat as the page shows it, fresher than the list: what the person said last in it from
+// here, and what is typed in it.
+type ShownSaid = {personaId: string; last: LastMessage};
 type ShownDraft = {personaId: string; draft: string};
+type Shown = {personaId: string; last: LastMessage; draft: string};
 
-// The tasks a conversation names: those the persona started in it, and those it wrote to.
-function tasksOf(log: ThreadLog): ChatTask[] {
-	return log.entries.flatMap((entry) =>
-		entry.kind === 'task' || entry.kind === 'sent' ? [entry.task] : [],
-	);
-}
-
-// The personas the person sees, their own and General, in the second sidebar, each with its head, its name and the last
-// thing said between it and the person, marked where the person hasn't seen it, or what they
-// typed and haven't sent, the open one's as it is typed, the open one lit,
-// each head watching the pointer while it is over that agent's row or its tasks'. The one last active is on
-// top, the open one by its log, so what the person just said moves it up at once. It stays as it
-// is from one conversation to the next: the one in the address is lit at once, while it loads.
-// Under each, the tasks the person pinned in its conversation, the one with something said in it
-// last first; then those of it at work now, in the same order; then, under the open one, the task
-// open in its place where it is neither, lit in the agent's stead. Each task is listed once, and
-// the title of one at work, pinned or not, shimmers, as the conversation's "Working" does; one
-// asleep or stopped is listed only where it is pinned or open. A row that comes, goes or
-// changes places moves there (`useListMotion`): a task opened or closed, pinned or unpinned,
-// started or stopped, an agent made, deleted or moved up by what was said. At the column's foot,
-// below the agents however many, the button that makes a new agent.
+// The personas the person sees, their own and General, in the sidebar, each with its head, its
+// name and the last thing said between it and the person, marked where the person hasn't seen it,
+// or what they typed and haven't sent, the open one's as it is typed, the open one lit, each head
+// watching the pointer while it is over that agent's row. The one last active is on top, the open
+// one by what the page shows of it, so what the person just said moves it up at once. It stays as
+// it is from one chat to the next: the one in the address is lit at once, while it loads. A row
+// that comes, goes or changes places moves there (`useListMotion`): an agent made, deleted or
+// moved up by what was said. At the column's foot, below the agents however many, the button that
+// makes a new agent.
 function PersonaList({
 	personas,
 	current,
-	task,
-	pinned,
-	working,
 	shown,
 	recallDraft,
 	onOpen,
 	onNew,
 	onEdit,
 	onDelete,
-	onPin,
 }: {
 	personas: ChatPersona[];
 	current: string;
-	// The task of the open agent's conversation that is open in its place, if one is.
-	task: ChatTask | null;
-	pinned: PinnedTask[];
-	// The tasks of the person's conversations at work now, the one last active first.
-	working: WorkingTask[];
 	shown: Shown | null;
 	recallDraft: (personaId: string) => string | null;
 	onOpen: (personaId: string) => void;
 	onNew: () => void;
 	onEdit: (persona: ChatPersona) => void;
 	onDelete: (persona: ChatPersona) => void;
-	onPin: (personaId: string, taskId: string, pinned: boolean) => void;
 }) {
 	const org = useOrgSlug();
 	const unread = useUnread();
@@ -300,7 +177,7 @@ function PersonaList({
 			const open = shown?.personaId === persona.id ? shown : null;
 			return {
 				persona,
-				last: open ? lastOf(open.log) : persona.lastMessage,
+				last: open ? latestOf([persona.lastMessage, open.last]) : persona.lastMessage,
 				draft: draftLine(open ? open.draft : (recallDraft(persona.id) ?? persona.draft)),
 			};
 		})
@@ -318,31 +195,7 @@ function PersonaList({
 				<ul className="flex flex-col gap-0.5">
 					{rows.map(({persona, last, draft}) => {
 						const fresh = isUnread(persona);
-						const open = persona.id === current;
-						// The row is lit while its conversation is open, and the task's under it in its place.
-						const lit = open && task === null;
-						const pinnedHere = pinned.filter((candidate) => candidate.personaId === persona.id);
-						const workingHere = working.filter(
-							(candidate) =>
-								candidate.personaId === persona.id &&
-								!pinnedHere.some((pin) => pin.id === candidate.id),
-						);
-						const listedHere: ChatTask[] = [...pinnedHere, ...workingHere];
-						const openTask =
-							open && task !== null && !listedHere.some((candidate) => candidate.id === task.id)
-								? [task]
-								: [];
-						const tasks = [...listedHere, ...openTask].map((candidate) => (
-							<TaskRow
-								key={candidate.id}
-								task={candidate}
-								to={`/${org}/chat/${persona.id}/tasks/${candidate.id}`}
-								lit={open && candidate.id === task?.id}
-								pinned={pinnedHere.some((pin) => pin.id === candidate.id)}
-								working={working.some((busy) => busy.id === candidate.id)}
-								onPin={(pin) => onPin(persona.id, candidate.id, pin)}
-							/>
-						));
+						const lit = persona.id === current;
 						const row = (
 							<Link
 								to={`/${org}/chat/${persona.id}`}
@@ -409,35 +262,28 @@ function PersonaList({
 							</Link>
 						);
 						return (
-							// The head watches the pointer while it is over the agent's row or its tasks'.
 							<li
 								key={persona.id}
+								data-row={persona.id}
 								onPointerEnter={() => setHovered(persona.id)}
 								onPointerLeave={() => setHovered(null)}
 							>
-								<div data-row={persona.id}>
-									{persona.mayChange ? (
-										<ContextMenu>
-											<ContextMenuTrigger render={<div />}>{row}</ContextMenuTrigger>
-											<ContextMenuContent>
-												<ContextMenuItem onClick={() => onEdit(persona)}>
-													<PencilIcon />
-													Edit
-												</ContextMenuItem>
-												<ContextMenuItem variant="destructive" onClick={() => onDelete(persona)}>
-													<Trash2Icon />
-													Delete
-												</ContextMenuItem>
-											</ContextMenuContent>
-										</ContextMenu>
-									) : (
-										row
-									)}
-								</div>
-								{tasks.length > 0 && (
-									<ul aria-label={`${persona.name}’s tasks`} className="flex flex-col">
-										{tasks}
-									</ul>
+								{persona.mayChange ? (
+									<ContextMenu>
+										<ContextMenuTrigger render={<div />}>{row}</ContextMenuTrigger>
+										<ContextMenuContent>
+											<ContextMenuItem onClick={() => onEdit(persona)}>
+												<PencilIcon />
+												Edit
+											</ContextMenuItem>
+											<ContextMenuItem variant="destructive" onClick={() => onDelete(persona)}>
+												<Trash2Icon />
+												Delete
+											</ContextMenuItem>
+										</ContextMenuContent>
+									</ContextMenu>
+								) : (
+									row
 								)}
 							</li>
 						);
@@ -451,97 +297,80 @@ function PersonaList({
 	);
 }
 
-// A task in the list, under its agent: its title, opening its chat, lit while it is open, marked
-// where it is pinned, its title shimmering while it is at work, and pinned or unpinned from its
-// right-click menu. The gap above it is the
-// row's own, so the room it takes in the list, and gives back, is all its own.
-function TaskRow({
-	task,
-	to,
-	lit,
-	pinned,
-	working,
-	onPin,
+// The open thread's cell of the title bar: its name, what it is up to, and, at the right, the
+// buttons that give it the page's width and back, and close it.
+function ThreadHeader({
+	thread,
+	expanded,
+	onExpand,
+	closeTo,
 }: {
-	task: ChatTask;
-	to: string;
-	lit: boolean;
-	pinned: boolean;
-	// Whether it is at work now, as against asleep or stopped.
-	working: boolean;
-	onPin: (pinned: boolean) => void;
+	thread: ChatThread | null;
+	expanded: boolean;
+	onExpand: () => void;
+	closeTo: string;
 }) {
 	return (
-		<ContextMenu>
-			<ContextMenuTrigger render={<li data-row={task.id} />}>
-				<div className="pt-0.5">
-					<Link
-						to={to}
-						aria-current={lit ? 'page' : undefined}
-						className={cn(
-							'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-muted-foreground hover:bg-sidebar-accent',
-							lit && 'bg-sidebar-accent',
-						)}
-					>
-						<CornerDownRightIcon className="size-4 shrink-0" aria-hidden />
-						<span className="min-w-0 flex-1 truncate font-medium text-sidebar-foreground">
-							{/* The shimmer sweeps the title alone, not the row's width beyond it, so it is
-							    on the words the whole time it runs. */}
-							<span className={cn(working && 'shimmer motion-reduce:shimmer-none')}>
-								{task.title}
-							</span>
-							{working && <span className="sr-only"> (working)</span>}
-						</span>
-						{pinned && <PinIcon className="size-3.5 shrink-0" aria-label="Pinned" />}
-					</Link>
-				</div>
-			</ContextMenuTrigger>
-			<ContextMenuContent>
-				<ContextMenuItem onClick={() => onPin(!pinned)}>
-					{pinned ? <PinOffIcon /> : <PinIcon />}
-					{pinned ? 'Unpin' : 'Pin'}
-				</ContextMenuItem>
-			</ContextMenuContent>
-		</ContextMenu>
+		<>
+			{thread === null ? (
+				<TitleWaiting />
+			) : (
+				<>
+					<span className="min-w-0 truncate text-sm font-medium">{thread.title || 'Thread'}</span>
+					<ThreadStatus state={thread.state} />
+				</>
+			)}
+			<span className="flex-1" />
+			{/* On a narrow window the thread always has the page's width. */}
+			<span className="flex max-lg:hidden">
+				<IconButton label={expanded ? 'Show the chat beside it' : 'Expand'} onClick={onExpand}>
+					{expanded ? <Minimize2Icon className="size-4" /> : <Maximize2Icon className="size-4" />}
+				</IconButton>
+			</span>
+			<IconButton label="Close" to={closeTo}>
+				<XIcon className="size-4" />
+			</IconButton>
+		</>
 	);
 }
 
-// The page: the organization's agents beside the conversation with the one in its address. The
-// list is the frame's, so moving to another conversation shows it at once, lit in the list and
-// named in the header, while it loads; the conversation is started over as the address changes,
-// so what one showed never lingers on another. A task of the conversation opens in its place, as
-// the address names it, under the agent in the list.
+// The page: the organization's agents in the sidebar, beside the person's chat with the one in its
+// address, a list of its threads, and the thread the address names open beside it (pages/
+// chat-thread.tsx). The list of agents is the frame's, so moving to another chat shows it at once,
+// lit in the list and named in the header, while it loads; the chat is started over as the agent
+// in the address changes, so what one showed never lingers on another, and stays as it is as a
+// thread of it opens and closes.
 export function ChatPage() {
 	const org = useOrgSlug();
 	const navigate = useNavigate();
 	const reload = useReload();
-	const {id: current = '', taskId} = useParams();
-	// The agents as last listed, with each conversation, or task of one, as it loads; until the
-	// first has, as the list last came anywhere (lib/persona-list.ts), so they are there as the
-	// page opens.
-	const listed = useLastLoaded<typeof chatLoader | typeof chatTaskLoader>();
+	const {id: current = '', threadId} = useParams();
+	// The agents as last listed, with each chat as it loads; until the first has, as the list last
+	// came anywhere (lib/persona-list.ts), so they are there as the page opens.
+	const listed = useLastLoaded<typeof chatLoader>();
 	const list = listed.answer ?? rememberedPersonaList(org);
 	const personas = list?.personas ?? null;
 	const name = personas?.find((persona) => persona.id === current)?.name;
-	const [shownLog, setShownLog] = useState<ShownLog | null>(null);
+	const [shownSaid, setShownSaid] = useState<ShownSaid | null>(null);
 	const [shownDraft, setShownDraft] = useState<ShownDraft | null>(null);
-	const shown: Shown | null =
-		shownLog !== null && shownDraft?.personaId === shownLog.personaId
-			? {...shownLog, draft: shownDraft.draft}
-			: null;
+	const [shownThreads, setShownThreads] = useState<ChatThread[]>([]);
+	// The thread open beside the chat, as it shows it.
+	const [shownThread, setShownThread] = useState<ThreadView | null>(null);
+	// The thread given the page's width, by its id, until it is given the chat back or closed.
+	const [expanded, setExpanded] = useState<string | null>(null);
 	// The agent dialog: making a new one, or changing the selected one; closed as null.
 	const [editing, setEditing] = useState<'new' | ChatPersona | null>(null);
 	const [deleting, setDeleting] = useState<ChatPersona | null>(null);
 	const [error, setError] = useState<string | null>(null);
-	// A conversation picked in the list, or in the command bar, focuses its input once that
-	// conversation has loaded. Nothing is requested on an ordinary page load, so it does not steal
-	// focus or open a phone's keyboard just because the Chat page was visited.
+	// A chat picked in the list, or in the command bar, focuses its box once that chat has loaded.
+	// Nothing is requested on an ordinary page load, so it does not steal focus or open a phone's
+	// keyboard just because the Chat page was visited.
 	const location = useLocation();
 	const fromBar = location.state === FROM_COMMAND_BAR;
 	const [focusRequestedFor, setFocusRequestedFor] = useState<string | null>(
 		fromBar ? current : null,
 	);
-	// The bar can go to a conversation while the page is up, as from another one.
+	// The bar can go to a chat while the page is up, as from another one.
 	const [arrival, setArrival] = useState(location.key);
 	if (arrival !== location.key) {
 		setArrival(location.key);
@@ -550,8 +379,8 @@ export function ChatPage() {
 		}
 	}
 	const focused = useCallback(() => setFocusRequestedFor(null), [setFocusRequestedFor]);
-	// What was typed in each conversation while the page was open, fresher than the list, which
-	// is read as another opens, perhaps before the save of what was typed in the last has landed.
+	// What was typed in each chat while the page was open, fresher than the list, which is read as
+	// another opens, perhaps before the save of what was typed in the last has landed.
 	const drafts = useRef(new Map<string, string>());
 	const recallDraft = useCallback((personaId: string) => drafts.current.get(personaId) ?? null, []);
 	const rememberDraft = useCallback((personaId: string, text: string) => {
@@ -579,9 +408,9 @@ export function ChatPage() {
 		return null;
 	};
 
-	// Deletes a persona with the conversations with it: the person's, and for one every member
-	// sees, everyone's. If it was open, opens whichever is
-	// first; otherwise refreshes the list around the conversation that stays open.
+	// Deletes a persona with the chats with it: the person's, and for one every member sees,
+	// everyone's. If it was open, opens whichever is first; otherwise refreshes the list around the
+	// chat that stays open.
 	const removePersona = async (persona: ChatPersona) => {
 		const removed = await deletePersona(org, persona.id);
 		if (removed.isErr()) {
@@ -596,73 +425,64 @@ export function ChatPage() {
 		await reload();
 	};
 
-	// The task the address names, once it has loaded.
-	const answer = listed.answer;
-	const task =
-		taskId !== undefined && answer !== null && 'task' in answer && answer.task.task.id === taskId
-			? answer.task
+	// The open chat in the list as the page shows it, fresher than the list while the list is the
+	// one loaded with it: what was said last in it here and in its open thread, and what is typed.
+	const shown: Shown | null =
+		listed.answer !== null && shownDraft?.personaId === current
+			? {
+					personaId: current,
+					last: latestOf([
+						shownSaid?.personaId === current ? shownSaid.last : null,
+						shownThread?.persona.id === current ? lastOfThread(shownThread) : null,
+					]),
+					draft: shownDraft.draft,
+				}
 			: null;
-	const pinned = list?.pinnedTasks ?? [];
-	const working = list?.workingTasks ?? [];
-	// The task as the header and the list name it, in the agent's place: as loaded, or, while it
-	// loads, as the page has it already, pinned or named in the conversation it was opened from. So
-	// its title and its row under the agent are there as it is opened, not once it has loaded.
-	const named: ChatTask | null =
-		task?.task ??
-		[...pinned, ...working, ...(shown?.personaId === current ? tasksOf(shown.log) : [])].find(
-			(known) => known.id === taskId,
-		) ??
-		null;
-	// The conversation as it was last shown is fresher than the list while the list is the one
-	// loaded with a conversation; one loaded with a task since is fresher than it.
-	const fresher = answer !== null && 'log' in answer ? shown : null;
 
-	// Pins a task under its agent, or unpins it, and reads the list again with it so.
-	const pinOne = async (personaId: string, pinnedTaskId: string, pin: boolean) => {
-		const done = await pinTask(org, personaId, pinnedTaskId, pin);
-		if (done.isErr()) {
-			setError(describeFetchError(done.error));
-			return;
-		}
-		setError(null);
-		await reload();
-	};
-
-	// The list read again every so often while a task in it is at work, so one that stops leaves it
-	// and one started meanwhile comes; and as soon as the open conversation starts a task, or it
-	// or its tasks set to work or stop, as its log, read every moment, says.
-	const reloadList = useCallback(() => void reload(), [reload]);
-	usePoll(reloadList, {
-		enabled: working.length > 0,
-		intervalMs: WORKING_POLL_MS,
-		visibleGapMs: WORKING_VISIBLE_GAP_MS,
-		immediate: false,
-	});
-	const openWork =
-		shown === null
+	// The thread open beside the chat as the title bar names it: as it shows itself, or, while it
+	// loads, as the chat lists it, so its name is there as it is opened.
+	const openThread =
+		threadId === undefined
 			? null
-			: `${shown.personaId}:${shown.log.busy}:${new Set(tasksOf(shown.log).map(({id}) => id)).size}`;
-	const listedWork = useRef(openWork);
-	useEffect(() => {
-		if (openWork === null || listedWork.current === openWork) {
-			return;
-		}
-		const before = listedWork.current;
-		listedWork.current = openWork;
-		if (before === null || before.split(':')[0] !== openWork.split(':')[0]) {
-			return;
-		}
-		reloadList();
-	}, [openWork, reloadList]);
+			: shownThread?.thread.id === threadId
+				? shownThread.thread
+				: (shownThreads.find((thread) => thread.id === threadId) ?? null);
+	const chatTo = `/${org}/chat/${current}`;
+	const full = threadId !== undefined && expanded === threadId;
+	const context: ThreadContext = {
+		harnesses: list?.harnesses ?? [],
+		full,
+		managing: editing !== null || deleting !== null,
+		onShown: setShownThread,
+	};
+	const side: Side | undefined =
+		threadId === undefined
+			? undefined
+			: {
+					full,
+					header: (
+						<ThreadHeader
+							thread={openThread}
+							expanded={full}
+							onExpand={() => setExpanded(full ? null : threadId)}
+							closeTo={chatTo}
+						/>
+					),
+					content: (
+						// Each thread its own, and its own failure, while the chat stays as it is.
+						<Suspense key={threadId} fallback={<Waiting column={false} />}>
+							<ContentBoundary key={threadId}>
+								<Outlet context={context} />
+							</ContentBoundary>
+						</Suspense>
+					),
+				};
 
 	const title = () => {
-		if (taskId !== undefined) {
-			return named === null ? <TitleWaiting /> : <PageTitle>{named.title}</PageTitle>;
-		}
 		if (name !== undefined) {
 			return <PageTitle>{name}</PageTitle>;
 		}
-		// A conversation not in the list once it has loaded, as one that could not be.
+		// A chat not in the list once it has loaded, as one that could not be.
 		return listed.pending ? <TitleWaiting /> : <PageTitle>Chat</PageTitle>;
 	};
 
@@ -674,11 +494,7 @@ export function ChatPage() {
 			<PersonaList
 				personas={personas}
 				current={current}
-				task={named}
-				pinned={pinned}
-				working={working}
-				onPin={(personaId, pinnedTaskId, pin) => void pinOne(personaId, pinnedTaskId, pin)}
-				shown={fresher}
+				shown={shown}
 				recallDraft={recallDraft}
 				onOpen={setFocusRequestedFor}
 				onNew={() => setEditing('new')}
@@ -692,25 +508,25 @@ export function ChatPage() {
 		<>
 			<AppShell
 				title={title()}
-				actions={taskId === undefined ? undefined : <TaskActions task={task} />}
 				panel={panel()}
 				panelLabel="Chat"
 				scroll="inside"
+				contentKey={current}
+				side={side}
 			>
-				{taskId === undefined ? (
-					<OpenConversation
-						recallDraft={recallDraft}
-						rememberDraft={rememberDraft}
-						onShownLog={setShownLog}
-						onShownDraft={setShownDraft}
-						managing={editing !== null || deleting !== null}
-						listError={error}
-						focusRequested={focusRequestedFor === current}
-						onFocused={focused}
-					/>
-				) : (
-					<OpenTask />
-				)}
+				<OpenChat
+					openThread={shownThread?.persona.id === current ? shownThread : null}
+					threadId={threadId ?? null}
+					recallDraft={recallDraft}
+					rememberDraft={rememberDraft}
+					onShownSaid={setShownSaid}
+					onShownDraft={setShownDraft}
+					onShownThreads={setShownThreads}
+					managing={editing !== null || deleting !== null}
+					listError={error}
+					focusRequested={focusRequestedFor === current}
+					onFocused={focused}
+				/>
 			</AppShell>
 			{editing !== null && (
 				<PersonaDialog
@@ -759,184 +575,175 @@ export function ChatPage() {
 	);
 }
 
-// What the header offers in a task's place: its requests in the activity log, once it made one.
-function TaskActions({task}: {task: TaskChat | null}) {
-	const org = useOrgSlug();
-	const activityTaskId = task?.activityTaskId ?? null;
-	if (activityTaskId === null) {
-		return null;
-	}
-	return (
-		<PillButton
-			variant="ghost"
-			nativeButton={false}
-			render={<Link to={`/${org}/activity/tasks/${encodeURIComponent(activityTaskId)}`} />}
-		>
-			View activity
-		</PillButton>
-	);
-}
-
-// What the page gives the conversation open in it.
+// What the page gives the chat open in it.
 type Opened = {
+	// The thread open beside the chat, as it shows it, fresher than the list; and its id, from the
+	// address, before it has loaded.
+	openThread: ThreadView | null;
+	threadId: string | null;
 	recallDraft: (personaId: string) => string | null;
 	rememberDraft: (personaId: string, text: string) => void;
-	// The list beside the conversation shows it as the page does: its log, and what is typed in it.
-	onShownLog: (shown: ShownLog) => void;
+	// The list beside the chat shows it as the page does: what the person said in it last, and what
+	// is typed in it; the title bar names the thread open beside it as the chat lists it.
+	onShownSaid: (shown: ShownSaid) => void;
 	onShownDraft: (shown: ShownDraft) => void;
+	onShownThreads: (threads: ChatThread[]) => void;
 	// An agent is being made, changed or deleted in a dialog.
 	managing: boolean;
 	// What deleting an agent from the list failed with.
 	listError: string | null;
-	// Whether this conversation was explicitly picked in the list and should take keyboard focus.
+	// Whether this chat was explicitly picked in the list and should take keyboard focus.
 	focusRequested: boolean;
 	onFocused: () => void;
 };
 
-// The conversation the address names, once loaded: started over when the address names another.
-function OpenConversation(opened: Opened) {
-	const {log, harnesses} = useLoaded<typeof chatLoader>();
-	return <Conversation key={log.persona.id} loaded={log} harnesses={harnesses} {...opened} />;
+// The chat the address names, once loaded: started over when the address names another agent.
+function OpenChat(opened: Opened) {
+	const {chat, harnesses} = useLoaded<typeof chatLoader>();
+	return <Chat key={chat.persona.id} loaded={chat} harnesses={harnesses} {...opened} />;
 }
 
-// What the person said in something of the conversation; null for what isn't theirs.
-function personText(entry: ChatEntry): string | null {
-	return entry.kind === 'person' ? entry.text : null;
+// What the person said in the chat to open a thread; null for a thread something else opened.
+function openerText(thread: ChatThread): string | null {
+	return thread.opener?.kind === 'person' ? thread.opener.text : null;
 }
 
-// A run's entries, each turn with the lines about tasks that came after it.
-function withTaskLines(entries: ChatEntry[]): ChatEntry[][] {
-	const groups: ChatEntry[][] = [];
-	for (const entry of entries) {
-		const last = groups.at(-1);
-		if (last && (entry.kind === 'task' || entry.kind === 'sent')) {
-			last.push(entry);
-			continue;
-		}
-		groups.push([entry]);
+// What opened a thread: what the person said, or the event that came into it.
+function Opener({opener, open}: {opener: ChatThread['opener']; open: boolean}) {
+	if (opener === null) {
+		return null;
 	}
-	return groups;
+	if (opener.kind === 'event') {
+		return <EventLine text={opener.text} />;
+	}
+	return <PersonBubble text={opener.text} attachments={opener.attachments} outlined={open} />;
 }
 
-// One thing of the conversation: a turn, or a line about one of its tasks. It is drawn again only
-// as it changes, not as the conversation is read again or something else comes, since drawing an
-// answer parses its Markdown; one that came while the conversation was open rises into place.
-const Entry = memo(function Entry({
-	entry,
+// One thread in the chat, opening it beside the chat: what it is up to, what opened it, the start
+// of the latest thing the persona said in it, and how many messages it holds with when the last
+// came. The one open has a band behind it, the width of the chat. The whole of it is a link, under
+// what it shows, so the files in what opened it are still links of their own. It is drawn again
+// only as it changes; one that came while the chat was open rises into place.
+const ThreadItem = memo(function ThreadItem({
+	thread,
+	to,
+	open,
 	fresh,
-	org,
-	personaId,
 }: {
-	entry: ChatEntry;
+	thread: ChatThread;
+	to: string;
+	open: boolean;
 	fresh: boolean;
-	org: string;
-	personaId: string;
 }) {
-	if (entry.kind === 'task' || entry.kind === 'sent') {
-		return (
-			<div data-enter={fresh ? 'rise' : undefined}>
-				<TaskLine
-					verb={entry.kind === 'task' ? 'Created task' : 'Sent to'}
-					task={entry.task}
-					to={`/${org}/chat/${personaId}/tasks/${entry.task.id}`}
-				/>
-			</div>
-		);
-	}
+	const count = `${thread.messageCount} ${thread.messageCount === 1 ? 'message' : 'messages'}`;
 	return (
-		<div data-enter={fresh ? 'rise' : undefined}>
-			<Turn entry={entry} />
+		<div
+			data-enter={fresh ? 'rise' : undefined}
+			className={cn('relative py-5.5', open && OPEN_BAND)}
+		>
+			<Link
+				to={to}
+				aria-label={thread.title || 'Thread'}
+				aria-current={open ? 'page' : undefined}
+				className="absolute inset-0 outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset"
+			/>
+			<div className="page-column pointer-events-none relative mx-auto flex w-full max-w-4xl flex-col items-start gap-2.5 [&_a]:pointer-events-auto">
+				{/* What it is up to, over it; nothing once it has stopped. */}
+				<ThreadStatus state={thread.state} />
+				<Opener opener={thread.opener} open={open} />
+				{thread.latest !== null && (
+					<p className="line-clamp-2 max-w-[44rem] text-sm leading-relaxed">{thread.latest}</p>
+				)}
+				<p className="text-xs text-muted-foreground">
+					{count} · {formatMessageTime(thread.lastMessageAt)}
+				</p>
+			</div>
 		</div>
 	);
 });
 
-// The person's conversation with one of the personas they see: its log, read again as the
-// persona works, and an input. The persona hands each piece of work to a sub-agent it keeps
-// talking with, which acts as the person through the organization's built-in login, whose calls
-// go through the same gate as any agent's, so its activity is in the log by the sub-agent's task.
-// Each sub-agent is a task to the person, a line where it was started and one where the persona
-// sent it more, each opening its chat. What the person sends shows at once, the persona at work
-// under it, before the server has it.
-const Conversation = memo(function Conversation({
+// The threads in the order the chat lists them, by when each last had a message, the last last,
+// those the page has fresher in their place.
+function inOrder(threads: ChatThread[], fresher: ChatThread | null): ChatThread[] {
+	const shown =
+		fresher === null
+			? threads
+			: threads.map((thread) => (thread.id === fresher.id ? fresher : thread));
+	return shown.toSorted((a, b) => Date.parse(a.lastMessageAt) - Date.parse(b.lastMessageAt));
+}
+
+// The person's chat with one of the personas they see: its threads, read again while one of them
+// is in progress, and a box, whose every message opens a thread, which shows at once at the
+// chat's end, before the server has it. Each thread's agent acts as the person through the
+// organization's built-in login, whose calls go through the same gate as any agent's, so its
+// activity is in the log by the thread's task.
+const Chat = memo(function Chat({
 	loaded,
 	harnesses,
+	openThread: fresher,
+	threadId,
 	recallDraft,
 	rememberDraft,
-	onShownLog,
+	onShownSaid,
 	onShownDraft,
+	onShownThreads,
 	managing,
 	listError,
 	focusRequested,
 	onFocused,
-}: Opened & {loaded: ThreadLog; harnesses: ChatHarness[]}) {
+}: Opened & {loaded: ChatThreads; harnesses: ChatHarness[]}) {
 	const org = useOrgSlug();
 	const reload = useReload();
-	const [log, setLog] = useState<ThreadLog>(loaded);
 	const personaId = loaded.persona.id;
 	const current = loaded.persona;
-	const sending = useSending(log.entries, personText);
-	const busy = log.busy || sending.waiting;
-	// What the conversation had as it opened: what comes after it rises into place.
-	const [opened] = useState(() => new Set(loaded.entries.map((entry) => entry.id)));
-
-	// The log as it is shown, what was just sent in it, said as it is drawn, so the list shows the
-	// conversation as it is shown, and from the answer it came with, in the same frame.
-	const shownLog = useMemo(
-		() => ({...log, entries: sending.entries, busy}),
-		[log, sending.entries, busy],
+	const sending = useSending(loaded.threads, openerText);
+	const threads = useMemo(
+		() => inOrder(sending.entries, fresher?.thread ?? null),
+		[sending.entries, fresher],
 	);
+	// What the chat had as it opened: what comes after it rises into place.
+	const [opened] = useState(() => new Set(loaded.threads.map((thread) => thread.id)));
+
 	useLayoutEffect(() => {
-		onShownLog({personaId, log: shownLog});
-	}, [onShownLog, personaId, shownLog]);
+		onShownThreads(threads);
+	}, [onShownThreads, threads]);
 
-	// Which read of the log was asked for last: one asked for before it that answers after it is
-	// dropped, so a poll begun before a send can't put back the log as it was without the message.
-	// A read that brings nothing new changes nothing, and what didn't change is kept as it was, so
-	// the conversation isn't drawn again for it.
-	const latestRead = useRef(0);
-	const readLog = useCallback(async () => {
-		latestRead.current += 1;
-		const read = latestRead.current;
-		const result = await getThread(org, personaId);
-		if (read !== latestRead.current || result.isErr()) {
-			return;
-		}
-		const after = result.value;
-		setLog((before) =>
-			sameJson(before, after)
-				? before
-				: {...after, entries: keepEntries(before.entries, after.entries)},
-		);
-	}, [org, personaId]);
+	// The chat read again every so often while a thread of it is in progress, so one that stops,
+	// or says something, shows.
+	const reloadChat = useCallback(() => void reload(), [reload]);
+	usePoll(reloadChat, {
+		enabled: threads.some((thread) => thread.state.kind !== 'stopped'),
+		intervalMs: IN_PROGRESS_POLL_MS,
+		visibleGapMs: IN_PROGRESS_VISIBLE_GAP_MS,
+		immediate: false,
+	});
 
-	// The log as it is now, while the page is open.
-	useEffect(() => {
-		const timer = setInterval(() => void readLog(), busy ? BUSY_POLL_MS : IDLE_POLL_MS);
-		return () => {
-			clearInterval(timer);
-		};
-	}, [readLog, busy]);
-
-	// The provider is told which conversation the page shows, and its last answer: while the person
-	// looks at it, it is neither counted nor notified of, and is read up to that answer.
-	const lastAnswerId = log.entries.findLast((entry) => entry.kind === 'assistant')?.id ?? null;
+	// The persona's last answer in the chat, as the provider last asked, is shown where it is a
+	// listed thread's latest answer, or among what the open thread says. The provider is told which
+	// chat the page shows, and that answer once it is shown: while the person looks at it, it is
+	// neither counted nor notified of, and is read up to that answer.
 	const {setViewing, answers} = useUnread();
+	const answer = answers?.find((candidate) => candidate.personaId === personaId)?.answer ?? null;
+	const answerShown =
+		answer !== null &&
+		(threads.some((thread) => thread.latestAnswerId === answer.id) ||
+			(fresher?.messages.some((message) => message.id === answer.id) ?? false));
+	const answerId = answerShown ? answer.id : null;
 	useEffect(() => {
-		setViewing({personaId, answerId: lastAnswerId});
+		setViewing({personaId, answerId});
 		return () => {
 			setViewing(null);
 		};
-	}, [setViewing, personaId, lastAnswerId]);
+	}, [setViewing, personaId, answerId]);
 
-	// The list's previews are read with the page: when another conversation's last answer changes,
-	// as the provider asks every so often, the list is read again, so a row marked unread shows
-	// what came rather than what was said before it. The open one's row shows the log.
+	// The list is read with the page: when a chat's last answer changes, as the provider asks every
+	// so often, the list is read again, so the thread it came in says it here, and a row marked
+	// unread in the list of agents shows what came rather than what was said before it.
 	const answered =
 		answers === null
 			? null
 			: answers
-					.filter((answer) => answer.personaId !== personaId)
-					.map((answer) => `${answer.personaId}:${answer.answer.id}`)
+					.map((one) => `${one.personaId}:${one.answer.id}`)
 					.toSorted()
 					.join(' ');
 	const listedAnswers = useRef(answered);
@@ -952,122 +759,74 @@ const Conversation = memo(function Conversation({
 		void reload();
 	}, [answered, reload]);
 
-	// Sends what the person wrote, with the files placed among it, shown at once and taken away
-	// again where the send fails, once `settle` has: what it failed with, or null.
+	// Opens a thread with what the person wrote, with the files placed among it, shown at once and
+	// taken away again where the send fails, once `settle` has: what it failed with, or null.
 	const send = async (
 		message: string,
 		files: ChatAttachment[],
 		settle: () => Promise<void>,
 	): Promise<string | null> => {
 		const key = `sending-${crypto.randomUUID()}`;
+		const at = new Date().toISOString();
 		sending.start({
 			id: key,
-			kind: 'person',
-			text: message,
-			isError: false,
-			at: new Date().toISOString(),
-			attachments: files,
+			title: preview(message),
+			state: {kind: 'working'},
+			opener: {kind: 'person', text: message, attachments: files},
+			latest: null,
+			latestEntryId: null,
+			latestAnswerId: null,
+			messageCount: 1,
+			lastMessageAt: at,
 		});
+		onShownSaid({personaId, last: {kind: 'person', text: preview(message), at}});
 		await settle();
-		const posted = await postMessage(org, personaId, message, files);
+		const posted = await openThread(org, personaId, message, files);
 		if (posted.isErr()) {
 			sending.failed(key);
+			onShownSaid({personaId, last: null});
 			return describeApiError(posted.error);
 		}
-		sending.posted(key, posted.value.entry.id);
-		await readLog();
+		sending.posted(key, posted.value.thread.id);
+		await reload();
 		return null;
 	};
-
-	// Turns in a row from the same side sit closer together than the sides do, under the time
-	// their stretch of the conversation began.
-	const runs = chatRuns(sending.entries, new Date(), conversationSide);
 
 	return (
 		<>
 			<MessageScroller className="min-h-0 flex-1">
-				<MessageScrollerViewport aria-label="Conversation">
-					<MessageScrollerContent className="page-column mx-auto w-full max-w-4xl pt-6 pb-4">
-						{runs.length === 0 && (
-							<div className="flex flex-1 flex-col items-center justify-center gap-2 py-12 text-center">
+				<MessageScrollerViewport aria-label="Chat">
+					<MessageScrollerContent className="w-full gap-3.5 pt-2 pb-4">
+						{threads.length === 0 && (
+							<div className="page-column flex flex-1 flex-col items-center justify-center gap-2 py-12 text-center">
 								<LiveHead look={current.look} color={current.color} size={64} />
 								<p className="text-lg font-medium">What should {current.name} do?</p>
 								<p className="max-w-md text-sm text-muted-foreground">
-									This conversation is yours alone. {current.name} can use what is shared with
+									This conversation is yours alone. Each message opens a thread of its own, where{' '}
+									{current.name} works on it and answers you. It can use what is shared with
 									everyone and what you connected yourself, as far as its access allows. Everything
 									it does is in the activity log.
 								</p>
 							</div>
 						)}
-						{runs.map((run) => {
-							const first = run.entries[0];
-							if (!first) {
-								return null;
-							}
-							const key = sending.keyOf(first);
+						{threads.map((thread) => {
+							const key = sending.keyOf(thread);
 							return (
-								<MessageScrollerItem
-									key={key}
-									scrollAnchor={sending.sentHere(first)}
-									// What the person says next stands a little apart from the answer above it,
-									// as one under a time does from the time.
-									className={cn(
-										'flex flex-col gap-4',
-										run.heading === null && conversationSide(first) === 'person' && 'pt-4',
-									)}
-								>
-									{run.heading !== null && (
-										<h2 className="text-center text-xs font-medium text-muted-foreground">
-											{run.heading}
-										</h2>
-									)}
-									{/* The persona's turns, without a bubble apiece, stand further apart than the
-									    paragraphs within one; a line about a task sits close under the turn it
-									    came with. */}
-									<div
-										className={cn(
-											'flex flex-col',
-											conversationSide(first) === 'person' ? 'gap-2' : 'gap-5',
-										)}
-									>
-										{withTaskLines(run.entries).map((group) => {
-											const head = group[0];
-											if (!head) {
-												return null;
-											}
-											return (
-												<div key={sending.keyOf(head)} className="flex flex-col gap-2">
-													{group.map((entry) => {
-														const entryKey = sending.keyOf(entry);
-														return (
-															<Entry
-																key={entryKey}
-																entry={entry}
-																fresh={!opened.has(entryKey)}
-																org={org}
-																personaId={personaId}
-															/>
-														);
-													})}
-												</div>
-											);
-										})}
-									</div>
+								<MessageScrollerItem key={key} scrollAnchor={sending.sentHere(thread)}>
+									<ThreadItem
+										thread={thread}
+										to={`/${org}/chat/${personaId}/threads/${thread.id}`}
+										open={thread.id === threadId}
+										fresh={!opened.has(key)}
+									/>
 								</MessageScrollerItem>
 							);
 						})}
-						{busy && (
-							<MessageScrollerItem>
-								<div data-enter="fade">
-									<WorkingLine />
-								</div>
-							</MessageScrollerItem>
-						)}
 					</MessageScrollerContent>
 				</MessageScrollerViewport>
 				<MessageScrollerButton />
 			</MessageScroller>
-			<Composer
+			<ChatComposer
 				persona={current}
 				kept={loaded.draft ?? ''}
 				keptFiles={loaded.draftAttachments}
@@ -1076,6 +835,7 @@ const Conversation = memo(function Conversation({
 				rememberDraft={rememberDraft}
 				onShownDraft={onShownDraft}
 				managing={managing}
+				takesDrops={threadId === null}
 				listError={listError}
 				focusRequested={focusRequested}
 				onFocused={onFocused}
@@ -1085,11 +845,10 @@ const Conversation = memo(function Conversation({
 	);
 });
 
-// The input under the conversation, with what runs the persona. What is typed is its own, so
-// typing draws the input, and the list's line for the draft, not the conversation over it. A
-// message sent leaves the input at once, its files with it, and comes back to it where the send
-// fails.
-function Composer({
+// The box under the chat, which opens a thread with every message: what is typed in it is kept on
+// the server as the chat's draft, and so are the files put in it, so it opens as it was left, on
+// any device.
+function ChatComposer({
 	persona,
 	kept,
 	keptFiles,
@@ -1098,18 +857,27 @@ function Composer({
 	rememberDraft,
 	onShownDraft,
 	managing,
+	takesDrops,
 	listError,
 	focusRequested,
 	onFocused,
 	onSend,
-}: Omit<Opened, 'onShownLog'> & {
+}: Pick<
+	Opened,
+	| 'recallDraft'
+	| 'rememberDraft'
+	| 'onShownDraft'
+	| 'managing'
+	| 'listError'
+	| 'focusRequested'
+	| 'onFocused'
+> & {
 	persona: ChatPersona;
-	// The draft the server keeps, as the conversation opened, and the files in its input.
+	// The draft the server keeps, as the chat opened, and the files in its box.
 	kept: string;
 	keptFiles: ChatAttachment[];
 	harnesses: ChatHarness[];
-	// Sends a message, with the files placed among it, once `settle` has: what it failed with, or
-	// null.
+	takesDrops: boolean;
 	onSend: (
 		message: string,
 		files: ChatAttachment[],
@@ -1117,12 +885,7 @@ function Composer({
 	) => Promise<string | null>;
 }) {
 	const org = useOrgSlug();
-	const reload = useReload();
 	const personaId = persona.id;
-	// What goes with the next message: the files the person put in the input, where the
-	// organization has Files, those put there before among them, as the server keeps them. Sent
-	// once none is still on its way up, with words, files, or both.
-	const attaches = useExperiments().includes('files');
 	const input = useMemo(
 		(): AttachmentInput => ({
 			upload: (file) => uploadAttachment(org, personaId, file),
@@ -1130,64 +893,13 @@ function Composer({
 		}),
 		[org, personaId],
 	);
-	const attachments = useAttachments(input, keptFiles);
-	// The files in the input now, as a send that waited on the server finds them.
-	const pendingNow = useRef(attachments.pending);
-	useLayoutEffect(() => {
-		pendingNow.current = attachments.pending;
-	});
-	// What was typed and not sent, as the conversation opened: as this page left it, or as the
-	// server keeps it. Read once: the log read again later says nothing of what is being typed.
+	// What was typed and not sent, as the chat opened: as this page left it, or as the server keeps
+	// it. Read once: the chat read again later says nothing of what is being typed.
 	const [opening] = useState(() => ({kept, text: recallDraft(personaId) ?? kept}));
-	// What the box opens holding: what was typed as the conversation opened, or, made again where
-	// a send failed (`made` times), what the send gave back.
-	const [box, setBox] = useState(() => ({made: 0, text: opening.text, files: attachments.pending}));
-	// What is typed, with a mark where each file sits among the words, and those files in the
-	// order of their marks (message-editor.tsx).
-	const [text, setText] = useState(opening.text);
-	const [placed, setPlaced] = useState(keptFiles);
-	// What is in the box now, as a send that waited on the server finds it.
-	const typedNow = useRef<Typed>({text: opening.text, files: keptFiles});
 	const draft = useChatDraft(org, personaId, opening.kept);
-	const [sending, setSending] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-	const form = useRef<HTMLFormElement>(null);
-	const editor = useRef<MessageEditorHandle>(null);
-	// What runs the persona, as the switcher shows it: the persona's, or what was just picked.
-	const [runsOn, setRunsOn] = useState<ModelChoice>({
-		harness: persona.harness,
-		chatModel: persona.chatModel,
-	});
-	// A conversation is open all day: a new release is loaded while it is out of view, as long as
-	// what is typed is saved as the draft and no dialog is open, since the log and the draft come
-	// back from the server.
-	useReloadWhileHidden(text === draft.saved && !sending && !managing && !attachments.uploading);
-
-	// What the list says is waiting here: what is typed, or, with nothing typed, the files' names.
-	// Said as it is drawn, so the list shows the draft as it is typed.
-	const words = text.replaceAll(ATTACHMENT_MARK, '').trim();
-	const waiting = words === '' ? attachments.pending.map((one) => one.name).join(', ') : text;
-	useLayoutEffect(() => {
-		onShownDraft({personaId, draft: waiting});
-	}, [onShownDraft, personaId, waiting]);
-
-	useEffect(() => {
-		if (!focusRequested || editor.current === null) {
-			return;
-		}
-		editor.current.focus();
-		onFocused();
-	}, [focusRequested, onFocused]);
-
-	// The box made again, where a send failed, keeps the caret.
-	useEffect(() => {
-		if (box.made > 0) {
-			editor.current?.focus();
-		}
-	}, [box.made]);
 
 	// What this page had typed here that the server doesn't have yet, as it was left for another
-	// conversation a moment before its save landed, is saved again.
+	// chat a moment before its save landed, is saved again.
 	const {typed} = draft;
 	useEffect(() => {
 		if (opening.text !== opening.kept) {
@@ -1195,153 +907,34 @@ function Composer({
 		}
 	}, [typed, opening]);
 
-	// What the box shows, as the page remembers it; `type` saves it as the draft too.
-	const show = (typed: Typed) => {
-		setText(typed.text);
-		setPlaced(typed.files);
-		typedNow.current = typed;
-		rememberDraft(personaId, typed.text);
-	};
-	const type = (typed: Typed) => {
-		show(typed);
-		draft.typed(typed.text, typed.files);
-	};
-
-	// Switches what runs the persona, the harness and the model, from the input's switcher: shown
-	// at once, kept with the persona as it is otherwise, and put back where the server refused it.
-	const switchModel = async (choice: ModelChoice) => {
-		const before = runsOn;
-		setRunsOn(choice);
-		setError(null);
-		const changed = await updatePersona(org, personaId, {
-			name: persona.name,
-			look: persona.look,
-			color: persona.color,
-			...choice,
-		});
-		if (changed.isErr()) {
-			setRunsOn(before);
-			setError(describeFetchError(changed.error));
-			return;
-		}
-		await reload();
-	};
-
-	const picker = useRef<HTMLInputElement>(null);
-	// A file that could not be uploaded says why under the conversation, by its name.
-	const failedFile = attachments.pending.find((one) => one.error !== null);
-	const failedUpload = failedFile ? `${failedFile.name}: ${failedFile.error ?? ''}` : null;
-	const sendable = !attachments.uploading && (words !== '' || placed.length > 0);
-	// Files dropped anywhere on the window are attached, unless a dialog is open over the page.
-	const dropping = useWindowFileDrop(attaches && !managing, attachments.add);
-
-	// The message leaves the box at once, its files with it. Where the send fails, it comes back,
-	// before anything typed since; where it doesn't, what was typed since is saved as the draft,
-	// which the send forgot.
-	const submit = async (event: FormEvent) => {
-		event.preventDefault();
-		const message = text.trim();
-		if (!sendable || sending) {
-			return;
-		}
-		const files = placed;
-		const taken = takenFiles(attachments.pending, files);
-		setSending(true);
-		setError(null);
-		editor.current?.clear();
-		attachments.sent();
-		show({text: '', files: []});
-		const failed = await onSend(message, files, draft.settle);
-		setSending(false);
-		if (failed !== null) {
-			setError(failed);
-			const since = typedNow.current;
-			const back: Typed = {
-				text: since.text === '' ? text : `${text}\n${since.text}`,
-				files: [...files, ...since.files],
-			};
-			attachments.restore(taken);
-			setBox((before) => ({
-				made: before.made + 1,
-				text: back.text,
-				files: [...taken, ...takenFiles(pendingNow.current, since.files)],
-			}));
-			type(back);
-			return;
-		}
-		draft.sent();
-		if (typedNow.current.text !== '') {
-			draft.typed(typedNow.current.text, typedNow.current.files);
-		}
-	};
-
-	const shownError = error ?? attachments.refused ?? failedUpload ?? listError;
+	const onTyped = useCallback(
+		(text: string) => rememberDraft(personaId, text),
+		[rememberDraft, personaId],
+	);
+	const onWaiting = useCallback(
+		(waiting: string) => onShownDraft({personaId, draft: waiting}),
+		[onShownDraft, personaId],
+	);
 
 	return (
-		<form
-			ref={form}
-			onSubmit={(event) => void submit(event)}
-			className="page-column mx-auto flex w-full max-w-4xl shrink-0 flex-col gap-2 pt-2 pb-4"
-		>
-			{dropping && <DropToAttach name={persona.name} />}
-			{shownError && <p className="text-sm text-destructive">{shownError}</p>}
-			<input
-				ref={picker}
-				type="file"
-				multiple
-				className="hidden"
-				aria-label="Files to attach"
-				onChange={(event) => {
-					const picked = [...(event.target.files ?? [])];
-					event.target.value = '';
-					attachments.add(picked);
-				}}
-			/>
-			{/* No focus ring: the caret in the only input on the page says where typing goes. */}
-			<InputGroup className="rounded-xl bg-background shadow-xs has-[[data-slot=input-group-control]:focus-visible]:border-input has-[[data-slot=input-group-control]:focus-visible]:ring-0">
-				<MessageEditor
-					key={box.made}
-					ref={editor}
-					opening={box}
-					files={attachments.pending}
-					label="Message"
-					placeholder={`Message ${persona.name}`}
-					onChange={type}
-					onRemove={attachments.remove}
-					onFiles={attaches ? attachments.add : undefined}
-					onSubmit={() => form.current?.requestSubmit()}
-				/>
-				{/* The model's name starts where the message's hint does: 5px, the switcher's 1px border
-				    and its 6px padding make the textarea's 12px. It sits on the send button's bottom. */}
-				<InputGroupAddon align="block-end" className="items-end pl-[5px]">
-					<ModelSwitcher
-						harnesses={harnesses}
-						chosen={runsOn}
-						mayChange={persona.mayChange}
-						onPick={(choice) => void switchModel(choice)}
-					/>
-					{attaches && (
-						<PillButton
-							type="button"
-							variant="ghost"
-							icon
-							className="ml-auto"
-							onClick={() => picker.current?.click()}
-							aria-label="Attach files"
-						>
-							<PaperclipIcon />
-						</PillButton>
-					)}
-					{/* The command bar's main button without its label: Enter's mark, as Enter sends. */}
-					<PillButton
-						type="submit"
-						enter
-						className={cn(!attaches && 'ml-auto')}
-						disabled={sending || !sendable}
-						aria-label="Send"
-					/>
-				</InputGroupAddon>
-			</InputGroup>
-		</form>
+		<Composer
+			persona={persona}
+			harnesses={harnesses}
+			label="Message"
+			placeholder={`Message ${persona.name}`}
+			input={input}
+			keptFiles={keptFiles}
+			openingText={opening.text}
+			kept={draft}
+			onTyped={onTyped}
+			onWaiting={onWaiting}
+			managing={managing}
+			takesDrops={takesDrops}
+			otherError={listError}
+			focusRequested={focusRequested}
+			onFocused={onFocused}
+			onSend={onSend}
+			className="page-column mx-auto max-w-4xl"
+		/>
 	);
 }

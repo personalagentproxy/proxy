@@ -22,13 +22,14 @@ import {
 	agentsLoader,
 	chatIndexLoader,
 	chatLoader,
-	chatTaskLoader,
+	chatThreadLoader,
 	connectAgentLoader,
 	connectionLoader,
 	connectionsLoader,
 	desktopAuthLoader,
 	inviteLoader,
 	membersLoader,
+	shouldRevalidateChat,
 	shouldRevalidateTimeline,
 	taskLoader,
 	sandboxesLoader,
@@ -54,6 +55,7 @@ import {AgentsPage} from '@/pages/agents-page';
 import {AgentLoginPage} from '@/pages/agent/agent-login-page';
 import {AgentScriptPage} from '@/pages/agent/agent-script-page';
 import {ChatPage} from '@/pages/chat-page';
+import {OpenThread} from '@/pages/chat-thread';
 import {ConnectAgentPage} from '@/pages/connect-agent-page';
 import {ConnectionPage} from '@/pages/connection-page';
 import {ConnectionsPage} from '@/pages/connections-page';
@@ -295,8 +297,20 @@ const routes: RouteObject[] = [
 			{path: '/:org/vault', loader: oldVaultLoader, element: null},
 			// The built-in agents, behind the `harness` experiment: the api refuses it otherwise.
 			{path: '/:org/chat', loader: chatIndexLoader, element: <ChatPage />},
-			{path: '/:org/chat/:id', loader: chatLoader, element: <ChatPage />},
-			{path: '/:org/chat/:id/tasks/:taskId', loader: chatTaskLoader, element: <ChatPage />},
+			{
+				path: '/:org/chat/:id',
+				loader: chatLoader,
+				shouldRevalidate: shouldRevalidateChat,
+				element: <ChatPage />,
+				// A thread of the chat, open beside it (`OpenThread` in pages/chat-thread.tsx).
+				children: [
+					{
+						path: '/:org/chat/:id/threads/:threadId',
+						loader: chatThreadLoader,
+						element: <OpenThread />,
+					},
+				],
+			},
 			{path: '/:org/alerts', loader: alertsLoader, element: <AlertsPage />},
 			{path: '/:org/agents', loader: agentsLoader, element: <AgentsPage />},
 			{path: '/:org/agents/new', loader: agentsLoader, element: <NewAgentPage />},

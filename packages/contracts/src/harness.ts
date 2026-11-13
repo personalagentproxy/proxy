@@ -344,8 +344,11 @@ export type ThreadMessage = z.infer<typeof threadMessageSchema>;
 /**
  * One of the chat's threads, as the chat lists it: its title; what it is up to; what opened it,
  * the person's message with the files they attached, or an event's text; the start of the latest
- * thing the persona said in it, cut to a line, null before it said anything; how many messages it
- * holds (`threadMessageSchema`), and when the last came.
+ * thing the persona said in it, cut to a line, null before it said anything, and the entry that
+ * came from, an answer or one whose step told the person something as it went; the persona's
+ * latest answer in words in it, the kind `GET chat/answers` reports and
+ * `POST chat/personas/:personaId/read` takes, null before it answered; how many messages it holds
+ * (`threadMessageSchema`), and when the last came.
  */
 export const chatThreadSchema = z.object({
 	id: z.string(),
@@ -362,6 +365,8 @@ export const chatThreadSchema = z.object({
 		])
 		.nullable(),
 	latest: z.string().nullable(),
+	latestEntryId: z.string().nullable(),
+	latestAnswerId: z.string().nullable(),
 	messageCount: z.number(),
 	lastMessageAt: z.string(),
 });
