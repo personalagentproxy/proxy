@@ -1234,7 +1234,7 @@ export function listChatThreads(
 	calls: string[],
 	now = new Date(),
 ): Promise<Result<ChatThreadRow[], ApiError>> {
-	return readChatThreads({parentThreadId: chatId}, calls, now, 'opener');
+	return readChatThreads({parentThreadId: chatId, archived: false}, calls, now, 'opener');
 }
 
 /** One of the chat's threads, as listChatThreads has it, with the files attached to every entry of it; `Ok(null)` for no such thread of the chat. */
@@ -1326,6 +1326,24 @@ export async function markThreadDone(
 		const {count} = await db.agentThread.updateMany({
 			where: {id: threadId, parentThreadId: chatId},
 			data: {waitingForMember: false},
+		});
+		return count > 0;
+	});
+}
+
+/**
+ * The member archives the thread: their chat's list no longer has it, until they reply in it or an
+ * alert takes it up (wakeWith). It can still be opened by its address. \`Ok(false)\` for no such
+ * thread of the chat.
+ */
+export async function archiveThread(
+	chatId: string,
+	threadId: string,
+): Promise<Result<boolean, ApiError>> {
+	return wrapDb(async () => {
+		const {count} = await db.agentThread.updateMany({
+			where: {id: threadId, parentThreadId: chatId},
+			data: {archived: true},
 		});
 		return count > 0;
 	});
@@ -1899,10 +1917,11 @@ export async function wakeWith(
 	if (thread.taskId !== null) {
 		await takeUpTask(tx, {...thread, taskId: thread.taskId}, now);
 	}
-	// Taken up, it waits for nobody: where it stands is written again as this turn ends.
+	// Taken up, it waits for nobody, and is archived no more: where it stands is written again as
+	// this turn ends.
 	await tx.agentThread.update({
 		where: {id: thread.id},
-		data: {waitingForMember: false},
+		data: {waitingForMember: false, archived: false},
 		select: {id: true},
 	});
 	// Only a sleep's job, the sleep's own or the wake-up that answers it, is due later; one a worker

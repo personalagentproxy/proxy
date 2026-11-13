@@ -9,6 +9,7 @@ import {completeSetAlert, fireAlert, listMemberAlerts} from './alerts';
 import {createMissingChatConnection, getOrgSlug, getThreadPlace, listMemberThreads} from './chat';
 import {
 	appendEntry,
+	archiveThread,
 	appendTurnEntries,
 	completeInference,
 	createPersona,
@@ -663,6 +664,23 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		expect(unwrap(await markThreadDone(chat.id, 'no-such-thread'))).toBe(false);
 		expect(unwrap(await markThreadDone('another-chat', thread.id))).toBe(false);
 		expect(unwrap(await markThreadDone(chat.id, chat.id))).toBe(false);
+	});
+
+	test('the member archives a thread, which leaves the chat’s list until they reply in it, and is still read by its id', async () => {
+		const thread = await open('Archive me once done');
+		await answer(thread, 'worker-ar1', 'Done: the report is in your drive.');
+		const listed = async () => unwrap(await listChatThreads(chat.id, [])).map((one) => one.id);
+
+		expect(unwrap(await archiveThread(chat.id, thread.id))).toBe(true);
+		expect(await listed()).not.toContain(thread.id);
+		expect(unwrap(await getChatThread(chat.id, thread.id, []))?.id).toBe(thread.id);
+
+		unwrap(await replyInThread(chat.id, thread.id, 'One more thing', readyForInference));
+		expect(await listed()).toContain(thread.id);
+
+		expect(unwrap(await archiveThread(chat.id, 'no-such-thread'))).toBe(false);
+		expect(unwrap(await archiveThread('another-chat', thread.id))).toBe(false);
+		expect(unwrap(await archiveThread(chat.id, chat.id))).toBe(false);
 	});
 
 	test('the member’s threads are listed for their Chat connection whichever persona each is with, the one opened last first, by their rows alone, narrowed and searched, and one is read whole', async () => {

@@ -614,6 +614,22 @@ describe('the chat’s threads', () => {
 		expect(store.ensureMemberChat).not.toHaveBeenCalled();
 	});
 
+	test('archive a thread of the viewer’s chat, and say where there is no such thread', async () => {
+		const {handleArchiveThreadRoute} = routes;
+		store.archiveThread.mockResolvedValue(Ok(true));
+
+		expect((await handleArchiveThreadRoute(request({personaId: 'persona-1', threadId: 'thread-2'}))).isOk()).toBe(true);
+		expect(store.archiveThread).toHaveBeenCalledWith('chat-1', 'thread-2');
+
+		store.archiveThread.mockResolvedValue(Ok(false));
+		expect((await handleArchiveThreadRoute(request({personaId: 'persona-1', threadId: 'thread-9'}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'thread'});
+
+		store.getMemberChat.mockResolvedValue(Ok(null));
+		expect((await handleArchiveThreadRoute(request({personaId: 'persona-1', threadId: 'thread-2'}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'thread'});
+		expect(store.archiveThread).toHaveBeenCalledTimes(2);
+		expect(store.ensureMemberChat).not.toHaveBeenCalled();
+	});
+
 	test('give one thread with its messages: what the person said with their files, what the persona answered and told them as it went, and events, without the calls', async () => {
 		const {handleGetChatThreadRoute} = routes;
 		store.getChatThread.mockResolvedValue(Ok({...review, state: {kind: 'working'}}));
