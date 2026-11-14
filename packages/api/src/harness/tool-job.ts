@@ -1,10 +1,11 @@
 import type {Result} from 'ts-results-es';
 
 import {type ApiError, Do} from '@proxy/utils';
-import {callArguments, isRecord, OUTCOME_UNKNOWN, SLEEP_TOOL, sleepUntil, type ToolCall} from '@proxy/utils/harness';
+import {callArguments, isRecord, OUTCOME_UNKNOWN, SLEEP_TOOL, sleepUntil, START_THREAD_TOOL, type ToolCall} from '@proxy/utils/harness';
 import type {JobRow, ThreadRow} from '@proxy/db/harness';
 
 import {CANCEL_ALERT_TOOL, SET_ALERT_TOOL} from './alerts';
+import {type StartThreadStore, startThreadCall} from './start-thread';
 import {failureNote} from './thread-rules';
 import type {HarnessStore} from './store';
 import {type AlertCallOutcome, alertCall, BAD_SLEEP_ARGS, error, NOT_JSON, noSuchTool, runGateTool, setText, type ToolAnswerStore} from './tool-answers';
@@ -14,7 +15,8 @@ import {isGateTool} from './tool-surface';
  * A tool job: one call the model made, run and answered in the log, which is how a harness that
  * leaves its calls open has them run (inference.ts). A thread's alert calls set an alert, at a
  * time or a watch on the connections it may read with the collection (alerts.ts), or cancel one;
- * its message to the person is answered as the answer is written (thread-rules.ts planCall). Its
+ * its message to the person is answered as the answer is written (thread-rules.ts planCall); a
+ * thread it starts is opened in the person's chat (start-thread.ts), at most once. Its
  * scripts make their calls through the gate as the thread's agent acting as the member, for the
  * thread's task, logged like any agent's call. A sleep answers with the time, since its job was
  * due when the sleep ended, or when a reply woke it, which follows the answer. A script, which may change something, is never run twice: a worker
@@ -25,7 +27,7 @@ import {isGateTool} from './tool-surface';
  */
 
 /** What a tool job needs of the store. */
-export type ToolJobStore = Pick<HarnessStore, 'getJobThread' | 'getEntry' | 'completeToolJob' | 'completeSetAlert' | 'failJob' | 'finishJob'> & ToolAnswerStore;
+export type ToolJobStore = Pick<HarnessStore, 'getJobThread' | 'getEntry' | 'completeToolJob' | 'completeSetAlert' | 'failJob' | 'finishJob'> & ToolAnswerStore & StartThreadStore;
 
 function answer(store: ToolJobStore, thread: ThreadRow, job: JobRow, call: ToolCall, now: Date): Promise<Result<AlertCallOutcome, ApiError>> {
 	return Do(async ($) => {
@@ -41,6 +43,13 @@ function answer(store: ToolJobStore, thread: ThreadRow, job: JobRow, call: ToolC
 				return error(BAD_SLEEP_ARGS);
 			}
 			return {text: `Woken at ${now.toISOString()}.`, isError: false};
+		}
+		if (call.name === START_THREAD_TOOL) {
+			// A worker that lost the job mid-call may have started the thread already.
+			if (job.attempts > 1) {
+				return error(OUTCOME_UNKNOWN);
+			}
+			return $(await startThreadCall(store, thread, args));
 		}
 		if (!isGateTool(call.name)) {
 			return noSuchTool(call.name);

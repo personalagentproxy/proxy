@@ -74,6 +74,8 @@ function thread(id: string, over: Partial<ChatThread> = {}): ChatThread {
 		latest: 'Moved it to Thursday.',
 		latestEntryId: 'm2',
 		latestAnswerId: 'm2',
+		startedByAgent: false,
+		titled: false,
 		messageCount: 2,
 		lastMessageAt: '2026-10-21T10:01:00Z',
 		createdAt: '2026-10-21T10:01:00Z',
@@ -91,6 +93,8 @@ function opened(text: string, attachments: ChatAttachment[] = []): ChatThread {
 		latest: null,
 		latestEntryId: null,
 		latestAnswerId: null,
+		startedByAgent: false,
+		titled: false,
 		messageCount: 1,
 		lastMessageAt: '2026-10-21T11:00:00Z',
 		createdAt: '2026-10-21T11:00:00Z',
@@ -116,6 +120,8 @@ const backup = thread('t2', {
 	latest: null,
 	latestEntryId: null,
 	latestAnswerId: null,
+	startedByAgent: false,
+	titled: false,
 	messageCount: 1,
 	lastMessageAt: '2026-10-21T10:05:00Z',
 	createdAt: '2026-10-21T10:05:00Z',
@@ -755,6 +761,8 @@ describe('ChatPage', () => {
 			latest: 'Waiting for the fares to drop.',
 			latestEntryId: 'm7',
 			latestAnswerId: 'm7',
+			startedByAgent: false,
+			titled: false,
 			messageCount: 1,
 			lastMessageAt: '2026-10-21T10:09:00Z',
 			createdAt: '2026-10-21T10:09:00Z',
@@ -831,6 +839,39 @@ describe('ChatPage', () => {
 		expect(reads).toBe(read);
 	}, 15000);
 
+	test('slides what opened a thread into its title once one is written, keeping what was said as it was in the thread', async () => {
+		const said = 'can you look into how i renew my passport, it runs out in february i think';
+		const passport = thread('t6', {
+			title: said,
+			state: {kind: 'working'},
+			standing: 'in_progress',
+			opener: {kind: 'person', text: said, attachments: []},
+			latest: null,
+			latestEntryId: null,
+			latestAnswerId: null,
+			messageCount: 1,
+		});
+		let listed = [passport];
+		renderChatPage({listThreads: () => listed});
+
+		const chat = await screen.findByLabelText('Chat');
+		expect(within(chat).getByText(said)).toBeTruthy();
+		listed = [{...passport, title: 'Renew the passport before February', titled: true}];
+		await act(() => new Promise((resolve) => setTimeout(resolve, 4500)));
+
+		expect(within(chat).getByText('Renew the passport before February')).toBeTruthy();
+		// Slid in over what was said, over a moment.
+		await act(() => new Promise((resolve) => setTimeout(resolve, 1000)));
+		expect(within(chat).queryByText(said)).toBeNull();
+	}, 15000);
+
+	test('asks for a new thread with the agent in the box', async () => {
+		renderChatPage({threads: [pricing]});
+		await screen.findByLabelText('Chat');
+		expect(document.body.innerHTML).toContain('Start a new thread with General');
+		expect(document.body.innerHTML).not.toContain('Message General');
+	});
+
 	test('says a thread waits for the person in orange, one done in ink, and where each stands in a sentence while it is current, the start of the latest answer otherwise', async () => {
 		const waiting = thread('t4', {
 			title: 'Date filter on the activity log',
@@ -873,6 +914,34 @@ describe('ChatPage', () => {
 				.closest('.text-muted-foreground'),
 		).toBeTruthy();
 		expect(within(working as HTMLElement).queryByRole('button', {name: 'Mark done'})).toBeNull();
+	});
+
+	test('marks a thread another thread’s agent started with a robot, which says so, its opener a message as the person’s would be', async () => {
+		const passport = thread('t5', {
+			title: 'Renew the passport',
+			opener: {
+				kind: 'person',
+				text: 'Find out how I renew my passport before February',
+				attachments: [],
+			},
+			startedByAgent: true,
+			lastMessageAt: '2026-10-21T10:08:00Z',
+		});
+		renderChatPage({threads: [pricing, passport]});
+
+		const chat = await screen.findByLabelText('Chat');
+		const [mine, started] = within(chat)
+			.getAllByRole('link')
+			.map((link) => link.parentElement as HTMLElement);
+		expect(
+			within(started as HTMLElement).getByLabelText('This was started from another thread'),
+		).toBeTruthy();
+		expect(
+			within(started as HTMLElement).getByText('Find out how I renew my passport before February'),
+		).toBeTruthy();
+		expect(
+			within(mine as HTMLElement).queryByLabelText('This was started from another thread'),
+		).toBeNull();
 	});
 
 	test('marks a thread waiting for the person done from the list, at once and on the server, without opening it', async () => {

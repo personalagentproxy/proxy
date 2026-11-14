@@ -434,6 +434,8 @@ describe('the chat’s threads', () => {
 	function chatThread(row: Partial<ChatThreadRow> & {id: string}): ChatThreadRow {
 		return {
 			...chat,
+			startedFromThreadId: null,
+			titleWritten: false,
 			parentThreadId: 'chat-1',
 			title: 'Pricing review with Dana',
 			taskId: 'task-1',
@@ -503,6 +505,8 @@ describe('the chat’s threads', () => {
 				latest: null,
 				latestEntryId: null,
 				latestAnswerId: null,
+				startedByAgent: false,
+				titled: false,
 				messageCount: 1,
 				lastMessageAt: later(30).toISOString(),
 				createdAt: later(-10).toISOString(),
@@ -518,6 +522,8 @@ describe('the chat’s threads', () => {
 				latest: 'It moved to Friday, with the new prices attached.',
 				latestEntryId: 'e3',
 				latestAnswerId: 'e3',
+				startedByAgent: false,
+				titled: false,
 				messageCount: 3,
 				lastMessageAt: later(2).toISOString(),
 				createdAt: now.toISOString(),

@@ -97,6 +97,7 @@ async function startApiServer(): Promise<void> {
 				pinned: chatFiles.pinned,
 			},
 			{key: env.OPENROUTER_KEY, ask: askForJson},
+			{key: env.OPENROUTER_KEY, ask: askForJson},
 		);
 		sweeper = startAlertSweeper(harnessStore);
 		void startSandboxSweeper();

@@ -408,6 +408,8 @@ function toChatThread(thread: ChatThreadRow, shown: Shown[], now: Date): ChatThr
 		standing: standingOf(thread),
 		standingPending: standingPending(thread, now),
 		opener,
+		startedByAgent: thread.startedFromThreadId !== null,
+		titled: thread.titleWritten,
 		summary: currentSummary(thread),
 		latest: latest ? preview(latest.message.text) : null,
 		latestEntryId: latest?.entryId ?? null,
