@@ -73,7 +73,7 @@ import {IconButton} from '@/components/icon-button';
 import {PersonaDialog} from '@/components/persona-dialog';
 import {ContentBoundary} from '@/components/route-error';
 import {ATTACHMENT_MARK, preview} from '@proxy/utils/harness';
-import {RewriteText} from '@/components/chat/rewrite-text';
+import {SlideText} from '@/components/chat/slide-text';
 import {cn} from '@proxy/ui/lib/utils';
 import type {AttachmentInput} from '@/hooks/use-attachments';
 import {useChatDraft} from '@/hooks/use-chat-draft';
@@ -338,9 +338,11 @@ function ThreadName({
 	}
 	return (
 		<>
-			<span className="min-w-0 truncate text-sm font-medium">
-				<RewriteText text={thread.title || 'Thread'} />
-			</span>
+			<SlideText
+				text={thread.title || 'Thread'}
+				className="min-w-0 text-sm font-medium"
+				copyClassName="truncate"
+			/>
 			{standing !== null && standing !== 'done' && <ThreadStatus standing={standing} />}
 		</>
 	);
@@ -755,7 +757,7 @@ function openerText(thread: ChatThread): string | null {
 }
 
 // What opened a thread: what the person said, or the event that came into it. Once the thread has
-// a title written from what they said, the title stands for it, rewritten there from what they
+// a title written from what they said, the title stands for it, slid in there over what they
 // said where that was shown before; the thread keeps what they said as they said it.
 function Opener({
 	opener,
@@ -766,7 +768,7 @@ function Opener({
 	title: string | null;
 	open: boolean;
 }) {
-	// What the person's bubble showed last before the title came, to rewrite it from.
+	// What the person's bubble showed last before the title came, to slide it from.
 	const [said, setSaid] = useState<string | null>(null);
 	const plain =
 		opener?.kind === 'person' && title === null
@@ -833,8 +835,8 @@ const ThreadItem = memo(function ThreadItem({
 				<ThreadStatus standing={thread.standing} />
 				<Opener opener={thread.opener} title={thread.titled ? thread.title : null} open={open} />
 				{said !== null && (
-					<p className="line-clamp-2 max-w-[44rem] text-sm leading-relaxed">
-						<RewriteText text={said} />
+					<p className="max-w-[44rem] text-sm leading-relaxed">
+						<SlideText text={said} className="grid" copyClassName="line-clamp-2" />
 					</p>
 				)}
 				<div className="flex h-5 items-center gap-1">

@@ -839,7 +839,7 @@ describe('ChatPage', () => {
 		expect(reads).toBe(read);
 	}, 15000);
 
-	test('rewrites what opened a thread into its title once one is written, keeping what was said as it was in the thread', async () => {
+	test('slides what opened a thread into its title once one is written, keeping what was said as it was in the thread', async () => {
 		const said = 'can you look into how i renew my passport, it runs out in february i think';
 		const passport = thread('t6', {
 			title: said,
@@ -860,7 +860,7 @@ describe('ChatPage', () => {
 		await act(() => new Promise((resolve) => setTimeout(resolve, 4500)));
 
 		expect(within(chat).getByText('Renew the passport before February')).toBeTruthy();
-		// Rewritten from what was said, over a moment.
+		// Slid in over what was said, over a moment.
 		await act(() => new Promise((resolve) => setTimeout(resolve, 1000)));
 		expect(within(chat).queryByText(said)).toBeNull();
 	}, 15000);

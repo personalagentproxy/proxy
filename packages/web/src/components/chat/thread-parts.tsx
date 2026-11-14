@@ -3,7 +3,7 @@ import {attachedParts} from '@proxy/utils/harness';
 import {ArchiveIcon, CheckIcon, ClockIcon} from 'lucide-react';
 import {Fragment, type ReactNode} from 'react';
 import {SentChip} from '@/components/chat/attachments';
-import {RewriteText} from '@/components/chat/rewrite-text';
+import {SlideText} from '@/components/chat/slide-text';
 import {Bubble, BubbleContent} from '@/components/chat/bubble';
 import {PillButton} from '@proxy/ui/components/pill-button';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';
@@ -121,7 +121,7 @@ export function PersonBubble({
 
 /**
  * What opened a thread as the chat lists it, once it has a title written from it: the title in
- * the person's bubble, rewritten there from what they wrote, `from`, where that was shown before,
+ * the person's bubble, slid in there over what they wrote, `from`, where that was shown before,
  * and the files they attached after it.
  */
 export function TitleBubble({
@@ -141,7 +141,7 @@ export function TitleBubble({
 			className={cn('max-w-[40rem]', outlined && '*:data-[slot=bubble-content]:border-border')}
 		>
 			<BubbleContent className="whitespace-pre-wrap">
-				<RewriteText text={title} from={from} />
+				<SlideText text={title} from={from} />
 				{attachments.map((file) => (
 					<Fragment key={`${file.connectionId}:${file.fileId}`}>
 						{' '}
