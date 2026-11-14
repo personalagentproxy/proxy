@@ -19,7 +19,7 @@ import {createMemoryRouter, RouterProvider} from 'react-router';
 import {HumanSide} from '@/components/human-side';
 import {pageSaysSafeToReload} from '@/hooks/use-reload-on-release';
 import {ChatPage} from '@/pages/chat-page';
-import {OpenThread} from '@/pages/chat-thread';
+import {THREAD_ROUTE} from '@/pages/chat-thread';
 import {FROM_COMMAND_BAR} from '@/lib/command-bar';
 import {later} from '@/lib/loader-utils';
 import {shouldRevalidateChat} from '@/loaders';
@@ -222,12 +222,12 @@ function renderChatPage({
 						element: <ChatPage />,
 						children: [
 							{
+								id: THREAD_ROUTE,
 								path: '/:org/chat/:id/threads/:threadId',
 								loader: later(async ({params}: {params: {threadId?: string}}) => {
 									await threadAnswered();
 									return {thread: views[params.threadId ?? ''] ?? null};
 								}),
-								element: <OpenThread />,
 							},
 						],
 					},
@@ -1009,6 +1009,37 @@ describe('ChatPage', () => {
 			);
 		});
 
+		test('archived, slides shut where the person has not asked for less motion, out of reach until it is gone', async () => {
+			const motion = mock((query: string) => ({
+				matches: query === '(prefers-reduced-motion: no-preference)',
+			}));
+			Object.assign(globalThis, {matchMedia: motion});
+			try {
+				const done = thread('t5', {title: 'Quarterly numbers', standing: 'done'});
+				renderChatPage({
+					threads: [done],
+					views: {t5: view(done, [said('m1', 'person', 'Send me the quarterly numbers')])},
+					initial: '/acme/chat/general/threads/t5',
+				});
+
+				await screen.findByLabelText('Thread');
+				await follow(within(screen.getByRole('banner')).getByRole('button', {name: 'Archive'}));
+
+				// Still there as it slides, but out of reach, and no longer the address's.
+				const sliding = screen.getByLabelText('Thread').closest('[data-side-slide]');
+				expect(sliding?.hasAttribute('inert')).toBe(true);
+				expect(document.querySelector('[data-page]')?.hasAttribute('data-side-motion')).toBe(true);
+				expect(
+					within(screen.getByLabelText('Chat')).queryByRole('link', {name: 'Quarterly numbers'}),
+				).toBeNull();
+
+				await waitFor(() => expect(screen.queryByLabelText('Thread') === null).toBe(true));
+				expect(document.querySelector('[data-page]')?.hasAttribute('data-side-motion')).toBe(false);
+			} finally {
+				Reflect.deleteProperty(globalThis, 'matchMedia');
+			}
+		});
+
 		test('opens beside the chat, named in the title bar, lit in the list, with what was said in it and the box to reply in focused', async () => {
 			const answer = view(pricing, [
 				said('m1', 'person', 'Move the pricing review'),
@@ -1191,7 +1222,7 @@ describe('ChatPage', () => {
 		test('takes the page’s width and gives it back, and closes back to the chat', async () => {
 			renderChatPage({threads: [pricing], initial: '/acme/chat/general/threads/t1'});
 			await screen.findByLabelText('Thread');
-			const chatColumn = () => screen.getByLabelText('Chat').closest('[class~="hidden"]');
+			const chatColumn = () => screen.getByLabelText('Chat').closest('[inert]');
 			expect(chatColumn()).toBeNull();
 
 			fireEvent.click(screen.getByRole('button', {name: 'Expand'}));
@@ -1207,10 +1238,48 @@ describe('ChatPage', () => {
 			).toBeNull();
 		});
 
+		test('Escape gives the chat back beside one with the page’s width, and closes one beside it', async () => {
+			renderChatPage({threads: [pricing], initial: '/acme/chat/general/threads/t1'});
+			await screen.findByLabelText('Thread');
+			const chatColumn = () => screen.getByLabelText('Chat').closest('[inert]');
+
+			fireEvent.click(screen.getByRole('button', {name: 'Expand'}));
+			expect(chatColumn()).not.toBeNull();
+			await act(async () => {
+				fireEvent.keyDown(document.body, {key: 'Escape'});
+			});
+			expect(screen.getByLabelText('Thread')).toBeTruthy();
+			expect(chatColumn()).toBeNull();
+
+			await act(async () => {
+				fireEvent.keyDown(document.body, {key: 'Escape'});
+			});
+			await waitFor(() => expect(screen.queryByLabelText('Thread') === null).toBe(true));
+			expect(screen.getByLabelText('Chat')).toBeTruthy();
+		});
+
+		test('Escape leaves one open with a reply typed in its box', async () => {
+			renderChatPage({threads: [pricing], initial: '/acme/chat/general/threads/t1'});
+			const box = await screen.findByLabelText('Reply');
+			box.focus();
+			box.textContent = 'Thursday works';
+
+			await act(async () => {
+				fireEvent.keyDown(box, {key: 'Escape'});
+			});
+			expect(screen.getByLabelText('Thread')).toBeTruthy();
+
+			box.textContent = '';
+			await act(async () => {
+				fireEvent.keyDown(box, {key: 'Escape'});
+			});
+			await waitFor(() => expect(screen.queryByLabelText('Thread') === null).toBe(true));
+		});
+
 		test('given the page’s width and closed, opens beside the chat again', async () => {
 			renderChatPage({threads: [pricing], initial: '/acme/chat/general/threads/t1'});
 			await screen.findByLabelText('Thread');
-			const chatColumn = () => screen.getByLabelText('Chat').closest('[class~="hidden"]');
+			const chatColumn = () => screen.getByLabelText('Chat').closest('[inert]');
 
 			fireEvent.click(screen.getByRole('button', {name: 'Expand'}));
 			expect(chatColumn()).not.toBeNull();

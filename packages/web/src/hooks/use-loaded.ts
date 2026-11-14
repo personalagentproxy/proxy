@@ -25,7 +25,16 @@ export function useLoaded<T>(): T {
 	// left unfinished until the next awaited `act`: a large page then never showed where a click
 	// led. `use` is called on every render, the answer come or not: a render that waited and is
 	// drawn again once the answer has come calls the same hooks as before.
-	const answer = use(useLoaderData<Later<T>>().later);
+	return useAnswer(useLoaderData<Later<T>>().later);
+}
+
+/**
+ * What a loader answering `later` loaded, from the answer itself, as `useLoaded` reads its own
+ * page's: for a part a page draws from another route's answer, which it may keep drawing after the
+ * address has left that route, as Chat keeps a thread it closes while it slides shut.
+ */
+export function useAnswer<T>(later: Promise<T | Redirected>): T {
+	const answer = use(later);
 	if (answer instanceof Redirected) {
 		return use(NEVER);
 	}

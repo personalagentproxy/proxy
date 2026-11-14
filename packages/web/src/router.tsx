@@ -55,7 +55,7 @@ import {AgentsPage} from '@/pages/agents-page';
 import {AgentLoginPage} from '@/pages/agent/agent-login-page';
 import {AgentScriptPage} from '@/pages/agent/agent-script-page';
 import {ChatPage} from '@/pages/chat-page';
-import {OpenThread} from '@/pages/chat-thread';
+import {THREAD_ROUTE} from '@/pages/chat-thread';
 import {ConnectAgentPage} from '@/pages/connect-agent-page';
 import {ConnectionPage} from '@/pages/connection-page';
 import {ConnectionsPage} from '@/pages/connections-page';
@@ -302,12 +302,13 @@ const routes: RouteObject[] = [
 				loader: chatLoader,
 				shouldRevalidate: shouldRevalidateChat,
 				element: <ChatPage />,
-				// A thread of the chat, open beside it (`OpenThread` in pages/chat-thread.tsx).
+				// A thread of the chat, open beside it, which the page draws from what this loads
+				// (`OpenThread` in pages/chat-thread.tsx).
 				children: [
 					{
+						id: THREAD_ROUTE,
 						path: '/:org/chat/:id/threads/:threadId',
 						loader: chatThreadLoader,
-						element: <OpenThread />,
 					},
 				],
 			},

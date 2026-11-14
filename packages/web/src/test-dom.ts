@@ -20,6 +20,8 @@ Object.assign(globalThis, {
 	localStorage: testWindow.localStorage,
 	Element: testWindow.Element,
 	HTMLElement: testWindow.HTMLElement,
+	HTMLInputElement: testWindow.HTMLInputElement,
+	HTMLTextAreaElement: testWindow.HTMLTextAreaElement,
 	SVGElement: testWindow.SVGElement,
 	Node: testWindow.Node,
 	Event: testWindow.Event,

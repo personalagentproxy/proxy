@@ -239,6 +239,26 @@ body:has([data-slot='sidebar'][data-state])::before,
 	--scroll-fade-b: 0px;
 }
 
+/* A thread opened beside its chat slides open from the right, the chat narrowing as it does;
+   closed, or archived, it slides shut again; given the page's width it slides over the chat, and
+   back (`useSideMotion` in components/app-shell.tsx, which keeps the page's `data-side-motion` as
+   long as this takes): its column and its cell of the title bar widen from nothing to their width,
+   and on to the page's, and back, fast at first and coming gently to rest. Only then do they ease:
+   as the window is resized, or the line between them dragged, they keep up at once. On a narrow
+   window, where the thread has the page's width, and with less motion asked for, it moves at
+   once. */
+@media (min-width: 64rem) and (prefers-reduced-motion: no-preference) {
+	[data-side-motion] [data-side-slide] {
+		transition: width 300ms cubic-bezier(0.2, 0, 0, 1);
+	}
+
+	@starting-style {
+		[data-side-motion] [data-side-slide] {
+			width: 0;
+		}
+	}
+}
+
 /* What comes to a chat while it is open rises into place (`data-enter="rise"`), and the line
    saying the agent is at work fades in (`data-enter="fade"`); what was there as it opened is
    simply there. With reduced motion, what comes fades in, briefly, without moving. */
@@ -270,8 +290,8 @@ body:has([data-slot='sidebar'][data-state])::before,
 }
 
 /* While a column's edge is dragged (components/resize-handle.tsx): the pointer stays a resize
-   cursor wherever it goes, nothing is selected, and what slides as the navigation folds follows
-   the pointer at once rather than easing after it. */
+   cursor wherever it goes, nothing is selected, and what slides as the navigation folds, or as a
+   thread opens, follows the pointer at once rather than easing after it. */
 :root[data-resizing],
 :root[data-resizing] * {
 	cursor: col-resize !important;
@@ -279,7 +299,12 @@ body:has([data-slot='sidebar'][data-state])::before,
 }
 
 :root[data-resizing]
-	:is([data-slot='sidebar-gap'], [data-slot='sidebar-container'], [data-title-bar-history]),
+	:is(
+		[data-slot='sidebar-gap'],
+		[data-slot='sidebar-container'],
+		[data-title-bar-history],
+		[data-side-slide]
+	),
 :root[data-resizing] [data-slot='sidebar-wrapper']::before,
 :root[data-resizing] [data-slot='sidebar-wrapper']::after {
 	transition: none;
