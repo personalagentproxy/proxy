@@ -9,8 +9,10 @@ import {
 	sandboxErrorSchema,
 	sandboxOutputSchema,
 	sandboxRefSchema,
+	wakeSandboxBodySchema,
 	type CreateSandboxBody,
 	type ExecSandboxBody,
+	type WakeSandboxBody,
 } from '@proxy/contracts/sandbox';
 
 import type {SandboxBackend} from './backend';
@@ -75,7 +77,7 @@ export function remoteSandboxBackend({url, token, headers}: RemoteSandboxOptions
 	const call = async <S extends z.ZodType>(
 		method: 'POST' | 'DELETE',
 		path: string,
-		body: CreateSandboxBody | ExecSandboxBody | null,
+		body: CreateSandboxBody | ExecSandboxBody | WakeSandboxBody | null,
 		schema: S,
 		timeoutMs = REQUEST_MS,
 	): Promise<Result<z.infer<S>, ApiError>> => {
@@ -97,7 +99,8 @@ export function remoteSandboxBackend({url, token, headers}: RemoteSandboxOptions
 		create: async (sandbox) => (await call('POST', '/sandboxes', createSandboxBodySchema.parse(sandbox), sandboxRefSchema)).map(({ref}) => ref),
 		exec: (ref, command) => call('POST', at(ref, '/exec'), execSandboxBodySchema.parse(command), sandboxOutputSchema, command.timeoutMs + REQUEST_MS),
 		sleep: async (ref) => (await call('POST', at(ref, '/sleep'), null, sandboxRefSchema)).map((answer) => answer.ref),
-		wake: async (ref) => (await call('POST', at(ref, '/wake'), null, sandboxRefSchema)).map((answer) => answer.ref),
+		// No body where the api leaves the service's limit as it is, as before there was one.
+		wake: async (ref, limit) => (await call('POST', at(ref, '/wake'), limit?.maxRunning === undefined ? null : wakeSandboxBodySchema.parse(limit), sandboxRefSchema)).map((answer) => answer.ref),
 		destroy: async (ref) => (await call('DELETE', at(ref), null, sandboxDestroyedSchema)).map(() => undefined),
 	};
 }

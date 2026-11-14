@@ -151,6 +151,20 @@ export async function getMemberOrganization(
 	});
 }
 
+/** The experiments on for an organization, by its id; none for no such organization. */
+export async function getOrganizationExperiments(
+	orgId: string,
+): Promise<Result<Experiment[], ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.organization.findUnique({
+				where: {id: orgId},
+				select: {insider: true, experiments: true},
+			}),
+		)
+	).map((org) => (org ? organizationExperiments(org) : []));
+}
+
 /** The person's role in an organization; `Ok(null)` when they aren't a member of it. */
 export async function getMembership(
 	userId: string,
