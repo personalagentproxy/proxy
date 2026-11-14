@@ -447,7 +447,6 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 		id: CLAUDE_AGENT_SDK,
 		label: 'Claude',
 		models: MODELS,
-		stepsPerTurn: 'many',
 		maxConcurrentTurns: deps.maxConcurrentTurns,
 		turn: async function* (input) {
 			if (input.signal.aborted) {
@@ -490,7 +489,6 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 				permissionMode: 'default',
 				settingSources: [],
 				strictMcpConfig: true,
-				maxTurns: input.maxSteps,
 				...(session === null ? {} : {resume: session.id}),
 				sessionStore: deps.sessionStore,
 				cwd,

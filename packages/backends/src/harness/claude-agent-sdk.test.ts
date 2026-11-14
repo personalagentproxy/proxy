@@ -286,7 +286,6 @@ function turnInput(extra: Partial<HarnessTurn> = {}): HarnessTurn {
 		system: 'You are a test.',
 		tools: fakeToolSurface(TOOLS),
 		model: 'claude',
-		maxSteps: 7,
 		signal: new AbortController().signal,
 		...extra,
 	};
@@ -301,10 +300,10 @@ describe('claudeAgentSdkHarness', () => {
 		delete process.env.OPENROUTER_KEY;
 	});
 
-	test('is a harness that answers its calls itself, capped on turns at once', () => {
+	test('is a harness capped on turns at once', () => {
 		const harness = claudeAgentSdkHarness(deps(fakeQuery(), {maxConcurrentTurns: 3}));
 
-		expect(harness).toMatchObject({id: 'claude-agent-sdk', label: 'Claude', stepsPerTurn: 'many', maxConcurrentTurns: 3});
+		expect(harness).toMatchObject({id: 'claude-agent-sdk', label: 'Claude', maxConcurrentTurns: 3});
 	});
 
 	test('lists the latest Sonnet, Opus and Fable, Sonnet first, and runs a turn on the one chosen by its full id, so the label says what answers', async () => {
@@ -555,7 +554,7 @@ describe('claudeAgentSdkHarness', () => {
 		expect(fake.calls[2]?.options).not.toHaveProperty('resume');
 	});
 
-	test('gives the SDK no built-in tools, the api’s tools on an MCP server pre-approved, a directory per thread, the step cap, the session store and the model chosen', async () => {
+	test('gives the SDK no built-in tools, the api’s tools on an MCP server pre-approved, a directory per thread, no cap on its turns, the session store and the model chosen', async () => {
 		const fake = fakeQuery();
 		fake.script(messages([init(), result()]));
 		fake.script(messages([init(), result()]));
@@ -571,12 +570,12 @@ describe('claudeAgentSdkHarness', () => {
 			permissionMode: 'default',
 			settingSources: [],
 			strictMcpConfig: true,
-			maxTurns: 7,
 			cwd: join(workDir, 'thread-1'),
 			pathToClaudeCodeExecutable: '/opt/claude',
 			model: 'claude-opus-5-5',
 		});
 		expect(options).not.toHaveProperty('allowedTools');
+		expect(options).not.toHaveProperty('maxTurns');
 		expect(options?.sessionStore).toBe(sessionStore);
 		expect(options?.mcpServers?.proxy).toMatchObject({type: 'sdk', name: 'proxy'});
 		expect(options?.abortController).toBeInstanceOf(AbortController);
