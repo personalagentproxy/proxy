@@ -27,7 +27,7 @@ import {
 	useRef,
 	useState,
 } from 'react';
-import {Link, Outlet, useLocation, useNavigate, useParams} from 'react-router';
+import {Link, useLocation, useNavigate, useParams, useRouteLoaderData} from 'react-router';
 import {
 	archiveThread,
 	createPersona,
@@ -87,7 +87,7 @@ import {formatMessageTime} from '@/lib/chat-time';
 import {formatAgo} from '@/lib/format';
 import {describeApiError, describeFetchError} from '@/lib/loader-utils';
 import type {chatLoader} from '@/loaders';
-import type {ThreadContext} from '@/pages/chat-thread';
+import {OpenThread, THREAD_ROUTE, type ThreadContext, type ThreadLoad} from '@/pages/chat-thread';
 import {
 	ContextMenu,
 	ContextMenuContent,
@@ -401,6 +401,8 @@ export function ChatPage() {
 	const navigate = useNavigate();
 	const reload = useReload();
 	const {id: current = '', threadId} = useParams();
+	// What the address's thread's route loads, which the thread open beside the chat is drawn from.
+	const threadLoad = useRouteLoaderData<{later: ThreadLoad}>(THREAD_ROUTE)?.later;
 	// The agents as last listed, with each chat as it loads; until the first has, as the list last
 	// came anywhere (lib/persona-list.ts), so they are there as the page opens.
 	const listed = useLastLoaded<typeof chatLoader>();
@@ -410,8 +412,10 @@ export function ChatPage() {
 	const [shownSaid, setShownSaid] = useState<ShownSaid | null>(null);
 	const [shownDraft, setShownDraft] = useState<ShownDraft | null>(null);
 	const [shownThreads, setShownThreads] = useState<ChatThread[]>([]);
-	// The thread open beside the chat, as it shows it.
-	const [shownThread, setShownThread] = useState<ThreadView | null>(null);
+	// The thread open beside the chat, as it shows it, while the address names it: one closed is
+	// no more, though it says it is shown as it slides shut (app-shell.tsx).
+	const [shownAnyThread, setShownThread] = useState<ThreadView | null>(null);
+	const shownThread = shownAnyThread?.thread.id === threadId ? shownAnyThread : null;
 	// The thread given the page's width, by its id, until it is given the chat back or closed, as
 	// it is once the address names it no more: opened again, it is beside the chat.
 	const [expanded, setExpanded] = useState<string | null>(null);
@@ -567,6 +571,8 @@ export function ChatPage() {
 				? shownThread.thread
 				: (shownThreads.find((thread) => thread.id === threadId) ?? null);
 	const chatTo = `/${org}/chat/${current}`;
+	const closeThread = useCallback(() => void navigate(chatTo), [navigate, chatTo]);
+	const giveChatBack = useCallback(() => setExpanded(null), []);
 	// The thread open beside the chat closes as it is archived.
 	const openArchived = openThread !== null && isArchived(openThread);
 	useEffect(() => {
@@ -586,6 +592,9 @@ export function ChatPage() {
 			? undefined
 			: {
 					full,
+					// Escape gives the chat back beside a thread with the page's width, and closes one
+					// beside it.
+					onEscape: full ? giveChatBack : closeThread,
 					header: (
 						<ThreadHeader
 							thread={openThread}
@@ -602,7 +611,11 @@ export function ChatPage() {
 						// Each thread its own, and its own failure, while the chat stays as it is.
 						<Suspense key={threadId} fallback={<Waiting column />}>
 							<ContentBoundary key={threadId}>
-								<Outlet context={context} />
+								{threadLoad === undefined ? (
+									<Waiting column />
+								) : (
+									<OpenThread later={threadLoad} {...context} />
+								)}
 							</ContentBoundary>
 						</Suspense>
 					),

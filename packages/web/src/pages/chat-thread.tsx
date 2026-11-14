@@ -5,7 +5,6 @@ import type {
 	ThreadView,
 } from '@proxy/contracts/harness';
 import {memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
-import {useOutletContext} from 'react-router';
 import {getChatThread, replyInThread, uploadThreadAttachment} from '@/client/harness-client';
 import {ShownFile} from '@/components/chat/attachments';
 import {Bubble, BubbleContent} from '@/components/chat/bubble';
@@ -23,11 +22,11 @@ import {EventLine, PersonBubble} from '@/components/chat/thread-parts';
 import {WorkingLine} from '@/components/chat/working-line';
 import {type ImageOf, Markdown} from '@/components/markdown';
 import type {AttachmentInput} from '@/hooks/use-attachments';
-import {useLoaded} from '@/hooks/use-loaded';
+import {type LoadedBy, useAnswer} from '@/hooks/use-loaded';
 import {useOrgSlug} from '@/hooks/use-org';
 import {useSending} from '@/hooks/use-sending';
 import {keepEntries, sameJson} from '@/lib/chat-log';
-import {describeApiError} from '@/lib/loader-utils';
+import {describeApiError, type Later} from '@/lib/loader-utils';
 import type {chatThreadLoader} from '@/loaders';
 import {markdownPictures, readFileLink} from '@proxy/utils/file-links';
 import {cn} from '@proxy/ui/lib/utils';
@@ -37,7 +36,7 @@ import {cn} from '@proxy/ui/lib/utils';
 const BUSY_POLL_MS = 1000;
 const IDLE_POLL_MS = 4000;
 
-/** What the Chat page gives the thread open beside its chat (`Outlet`'s context). */
+/** What the Chat page gives the thread open beside its chat, besides what its route loads. */
 export type ThreadContext = {
 	harnesses: ChatHarness[];
 	// An agent is being made, changed or deleted in a dialog.
@@ -125,10 +124,19 @@ function saidPart(message: ThreadMessage) {
 	);
 }
 
-/** The thread the address names, beside its chat, once loaded: started over when the address names another. */
-export function OpenThread() {
-	const {thread} = useLoaded<typeof chatThreadLoader>();
-	const context = useOutletContext<ThreadContext>();
+/** The route of a thread of a chat, whose answer the Chat page reads (router.tsx). */
+export const THREAD_ROUTE = 'chat-thread';
+
+/** What a thread's route loads (`chatThreadLoader`). */
+export type ThreadLoad = Later<LoadedBy<typeof chatThreadLoader>>['later'];
+
+/**
+ * The thread the address names, beside its chat, once loaded: started over when the address names
+ * another. The Chat page draws it from what the thread's route loads, rather than in the route's
+ * place, so it can keep it as it was while it slides shut once the address has left it.
+ */
+export function OpenThread({later, ...context}: ThreadContext & {later: ThreadLoad}) {
+	const {thread} = useAnswer(later);
 	if (thread === null) {
 		return <MissingThread onMissing={context.onMissing} />;
 	}
