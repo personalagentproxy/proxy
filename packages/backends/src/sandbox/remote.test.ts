@@ -71,6 +71,16 @@ describe('the remote sandbox backend', () => {
 		expect(seen[2]!.body).toBe('');
 	});
 
+	test('sends a running limit the api raises on creating and waking, and no wake body without one', async () => {
+		await remote.create({tenant: 'org-1', sandboxId: 'more', maxRunning: 10});
+		await remote.wake('r1', {maxRunning: 10});
+		await remote.wake('r1', {});
+		const [created, woken, wokenWithout] = seen.slice(-3);
+		expect(JSON.parse(created!.body)).toEqual({tenant: 'org-1', sandboxId: 'more', maxRunning: 10});
+		expect(JSON.parse(woken!.body)).toEqual({maxRunning: 10});
+		expect(wokenWithout!.body).toBe('');
+	});
+
 	test('what the service refuses comes back as the api’s kind, with its words', async () => {
 		expect((await remote.create({tenant: 'org-1', sandboxId: 'taken'})).unwrapErr()).toMatchObject({kind: 'validation_error', message: 'that id is taken'});
 		expect((await remote.exec('asleep', {command: 'ls', timeoutMs: 1000})).unwrapErr()).toMatchObject({kind: 'conflict', message: 'The sandbox is asleep'});

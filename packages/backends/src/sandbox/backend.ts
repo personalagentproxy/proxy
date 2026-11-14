@@ -27,17 +27,23 @@ export type SandboxCommand = {command: string; stdin?: string; cwd?: string; env
 /** What a command wrote and how it ended: `exitCode` null where it was stopped, `timedOut` whether by the timeout; what it wrote before being stopped as far as the backend kept it. */
 export type SandboxOutput = {stdout: string; stderr: string; exitCode: number | null; timedOut: boolean};
 
+/**
+ * How many sandboxes the tenant may have running at once, where the api raises it above the
+ * backend's own limit (the `moreSandboxes` experiment); a backend without such a limit ignores it.
+ */
+export type SandboxRunningLimit = {maxRunning?: number};
+
 export type SandboxBackend = {
 	/** Which backend it is, kept with each sandbox, so one backend is never asked for another's. */
 	id: string;
 	/** A new sandbox, running, for a tenant, the organization, by the id the api gave the sandbox. */
-	create: (sandbox: {tenant: string; sandboxId: string}) => Promise<Result<SandboxRef, ApiError>>;
+	create: (sandbox: {tenant: string; sandboxId: string} & SandboxRunningLimit) => Promise<Result<SandboxRef, ApiError>>;
 	/** Runs a command in a running sandbox; conflict for one asleep, not found for a ref it doesn't know. */
 	exec: (ref: SandboxRef, command: SandboxCommand) => Promise<Result<SandboxOutput, ApiError>>;
 	/** Stops the sandbox's compute, keeping its disk, and gives its ref from now on. Whatever a command left running is gone. */
 	sleep: (ref: SandboxRef) => Promise<Result<SandboxRef, ApiError>>;
 	/** Starts an asleep sandbox again, its disk as it was, and gives its ref from now on. */
-	wake: (ref: SandboxRef) => Promise<Result<SandboxRef, ApiError>>;
+	wake: (ref: SandboxRef, limit?: SandboxRunningLimit) => Promise<Result<SandboxRef, ApiError>>;
 	/** Removes the sandbox and its disk for good, running or asleep. */
 	destroy: (ref: SandboxRef) => Promise<Result<void, ApiError>>;
 };

@@ -1,7 +1,8 @@
 import {Err, Ok, type Result} from 'ts-results-es';
 
-import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
-import type {SandboxBackend} from '@proxy/backends/sandbox/backend';
+import {ApiErr, type ApiError, Do, hasExperiment, requirePresent} from '@proxy/utils';
+import type {SandboxBackend, SandboxRunningLimit} from '@proxy/backends/sandbox/backend';
+import {getOrganizationExperiments} from '@proxy/db/organization';
 import {createSandbox, deleteSandbox, getSandbox, moveSandbox, type SandboxRow} from '@proxy/db/sandbox';
 
 import {sandboxBackend} from '../../backends/backends';
@@ -11,10 +12,14 @@ import {sandboxBackend} from '../../backends/backends';
  * and destroyed here, each a move of the row fenced on the state it leaves, so of two calls moving
  * one sandbox at once only the first asks the backend. The backend's ref is kept as it hands it
  * back, since it may change on sleep and wake. A sandbox made by one backend is never handed to
- * another: the server's backend changed, it is left as it is, asleep for good.
+ * another: the server's backend changed, it is left as it is, asleep for good. Making and waking
+ * one tell the backend how many the organization may have running, where an experiment raises it.
  */
 
 const NOT_SET_UP = 'Sandboxes are not set up on this server: there is no sandbox backend.';
+
+// Running at once with `moreSandboxes` on; without it, the backend's own limit.
+const MORE_SANDBOXES_RUNNING = 10;
 
 /** The server's sandbox backend, or unavailable. */
 export async function requireBackend(): Promise<Result<SandboxBackend, ApiError>> {
@@ -37,11 +42,17 @@ async function backendOf(sandbox: SandboxRow): Promise<Result<SandboxBackend, Ap
 	return backend;
 }
 
+// How many of the organization's sandboxes may run at once, where an experiment raises it; none to leave the backend's own.
+async function runningLimitOf(orgId: string): Promise<Result<SandboxRunningLimit, ApiError>> {
+	return (await getOrganizationExperiments(orgId)).map((experiments) => (hasExperiment({experiments}, 'moreSandboxes') ? {maxRunning: MORE_SANDBOXES_RUNNING} : {}));
+}
+
 /** A new sandbox on the connection, running, with its row. */
 export function makeSandbox(data: {id: string; orgId: string; connectionId: string; name: string}): Promise<Result<SandboxRow, ApiError>> {
 	return Do(async ($) => {
 		const backend = $(await requireBackend());
-		const ref = $(await backend.create({tenant: data.orgId, sandboxId: data.id}));
+		const limit = $(await runningLimitOf(data.orgId));
+		const ref = $(await backend.create({tenant: data.orgId, sandboxId: data.id, ...limit}));
 		const made = await createSandbox({...data, backendId: backend.id, backendRef: ref});
 		if (made.isErr()) {
 			// The row could not be written: the machine is not left behind.
@@ -58,7 +69,7 @@ export function wakeSandbox(sandbox: SandboxRow): Promise<Result<SandboxRow, Api
 			return sandbox;
 		}
 		const backend = $(await backendOf(sandbox));
-		const ref = $(await backend.wake(sandbox.backendRef));
+		const ref = $(await backend.wake(sandbox.backendRef, $(await runningLimitOf(sandbox.orgId))));
 		$(await moveSandbox(sandbox.id, 'asleep', 'running', ref));
 		return $(requirePresent($(await getSandbox(sandbox.connectionId, sandbox.id)), ApiErr.notFound('sandbox', sandbox.id)));
 	});

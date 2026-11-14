@@ -7,7 +7,8 @@ import {z} from 'zod';
  * `Authorization: Bearer <token>`:
  * - `POST /sandboxes` with `createSandboxBodySchema`: a new sandbox, running; its ref.
  * - `POST /sandboxes/:ref/exec` with `execSandboxBodySchema`: a command run; what it wrote.
- * - `POST /sandboxes/:ref/sleep` and `…/wake`, no body: the ref from then on.
+ * - `POST /sandboxes/:ref/sleep`, no body, and `…/wake` with `wakeSandboxBodySchema` or no body:
+ *   the ref from then on.
  * - `DELETE /sandboxes/:ref`: gone; an empty object.
  * - `GET /health`, without the token: `{ok: true}`.
  * A ref goes in the path URL-encoded. What went wrong comes as `sandboxErrorSchema` with the
@@ -19,9 +20,18 @@ export const createSandboxBodySchema = z.object({
 	tenant: z.string().min(1),
 	/** The id the api gave the sandbox. */
 	sandboxId: z.string().min(1),
+	/** How many sandboxes the organization may have running at once, where the api raises it above the service's own limit. */
+	maxRunning: z.number().int().positive().optional(),
 });
 
 export type CreateSandboxBody = z.infer<typeof createSandboxBodySchema>;
+
+export const wakeSandboxBodySchema = z.object({
+	/** As on creating. */
+	maxRunning: z.number().int().positive().optional(),
+});
+
+export type WakeSandboxBody = z.infer<typeof wakeSandboxBodySchema>;
 
 export const sandboxRefSchema = z.object({ref: z.string().min(1)});
 
