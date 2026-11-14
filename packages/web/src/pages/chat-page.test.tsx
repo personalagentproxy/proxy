@@ -1258,6 +1258,34 @@ describe('ChatPage', () => {
 			expect(screen.getByLabelText('Chat')).toBeTruthy();
 		});
 
+		test('closes as the chat’s empty space is clicked, and stays open as a thread in it is', async () => {
+			renderChatPage({threads: [pricing], initial: '/acme/chat/general/threads/t1'});
+			await screen.findByLabelText('Thread');
+			const row = screen.getByRole('link', {name: 'Pricing review with Dana'});
+
+			fireEvent.click(row.parentElement as HTMLElement);
+			expect(screen.getByLabelText('Thread')).toBeTruthy();
+
+			await act(async () => {
+				fireEvent.click(within(screen.getByLabelText('Chat')).getByRole('log'));
+			});
+			await waitFor(() => expect(screen.queryByLabelText('Thread')).toBeNull());
+			expect(row.getAttribute('aria-current')).toBeNull();
+		});
+
+		test('stays open as the chat’s empty space is clicked to end a selection', async () => {
+			renderChatPage({threads: [pricing], initial: '/acme/chat/general/threads/t1'});
+			await screen.findByLabelText('Thread');
+			const selection = window.getSelection() as Selection;
+			selection.selectAllChildren(within(screen.getByLabelText('Chat')).getByRole('log'));
+
+			await act(async () => {
+				fireEvent.click(within(screen.getByLabelText('Chat')).getByRole('log'));
+			});
+			expect(screen.getByLabelText('Thread')).toBeTruthy();
+			selection.removeAllRanges();
+		});
+
 		test('Escape leaves one open with a reply typed in its box', async () => {
 			renderChatPage({threads: [pricing], initial: '/acme/chat/general/threads/t1'});
 			const box = await screen.findByLabelText('Reply');

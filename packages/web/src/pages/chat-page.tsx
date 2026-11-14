@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import {
 	memo,
+	type MouseEvent,
 	Suspense,
 	useCallback,
 	useEffect,
@@ -669,6 +670,7 @@ export function ChatPage() {
 					onDone={markDone}
 					isArchived={isArchived}
 					onArchive={archive}
+					onCloseThread={closeThread}
 					managing={editing !== null || deleting !== null}
 					listError={error}
 					focusRequested={focusRequestedFor === current}
@@ -741,6 +743,8 @@ type Opened = {
 	// Whether the person archived a thread on the page, which the list leaves out, and archiving one.
 	isArchived: (thread: ChatThread) => boolean;
 	onArchive: (thread: ChatThread) => void;
+	// Closes the thread open beside the chat.
+	onCloseThread: () => void;
 	// An agent is being made, changed or deleted in a dialog.
 	managing: boolean;
 	// What deleting an agent from the list failed with.
@@ -832,6 +836,30 @@ const ThreadItem = memo(function ThreadItem({
 	);
 });
 
+// The parts of the chat's scroller that are only room around its threads.
+const EMPTY_SLOTS = new Set([
+	'message-scroller-viewport',
+	'message-scroller-content',
+	'message-scroller-spacer',
+]);
+
+// A click on the chat's empty space, around and between its threads, closes the thread open beside
+// it; one on a thread, on the scroller's scrollbar, or that ends a drag selecting text doesn't.
+function closeOnEmpty(event: MouseEvent<HTMLDivElement>, close: () => void): void {
+	const target = event.target;
+	if (!(target instanceof HTMLElement) || !EMPTY_SLOTS.has(target.dataset.slot ?? '')) {
+		return;
+	}
+	const viewport = event.currentTarget;
+	if (event.clientX - viewport.getBoundingClientRect().left > viewport.clientWidth) {
+		return;
+	}
+	if (window.getSelection()?.isCollapsed === false) {
+		return;
+	}
+	close();
+}
+
 // The threads in the order the chat lists them, by when each was opened, the newest last, so that
 // none moves when a message comes to it; those the page has fresher in their place.
 function inOrder(threads: ChatThread[], fresher: ChatThread | null): ChatThread[] {
@@ -861,6 +889,7 @@ const Chat = memo(function Chat({
 	onDone,
 	isArchived,
 	onArchive,
+	onCloseThread,
 	managing,
 	listError,
 	focusRequested,
@@ -986,7 +1015,10 @@ const Chat = memo(function Chat({
 	return (
 		<>
 			<MessageScroller className="min-h-0 flex-1">
-				<MessageScrollerViewport aria-label="Chat">
+				<MessageScrollerViewport
+					aria-label="Chat"
+					onClick={threadId === null ? undefined : (event) => closeOnEmpty(event, onCloseThread)}
+				>
 					<MessageScrollerContent className="w-full gap-3.5 pt-2 pb-4">
 						{threads.length === 0 && (
 							<div className="page-column flex flex-1 flex-col items-center justify-center gap-2 py-12 text-center">
