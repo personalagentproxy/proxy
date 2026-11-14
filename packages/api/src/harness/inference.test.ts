@@ -347,22 +347,6 @@ describe('runInference', () => {
 		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: 'Three is done too.'}), {end: {outcome: 'Three is done too.'}});
 	});
 
-	test('after thirty answers without the person, it stops and says so, its turn ending with it', async () => {
-		const {runInference} = await import('./inference');
-		const alone = [entry('person', 'Go'), ...Array.from({length: 30}, (_, i) => entry('assistant', `step ${i}`))];
-		listEntries.mockResolvedValue(Ok([...alone, entry('tool_result', 'x', {callId: 'none'})]));
-
-		await runInference(store, on(harness), job, 'w1', false, clock);
-		expect(askForTurn).not.toHaveBeenCalled();
-		expect(completeInference).toHaveBeenCalledWith(
-			'job-1',
-			'w1',
-			'thread-1',
-			expect.objectContaining({text: 'I have taken 30 steps without hearing from you, so I have stopped. Tell me to go on if you want me to.'}),
-			{end: expect.anything()},
-		);
-	});
-
 	test('the answer is written with the system prompt the model was sent; an answer given without the model, with none', async () => {
 		const {runInference} = await import('./inference');
 		listEntries.mockResolvedValue(Ok([entry('person', 'Hi')]));
@@ -373,22 +357,8 @@ describe('runInference', () => {
 		});
 
 		completeInference.mockClear();
-		listEntries.mockResolvedValue(Ok([entry('person', 'Go'), ...Array.from({length: 30}, (_, i) => entry('assistant', `step ${i}`)), entry('event', 'done')]));
-		await runInference(store, on(harness), job, 'w1', false, clock);
+		await runInference(store, on(null), job, 'w1', false, clock);
 		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({system: null}), {end: expect.anything()});
-	});
-
-	test('an alert that comes after it stopped is acted on, not answered with the stop again', async () => {
-		const {runInference} = await import('./inference');
-		const alone = [entry('person', 'Go'), ...Array.from({length: 30}, (_, i) => entry('assistant', `step ${i}`))];
-		const stopped = entry('assistant', 'I have taken 30 steps without hearing from you, so I have stopped. Tell me to go on if you want me to.');
-		listEntries.mockResolvedValue(Ok([...alone, stopped, entry('event', 'Found three rows.')]));
-		askForTurn.mockResolvedValue(Ok({text: 'There are three rows.', toolCalls: [], inputTokens: 10, outputTokens: 2}));
-
-		await runInference(store, on(harness), job, 'w1', false, clock);
-
-		expect(askForTurn).toHaveBeenCalledTimes(1);
-		expect(completeInference).toHaveBeenCalledWith('job-1', 'w1', 'thread-1', expect.objectContaining({text: 'There are three rows.'}), {end: {outcome: 'There are three rows.'}});
 	});
 
 	describe('on any harness', () => {
@@ -468,7 +438,7 @@ describe('runInference', () => {
 
 		test('keeps the files an answer to the person shows with it, as its steps are written and as it ends', async () => {
 			const {runInference} = await import('./inference');
-			const fake: HarnessBackend & ReturnType<typeof fakeHarness> = {...fakeHarness(), stepsPerTurn: 'many'};
+			const fake = fakeHarness();
 			const chart = {connectionId: 'drive-1', fileId: 'file-1', version: 'v1', name: 'chart.png', type: 'image/png', size: 42, text: null, cut: false};
 			const pinned = mock(async (_agent: unknown, text: string) => Ok(text.includes('![') ? [chart] : []));
 			const link = 'https://app.example.com/acme/connections/drive-1?file=file-1';
@@ -524,7 +494,7 @@ describe('runInference', () => {
 			expect(fake.turns[0]?.entries.map((given) => given.text)).toEqual(['Chart it', answer.text, 'Thanks']);
 		});
 
-		test('gives the harness the thread, the log, the prompt, the tools and the model, one step and no session, and writes the answer as it ended', async () => {
+		test('gives the harness the thread, the log, the prompt, the tools and the model and no session, and writes the answer as it ended', async () => {
 			const {runInference} = await import('./inference');
 			const fake = fakeHarness();
 			const log = [entry('person', 'Find my invoices')];
@@ -543,7 +513,6 @@ describe('runInference', () => {
 				woken: false,
 				system: expect.stringContaining('You are signed in.'),
 				model: 'claude',
-				maxSteps: 1,
 			});
 			expect(fake.turns[0]?.tools.tools.map((tool) => tool.name)).toEqual(['script']);
 			expect(fake.turns[0]?.signal.aborted).toBe(false);
@@ -654,9 +623,9 @@ describe('runInference', () => {
 			expect(completeInference).not.toHaveBeenCalled();
 		});
 
-		test('gives a harness that runs its tools itself the thread’s session and as many steps as the thread has left', async () => {
+		test('gives a harness that runs its tools itself the thread’s session', async () => {
 			const {runInference} = await import('./inference');
-			const fake: HarnessBackend & ReturnType<typeof fakeHarness> = {...fakeHarness('claude-agent-sdk'), stepsPerTurn: 'many'};
+			const fake = fakeHarness('claude-agent-sdk');
 			const session = {id: 'session-1', state: {lastSeq: 3}};
 			claudeCredentialFor.mockResolvedValue(Ok({kind: 'setup_token', token: 'sk-ant-oat01-test'}));
 			getJobThread.mockResolvedValue(Ok({...thread, harness: 'claude-agent-sdk', harnessSession: session}));
@@ -665,12 +634,12 @@ describe('runInference', () => {
 
 			await runInference(store, on(null, fake), job, 'w1', true, clock);
 
-			expect(fake.turns[0]).toMatchObject({session, maxSteps: 28, woken: true, auth: {kind: 'oauth', accessToken: 'sk-ant-oat01-test', scopes: []}});
+			expect(fake.turns[0]).toMatchObject({session, woken: true, auth: {kind: 'oauth', accessToken: 'sk-ant-oat01-test', scopes: []}});
 		});
 	});
 
 	describe('a harness that runs its tools itself', () => {
-		const fake: HarnessBackend & ReturnType<typeof fakeHarness> = {...fakeHarness('claude-agent-sdk'), stepsPerTurn: 'many'};
+		const fake = fakeHarness('claude-agent-sdk');
 		const session = {id: 'session-1', state: null};
 		const ended = (kept: typeof session | null): HarnessEvent => ({kind: 'done', session: kept, system: 'Sent.', inputTokens: 50, outputTokens: 9});
 
@@ -1008,7 +977,7 @@ describe('runInference', () => {
 describe('a thread on a harness that runs its tools itself', () => {
 	test('writes each step as it goes, and ends its turn on its last answer, showing the person the files it links', async () => {
 		const {runInference} = await import('./inference');
-		const fake: HarnessBackend & ReturnType<typeof fakeHarness> = {...fakeHarness('claude-agent-sdk'), stepsPerTurn: 'many'};
+		const fake = fakeHarness('claude-agent-sdk');
 		getPersonaModel.mockResolvedValue(Ok({harness: 'claude-agent-sdk', chatModel: 'claude'}));
 		claudeCredentialFor.mockResolvedValue(Ok({kind: 'setup_token', token: 'tok'}));
 		const chart = {connectionId: 'drive-1', fileId: 'file-1', version: 'v1', name: 'chart.png', type: 'image/png', size: 42, text: null, cut: false};

@@ -44,7 +44,6 @@ function turnInput(signal = new AbortController().signal): HarnessTurn {
 		system: 'You are a test.',
 		tools: fakeToolSurface(TOOLS),
 		model: 'claude',
-		maxSteps: 1,
 		signal,
 	};
 }

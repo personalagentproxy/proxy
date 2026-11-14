@@ -89,20 +89,9 @@ export type InferenceStore = Pick<
 const THREAD_FLOW =
 	'You are talking with the person in a thread on Personal Agent Proxy’s Chat page. Their message opened this thread, and their replies come into it. Each new request of theirs gets a thread of its own, so this one is about one piece of work. Answer in short Markdown: sentences, a list or table where clearer, no headings. To show the person a picture, such as a chart or a screenshot, have it put in a drive and write it as a Markdown image of its Link: ![what it shows](Link); a picture anywhere else is shown as a link only. Work in scripts; check pap.tools before using a tool you haven’t used. Your task is kept for you. For something at a time, or something new in their accounts, set an alert. To ask something you can’t go on without, answer with the question and no tool call. An answer without a tool call ends your turn: say what you did and found, with the names, ids, dates and numbers that matter, and what you couldn’t do. Don’t mention summaries of the conversation.';
 
-// How many answers the model may give in a row without the person saying anything, calls, alerts
-// and wake-ups included, before it stops and waits for them; a reply that comes after the stop is
-// acted on, and the count starts over.
-const MAX_TURNS_ALONE = 30;
-
 // How often a model that can't be reached is tried, and how long to wait between tries.
 const MAX_MODEL_ATTEMPTS = 3;
 const RETRY_MS = 5_000;
-
-// How many steps a turn may take on a harness that asks the model once and leaves its calls open
-// for the worker to run: one; how many answers the model may give in a row is MAX_TURNS_ALONE,
-// counted over the log, where one turn is one answer. A harness that answers its calls itself and
-// asks the model again within the turn gets as many steps as the thread has left.
-const ONE_STEP = 1;
 
 const UNREACHABLE = 'The model could not be reached. Say something to try again.';
 
@@ -112,22 +101,7 @@ function limitReached(resetsAt: Date | null): string {
 	const resets = resetsAt === null ? '' : `, which resets at ${resetsAt.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
 	return `Your Claude account has reached its limit for now${resets}. Say something to try again after that.`;
 }
-const TOO_LONG = `I have taken ${MAX_TURNS_ALONE} steps without hearing from you, so I have stopped. Tell me to go on if you want me to.`;
 const NOTHING = 'I had nothing to say to that. Say something to go on.';
-
-// Whether the answer is the model stopping for the person, at the cap: the count starts over
-// from it, so an alert that comes after the stop is acted on rather than answered with the stop
-// again, once per alert.
-function isStop(entry: EntryRow): boolean {
-	return entry.kind === 'assistant' && entry.text === TOO_LONG;
-}
-
-// How many answers the model has given since the person last spoke, or since it last stopped for
-// them.
-function turnsAlone(entries: EntryRow[]): number {
-	const since = entries.findLastIndex((entry) => entry.kind === 'person' || isStop(entry));
-	return entries.slice(since + 1).filter((entry) => entry.kind === 'assistant').length;
-}
 
 // What the turn came to: what the model said last, the files it showed there and the calls it made then, those it left open
 // among all it made, whether the turn wrote to the log as it went, what it cost, the system prompt
@@ -328,15 +302,6 @@ function limited<T>(harness: HarnessBackend, work: () => Promise<T>): Promise<T>
 	return limit.run(work);
 }
 
-// How many steps the turn may take: one on a harness that leaves its calls open; on one that
-// answers them itself, as many as the thread has left before the model has to stop for the person.
-function maxSteps(harness: HarnessBackend, entries: EntryRow[]): number {
-	if (harness.stepsPerTurn === 'many') {
-		return MAX_TURNS_ALONE - turnsAlone(entries);
-	}
-	return ONE_STEP;
-}
-
 // Where what the provider said of the member's plan goes: their account, where the turn runs on
 // their credential, as best it can be kept; nowhere on the server's key, which has no plan of
 // theirs to speak of.
@@ -395,7 +360,6 @@ function askOnLog(
 						system,
 						tools: toolSurfaceFor(store, thread, job, workerId, clock),
 						model: choice.model,
-						maxSteps: maxSteps(choice.harness, entries),
 						signal: new AbortController().signal,
 					}),
 					usageSink(credentials, choice, thread, clock),
@@ -512,10 +476,6 @@ export function runInference(store: InferenceStore, harnesses: Harnesses, job: J
 			return;
 		}
 		const entries = $(await readyLog(store, job, workerId, thread));
-		if (turnsAlone(entries) >= MAX_TURNS_ALONE) {
-			$(await answerWith(store, job, workerId, TOO_LONG));
-			return;
-		}
 		const choice = $(await chooseHarness(store, harnesses, thread));
 		if (choice.harness === null) {
 			$(await answerWith(store, job, workerId, choice.why));

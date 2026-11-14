@@ -36,7 +36,6 @@ describe('fakeHarness', () => {
 			system: 'You are a test.',
 			tools: fakeToolSurface([]),
 			model: 'claude',
-			maxSteps: 1,
 			signal: new AbortController().signal,
 		};
 

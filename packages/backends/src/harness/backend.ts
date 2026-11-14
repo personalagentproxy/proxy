@@ -38,10 +38,8 @@ import type {ContextEntry} from '@proxy/utils/harness-context';
  *
  * A harness says, beside its id, what it is called to the person choosing one for an agent, its
  * `label`, and the `models` it can answer with, the first the one a turn gets where none of them
- * was chosen; and how it works, so the api can give it a turn
- * that fits: `stepsPerTurn` whether it answers calls itself and asks the model again within a turn, and
- * `maxConcurrentTurns` how many turns it can run at once in one process, where each is a
- * subprocess with memory of its own.
+ * was chosen; and `maxConcurrentTurns`, how many turns it can run at once in one process, where
+ * each is a subprocess with memory of its own.
  */
 
 /** What a harness keeps per thread between turns, as the api stores it on the thread, opaque to the api (@proxy/utils/harness); null for a harness that keeps nothing. */
@@ -107,8 +105,6 @@ export type HarnessTurn = {
 	tools: ToolSurface;
 	/** The model to answer with: one of the harness's `models`, by its id. */
 	model: string;
-	/** How many steps, calls answered inline and the model asked again, the turn may take at most. */
-	maxSteps: number;
 	/** Aborted when the turn is to stop: the harness ends it, with `failed` or `done`, as soon as it can. */
 	signal: AbortSignal;
 };
@@ -120,13 +116,6 @@ export type HarnessBackend = {
 	label: string;
 	/** The models it can answer with, the first its default: at least one. */
 	models: [HarnessModel, ...HarnessModel[]];
-	/**
-	 * How many steps a turn takes: `one`, the default, for a harness that asks the model once and
-	 * leaves its calls open for the api to run, whose `maxSteps` is then one; `many` for a harness
-	 * that answers calls itself and asks the model again, which is given as many steps as the thread
-	 * has left before it has to stop and wait for the person.
-	 */
-	stepsPerTurn?: 'one' | 'many';
 	/** How many turns of this harness one process runs at once at most; unset for a harness that is only a request to a model, which needs no cap. */
 	maxConcurrentTurns?: number;
 	/** One turn of the model on the thread, told as it goes. */

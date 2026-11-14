@@ -101,7 +101,6 @@ async function main(): Promise<void> {
 		system: SYSTEM,
 		tools,
 		model: 'claude',
-		maxSteps: 5,
 		signal: new AbortController().signal,
 	})) {
 		console.log(`  ${line(event)}`);
@@ -129,7 +128,6 @@ async function main(): Promise<void> {
 		system: SYSTEM,
 		tools,
 		model: 'claude',
-		maxSteps: 5,
 		signal: new AbortController().signal,
 	})) {
 		console.log(`  ${line(event)}`);

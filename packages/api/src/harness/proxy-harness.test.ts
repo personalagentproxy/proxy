@@ -54,7 +54,6 @@ function turnInput(entries: HarnessEntry[], extra: Partial<HarnessTurn> = {}): H
 		system: 'You are signed in.',
 		tools: fakeToolSurface([read]),
 		model: 'claude',
-		maxSteps: 1,
 		signal: new AbortController().signal,
 		...extra,
 	};
