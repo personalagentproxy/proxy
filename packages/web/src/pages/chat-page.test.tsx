@@ -1576,19 +1576,28 @@ describe('ChatPage', () => {
 			expect(generalRow.textContent).toContain('Draft: Move the pricing review');
 		});
 
-		test('lists the open conversation’s draft as it is typed, and another’s as the server keeps it', async () => {
-			renderChatPage({personas: [general, {...finance, draft: 'Pay the invoice'}]});
+		test('lists another conversation’s draft as the server keeps it, not the open one’s', async () => {
+			renderChatPage({
+				personas: [
+					{
+						...general,
+						lastMessage: {kind: 'assistant', text: 'How can I help?', at: '2026-10-21T10:00:00Z'},
+					},
+					{...finance, draft: 'Pay the invoice'},
+				],
+			});
 			const box = await screen.findByLabelText('Message');
 
 			expect(screen.getByRole('link', {name: /Finance/}).textContent).toContain(
 				'Draft: Pay the invoice',
 			);
-			expect(screen.getByRole('link', {name: /General/}).textContent).not.toContain('Draft:');
+			const generalRow = screen.getByRole('link', {name: /General/});
+			expect(generalRow.textContent).not.toContain('Draft:');
+			expect(generalRow.textContent).toContain('How can I help?');
 
 			typeIn(box, 'Book the train');
-			expect(screen.getByRole('link', {name: /General/}).textContent).toContain(
-				'Draft: Book the train',
-			);
+			expect(generalRow.textContent).not.toContain('Draft:');
+			expect(generalRow.textContent).toContain('How can I help?');
 		});
 
 		test('sends without saving what was typed for it, and empties the box', async () => {
@@ -1656,12 +1665,9 @@ describe('ChatPage', () => {
 			// With a space after it, so the caret has text to be in.
 			expect(box.textContent).toBe('pricing.md ');
 			expect(chipOf('pricing.md')?.parentElement?.getAttribute('title')).toBe('pricing.md · 2 KB');
-			// The list of agents says what is waiting, though nothing is typed.
-			await waitFor(() =>
-				expect(screen.getByRole('link', {name: /General/}).textContent).toContain(
-					'Draft: pricing.md',
-				),
-			);
+			// The open chat keeps the last message in the sidebar; the file waits in the composer.
+			const generalRow = screen.getByRole('link', {name: /General/});
+			expect(generalRow.textContent).not.toContain('Draft:');
 
 			// A file alone is something to send.
 			fireEvent.click(screen.getByRole('button', {name: 'Send'}));
