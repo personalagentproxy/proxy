@@ -163,8 +163,11 @@ body:has([data-page])::before {
    navigation's toggle in a browser, with the page's columns starting just inside it, and it slides
    between the two as the navigation does (ui's sidebar.tsx). On a phone, where the navigation is a
    sheet, the bar's border runs the window's width. The colors match, so only the lines need
-   moving: one fixed line along the bar's bottom, round the corner and down the window, over the
-   headers', and a fill outside its curve, so nothing scrolled under shows there. */
+   moving: one fixed line along the bar's bottom, round the corner and down the window, and a fill
+   outside its curve, so nothing scrolled under shows there. They lie over the page's columns but
+   under a dialog's or a sheet's overlay (z-50), which dims and blurs them with the columns, while
+   the bar stays clear over it; so the bar and the headers leave their bottom row, where the line
+   runs along them, unpainted. */
 [data-slot='sidebar-wrapper']:has([data-slot='sidebar'][data-state]) {
 	--title-bar-corner-radius: var(--radius);
 	--title-bar-edge: calc(var(--title-bar-height) - 1px);
@@ -191,12 +194,13 @@ body:has([data-page])::before {
 body:has([data-slot='sidebar'][data-state])::before,
 [data-slot='sidebar-wrapper']:has([data-slot='sidebar'][data-state]) [data-page] > header {
 	border-bottom-color: transparent;
+	background-clip: padding-box;
 }
 
 [data-slot='sidebar-wrapper']:has([data-slot='sidebar'][data-state])::before,
 [data-slot='sidebar-wrapper']:has([data-slot='sidebar'][data-state])::after {
 	position: fixed;
-	z-index: 61;
+	z-index: 40;
 	top: var(--title-bar-edge);
 	left: var(--title-bar-navigation-edge);
 	box-sizing: border-box;
