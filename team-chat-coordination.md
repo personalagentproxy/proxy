@@ -6,6 +6,12 @@ A team agent is a shared conversation. All current organization members particip
 
 Existing shared personas such as General are shared configurations with separate member histories. They must not become shared conversations through a migration. Team conversations are created explicitly; changing a name, provider, model, or coordinator role must never publish existing history.
 
+## UI preview
+
+![Shared team chat with sender attribution and a completed specialist delegation](docs/assets/team-chats/shared-head-agent.jpg)
+
+Rendered from the upstream implementation with synthetic example messages and delegation results.
+
 ## Implementation sequence
 
 1. Add an explicit conversation scope, defaulting existing personas to separate member conversations. Add sender identity and a coordinator role. Keep scope immutable after creation.
