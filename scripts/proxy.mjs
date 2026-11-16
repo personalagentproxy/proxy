@@ -43,10 +43,8 @@ async function main() {
 		if (!process.stdin.isTTY) {
 			throw new Error('Login requires an interactive terminal');
 		}
-		process.stdout.write('Agent username: ');
-		const username = await readInput(false);
-		process.stdout.write('Agent password: ');
-		const password = await readInput(true);
+		const username = await readInput(false, 'Agent username: ');
+		const password = await readInput(true, 'Agent password: ');
 		const response = await fetch(new URL('/agent-auth/login', server), {
 			method: 'POST',
 			headers: {'Content-Type': 'application/json', Origin: server.origin},
@@ -165,7 +163,7 @@ function validateServer(url) {
 		throw new Error('Use an HTTPS server URL (HTTP is allowed only on localhost)');
 	}
 }
-function readInput(hidden) {
+function readInput(hidden, prompt) {
 	return new Promise((resolve, reject) => {
 		let password = '';
 		process.stdin.setRawMode(true);
@@ -205,5 +203,6 @@ function readInput(hidden) {
 			}
 		}
 		process.stdin.on('data', onData);
+		process.stdout.write(prompt);
 	});
 }

@@ -1,4 +1,4 @@
-# Development environments
+# Environment Variable Proxy
 
 Development bundles, owner management UI, runtime audit history, and CLI. No production environments or deployment synchronization.
 
@@ -29,4 +29,4 @@ The session file contains the Cookie header from an existing agent login, not a 
 
 The CLI fetches variables without printing them or writing an environment file, then injects them into the child process. Child output is inherited and is not redacted. Code running in that process can read its secrets.
 
-Access attempts with valid project names and authenticated agents are recorded in EnvironmentAccess with names and outcome only. The endpoint is not exposed as an MCP tool. Migration v073 must be applied before use. Workload identity and dynamic credential rotation are not included in this development-only version. Deleting a variable removes its grants; adding that name later requires a new grant. Deleting an organization removes its bundles and audit history.
+Access attempts with valid project names and authenticated agents are recorded in EnvironmentAccess with names and outcome only. The endpoint is not exposed as an MCP tool. Migration v067 must be applied before use. Workload identity and dynamic credential rotation are not included in this development-only version. Deleting a variable removes its grants; adding that name later requires a new grant. Deleting an organization removes its bundles and audit history.
