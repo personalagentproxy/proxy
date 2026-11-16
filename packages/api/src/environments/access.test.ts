@@ -18,6 +18,8 @@ const update = mock();
 const grantFindMany = mock();
 const grantUpsert = mock();
 const transaction = {
+	developmentEnvironmentPersonGrant: {findMany: async () => [], update: async () => ({})},
+	developmentEnvironmentKey: {deleteMany: async () => ({count: 0})},
 	developmentEnvironment: {findUnique, upsert},
 	developmentEnvironmentGrant: {findMany: grantFindMany, update, upsert: grantUpsert},
 	agent: {findFirst},

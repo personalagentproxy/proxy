@@ -157,6 +157,7 @@ model Organization {
 // A person in an organization: its owner (`Organization.ownerUserId`), who renames and deletes
 // it, invites people and removes members, or anyone else, who can leave.
 model OrgMember {
+  environmentGrants DevelopmentEnvironmentPersonGrant[]
   id     String @id @default(cuid())
   orgId  String
   userId String
@@ -1173,6 +1174,8 @@ model DevelopmentEnvironment {
   ciphertext String
   names String[]
   grants DevelopmentEnvironmentGrant[]
+  people DevelopmentEnvironmentPersonGrant[]
+  keys DevelopmentEnvironmentKey[]
   @@unique([orgId, project])
 }
 
@@ -1187,6 +1190,8 @@ model DevelopmentEnvironmentGrant {
 }
 
 model EnvironmentAccess {
+  userId String?
+  method String @default("runtime")
   org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   @@index([orgId, createdAt, id])
   id String @id @default(cuid())
@@ -1196,4 +1201,23 @@ model EnvironmentAccess {
   names String[]
   allowed Boolean
   createdAt DateTime @default(now())
+}
+
+model DevelopmentEnvironmentPersonGrant {
+  environmentId String
+  memberId String
+  names String[]
+  environment DevelopmentEnvironment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  member OrgMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  @@id([environmentId, memberId])
+  @@index([memberId])
+}
+
+model DevelopmentEnvironmentKey {
+  environmentId String
+  name String
+  service String
+  label String
+  environment DevelopmentEnvironment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  @@id([environmentId, name])
 }

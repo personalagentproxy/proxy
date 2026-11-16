@@ -28,6 +28,14 @@ export function saveEnvironment(req: AuthenticatedRequest): Promise<Result<{proj
 								create: {orgId: viewer.orgId, project, ciphertext, names: Object.keys(variables)},
 								update: {ciphertext, names: Object.keys(variables)},
 							});
+							const people = await tx.developmentEnvironmentPersonGrant.findMany({where: {environmentId: environment.id}});
+							for (const person of people) {
+								await tx.developmentEnvironmentPersonGrant.update({
+									where: {environmentId_memberId: {environmentId: environment.id, memberId: person.memberId}},
+									data: {names: person.names.filter((name) => Object.hasOwn(variables, name))},
+								});
+							}
+							await tx.developmentEnvironmentKey.deleteMany({where: {environmentId: environment.id, name: {notIn: Object.keys(variables)}}});
 							const grants = await tx.developmentEnvironmentGrant.findMany({where: {environmentId: environment.id}});
 							for (const grant of grants) {
 								await tx.developmentEnvironmentGrant.update({

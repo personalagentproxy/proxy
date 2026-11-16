@@ -1,3 +1,4 @@
+import {deleteEnvironmentKey, environmentOverview, saveEnvironmentKey, shareEnvironmentKeys, revealEnvironmentKeys, environmentHistory} from '../environments/sharing';
 import {saveEnvironment, grantEnvironment, readEnvironment, listEnvironments, deleteEnvironment, listEnvironmentAccess} from '../environments/route';
 import express from 'express';
 import {z} from 'zod';
@@ -229,6 +230,12 @@ export function createApiRouter(): express.Router {
 	router.get('/api/link-previews', wrapAsyncRoute('Link preview route', handleLinkPreviewRoute));
 	router.get('/api/link-previews/image', wrapAsyncRoute('Link preview image route', handleLinkPreviewImageRoute));
 
+	org.get('/environments/overview', withAuthResult('Environment overview', environmentOverview));
+	org.delete('/environments/development/:project/keys/:name', withAuthResult('Delete environment key', deleteEnvironmentKey));
+	org.put('/environments/development/:project/keys', withAuthResult('Save environment key', saveEnvironmentKey));
+	org.put('/environments/development/:project/sharing', withAuthResult('Share environment keys', shareEnvironmentKeys));
+	org.post('/environments/development/:project/reveal', withAuthResult('Reveal environment keys', revealEnvironmentKeys));
+	org.post('/environments/development/:project/history', withAuthResult('Environment history', environmentHistory));
 	org.get('/environments/development', withAuthResult('List environments', listEnvironments));
 	org.get('/environments/access', withAuthResult('Environment audit', listEnvironmentAccess));
 	org.delete('/environments/development/:project', withAuthResult('Delete environment', deleteEnvironment));

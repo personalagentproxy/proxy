@@ -87,6 +87,19 @@ async function call(path: string, method = 'GET', body?: object, cookie = humanC
 	});
 }
 if (process.argv.includes('--serve')) {
+	for (const [name, service, label] of [
+		['OPENAI_API_KEY', 'OpenAI', 'API key'],
+		['STRIPE_SECRET_KEY', 'Stripe', 'Secret key'],
+		['CLERK_SECRET_KEY', 'Clerk', 'Secret key'],
+	]) {
+		await call('/api/orgs/env-e2e/environments/development/example-development/keys', 'PUT', {
+			name,
+			service,
+			label,
+			value: 'invented-demo-value',
+		});
+	}
+	await db.session.updateMany({data: {expires: new Date(Date.now() + 3600000)}});
 	console.log('Isolated UI server ready at http://localhost:55420');
 	await new Promise<void>((resolve) => {
 		process.once('SIGINT', resolve);
@@ -204,6 +217,189 @@ assert.equal((await call(runtime, 'GET', undefined, agentCookie)).status, 401);
 const audit = await db.environmentAccess.findMany();
 assert.ok(audit.length >= 3);
 assert.ok(!JSON.stringify(audit).includes('private-value'));
+
+// Service-based human sharing, metadata, exact statistics and revocation.
+const overviewPath = '/api/orgs/env-e2e/environments/overview';
+assert.equal(
+	(
+		await call(base + '/keys', 'PUT', {
+			name: 'OPENAI_API_KEY',
+			value: 'invented-openai-value',
+			service: 'OpenAI',
+			label: 'API key',
+		})
+	).status,
+	200,
+);
+assert.equal(
+	(
+		await call(base + '/keys', 'PUT', {
+			name: 'STRIPE_SECRET_KEY',
+			value: 'invented-stripe-value',
+			service: 'Stripe',
+			label: 'Secret key',
+		})
+	).status,
+	200,
+);
+assert.equal(
+	(
+		await call(base + '/keys', 'PUT', {
+			name: 'OPENAI_API_KEY',
+			service: 'OpenAI',
+			label: 'Development API key',
+		})
+	).status,
+	200,
+);
+assert.equal(
+	(
+		await call(
+			base + '/keys',
+			'PUT',
+			{name: 'OTHER', value: 'forbidden', service: 'Other', label: 'Other'},
+			memberCookie,
+		)
+	).status,
+	403,
+);
+assert.equal(
+	(await call(base + '/reveal', 'POST', {names: ['OPENAI_API_KEY']}, memberCookie)).status,
+	403,
+);
+assert.equal(
+	(
+		await call(base + '/sharing', 'PUT', {
+			kind: 'person',
+			id: member.id,
+			scope: ['OPENAI_API_KEY'],
+			names: ['OPENAI_API_KEY'],
+		})
+	).status,
+	200,
+);
+assert.equal(
+	(
+		await call(base + '/sharing', 'PUT', {
+			kind: 'person',
+			id: member.id,
+			scope: ['STRIPE_SECRET_KEY'],
+			names: ['STRIPE_SECRET_KEY'],
+		})
+	).status,
+	200,
+);
+const visible = await (await call(overviewPath, 'GET', undefined, memberCookie)).json();
+assert.equal(visible.canManage, false);
+assert.equal(visible.rows.length, 2);
+assert.ok(!JSON.stringify(visible).includes('invented-openai-value'));
+assert.equal(
+	(
+		await call(
+			base + '/sharing',
+			'PUT',
+			{kind: 'person', id: owner.id, scope: ['OPENAI_API_KEY'], names: ['OPENAI_API_KEY']},
+			memberCookie,
+		)
+	).status,
+	403,
+);
+const humanRead = await call(base + '/reveal', 'POST', {names: ['OPENAI_API_KEY']}, memberCookie);
+assert.equal(humanRead.headers.get('cache-control'), 'no-store');
+assert.deepEqual(await humanRead.json(), {variables: {OPENAI_API_KEY: 'invented-openai-value'}});
+assert.equal(
+	(await call(base + '/reveal', 'POST', {names: ['OPENAI_API_KEY', 'PUBLIC']}, memberCookie))
+		.status,
+	403,
+);
+assert.equal(
+	(
+		await call(base + '/sharing', 'PUT', {
+			kind: 'person',
+			id: member.id,
+			scope: ['OPENAI_API_KEY'],
+			names: [],
+		})
+	).status,
+	200,
+);
+assert.equal(
+	(await call(base + '/reveal', 'POST', {names: ['OPENAI_API_KEY']}, memberCookie)).status,
+	403,
+);
+assert.equal(
+	(await call(base + '/reveal', 'POST', {names: ['STRIPE_SECRET_KEY']}, memberCookie)).status,
+	200,
+);
+// More than the 100-row history limit, plus an older retrieval excluded from the count.
+await db.environmentAccess.createMany({
+	data: Array.from({length: 120}, () => ({
+		orgId: org.id,
+		project: 'example',
+		agentId: agent.id,
+		names: ['OPENAI_API_KEY'],
+		allowed: true,
+	})),
+});
+await db.environmentAccess.create({
+	data: {
+		orgId: org.id,
+		project: 'example',
+		agentId: agent.id,
+		names: ['OPENAI_API_KEY'],
+		allowed: true,
+		createdAt: new Date(Date.now() - 31 * 86400000),
+	},
+});
+const overview = await (await call(overviewPath)).json();
+assert.equal(
+	overview.rows.find((r: {service: string}) => r.service === 'OpenAI').accesses30Days,
+	121,
+);
+const history = await (await call(base + '/history', 'POST', {names: ['OPENAI_API_KEY']})).json();
+assert.equal(history.access.length, 100);
+assert.ok(!JSON.stringify(history).includes('invented-openai-value'));
+assert.equal(
+	(await call(base + '/history', 'POST', {names: ['OPENAI_API_KEY']}, memberCookie)).status,
+	403,
+);
+// Deletion prunes permissions; re-adding a key must not resurrect a grant.
+assert.equal((await call(base + '/keys/STRIPE_SECRET_KEY', 'DELETE')).status, 200);
+assert.equal(
+	(
+		await call(base + '/keys', 'PUT', {
+			name: 'STRIPE_SECRET_KEY',
+			value: 'replacement',
+			service: 'Stripe',
+			label: 'Secret key',
+		})
+	).status,
+	200,
+);
+assert.equal(
+	(await call(base + '/reveal', 'POST', {names: ['STRIPE_SECRET_KEY']}, memberCookie)).status,
+	403,
+);
+assert.equal(
+	(
+		await call(base + '/sharing', 'PUT', {
+			kind: 'person',
+			id: member.id,
+			scope: ['STRIPE_SECRET_KEY'],
+			names: ['STRIPE_SECRET_KEY'],
+		})
+	).status,
+	200,
+);
+await db.orgMember.delete({where: {orgId_userId: {orgId: org.id, userId: member.id}}});
+assert.equal(await db.developmentEnvironmentPersonGrant.count(), 0);
+assert.notEqual(
+	(await call(base + '/reveal', 'POST', {names: ['STRIPE_SECRET_KEY']}, memberCookie)).status,
+	200,
+);
+console.log(
+	'Human sharing, masked metadata, read audit, exact 30-day counts, key deletion and membership revocation passed',
+);
 await db.organization.delete({where: {id: org.id}});
 assert.equal(await db.developmentEnvironment.count(), 0);
 assert.equal(await db.environmentAccess.count(), 0);
