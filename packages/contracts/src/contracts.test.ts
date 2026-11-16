@@ -121,7 +121,6 @@ describe('contracts', () => {
 			summary: 'Has a plan, and asks whether the date range should cover the CSV export too.',
 			latest: 'I have a plan, and one question before I build.',
 			latestEntryId: 'e2',
-			latestAnswerId: 'e2',
 			messageCount: 2,
 			lastMessageAt: '2026-03-02T09:24:00.000Z',
 			createdAt: '2026-03-02T09:24:00.000Z',

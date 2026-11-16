@@ -12,7 +12,7 @@ import {fromApp} from './ipc';
 // A page of the app, by its path: what it names, read as the page reads it, on the app's own
 // origin, and passed on as read, so nothing the URL parser forgives, such as a backslash for a
 // slash (`/\\host`) or a tab between two slashes, can name another host. The tag, one per
-// conversation, is optional while pages from before it still ask.
+// thread the notice ends a turn of, is optional while pages from before it still ask.
 const appPathSchema = z
 	.string()
 	.startsWith('/')

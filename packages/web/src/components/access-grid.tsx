@@ -4,6 +4,7 @@ import {useState} from 'react';
 import {Link} from 'react-router';
 import {AgentLogo} from '@/components/brand-logo';
 import {Checkbox} from '@proxy/ui/components/checkbox';
+import {PillButton} from '@proxy/ui/components/pill-button';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';
 import {cn} from '@proxy/ui/lib/utils';
 import {groupsOf} from '@/lib/access';
@@ -38,7 +39,8 @@ type Props = {
 	// A first row, All, whose box in each column turns every action the sign-in allows on or off
 	// there at once: under Default the defaults, which leave agents' settings of their own as they
 	// are; under an agent its settings. Where the integration groups its actions, each group has one
-	// over its own.
+	// over its own. Above the grid, a button turns everything on, or off once all is: every action
+	// the sign-in allows, by default and for every agent the person may change.
 	all?: boolean;
 };
 
@@ -83,20 +85,70 @@ export function AccessGrid({
 	const isOwn = ({own}: GridAgent, id: string) => own[id] !== undefined;
 	const isOn = (column: GridAgent, id: string) =>
 		!isUnavailable(id) &&
-		(pending[key(column.agent.id, id)] ?? column.own[id] ?? defaults.includes(id));
+		// An agent that follows the default follows it as soon as the default's box is clicked, not
+		// once the change is saved and the page loaded again.
+		(pending[key(column.agent.id, id)] ?? column.own[id] ?? isDefault(id));
 
 	// Shows the boxes as `next` until `save` is done.
 	const change = async (boxes: string[], next: boolean, save: () => Promise<void>) => {
 		setPending((current) => ({...current, ...Object.fromEntries(boxes.map((box) => [box, next]))}));
-		await save();
-		setPending((current) =>
-			Object.fromEntries(Object.entries(current).filter(([box]) => !boxes.includes(box))),
-		);
+		try {
+			await save();
+		} finally {
+			setPending((current) =>
+				Object.fromEntries(Object.entries(current).filter(([box]) => !boxes.includes(box))),
+			);
+		}
 	};
 	// What an agent's box saves: what the default says is no setting of the agent's own, so the agent
 	// follows the default.
-	const ownSetting = (actionId: string, next: boolean) =>
-		next === defaults.includes(actionId) ? null : next;
+	const ownSetting = (actionId: string, next: boolean, defaultOn = isDefault(actionId)) =>
+		next === defaultOn ? null : next;
+
+	// Every action the sign-in allows, and the columns the person may change: the defaults where
+	// they are theirs to set, and each agent that is.
+	const available = actions.filter((action) => !isUnavailable(action.id)).map(({id}) => id);
+	const changeable = agents.filter((column) => column.mayChange);
+	const everythingOn =
+		available.length > 0 &&
+		available.every(
+			(id) =>
+				(!mayChangeDefaults || isDefault(id)) && changeable.every((column) => isOn(column, id)),
+		);
+	// Turns every action the sign-in allows on, or off once all are, in every column the person may
+	// change: the defaults, and each agent, whose settings of its own that would say the same as the
+	// default are dropped, so it follows the default again.
+	const setEverything = (next: boolean) => {
+		const defaultAfter = (id: string) => (mayChangeDefaults ? next : isDefault(id));
+		const defaultIds = mayChangeDefaults ? available.filter((id) => isDefault(id) !== next) : [];
+		if (defaultIds.length > 0) {
+			void change(
+				defaultIds.map((id) => key(DEFAULT, id)),
+				next,
+				() => onChangeDefaults(Object.fromEntries(defaultIds.map((id) => [id, next]))),
+			);
+		}
+		for (const column of changeable) {
+			// Only what its settings of its own would change: one that follows the default and will
+			// say `next` with it is left alone.
+			const ids = available.filter((id) => {
+				const setting = ownSetting(id, next, defaultAfter(id));
+				return setting === null ? isOwn(column, id) : column.own[id] !== setting;
+			});
+			if (ids.length === 0) {
+				continue;
+			}
+			void change(
+				ids.map((id) => key(column.agent.id, id)),
+				next,
+				() =>
+					onChangeAgent(
+						column.agent.id,
+						Object.fromEntries(ids.map((id) => [id, ownSetting(id, next, defaultAfter(id))])),
+					),
+			);
+		}
+	};
 
 	// The All row over some actions, a whole group's where the integration groups them: in each
 	// column ticked when every one the sign-in allows is on there, a dash when some are. On a band of
@@ -213,14 +265,25 @@ export function AccessGrid({
 	};
 
 	const groups = groupsOf(actions);
+	const everythingButton =
+		all && available.length > 0 && (mayChangeDefaults || changeable.length > 0);
 	return (
 		<div className="flex flex-col gap-2">
+			{/* Apart from the page's text over the grid, and close over the grid it acts on. */}
+			{everythingButton && (
+				<div className="flex pt-2">
+					<PillButton onClick={() => setEverything(!everythingOn)}>
+						{everythingOn ? 'Disable all' : 'Enable all'}
+					</PillButton>
+				</div>
+			)}
 			<div className="-mx-(--bleed) overflow-x-auto px-(--bleed)">
 				<table className="w-full border-collapse text-sm">
 					{groups.map((group, index) => {
 						// Room above each part, over every heading of its row, the agents' logos being the
-						// tallest: a little over the first part, more between two.
-						const above = index === 0 ? 'pt-4' : 'pt-12';
+						// tallest: a little over the first part, less under the button that turns everything
+						// on, more between two.
+						const above = index > 0 ? 'pt-12' : everythingButton ? 'pt-2' : 'pt-4';
 						return (
 							<tbody key={group.name ?? 'all'}>
 								{!(headed && group.name === undefined) && (

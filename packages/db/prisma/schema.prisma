@@ -835,9 +835,9 @@ model AgentThread {
   // The task a thread's calls are made for, its own, finished each time its turn ends and made
   // anew when it is taken up long after; a chat has none: it runs no turns.
   taskId  String?
-  // How far the member has read their chat, across its threads: the `seq` of the last answer the
-  // Chat page showed them while they looked at it, never back. What the persona said past it is
-  // unread. A thread keeps 0: the chat's marker is the one read.
+  // How far the member has read a thread: the `seq` of its last answer the Chat page showed them
+  // with the thread open while they looked at it, never back. What the persona said in it past
+  // that is unread. A chat keeps 0: each of its threads is read on its own.
   readSeq Int     @default(0)
   // Which harness last ran a turn on the thread, by the harness's id (@proxy/backends/harness),
   // kept with the session so one harness is never given another's; null for a thread no harness

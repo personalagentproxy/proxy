@@ -419,21 +419,32 @@ function lastActive(persona: PersonaRow & {lastMessage: LastMessage | null}): Da
 	return persona.lastMessage?.createdAt ?? persona.createdAt;
 }
 
-/** The persona's last answer in a member's chat with it, and whether they haven't seen it. */
+/**
+ * The last answer of one of a chat's threads the member hasn't seen, by the thread, and whether the
+ * thread's turn has ended, as against one at work still.
+ */
+export type UnreadThread = {threadId: string; answer: LastAnswer; ended: boolean};
+
+/**
+ * The persona's last answer in a member's chat with it, across its threads, and each of the
+ * chat's threads whose last answer they haven't seen, the oldest first.
+ */
 export type ChatAnswerRow = {
 	personaId: string;
 	personaName: string;
 	answer: LastAnswer;
-	unread: boolean;
+	unread: UnreadThread[];
 };
 
 /**
  * The persona's last answer in each of the member's chats that has one, across the chat and its
- * threads, and whether it is unread; one query, and nothing made, for what is asked every so
- * often, but for a thread an alert opened that is archived, as its agent dismissed it, which told
- * the member nothing. Each thread's last answer is found on its own, from the newest entry back by the
- * `(threadId, seq)` index, so a long one is not read whole for it, and the chat's is the latest of
- * those: the entries' `seq` runs across every thread, as the read marker does.
+ * threads, with each thread whose last answer is past its read marker, and whether its turn is
+ * over, a thread at work being one with a turn to run or any job due, as `threadState` reads its
+ * jobs; but for a thread an alert opened that is archived, as its agent dismissed it, which told the
+ * member nothing. One query, and nothing made, for what is asked every so often. Each thread's last
+ * answer is found on its own, from the newest entry back by the `(threadId, seq)` index, so a long
+ * one is not read whole for it, and the chat's is the latest of those: the entries' `seq` runs
+ * across every thread.
  */
 export async function listAnswers(
 	orgId: string,
@@ -445,18 +456,28 @@ export async function listAnswers(
 				Array<{
 					personaId: string;
 					personaName: string;
+					threadId: string;
 					id: string;
 					text: string;
 					unread: boolean;
+					working: boolean;
+					latest: boolean;
 				}>
 			>`
-				SELECT t."personaId", p."name" AS "personaName", e."id", e."text",
-					e."seq" > t."readSeq" AS "unread"
-				FROM "AgentThread" AS t
-				JOIN "Persona" AS p ON p."id" = t."personaId"
-				CROSS JOIN LATERAL (
-					SELECT last."id", last."seq", last."text"
-					FROM "AgentThread" AS c
+				SELECT "personaId", "personaName", "threadId", "id", "text", "unread", "working",
+					"rank" = 1 AS "latest"
+				FROM (
+					SELECT t."personaId", p."name" AS "personaName", c."id" AS "threadId", last."id",
+						last."seq", last."text", last."seq" > c."readSeq" AS "unread",
+						EXISTS (
+							SELECT 1 FROM "AgentJob" AS job
+							WHERE job."threadId" = c."id" AND job."status" IN ('queued', 'running')
+								AND (job."kind" = 'inference' OR job."runAt" <= now() AT TIME ZONE 'UTC')
+						) AS "working",
+						row_number() OVER (PARTITION BY t."id" ORDER BY last."seq" DESC) AS "rank"
+					FROM "AgentThread" AS t
+					JOIN "Persona" AS p ON p."id" = t."personaId"
+					JOIN "AgentThread" AS c ON ${inChatSql(Prisma.sql`t."id"`, Prisma.raw('c'))}
 					CROSS JOIN LATERAL (
 						SELECT "id", "seq", "text"
 						FROM "AgentEntry"
@@ -464,22 +485,34 @@ export async function listAnswers(
 						ORDER BY "seq" DESC
 						LIMIT 1
 					) AS last
-					WHERE ${inChatSql(Prisma.sql`t."id"`, Prisma.raw('c'))}
+					WHERE t."orgId" = ${orgId} AND t."userId" = ${userId} AND t."parentThreadId" IS NULL
 						AND NOT (c."openedByAlert" AND c."archived")
-					ORDER BY last."seq" DESC
-					LIMIT 1
-				) AS e
-				WHERE t."orgId" = ${orgId} AND t."userId" = ${userId} AND t."parentThreadId" IS NULL
+				) AS answered
+				WHERE "rank" = 1 OR "unread"
+				ORDER BY "seq" ASC
 			`,
 		)
-	).map((rows) =>
-		rows.map(({personaId, personaName, id, text, unread}) => ({
-			personaId,
-			personaName,
-			answer: {id, text},
-			unread,
-		})),
-	);
+	).map((rows) => {
+		const chats = new Map<string, ChatAnswerRow>();
+		const unread = new Map<string, UnreadThread[]>();
+		for (const row of rows) {
+			const answer = {id: row.id, text: row.text};
+			if (row.unread) {
+				unread.set(row.personaId, [
+					...(unread.get(row.personaId) ?? []),
+					{threadId: row.threadId, answer, ended: !row.working},
+				]);
+			}
+			if (row.latest) {
+				const {personaId, personaName} = row;
+				chats.set(personaId, {personaId, personaName, answer, unread: []});
+			}
+		}
+		return [...chats.values()].map((chat) => ({
+			...chat,
+			unread: unread.get(chat.personaId) ?? [],
+		}));
+	});
 }
 
 /**
@@ -652,18 +685,18 @@ export type LastMessage = {kind: 'person' | 'assistant'; text: string; createdAt
 export type LastAnswer = {id: string; text: string};
 
 /**
- * Marks the chat read up to the entry, one of the chat's or of one of its threads, as far as the
- * member was shown it, never back: what the persona said after it stays unread. `Ok(false)` means
- * no such entry in the chat.
+ * Marks the thread of the chat the entry is in read up to it, as far as the member was shown it,
+ * never back: what the persona said in it after stays unread, and the chat's other threads are
+ * read on their own. `Ok(false)` means no such entry in a thread of the chat.
  */
-export async function markChatRead(
+export async function markThreadRead(
 	chatId: string,
 	entryId: string,
 ): Promise<Result<boolean, ApiError>> {
 	return (
 		await wrapDb(
 			() =>
-				db.$executeRaw`UPDATE "AgentThread" AS t SET "readSeq" = GREATEST(t."readSeq", e."seq") FROM "AgentEntry" AS e JOIN "AgentThread" AS c ON c."id" = e."threadId" WHERE t."id" = ${chatId} AND t."parentThreadId" IS NULL AND e."id" = ${entryId} AND ${inChatSql(Prisma.sql`t."id"`, Prisma.raw('c'))}`,
+				db.$executeRaw`UPDATE "AgentThread" AS c SET "readSeq" = GREATEST(c."readSeq", e."seq") FROM "AgentEntry" AS e WHERE e."id" = ${entryId} AND c."id" = e."threadId" AND c."parentThreadId" = ${chatId}`,
 		)
 	).map((count) => count > 0);
 }

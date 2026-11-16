@@ -78,7 +78,6 @@ import {useChatDraft} from '@/hooks/use-chat-draft';
 import {FROM_COMMAND_BAR} from '@/lib/command-bar';
 import {useLastLoaded, useLoaded} from '@/hooks/use-loaded';
 import {rememberedPersonaList} from '@/lib/persona-list';
-import {useInView} from '@/hooks/use-in-view';
 import {useListMotion} from '@/hooks/use-list-motion';
 import {useOrgSlug} from '@/hooks/use-org';
 import {usePoll} from '@/hooks/use-poll';
@@ -184,7 +183,13 @@ function PersonaList({
 	const unread = useUnread();
 	const [hovered, setHovered] = useState<string | null>(null);
 	const list = useListMotion<HTMLDivElement>();
-	// Whether the persona said something the person hasn't seen, as the provider has it.
+	// How many of the persona's threads ended their turn with an answer the person hasn't opened
+	// them to see, as the chat marks them, the open chat's too; and, with none, whether a thread at
+	// work said something they haven't seen, but in the chat open, where it shows.
+	const markedOf = (persona: ChatPersona) =>
+		unread.answers
+			?.find((answer) => answer.personaId === persona.id)
+			?.unread.filter((thread) => thread.ended).length ?? 0;
 	const isUnread = (persona: ChatPersona) =>
 		persona.id !== current && unread.unreadIds.has(persona.id);
 	const rows = personas
@@ -213,7 +218,8 @@ function PersonaList({
 				)}
 				<ul className="flex flex-col gap-0.5">
 					{rows.map(({persona, last, draft}) => {
-						const fresh = isUnread(persona);
+						const marked = markedOf(persona);
+						const fresh = marked > 0 || isUnread(persona);
 						const lit = persona.id === current;
 						const row = (
 							<Link
@@ -269,7 +275,16 @@ function PersonaList({
 												</>
 											)}
 										</span>
-										{fresh && (
+										{marked > 0 && (
+											<span
+												role="status"
+												aria-label={`${marked} unread`}
+												className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-primary px-1 text-[10px] leading-none font-medium text-primary-foreground"
+											>
+												{marked}
+											</span>
+										)}
+										{marked === 0 && fresh && (
 											<span
 												role="status"
 												aria-label="Unread"
@@ -875,7 +890,9 @@ function Opener({thread, open}: {thread: ChatThread; open: boolean}) {
 // One thread in the chat, opening it beside the chat: where it stands, what opened it, where it
 // stands in a sentence, or, without a current one, the start of the latest thing the persona said
 // in it, how many messages it holds with when the last came, and, where it waits for the person,
-// the check after that which says it is done, or, once it is done, the button that archives it. The one open has a band behind it, the width of the chat. The
+// the check after that which says it is done, or, once it is done, the button that archives it;
+// a mark beside where it stands where its turn ended with an answer the person hasn't opened it
+// to see. The one open has a band behind it, the width of the chat. The
 // whole of it is a link, under what it shows, so the files in what opened it are still links of
 // their own, and the button is a button, opening nothing; one just sent, which the server has yet
 // to open, has no address to link to (`to` null), and opens nothing until it has. It is drawn
@@ -885,24 +902,23 @@ const ThreadItem = memo(function ThreadItem({
 	to,
 	open,
 	fresh,
+	unread,
 	onDone,
 	onArchive,
-	rowRef,
 }: {
 	thread: ChatThread;
 	to: string | null;
 	open: boolean;
 	fresh: boolean;
+	// Whether its turn ended with an answer the person hasn't opened it to see.
+	unread: boolean;
 	onDone: (thread: ChatThread) => void;
 	onArchive: (thread: ChatThread) => void;
-	// Given the row's element where the chat wants to know whether it is in view.
-	rowRef?: (row: HTMLDivElement | null) => void;
 }) {
 	const said = thread.summary ?? thread.latest;
 	const count = `${thread.messageCount} ${thread.messageCount === 1 ? 'message' : 'messages'}`;
 	return (
 		<div
-			ref={rowRef}
 			data-enter={fresh ? 'rise' : undefined}
 			className={cn('relative py-5.5', open && OPEN_BAND)}
 		>
@@ -915,10 +931,26 @@ const ThreadItem = memo(function ThreadItem({
 				/>
 			)}
 			<div className="page-column pointer-events-none relative mx-auto flex w-full max-w-4xl flex-col items-start gap-2.5 [&_a]:pointer-events-auto [&_button]:pointer-events-auto">
-				<ThreadStatus standing={thread.standing} />
+				<span className="flex items-center gap-2">
+					<ThreadStatus standing={thread.standing} />
+					{unread && (
+						<span
+							role="status"
+							aria-label="Unread"
+							className="size-2 shrink-0 rounded-full bg-primary"
+						/>
+					)}
+				</span>
 				<Opener thread={thread} open={open} />
 				{said !== null && (
-					<p className="line-clamp-2 max-w-[44rem] text-sm leading-relaxed">{said}</p>
+					<p
+						className={cn(
+							'line-clamp-2 max-w-[44rem] text-sm leading-relaxed',
+							unread && 'font-medium',
+						)}
+					>
+						{said}
+					</p>
 				)}
 				<div className="flex h-5 items-center gap-1">
 					<p className="text-xs text-muted-foreground">
@@ -1027,27 +1059,31 @@ const Chat = memo(function Chat({
 		immediate: false,
 	});
 
-	// The persona's last answer in the chat, as the provider last asked, is shown where it is a
-	// listed thread's latest answer and that thread's row is in view, which it isn't while a thread
-	// has the page's width, as on a narrow window, or scrolled out of the list; or among what the
-	// open thread says. The provider is told which chat the page shows, and that answer once it is
-	// shown: while the person looks at it, it is neither counted nor notified of, and is read up to
-	// that answer.
+	// The provider is told which chat the page shows, and, with a thread open, the thread's unread
+	// answer, as the provider last asked, once the thread shows it: while the person looks at it,
+	// the chat is neither counted nor notified of, and the thread is read up to that answer. The
+	// chat's other threads are read as each is opened.
 	const {setViewing, answers} = useUnread();
-	const answer = answers?.find((candidate) => candidate.personaId === personaId)?.answer ?? null;
-	const [answerRow, setAnswerRow] = useState<HTMLDivElement | null>(null);
-	const answerRowInView = useInView(answerRow);
-	const answerShown =
-		answer !== null &&
-		((answerRowInView && threads.some((thread) => thread.latestAnswerId === answer.id)) ||
-			(fresher?.messages.some((message) => message.id === answer.id) ?? false));
-	const answerId = answerShown ? answer.id : null;
+	const chatAnswers = answers?.find((candidate) => candidate.personaId === personaId) ?? null;
+	const openUnread = chatAnswers?.unread.find((one) => one.threadId === threadId)?.answer ?? null;
+	const answerId =
+		openUnread !== null && fresher?.messages.some((message) => message.id === openUnread.id)
+			? openUnread.id
+			: null;
 	useEffect(() => {
-		setViewing({personaId, answerId});
+		setViewing({personaId, threadId, answerId});
 		return () => {
 			setViewing(null);
 		};
-	}, [setViewing, personaId, answerId]);
+	}, [setViewing, personaId, threadId, answerId]);
+
+	// The threads whose turn ended with an answer the person hasn't opened them to see, as a
+	// notification tells of them: each is marked until they do. The one open is read in a moment.
+	const marked = new Set(
+		(chatAnswers?.unread ?? [])
+			.filter((one) => one.ended && one.threadId !== threadId)
+			.map((one) => one.threadId),
+	);
 
 	// The list is read with the page: when a chat's last answer changes, as the provider asks every
 	// so often, the list is read again, so the thread it came in says it here, and a row marked
@@ -1091,7 +1127,6 @@ const Chat = memo(function Chat({
 			summary: null,
 			latest: null,
 			latestEntryId: null,
-			latestAnswerId: null,
 			messageCount: 1,
 			lastMessageAt: at,
 			createdAt: at,
@@ -1143,13 +1178,9 @@ const Chat = memo(function Chat({
 										to={id === null ? null : `/${org}/chat/${personaId}/threads/${id}`}
 										open={id !== null && id === threadId}
 										fresh={!opened.has(key)}
+										unread={id !== null && marked.has(id)}
 										onDone={onDone}
 										onArchive={onArchive}
-										rowRef={
-											answer !== null && thread.latestAnswerId === answer.id
-												? setAnswerRow
-												: undefined
-										}
 									/>
 								</MessageScrollerItem>
 							);

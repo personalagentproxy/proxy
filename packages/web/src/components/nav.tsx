@@ -163,8 +163,8 @@ export function AppSidebar() {
 														<ChevronRightIcon className="ml-auto text-muted-foreground opacity-0 group-hover/menu-button:opacity-100 group-focus-visible/menu-button:opacity-100 group-data-active/menu-button:opacity-100" />
 													)}
 												</SidebarMenuButton>
-												{destination.to === CHAT && unread.unreadIds.size > 0 && (
-													<UnreadBadge count={unread.unreadIds.size} />
+												{destination.to === CHAT && unread.count > 0 && (
+													<UnreadBadge count={unread.count} />
 												)}
 											</SidebarMenuItem>
 										))}

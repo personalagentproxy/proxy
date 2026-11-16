@@ -65,7 +65,7 @@ export type ChatStore = Pick<
 	| 'listDraftAttachments'
 	| 'addDraftAttachment'
 	| 'removeDraftAttachment'
-	| 'markChatRead'
+	| 'markThreadRead'
 	| 'getChatDraft'
 	| 'saveChatDraft'
 	| 'openThread'
@@ -199,7 +199,7 @@ function handleListPersonasRoute(store: ChatStore, harnesses: Harnesses, request
 	});
 }
 
-/** `GET /api/orgs/:org/chat/answers`: the persona's last answer in each of the viewer's chats that has one, and whether they haven't seen it; read only, for every page to ask every so often. */
+/** `GET /api/orgs/:org/chat/answers`: the persona's last answer in each of the viewer's chats that has one, and each of its threads whose last answer they haven't seen, and whether its turn has ended; read only, for every page to ask every so often. */
 function handleListAnswersRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<z.infer<typeof chatAnswersSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
@@ -209,7 +209,11 @@ function handleListAnswersRoute(store: ChatStore, request: AuthenticatedRequest)
 				personaId,
 				name: personaName,
 				answer: {id: answer.id, text: preview(answer.text)},
-				unread,
+				unread: unread.map((one) => ({
+					threadId: one.threadId,
+					answer: {id: one.answer.id, text: preview(one.answer.text)},
+					ended: one.ended,
+				})),
 			})),
 		};
 	});
@@ -319,7 +323,7 @@ function handleSaveDraftRoute(store: ChatStore, request: AuthenticatedRequest): 
 	});
 }
 
-/** `POST /api/orgs/:org/chat/personas/:personaId/read` with `{entryId}`: the viewer was shown their chat with the persona up to that answer, in one of its threads; what the persona said after it stays unread. */
+/** `POST /api/orgs/:org/chat/personas/:personaId/read` with `{entryId}`: the viewer was shown that answer in one of the threads of their chat with the persona, which is read up to it; what the persona said in it after, and in the chat's other threads, stays unread. */
 function handleMarkReadRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
@@ -327,7 +331,7 @@ function handleMarkReadRoute(store: ChatStore, request: AuthenticatedRequest): P
 		const persona = $(await requirePersona(store, viewer, request));
 		// Read, never begun: a viewer without a chat has no answer in it to have seen.
 		const chat = $(await store.getMemberChat(persona.id, viewer.userId));
-		if (!chat || !$(await store.markChatRead(chat.id, entryId))) {
+		if (!chat || !$(await store.markThreadRead(chat.id, entryId))) {
 			return $(Err(ApiErr.notFound('entry', entryId)));
 		}
 	});
@@ -393,14 +397,12 @@ function standingPending(thread: ChatThreadRow, now: Date): boolean {
 
 // A thread as the chat lists it, from what it shows: where it stands, and its summary while it is
 // current; what opened it, the start of the latest
-// thing the persona said and the entry it comes from, the persona's latest answer in words, as
-// `GET chat/answers` has a chat's last, how many messages it holds and when the last came, or,
-// with none, when it was opened.
+// thing the persona said and the entry it comes from, how many messages it holds and when the
+// last came, or, with none, when it was opened.
 function toChatThread(thread: ChatThreadRow, shown: Shown[], now: Date): ChatThread {
 	const messages = shown.map(({message}) => message);
 	const first = messages[0];
 	const latest = shown.findLast(({message}) => message.kind === 'assistant');
-	const answer = shown.findLast(({entryId, message}) => message.kind === 'assistant' && message.id === entryId);
 	const opener = first?.kind === 'person' ? {kind: 'person' as const, text: first.text, attachments: first.attachments} : first?.kind === 'event' ? {kind: 'event' as const, text: first.text} : null;
 	const {state} = thread;
 	return {
@@ -413,7 +415,6 @@ function toChatThread(thread: ChatThreadRow, shown: Shown[], now: Date): ChatThr
 		summary: currentSummary(thread),
 		latest: latest ? preview(latest.message.text) : null,
 		latestEntryId: latest?.entryId ?? null,
-		latestAnswerId: answer?.entryId ?? null,
 		messageCount: messages.length,
 		lastMessageAt: messages.at(-1)?.at ?? thread.createdAt.toISOString(),
 		createdAt: thread.createdAt.toISOString(),

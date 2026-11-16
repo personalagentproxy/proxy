@@ -24,7 +24,7 @@ import {
 	listPersonas,
 	listThreadsWithoutSummary,
 	lockThread,
-	markChatRead,
+	markThreadRead,
 	markThreadDone,
 	openThread,
 	replyInThread,
@@ -412,7 +412,7 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		expect(unwrap(await listChatThreads(chat.id, [])).map((one) => one.id)).toContain(thread.id);
 	});
 
-	test('the chat’s last message, its last answer and its read marker take its threads in', async () => {
+	test('the chat’s last message and its last answer take its threads in, and each thread is unread, and read, on its own', async () => {
 		const persona = chat.personaId;
 		const lastMessage = async () =>
 			unwrap(await listPersonas(orgId, userId)).find((one) => one.id === persona)?.lastMessage;
@@ -435,13 +435,42 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		);
 		const answer = unwrap(await listEntries(thread.id)).at(-1);
 		expect(await lastMessage()).toMatchObject({kind: 'assistant', text: 'Dana did.'});
-		expect(await lastAnswer()).toMatchObject({
-			answer: {id: answer?.id, text: 'Dana did.'},
-			unread: true,
-		});
+		const dana = {id: answer?.id ?? '', text: 'Dana did.'};
+		expect((await lastAnswer())?.answer).toEqual(dana);
+		// The thread is unread, its turn ended with it, as the chat's earlier threads are with theirs.
+		const unreadIn = async (id: string) =>
+			(await lastAnswer())?.unread.find((one) => one.threadId === id) ?? null;
+		expect(await unreadIn(thread.id)).toEqual({threadId: thread.id, answer: dana, ended: true});
 
-		expect(unwrap(await markChatRead(chat.id, answer?.id ?? ''))).toBe(true);
-		expect((await lastAnswer())?.unread).toBe(false);
+		// A thread's turn has ended while it sleeps until later, and not while a job of it is due.
+		const sleep = await db.agentJob.create({
+			data: {threadId: thread.id, kind: 'wake', runAt: new Date(Date.now() + 60 * 60 * 1000)},
+		});
+		expect((await unreadIn(thread.id))?.ended).toBe(true);
+		await db.agentJob.update({where: {id: sleep.id}, data: {runAt: new Date(Date.now() - 1000)}});
+		expect((await unreadIn(thread.id))?.ended).toBe(false);
+		await db.agentJob.update({where: {id: sleep.id}, data: {status: 'done'}});
+		expect((await unreadIn(thread.id))?.ended).toBe(true);
+
+		// Another thread at work says something newer: it is the chat's last answer, unread with its
+		// turn under way, and read on its own; the first thread's is still unread, apart.
+		const other = await open('Find the October invoices');
+		const looking = await db.agentEntry.create({
+			data: {threadId: other.id, kind: 'assistant', text: 'Looking.'},
+		});
+		expect((await lastAnswer())?.answer).toEqual({id: looking.id, text: 'Looking.'});
+		expect(await unreadIn(other.id)).toEqual({
+			threadId: other.id,
+			answer: {id: looking.id, text: 'Looking.'},
+			ended: false,
+		});
+		expect(unwrap(await markThreadRead(chat.id, looking.id))).toBe(true);
+		expect(await unreadIn(other.id)).toBeNull();
+		expect((await unreadIn(thread.id))?.answer).toEqual(dana);
+		await db.agentEntry.delete({where: {id: looking.id}});
+
+		expect(unwrap(await markThreadRead(chat.id, answer?.id ?? ''))).toBe(true);
+		expect(await unreadIn(thread.id)).toBeNull();
 
 		// An entry of another chat's is not this chat's to be read up to.
 		const elsewhere = await db.agentThread.create({
@@ -450,7 +479,7 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		const elsewhereAnswer = await db.agentEntry.create({
 			data: {threadId: elsewhere.id, kind: 'assistant', text: 'Found them.'},
 		});
-		expect(unwrap(await markChatRead(chat.id, elsewhereAnswer.id))).toBe(false);
+		expect(unwrap(await markThreadRead(chat.id, elsewhereAnswer.id))).toBe(false);
 		await db.agentThread.delete({where: {id: elsewhere.id}});
 		expect((await lastAnswer())?.answer.text).toBe('Dana did.');
 	});
