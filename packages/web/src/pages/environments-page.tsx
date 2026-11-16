@@ -350,7 +350,7 @@ function EnvironmentList({org}: {org: string}) {
 												<span className="rounded-md bg-muted px-2 py-1 text-xs">
 													{item.project}
 												</span>
-												<span className="mt-1 block text-xs text-muted-foreground">
+												<span className="pt-1 block text-xs text-muted-foreground">
 													Development
 												</span>
 											</td>
@@ -403,10 +403,12 @@ function EnvironmentList({org}: {org: string}) {
 						)}
 						{data && filtered.length === 0 && (
 							<div className="py-12 text-center">
-								<KeyRoundIcon className="mx-auto mb-3 size-7 text-muted-foreground" />
+								<div className="flex justify-center pb-3">
+									<KeyRoundIcon className="size-7 text-muted-foreground" />
+								</div>
 								<p>{search ? 'No matching environments.' : 'No keys shared with you yet.'}</p>
 								{data.canManage && !search && (
-									<p className="mt-2 text-sm text-muted-foreground">
+									<p className="pt-2 text-sm text-muted-foreground">
 										Add a key to get started. Its service is detected from the variable name.
 									</p>
 								)}
@@ -580,7 +582,7 @@ function EnvironmentList({org}: {org: string}) {
 													<label key={k.name} className="flex items-start gap-3 text-sm">
 														<input
 															type="checkbox"
-															className="mt-1"
+															className="shrink-0"
 															checked={allowed.includes(k.name)}
 															onChange={(e) =>
 																setAllowed((previous) =>
@@ -632,7 +634,7 @@ function EnvironmentList({org}: {org: string}) {
 													· {event.method} · {event.allowed ? 'Allowed' : 'Denied'}
 												</span>
 											</p>
-											<p className="mt-1 break-all text-xs text-muted-foreground">
+											<p className="pt-1 break-all text-xs text-muted-foreground">
 												{event.names.join(', ')}
 											</p>
 										</div>
@@ -681,7 +683,7 @@ function EnvironmentList({org}: {org: string}) {
 									required
 									disabled={editor.existing}
 									className={input}
-									placeholder="my-project-development"
+									placeholder="example-development"
 									pattern="[a-z0-9][a-z0-9-]{0,63}"
 									value={editor.project}
 									onChange={(e) => setEditor({...editor, project: e.target.value})}
