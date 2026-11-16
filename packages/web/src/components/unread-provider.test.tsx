@@ -15,8 +15,19 @@ const fetchMock = mock<(input: string, init?: RequestInit) => Promise<Response>>
 const LIST = '/api/orgs/acme/chat/answers';
 const READ_GENERAL = '/api/orgs/acme/chat/personas/general/read';
 
-function persona(id: string, unread: boolean): ChatAnswer {
-	return {personaId: id, name: id, answer: {id: `${id}-answer`, text: 'Done.'}, unread};
+// A chat whose last answer is the one given, or its own, which its one thread's turn ended with,
+// unread or read.
+function persona(
+	id: string,
+	unread: boolean,
+	answer = {id: `${id}-answer`, text: 'Done.'},
+): ChatAnswer {
+	return {
+		personaId: id,
+		name: id,
+		answer,
+		unread: unread ? [{threadId: `${id}-thread`, answer, ended: true}] : [],
+	};
 }
 
 // The api: the last answers as `listed` has them, and a read that lands, or fails where `read`
@@ -44,14 +55,20 @@ function Consumer() {
 	const unread = useUnread();
 	return (
 		<div>
-			<span data-testid="count">{unread.unreadIds.size}</span>
+			<span data-testid="count">{unread.count}</span>
 			<span data-testid="ids">{[...unread.unreadIds].join(',')}</span>
 			<span data-testid="answers">
 				{(unread.answers ?? []).map(({answer}) => answer.id).join(',')}
 			</span>
 			<button
 				type="button"
-				onClick={() => unread.setViewing({personaId: 'general', answerId: 'general-answer'})}
+				onClick={() =>
+					unread.setViewing({
+						personaId: 'general',
+						threadId: 'general-thread',
+						answerId: 'general-answer',
+					})
+				}
 			>
 				View General
 			</button>
@@ -134,11 +151,20 @@ afterEach(() => {
 });
 
 describe('UnreadProvider', () => {
-	test('asks for the conversations, counts those with something unread, in the title and on the badge, less the one looked at, which it reads up to the answer shown', async () => {
+	test('asks for the conversations, counts their threads ended unread, in the title and on the badge, the one looked at too, and reads the thread open in it up to the answer shown', async () => {
 		let generalRead = false;
 		const bodies: string[] = [];
+		const paid = {threadId: 'finance-2', answer: {id: 'paid', text: 'Paid.'}, ended: true};
+		const looking = {
+			threadId: 'finance-3',
+			answer: {id: 'looking', text: 'Looking.'},
+			ended: false,
+		};
 		serve(
-			() => [persona('general', !generalRead), persona('finance', true)],
+			() => [
+				persona('general', !generalRead),
+				{...persona('finance', true), unread: [...persona('finance', true).unread, paid, looking]},
+			],
 			(body) => {
 				bodies.push(body);
 				generalRead = true;
@@ -146,40 +172,36 @@ describe('UnreadProvider', () => {
 		);
 		renderProvider();
 
+		// General's one thread and Finance's two that ended; not Finance's at work.
 		await waitFor(() => {
-			expect(screen.getByTestId('count').textContent).toBe('2');
+			expect(screen.getByTestId('count').textContent).toBe('3');
 		});
 		expect(fetchMock).toHaveBeenCalledWith(LIST, expect.anything());
 		expect(screen.getByTestId('ids').textContent).toBe('general,finance');
-		expect(document.title).toBe('(2) Personal Agent Proxy');
-		expect(setBadge).toHaveBeenLastCalledWith(2);
+		expect(document.title).toBe('(3) Personal Agent Proxy');
+		expect(setBadge).toHaveBeenLastCalledWith(3);
 
+		// Looked at, General is counted still, until its thread is read.
 		act(() => {
 			screen.getByRole('button', {name: 'View General'}).click();
 		});
-		expect(screen.getByTestId('count').textContent).toBe('1');
-		expect(screen.getByTestId('ids').textContent).toBe('finance');
+		expect(screen.getByTestId('count').textContent).toBe('3');
 		await waitFor(() => {
 			expect(bodies).toEqual([JSON.stringify({entryId: 'general-answer'})]);
 		});
 
-		// Once the read lands the conversations are asked about again, so leaving leaves it read.
+		// Once the read lands the conversations are asked about again.
 		await waitFor(() => {
-			expect(fetchMock.mock.calls.filter(([url]) => url === LIST)).toHaveLength(2);
+			expect(screen.getByTestId('count').textContent).toBe('2');
 		});
-		act(() => {
-			screen.getByRole('button', {name: 'Leave'}).click();
-		});
-		await waitFor(() => {
-			expect(screen.getByTestId('ids').textContent).toBe('finance');
-		});
-		expect(document.title).toBe('(1) Personal Agent Proxy');
+		expect(screen.getByTestId('ids').textContent).toBe('finance');
+		expect(document.title).toBe('(2) Personal Agent Proxy');
 		// The badge goes from one count to the next, never to none between.
-		expect(setBadge.mock.calls.map(([count]) => count)).toEqual([0, 2, 1]);
+		expect(setBadge.mock.calls.map(([count]) => count)).toEqual([0, 3, 2]);
 		expect(readCalls()).toHaveLength(1);
 	});
 
-	test('reads nothing, and counts the conversation shown, while the window is not the one the person is in', async () => {
+	test('reads nothing while the window is not the one the person is in', async () => {
 		renderProvider();
 		await waitFor(() => {
 			expect(screen.getByTestId('count').textContent).toBe('2');
@@ -192,14 +214,13 @@ describe('UnreadProvider', () => {
 		act(() => {
 			screen.getByRole('button', {name: 'View General'}).click();
 		});
-		expect(screen.getByTestId('count').textContent).toBe('2');
+		await new Promise((resolve) => setTimeout(resolve, 50));
 		expect(readCalls()).toHaveLength(0);
 
 		document.hasFocus = () => true;
 		act(() => {
 			window.dispatchEvent(new Event('focus'));
 		});
-		expect(screen.getByTestId('count').textContent).toBe('1');
 		await waitFor(() => {
 			expect(readCalls()).toHaveLength(1);
 		});
@@ -317,8 +338,8 @@ describe('UnreadProvider', () => {
 		let answers = {general: 'general-1', finance: 'finance-1'};
 		let financeRead = false;
 		serve(() => [
-			{...persona('general', true), answer: {id: answers.general, text: 'Filed.'}},
-			{...persona('finance', !financeRead), answer: {id: answers.finance, text: 'Paid.'}},
+			persona('general', true, {id: answers.general, text: 'Filed.'}),
+			persona('finance', !financeRead, {id: answers.finance, text: 'Paid.'}),
 		]);
 		renderProvider();
 		await waitFor(() => {
@@ -345,7 +366,7 @@ describe('UnreadProvider', () => {
 			title: 'general',
 			body: 'Filed.',
 			path: '/acme/chat/general',
-			tag: 'general',
+			tag: 'general-thread',
 		});
 
 		comeBack();
@@ -355,13 +376,69 @@ describe('UnreadProvider', () => {
 		expect(notifyDesktop).toHaveBeenCalledTimes(1);
 	});
 
-	test('tells of an answer the page looked at has not shown yet, once the person looks away', async () => {
+	test('tells of each thread once its turn ends, by what it said last, however much newer another thread at work says', async () => {
 		localStorage.setItem('proxy-notifications', 'on');
-		let general = 'general-answer';
-		serve(
-			() => [{...persona('general', true), answer: {id: general, text: 'Filed.'}}],
-			() => false,
-		);
+		// The chat's last answer, and its threads unread.
+		let latest = {id: 'b-0', text: 'Earlier.'};
+		let unread: ChatAnswer['unread'] = [];
+		serve(() => [{...persona('general', false, latest), unread}]);
+		renderProvider();
+		await waitFor(() => {
+			expect(listCalls()).toHaveLength(1);
+		});
+
+		// One thread ends its turn as the other, at work, says something newer.
+		const paid = {threadId: 'thread-a', answer: {id: 'a-1', text: 'Both are paid.'}, ended: true};
+		latest = {id: 'b-1', text: 'Looking.'};
+		unread = [paid, {threadId: 'thread-b', answer: latest, ended: false}];
+		comeBack();
+		await waitFor(() => {
+			expect(screen.getByTestId('answers').textContent).toBe('b-1');
+		});
+		expect(notifyDesktop).not.toHaveBeenCalled();
+
+		// It is told of once it has stayed unread a moment, while the other says more.
+		latest = {id: 'b-2', text: 'Checking the second.'};
+		unread = [paid, {threadId: 'thread-b', answer: latest, ended: false}];
+		comeBack();
+		await waitFor(() => {
+			expect(notifyDesktop).toHaveBeenCalledTimes(1);
+		});
+		expect(notifyDesktop).toHaveBeenCalledWith({
+			title: 'general',
+			body: 'Both are paid.',
+			path: '/acme/chat/general',
+			tag: 'thread-a',
+		});
+
+		// The other ends its turn: what it said last is told of, apart, and nothing it said before.
+		latest = {id: 'b-3', text: 'Filed the receipt.'};
+		unread = [paid, {threadId: 'thread-b', answer: latest, ended: true}];
+		comeBack();
+		await waitFor(() => {
+			expect(listCalls()).toHaveLength(4);
+		});
+		comeBack();
+		await waitFor(() => {
+			expect(notifyDesktop).toHaveBeenCalledTimes(2);
+		});
+		expect(notifyDesktop).toHaveBeenLastCalledWith({
+			title: 'general',
+			body: 'Filed the receipt.',
+			path: '/acme/chat/general',
+			tag: 'thread-b',
+		});
+		comeBack();
+		await waitFor(() => {
+			expect(listCalls()).toHaveLength(6);
+		});
+		expect(notifyDesktop).toHaveBeenCalledTimes(2);
+	});
+
+	test('tells of no thread that ends while the person looks at its conversation, where they see it end, not once they look away', async () => {
+		localStorage.setItem('proxy-notifications', 'on');
+		let unread: ChatAnswer['unread'] = [];
+		serve(() => [{...persona('general', false), unread}]);
 		renderProvider();
 		await waitFor(() => {
 			expect(listCalls()).toHaveLength(1);
@@ -370,24 +447,30 @@ describe('UnreadProvider', () => {
 			screen.getByRole('button', {name: 'View General'}).click();
 		});
 
-		// A newer answer than the page shows comes while the person looks: nothing is told yet.
-		general = 'general-2';
+		// Another thread than the one open ends while the person looks: it stays unread, untold.
+		unread = [{threadId: 'thread-a', answer: {id: 'a-1', text: 'Filed.'}, ended: true}];
 		comeBack();
 		await waitFor(() => {
 			expect(listCalls()).toHaveLength(2);
 		});
-		expect(notifyDesktop).not.toHaveBeenCalled();
+		comeBack();
+		await waitFor(() => {
+			expect(listCalls()).toHaveLength(3);
+		});
 
-		// The person looks away before the page shows it: it is told of.
 		act(() => {
 			screen.getByRole('button', {name: 'Leave'}).click();
 		});
-		moveOn(6000);
 		comeBack();
 		await waitFor(() => {
-			expect(notifyDesktop).toHaveBeenCalledTimes(1);
+			expect(listCalls()).toHaveLength(4);
 		});
-		expect(notifyDesktop).toHaveBeenCalledWith(expect.objectContaining({tag: 'general'}));
+		comeBack();
+		await waitFor(() => {
+			expect(listCalls()).toHaveLength(5);
+		});
+		expect(notifyDesktop).not.toHaveBeenCalled();
+		expect(screen.getByTestId('ids').textContent).toBe('general');
 	});
 
 	test('takes the count off the badge when it goes, as when the person signs out', async () => {

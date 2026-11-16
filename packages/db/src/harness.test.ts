@@ -28,7 +28,7 @@ import {
 	listEntries,
 	listJobEvents,
 	listPersonas,
-	markChatRead,
+	markThreadRead,
 	openThread,
 	removeDraftAttachment,
 	replyInThread,
@@ -277,7 +277,7 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		]);
 	});
 
-	test('the persona’s last answer is unread until the chat is read up to it, never back, and what the person says after it reads nothing', async () => {
+	test('each thread’s last answer is unread until the thread is read up to it, never back, each thread on its own; what the person says after it reads nothing, and its turn is told as ended only once it has', async () => {
 		const persona = unwrap(await ensureFirstPersona(orgId));
 		const lastAnswer = async () =>
 			unwrap(await listAnswers(orgId, userId)).find(
@@ -307,29 +307,58 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 
 		await reply('Anything new?');
 		const first = await answer('worker-r', 'Nothing new.');
-		expect((await lastAnswer())?.unread).toBe(true);
+		expect((await lastAnswer())?.unread).toEqual([
+			{threadId: thread.id, answer: {id: first, text: 'Nothing new.'}, ended: true},
+		]);
 
+		// The reply wakes the thread: its last answer stands, unread, but its turn has not ended.
 		await reply('And now?');
 		expect(await lastAnswer()).toEqual({
 			personaId: persona.id,
 			personaName: persona.name,
 			answer: {id: first, text: 'Nothing new.'},
-			unread: true,
+			unread: [{threadId: thread.id, answer: {id: first, text: 'Nothing new.'}, ended: false}],
 		});
 
 		const second = await answer('worker-r2', 'Still nothing.');
-		expect(unwrap(await markChatRead(chat.id, first))).toBe(true);
-		expect((await lastAnswer())?.unread).toBe(true);
+		expect((await lastAnswer())?.unread).toEqual([
+			{threadId: thread.id, answer: {id: second, text: 'Still nothing.'}, ended: true},
+		]);
+		expect(unwrap(await markThreadRead(chat.id, first))).toBe(true);
+		expect((await lastAnswer())?.unread).toHaveLength(1);
 
-		expect(unwrap(await markChatRead(chat.id, second))).toBe(true);
-		expect((await lastAnswer())?.unread).toBe(false);
-		expect(unwrap(await markChatRead(chat.id, first))).toBe(true);
-		expect((await lastAnswer())?.unread).toBe(false);
+		expect(unwrap(await markThreadRead(chat.id, second))).toBe(true);
+		expect((await lastAnswer())?.unread).toEqual([]);
+		expect(unwrap(await markThreadRead(chat.id, first))).toBe(true);
+		expect((await lastAnswer())?.unread).toEqual([]);
 
-		expect(unwrap(await markChatRead(chat.id, 'no-such-entry'))).toBe(false);
-		expect(unwrap(await markChatRead('no-such-chat', second))).toBe(false);
+		// Another thread of the chat answers: it is the chat's last answer, and read on its own,
+		// the first thread staying read as it was.
+		const other = await db.agentThread.create({
+			data: {
+				orgId,
+				agentId,
+				personaId: persona.id,
+				userId,
+				parentThreadId: chat.id,
+				title: 'Find the receipts',
+			},
+		});
+		const found = await db.agentEntry.create({
+			data: {threadId: other.id, kind: 'assistant', text: 'Found them.'},
+		});
+		expect(await lastAnswer()).toMatchObject({
+			answer: {id: found.id, text: 'Found them.'},
+			unread: [{threadId: other.id, answer: {id: found.id, text: 'Found them.'}, ended: true}],
+		});
+		expect(unwrap(await markThreadRead(chat.id, found.id))).toBe(true);
+		expect((await lastAnswer())?.unread).toEqual([]);
+		await db.agentThread.delete({where: {id: other.id}});
+
+		expect(unwrap(await markThreadRead(chat.id, 'no-such-entry'))).toBe(false);
+		expect(unwrap(await markThreadRead('no-such-chat', second))).toBe(false);
 		// A thread is no chat to be read.
-		expect(unwrap(await markChatRead(thread.id, second))).toBe(false);
+		expect(unwrap(await markThreadRead(thread.id, second))).toBe(false);
 	});
 
 	test('the personas are listed the one last active first: the last thing said in it, or its making before anything was', async () => {

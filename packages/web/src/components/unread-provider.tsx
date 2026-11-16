@@ -9,15 +9,19 @@ import {type Unread, UnreadContext, type Viewing} from '@/hooks/use-unread';
 import {desktopBridge} from '@/lib/desktop';
 import {notify} from '@/lib/notifications';
 
-// What the organization's agents said that the person hasn't seen, as the api keeps it, asked for
-// every so often from every page, when the page comes back into view, and after the person read
-// something: the count on the sidebar's Chat, in the window's title and on the desktop app's
-// badge, the mark on each conversation in Chat's list, and a notification for what came while the
-// person was elsewhere. The Chat page says which conversation it shows, and up to which answer;
-// while the person looks at it, in view and in the window they are in, it is neither counted nor
-// notified of, and that answer is sent as read. An answer is told of once it has stayed unread a
-// moment, asked about again, so a window the person reads it in, another tab or the desktop app,
-// has marked it read first.
+// What the organization's agents said that the person hasn't seen, thread by thread, as the api
+// keeps it, asked for every so often from every page, when the page comes back into view, and
+// after the person read something: the count of threads whose turn ended with an answer the
+// person hasn't opened them to see, the threads the Chat page marks, on the sidebar's Chat, in the
+// window's title and on the desktop app's badge, as on each conversation in Chat's list; the mark
+// on a conversation whose only news is from a thread at work; and a notification for what came
+// while the person was elsewhere: one for each thread whose turn ended with an answer they haven't
+// seen, by what it said last, rather than one at each thing said in it. The Chat page says which
+// conversation it shows, and which thread's answer; while the person looks at it, in view and in
+// the window they are in, the conversation is not notified of, as they see its threads end there,
+// and the answer is sent as read, which reads its thread up to it. A thread's answer is told of
+// once it has stayed unread a moment, asked about again, so a window the person reads it in,
+// another tab or the desktop app, has marked it read first.
 
 const POLL_MS = 20 * 1000;
 const VISIBLE_POLL_GAP_MS = 5 * 1000;
@@ -61,10 +65,10 @@ export function UnreadProvider({children}: {children: ReactNode}) {
 	useEffect(() => {
 		lookingRef.current = looking;
 	}, [looking]);
-	// What each persona was last told of, by the answer: the first poll only sets this, so a page
+	// What each thread was last told of, by the answer: the first poll only sets this, so a page
 	// opened on old news doesn't repeat it, and everything since is told of once.
 	const told = useRef<Map<string, string> | null>(null);
-	// The answers waiting to be told of, by the persona, and when to ask about them again.
+	// The answers waiting to be told of, by the thread, and when to ask about them again.
 	const waiting = useRef(new Map<string, Waiting>());
 	// How long from the poll that found them, each poll's own, so the wait is timed from what the
 	// poll saw rather than from whenever the timer is set.
@@ -90,40 +94,39 @@ export function UnreadProvider({children}: {children: ReactNode}) {
 				resendAfterPoll.current = false;
 				setResends((count) => count + 1);
 			}
-			const unread = listed.filter((answer) => answer.unread);
+			const ended = listed.flatMap(({personaId, name, unread}) =>
+				unread
+					.filter((thread) => thread.ended)
+					.map(({threadId, answer}) => ({personaId, name, threadId, answer})),
+			);
 			const known = told.current;
 			if (!known) {
-				told.current = new Map(unread.map(({personaId, answer}) => [personaId, answer.id]));
+				told.current = new Map(ended.map(({threadId, answer}) => [threadId, answer.id]));
 				return;
 			}
 			const now = Date.now();
 			const looked = lookingRef.current;
 			const nextTold = new Map<string, string>();
 			const nextWaiting = new Map<string, Waiting>();
-			for (const {personaId, name, answer} of unread) {
-				const shown = looked?.personaId === personaId && looked.answerId === answer.id;
-				if (known.get(personaId) === answer.id || shown) {
-					nextTold.set(personaId, answer.id);
+			for (const {personaId, name, threadId, answer} of ended) {
+				// One that ends while the person looks at its conversation they see end there, marked.
+				if (known.get(threadId) === answer.id || looked?.personaId === personaId) {
+					nextTold.set(threadId, answer.id);
 					continue;
 				}
-				// Looked at, but the page hasn't shown the answer yet: it is, and read, in a moment.
-				if (looked?.personaId === personaId) {
-					nextWaiting.set(personaId, {answerId: answer.id, since: now});
-					continue;
-				}
-				const before = waiting.current.get(personaId);
+				const before = waiting.current.get(threadId);
 				const since = before?.answerId === answer.id ? before.since : now;
 				if (now - since < CONFIRM_MS) {
-					nextWaiting.set(personaId, {answerId: answer.id, since});
+					nextWaiting.set(threadId, {answerId: answer.id, since});
 					continue;
 				}
-				nextTold.set(personaId, answer.id);
+				nextTold.set(threadId, answer.id);
 				notify(
 					{
 						title: name,
 						body: answer.text,
 						path: `/${org}/chat/${personaId}`,
-						tag: personaId,
+						tag: threadId,
 						id: answer.id,
 					},
 					(path) => void navigate(path),
@@ -167,18 +170,19 @@ export function UnreadProvider({children}: {children: ReactNode}) {
 		};
 	}, []);
 
-	// The answer the person is looking at is read: sent once the first poll has said whether the
-	// api has it read already, unless it has, and asked about again once it lands. One that failed
-	// to send is sent again after the next poll, unless the api refused it.
+	// The answer the person is looking at is read, and its thread up to it: sent once the first
+	// poll has said whether the api has it read already, unless it has, and asked about again once
+	// it lands. One that failed to send is sent again after the next poll, unless the api refused it.
 	const sent = useRef<string | null>(null);
 	useEffect(() => {
 		if (!enabled || !answers || !looking?.answerId) {
 			return;
 		}
-		const {personaId, answerId} = looking;
-		const known = answers.find((answer) => answer.personaId === personaId);
-		const read = known !== undefined && !known.unread && known.answer.id === answerId;
-		if (read || sent.current === answerId) {
+		const {personaId, threadId, answerId} = looking;
+		const unread = answers
+			.find((answer) => answer.personaId === personaId)
+			?.unread.some((thread) => thread.threadId === threadId && thread.answer.id === answerId);
+		if (!unread || sent.current === answerId) {
 			return;
 		}
 		sent.current = answerId;
@@ -197,17 +201,19 @@ export function UnreadProvider({children}: {children: ReactNode}) {
 	// A notification clicked in the desktop app opens its conversation.
 	useEffect(() => desktopBridge()?.onOpenPath?.((path) => void navigate(path)), [navigate]);
 
-	const lookingAt = looking?.personaId ?? null;
 	const unreadIds = useMemo(
 		() =>
 			new Set(
 				(answers ?? [])
-					.filter((answer) => answer.unread && answer.personaId !== lookingAt)
+					.filter((answer) => answer.unread.length > 0)
 					.map((answer) => answer.personaId),
 			),
-		[answers, lookingAt],
+		[answers],
 	);
-	const count = unreadIds.size;
+	const count = (answers ?? []).reduce(
+		(sum, answer) => sum + answer.unread.filter((thread) => thread.ended).length,
+		0,
+	);
 
 	// The count in the window's title and on the desktop app's badge, while there is one, and
 	// while the provider is there: signed out, the badge has no count.
@@ -231,6 +237,9 @@ export function UnreadProvider({children}: {children: ReactNode}) {
 		[],
 	);
 
-	const value = useMemo<Unread>(() => ({unreadIds, answers, setViewing}), [unreadIds, answers]);
+	const value = useMemo<Unread>(
+		() => ({count, unreadIds, answers, setViewing}),
+		[count, unreadIds, answers],
+	);
 	return <UnreadContext.Provider value={value}>{children}</UnreadContext.Provider>;
 }

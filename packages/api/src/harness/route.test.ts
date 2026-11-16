@@ -192,15 +192,28 @@ describe('the chat routes', () => {
 		});
 	});
 
-	test('list the persona’s last answer in each of the viewer’s chats, on one line, and whether it is unread, making nothing', async () => {
+	test('list the persona’s last answer in each of the viewer’s chats, on one line, and its threads whose last answer is unread, each on one line, with whether its turn ended, making nothing', async () => {
 		const {handleListAnswersRoute} = routes;
-		store.listAnswers.mockResolvedValue(Ok([{personaId: 'persona-1', personaName: 'Finance', answer: {id: 'e9', text: 'Your vault\n has  one entry.'}, unread: true}]));
+		store.listAnswers.mockResolvedValue(
+			Ok([
+				{
+					personaId: 'persona-1',
+					personaName: 'Finance',
+					answer: {id: 'e9', text: 'Your vault\n has  one entry.'},
+					unread: [{threadId: 'thread-2', answer: {id: 'e7', text: 'Paid\n both.'}, ended: true}],
+				},
+			]),
+		);
 
 		const listed = (await handleListAnswersRoute(request())).unwrap();
 
 		expect(store.listAnswers).toHaveBeenCalledWith('org-1', 'user-1');
 		expect(store.ensureFirstPersona).not.toHaveBeenCalled();
-		expect(listed).toEqual({answers: [{personaId: 'persona-1', name: 'Finance', answer: {id: 'e9', text: 'Your vault has one entry.'}, unread: true}]});
+		expect(listed).toEqual({
+			answers: [
+				{personaId: 'persona-1', name: 'Finance', answer: {id: 'e9', text: 'Your vault has one entry.'}, unread: [{threadId: 'thread-2', answer: {id: 'e7', text: 'Paid both.'}, ended: true}]},
+			],
+		});
 	});
 
 	test('a viewer who sees no persona gets the organization’s General one, every member’s, on their first listing', async () => {
@@ -404,16 +417,16 @@ describe('the chat routes', () => {
 		expect(store.saveChatDraft).toHaveBeenCalledTimes(3);
 	});
 
-	test('mark the viewer’s chat with the persona read up to the answer shown, in any of its threads, beginning none, and say where the answer, the chat or the persona is gone', async () => {
+	test('mark the thread of the viewer’s chat with the persona that the answer shown is in read up to it, beginning none, and say where the answer, the chat or the persona is gone', async () => {
 		const {handleMarkReadRoute} = routes;
-		store.markChatRead.mockResolvedValue(Ok(true));
+		store.markThreadRead.mockResolvedValue(Ok(true));
 
 		expect((await handleMarkReadRoute(request({personaId: 'persona-1'}, {entryId: 'e9'}))).isOk()).toBe(true);
-		expect(store.markChatRead).toHaveBeenCalledWith('chat-1', 'e9');
+		expect(store.markThreadRead).toHaveBeenCalledWith('chat-1', 'e9');
 
 		expect((await handleMarkReadRoute(request({personaId: 'persona-1'}, {}))).unwrapErr().kind).toBe('parse_error');
 
-		store.markChatRead.mockResolvedValue(Ok(false));
+		store.markThreadRead.mockResolvedValue(Ok(false));
 		expect((await handleMarkReadRoute(request({personaId: 'persona-1'}, {entryId: 'elsewhere'}))).unwrapErr().kind).toBe('not_found');
 
 		store.getMemberChat.mockResolvedValue(Ok(null));
@@ -423,7 +436,7 @@ describe('the chat routes', () => {
 
 		store.getPersona.mockResolvedValue(Ok(null));
 		expect((await handleMarkReadRoute(request({personaId: 'persona-9'}, {entryId: 'e9'}))).unwrapErr().kind).toBe('not_found');
-		expect(store.markChatRead).toHaveBeenCalledTimes(2);
+		expect(store.markThreadRead).toHaveBeenCalledTimes(2);
 	});
 });
 
@@ -502,7 +515,6 @@ describe('the chat’s threads', () => {
 				summary: null,
 				latest: null,
 				latestEntryId: null,
-				latestAnswerId: null,
 				messageCount: 1,
 				lastMessageAt: later(30).toISOString(),
 				createdAt: later(-10).toISOString(),
@@ -517,7 +529,6 @@ describe('the chat’s threads', () => {
 				summary: null,
 				latest: 'It moved to Friday, with the new prices attached.',
 				latestEntryId: 'e3',
-				latestAnswerId: 'e3',
 				messageCount: 3,
 				lastMessageAt: later(2).toISOString(),
 				createdAt: now.toISOString(),
@@ -648,7 +659,7 @@ describe('the chat’s threads', () => {
 			{id: 'e3', kind: 'assistant', text: 'It moved to **Friday**, with the new prices attached.', isError: false, at: later(2).toISOString(), attachments: []},
 		]);
 
-		// What it told the person last, mid-turn, is its latest line; its latest answer is still the one before.
+		// What it told the person last, mid-turn, is its latest line.
 		const told = logEntry({
 			id: 'e6',
 			seq: 6,
@@ -662,7 +673,6 @@ describe('the chat’s threads', () => {
 		expect((await handleGetChatThreadRoute(request({personaId: 'persona-1', threadId: 'thread-2'}))).unwrap().thread).toMatchObject({
 			latest: 'Checking the old prices too.',
 			latestEntryId: 'e6',
-			latestAnswerId: 'e3',
 		});
 
 		store.getChatThread.mockResolvedValue(Ok(watch));
