@@ -3,12 +3,13 @@ import type {Result} from 'ts-results-es';
 import type {ApiError} from '@proxy/utils';
 
 /**
- * What a sandbox is to the api: a computer an agent asked for, with a disk that is kept while it
+ * What a sandbox is to the api: a computer an agent asked for, with a home that is kept while it
  * is asleep, run by a backend. The api owns each sandbox's row and its state (native/sandbox, to
  * come); a backend owns the machine, and is asked for nothing but these five things. A ref is the
  * backend's own name for the sandbox as it is now, opaque to the api, which keeps the latest: a
  * backend that stops a machine and keeps its disk may hand the same ref back from sleep and wake;
- * one that snapshots the disk to storage and restores it hands a new one each time. The console
+ * one that puts the home in storage and restores it on a new machine hands a new one each time.
+ * The home is what is promised: what is outside it may be the image's again after a sleep. The console
  * is the whole surface: a command, what to feed it on stdin, what it wrote and how it ended.
  * Every backend passes the same tests (conformance.ts), the one the tests use among them
  * (temp-dir.ts).
@@ -40,9 +41,9 @@ export type SandboxBackend = {
 	create: (sandbox: {tenant: string; sandboxId: string} & SandboxRunningLimit) => Promise<Result<SandboxRef, ApiError>>;
 	/** Runs a command in a running sandbox; conflict for one asleep, not found for a ref it doesn't know. */
 	exec: (ref: SandboxRef, command: SandboxCommand) => Promise<Result<SandboxOutput, ApiError>>;
-	/** Stops the sandbox's compute, keeping its disk, and gives its ref from now on. Whatever a command left running is gone. */
+	/** Stops the sandbox's compute, keeping its home, and gives its ref from now on. Whatever a command left running is gone. */
 	sleep: (ref: SandboxRef) => Promise<Result<SandboxRef, ApiError>>;
-	/** Starts an asleep sandbox again, its disk as it was, and gives its ref from now on. */
+	/** Starts an asleep sandbox again, its home as it was, and gives its ref from now on. */
 	wake: (ref: SandboxRef, limit?: SandboxRunningLimit) => Promise<Result<SandboxRef, ApiError>>;
 	/** Removes the sandbox and its disk for good, running or asleep. */
 	destroy: (ref: SandboxRef) => Promise<Result<void, ApiError>>;

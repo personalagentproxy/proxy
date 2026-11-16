@@ -1726,7 +1726,7 @@ const sandbox: Integration = {
 					on: 'record',
 					label: 'Put to sleep',
 					description:
-						'Puts a sandbox to sleep, keeping everything on its disk; its next command wakes it. Whatever a command left running is gone.',
+						'Puts a sandbox to sleep, keeping everything in its home directory; its next command wakes it. Whatever a command left running is gone, and after a long sleep so is what was installed outside the home.',
 					action: 'run',
 					where: {field: 'state', values: ['Running']},
 					done: 'Put {} to sleep',
@@ -1736,7 +1736,7 @@ const sandbox: Integration = {
 					id: 'wake',
 					on: 'record',
 					label: 'Wake',
-					description: 'Wakes a sandbox that is asleep, with its disk as it was.',
+					description: 'Wakes a sandbox that is asleep, with its home directory as it was.',
 					action: 'run',
 					where: {field: 'state', values: ['Asleep']},
 					done: 'Woke {}',
