@@ -8,6 +8,7 @@ import type {ClaimedJob, JobRow} from '@proxy/db/harness';
 import type {Harnesses} from '../backends/harness';
 import {type FakeStore, fakeStore} from './fake-store';
 import type {StandingModel} from './thread-standing';
+import type {TitleModel} from './thread-title';
 
 type Run = (store: FakeStore, job: JobRow, workerId: string) => Promise<Result<void, ApiError>>;
 type RunTurn = (store: FakeStore, harnesses: Harnesses, job: JobRow, workerId: string, woken: boolean) => Promise<Result<void, ApiError>>;
@@ -188,6 +189,78 @@ describe('the worker', () => {
 		expect(store.failJob).toHaveBeenCalledWith('j3', expect.any(String), 'OpenRouter refused the request (400): too long', expect.any(Function));
 		expect(ask).toHaveBeenCalledTimes(6);
 		expect(store.writeThreadStanding).not.toHaveBeenCalled();
+	});
+
+	test('names a thread beside its turn, not before it: the turn starts while the model is still asked, a tool job names nothing, and stopping waits for the title', async () => {
+		const {startHarnessWorker} = await import('./worker');
+		store.claimJob
+			.mockResolvedValueOnce(Ok(claimed(inference)))
+			.mockResolvedValueOnce(Ok(claimed(tool)))
+			.mockResolvedValue(Ok(null));
+		let turnStartedBeforeTitle = false;
+		let titled = false;
+		runInference.mockImplementationOnce(async () => {
+			turnStartedBeforeTitle = !titled;
+			return Ok(undefined);
+		});
+		const title: TitleModel = {
+			key: 'sk-or-1',
+			ask: mock<TitleModel['ask']>(async () => {
+				await settle();
+				return Ok({title: 'Pricing review with Dana'});
+			}),
+		};
+		store.threadNeedsTitle.mockResolvedValue(Ok(true));
+		store.getJobThread.mockResolvedValue(
+			Ok({
+				id: 't1',
+				orgId: 'org-1',
+				agentId: 'login-1',
+				personaId: 'persona-1',
+				userId: 'user-1',
+				parentThreadId: 'chat-1',
+				title: 'move the pricing review with dana',
+				taskId: null,
+				harness: null,
+				harnessSession: null,
+				openedByAlert: false,
+				createdAt: now,
+			}),
+		);
+		store.getChatThread.mockResolvedValue(
+			Ok({
+				id: 't1',
+				orgId: 'org-1',
+				agentId: 'login-1',
+				personaId: 'persona-1',
+				userId: 'user-1',
+				parentThreadId: 'chat-1',
+				title: 'move the pricing review with dana',
+				taskId: null,
+				harness: null,
+				harnessSession: null,
+				openedByAlert: false,
+				createdAt: now,
+				state: {kind: 'working'},
+				standing: {waitingForMember: false, summary: null, summarySeq: null, archived: false},
+				alerts: 0,
+				entries: [{id: 'e1', seq: 1, kind: 'person', text: 'move the pricing review with dana', pending: false, toolCalls: null, isError: false, createdAt: now}],
+				attachments: [],
+			}),
+		);
+		store.writeThreadTitle.mockImplementation(async () => {
+			titled = true;
+			return Ok(true);
+		});
+
+		const worker = startHarnessWorker(store, harness, undefined, title);
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		await worker.stop();
+
+		expect(turnStartedBeforeTitle).toBe(true);
+		expect(title.ask).toHaveBeenCalledTimes(1);
+		expect(store.threadNeedsTitle).toHaveBeenCalledTimes(1);
+		expect(store.writeThreadTitle).toHaveBeenCalledWith('t1', 'Pricing review with Dana');
 	});
 
 	test('stopping, the worker waits for where a thread stands to be written, begun as its turn’s job ended', async () => {

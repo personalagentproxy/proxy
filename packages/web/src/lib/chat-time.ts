@@ -42,3 +42,42 @@ export function formatMessageTime(iso: string, now = new Date()): string {
 
 	return `${DAY_WITH_YEAR_FORMAT.format(date)} ${hour}`;
 }
+
+const WEEKDAY_FORMAT = new Intl.DateTimeFormat('en-US', {weekday: 'short'});
+const DATE_FORMAT = new Intl.DateTimeFormat('en-US', {month: 'short', day: 'numeric'});
+const DATE_WITH_YEAR_FORMAT = new Intl.DateTimeFormat('en-US', {
+	month: 'short',
+	day: 'numeric',
+	year: 'numeric',
+});
+
+/**
+ * When something was said, short enough for a list's row: "3:00 AM" today, "Yesterday", the
+ * weekday within the week, "Sep 26" earlier this year, "Dec 31, 2025" before; days as `now` counts
+ * them.
+ */
+export function formatListTime(iso: string, now = new Date()): string {
+	const date = new Date(iso);
+	if (sameDay(date, now)) {
+		return HOUR_FORMAT.format(date);
+	}
+
+	const yesterday = new Date(now);
+	yesterday.setDate(now.getDate() - 1);
+	if (sameDay(date, yesterday)) {
+		return 'Yesterday';
+	}
+
+	const weekAgo = new Date(now);
+	weekAgo.setDate(now.getDate() - 6);
+	weekAgo.setHours(0, 0, 0, 0);
+	if (date >= weekAgo) {
+		return WEEKDAY_FORMAT.format(date);
+	}
+
+	if (date.getFullYear() === now.getFullYear()) {
+		return DATE_FORMAT.format(date);
+	}
+
+	return DATE_WITH_YEAR_FORMAT.format(date);
+}

@@ -11,6 +11,7 @@
 		"start": "bun run src/index.ts",
 		"seed": "bun --env-file=../../.env scripts/seed.ts",
 		"summarize-threads": "bun scripts/summarize-threads.ts",
+		"title-threads": "bun scripts/title-threads.ts",
 		"test": "bun test --isolate",
 		"typecheck": "tsc --noEmit"
 	},

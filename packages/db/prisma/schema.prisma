@@ -830,8 +830,13 @@ model AgentThread {
   // A thread's chat (AgentThread; as a column, as a task's parent is, since its agent, member and
   // organization are the same, and go with them). Null for a chat.
   parentThreadId String?
-  // A thread's title, a line of the message that opened it; null for a chat.
+  // A thread's title: a line of the message that opened it, until a small model names the work in
+  // a few words (`titleWritten`), or what the alert that opened it names it; null for a chat.
   title   String?
+  // Whether the small model wrote the thread's title, which it does once, as its first turn starts;
+  // false for a chat, for a thread named by its message alone, and for one an alert opened, which
+  // is named by the alert.
+  titleWritten Boolean @default(false)
   // The task a thread's calls are made for, its own, finished each time its turn ends and made
   // anew when it is taken up long after; a chat has none: it runs no turns.
   taskId  String?
