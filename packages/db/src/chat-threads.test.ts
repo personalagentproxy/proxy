@@ -777,10 +777,17 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		const thread = await open('Archive me once done');
 		await answer(thread, 'worker-ar1', 'Done: the report is in your drive.');
 		const listed = async () => unwrap(await listChatThreads(chat.id, [])).map((one) => one.id);
+		const unread = async () =>
+			unwrap(await listAnswers(orgId, userId))
+				.find((one) => one.personaId === chat.personaId)
+				?.unread.some((one) => one.threadId === thread.id);
+		expect(await unread()).toBe(true);
 
 		expect(unwrap(await archiveThread(chat.id, thread.id))).toBe(true);
 		expect(await listed()).not.toContain(thread.id);
 		expect((await standingOf(thread))?.archived).toBe(true);
+		// Its answer, unread when it was archived, is no longer: the list has no thread to open it by.
+		expect(await unread()).toBe(false);
 		// The member's Chat connection still lists it, as archived, and not as done.
 		const member = async (standing: 'archived' | 'done') =>
 			(
