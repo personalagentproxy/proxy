@@ -1,6 +1,7 @@
 import addressparser from 'nodemailer/lib/addressparser';
 import {Err, type Result} from 'ts-results-es';
 
+import {getUserTimeZone} from '@proxy/db/user';
 import {ApiErr, type ApiError, Do} from '@proxy/utils';
 
 import type {NewCommandRunner, RecordTarget, RecordValues} from './connector';
@@ -12,8 +13,11 @@ import type {NewCommandRunner, RecordTarget, RecordValues} from './connector';
  * `replies` collection's commands.
  */
 
-/** What is written back, whether it goes out now or waits in the drafts, and whether to everyone the email went to. */
-export type Reply = {body: string; send: boolean; all: boolean};
+/**
+ * What is written back, whether it goes out now or waits in the drafts, whether to everyone the
+ * email went to, and whether the email is quoted below it, its time in `timeZone`.
+ */
+export type Reply = {body: string; send: boolean; all: boolean; quote: boolean; timeZone: string | null};
 
 /** The email a reply answers, as its headers say. */
 export type Answered = {from: string; replyTo: string; to: string; cc: string; subject: string; messageId: string; references: string};
@@ -74,23 +78,86 @@ export function replyHeaders(account: string, answered: Answered, all = false): 
 	return {to: [to, ...alsoTo].filter((one) => one !== '').join(', '), cc: cc.join(', '), ...thread};
 }
 
-/** The email a reply quotes: who wrote it, when, and its text. */
-export type Quoted = {from: string; date: Date | null; text: string};
+/** The email a reply quotes: who wrote it, when, its text, and its HTML where it has some. */
+export type Quoted = {from: string; date: Date | null; text: string; html: string | null};
 
-/**
- * The reply's text as a mail app writes it: what was written, then the email it answers quoted
- * below, each line after "> ", under who wrote it and when. An email without text is not quoted.
- */
-export function withQuote(body: string, quoted: Quoted): string {
-	const text = quoted.text.replace(/\r\n/g, '\n').trim();
-	if (text === '') {
-		return body;
+/** What a reply is written as: its text, and beside it an HTML version where the email is quoted. */
+export type ReplyContent = {text: string; html: string | null};
+
+// How Gmail writes a time in its "On … wrote:" line, as `Thu, Oct 1, 2026 at 9:00 AM`, in
+// `timeZone`, else UTC; a time zone Intl doesn't know is read as UTC too.
+function writtenAt(date: Date, timeZone: string | null): string {
+	const zone = timeZone ?? 'UTC';
+	const at = (zoneName: string) => {
+		const day = new Intl.DateTimeFormat('en-US', {weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: zoneName}).format(date);
+		const time = new Intl.DateTimeFormat('en-US', {hour: 'numeric', minute: '2-digit', timeZone: zoneName}).format(date);
+		// Newer ICU puts a narrow no-break space before AM and PM, which plain text mail apps show oddly.
+		return `${day} at ${time}`.replace(/[\u202f\u00a0]/g, ' ');
+	};
+	try {
+		return at(zone);
+	} catch {
+		return at('UTC');
 	}
-	const when = quoted.date && !Number.isNaN(quoted.date.getTime()) ? `On ${quoted.date.toUTCString()}, ` : '';
+}
+
+// The line above the quote, as Gmail writes it: `On Thu, Oct 1, 2026 at 9:00 AM Sam Lee <sam@example.com> wrote:`.
+function attribution(quoted: Quoted, timeZone: string | null): string {
 	const [writer] = parsed(quoted.from);
 	const who = writer ? [writer.name, `<${writer.address}>`].filter((part) => part !== '').join(' ') : quoted.from.trim() || 'they';
-	const lines = text.split('\n').map((line) => (line === '' ? '>' : `> ${line}`));
-	return `${body.trimEnd()}\n\n${when}${who} wrote:\n${lines.join('\n')}\n`;
+	if (!quoted.date || Number.isNaN(quoted.date.getTime())) {
+		return `${who} wrote:`;
+	}
+	return `On ${writtenAt(quoted.date, timeZone)} ${who} wrote:`;
+}
+
+function escapeHtml(text: string): string {
+	return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Text as HTML, its lines kept.
+function textAsHtml(text: string): string {
+	return escapeHtml(text).replace(/\r?\n/g, '<br>\n');
+}
+
+// The part of an email's HTML that shows: what is inside its body, where it is a whole document.
+function shownHtml(html: string): string {
+	const body = /<body[^>]*>([\s\S]*)<\/body>/i.exec(html);
+	return (body?.[1] ?? html).trim();
+}
+
+/**
+ * The reply as Gmail writes one: what was written, then the email it answers quoted below it,
+ * under who wrote it and when, in `timeZone`. In the text each of the email's lines goes after
+ * "> "; in the HTML, beside it, the email goes in Gmail's `gmail_quote` block, which Gmail folds
+ * away, as a `blockquote type="cite"`, which Apple Mail and Thunderbird show as a quote. An email
+ * without text is not quoted, and a reply without a quote is text alone.
+ */
+export function replyContent(body: string, quoted: Quoted | null, timeZone: string | null): ReplyContent {
+	const text = (quoted?.text ?? '').replace(/\r\n/g, '\n').trim();
+	if (!quoted || text === '') {
+		return {text: body, html: null};
+	}
+	const line = attribution(quoted, timeZone);
+	const lines = text.split('\n').map((one) => (one === '' ? '>' : `> ${one}`));
+	const original = quoted.html ? shownHtml(quoted.html) : textAsHtml(text);
+	const html = [
+		`<div dir="ltr">${textAsHtml(body.trimEnd())}</div><br>`,
+		'<div class="gmail_quote gmail_quote_container">',
+		`<div dir="ltr" class="gmail_attr">${escapeHtml(line)}<br></div>`,
+		`<blockquote class="gmail_quote" type="cite" style="margin:0px 0px 0px 0.8ex;border-left:1px solid rgb(204,204,204);padding-left:1ex">${original}</blockquote>`,
+		'</div>',
+	].join('\n');
+	return {text: `${body.trimEnd()}\n\n${line}\n${lines.join('\n')}\n`, html};
+}
+
+/** The time zone of the person whose mailbox it is, for the quote's time: null where none is set or it can't be read. */
+export async function replyTimeZone(userId: string | null): Promise<string | null> {
+	if (!userId) {
+		return null;
+	}
+	const found = await getUserTimeZone(userId);
+	return found.isOk() ? found.value : null;
 }
 
 /** A reply as the `replies` collection's record: the email answered, what was written, and where it went. */
@@ -106,8 +173,10 @@ function replyRunner(reply: MailReply, send: boolean): NewCommandRunner {
 				return $(Err(ApiErr.validationError('Say what to reply as body')));
 			}
 			const replyAll = values.replyAll ?? '';
-			const written = $(await reply(target, email, {body, send, all: replyAll === 'Yes'}));
-			const record: RecordValues = {email, body, replyAll, to: written.to, cc: written.cc, subject: written.subject};
+			const quote = values.quote ?? '';
+			const timeZone = quote === 'No' ? null : await replyTimeZone(target.connection.ownerUserId);
+			const written = $(await reply(target, email, {body, send, all: replyAll === 'Yes', quote: quote !== 'No', timeZone}));
+			const record: RecordValues = {email, body, replyAll, quote, to: written.to, cc: written.cc, subject: written.subject};
 			if (written.thread) {
 				record.thread = written.thread;
 			}

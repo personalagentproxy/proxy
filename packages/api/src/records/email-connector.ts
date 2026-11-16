@@ -28,7 +28,7 @@ import {
 	type RunOnly,
 } from './connector';
 import {gmailQuery, type EmailSearch, type MailSearch} from './email-search';
-import {replyCommands, replyHeaders, withQuote, type MailReply, type Quoted, type ReplyHeaders} from './email-reply';
+import {replyCommands, replyContent, replyHeaders, type MailReply, type Quoted, type ReplyHeaders} from './email-reply';
 
 /**
  * A mailbox over IMAP, signed in fresh for every request. Its one list is the inbox and the
@@ -626,6 +626,11 @@ function threadOf(parsed: ParsedMail): Thread | null {
 	return {inReplyTo, references: referencesOf(parsed.references)};
 }
 
+// An HTML version beside the text, as a quoted reply has.
+function htmlOptions(html: string | null): Mail.Options {
+	return html ? {html} : {};
+}
+
 function threadOptions(thread: Thread | null): Mail.Options {
 	return thread ? {inReplyTo: thread.inReplyTo, references: thread.references} : {};
 }
@@ -636,12 +641,21 @@ function copyOptions(values: RecordValues): Mail.Options {
 	return {...(values.cc ? {cc: values.cc} : {}), ...(values.bcc ? {bcc: values.bcc} : {})};
 }
 
-/** Saves a draft from the typed-in values, from the connected address, a reply in `thread`: its UID. */
-async function saveDraft(session: Session, values: RecordValues, thread: Thread | null): Promise<Result<number, ApiError>> {
+/** Saves a draft from the typed-in values, from the connected address, a reply in `thread`, with `html` beside its text where given: its UID. */
+async function saveDraft(session: Session, values: RecordValues, thread: Thread | null, html: string | null = null): Promise<Result<number, ApiError>> {
 	return Do(async ($) => {
 		const {client, mailbox, credential} = session;
 		const messageId = `<${randomUUID()}@proxy>`;
-		const composed = new MailComposer({from: credential.username, to: values.to, ...copyOptions(values), subject: values.subject, text: values.body, messageId, ...threadOptions(thread)}).compile();
+		const composed = new MailComposer({
+			from: credential.username,
+			to: values.to,
+			...copyOptions(values),
+			subject: values.subject,
+			text: values.body,
+			...htmlOptions(html),
+			messageId,
+			...threadOptions(thread),
+		}).compile();
 		// A draft keeps its Bcc until it is sent; sending takes it out.
 		composed.keepBcc = true;
 		const raw = await composed.build();
@@ -663,10 +677,10 @@ async function saveDraft(session: Session, values: RecordValues, thread: Thread 
 	});
 }
 
-/** Saves a draft from the typed-in values, from the connected address, a reply in `thread`, and reads it back. */
-async function appendDraft(session: Session, values: RecordValues, thread: Thread | null = null): Promise<Result<DataRecord, ApiError>> {
+/** Saves a draft from the typed-in values, from the connected address, a reply in `thread` with `html` beside its text, and reads it back. */
+async function appendDraft(session: Session, values: RecordValues, thread: Thread | null = null, html: string | null = null): Promise<Result<DataRecord, ApiError>> {
 	return Do(async ($) => {
-		const uid = $(await saveDraft(session, values, thread));
+		const uid = $(await saveDraft(session, values, thread, html));
 		return $(await getMessage(session, recordId(session, uid)));
 	});
 }
@@ -729,7 +743,7 @@ function moveTo(uses: SpecialUse[], name: string): CommandRunner {
  * does that itself): its Message-ID. Once the email is out, a copy left unfiled is only logged: a
  * failure then would invite the agent to send it twice.
  */
-async function deliver(client: ImapFlow, credential: EmailCredential, values: RecordValues, thread: Thread | null = null): Promise<Result<string, ApiError>> {
+async function deliver(client: ImapFlow, credential: EmailCredential, values: RecordValues, thread: Thread | null = null, html: string | null = null): Promise<Result<string, ApiError>> {
 	return Do(async ($) => {
 		const to = values.to?.trim() ?? '';
 		if (`${to}${values.cc ?? ''}${values.bcc ?? ''}`.trim() === '') {
@@ -737,7 +751,16 @@ async function deliver(client: ImapFlow, credential: EmailCredential, values: Re
 		}
 
 		const messageId = `<${randomUUID()}@proxy>`;
-		const message: Mail.Options = {from: credential.username, to, ...copyOptions(values), subject: values.subject ?? '', text: values.body ?? '', messageId, ...threadOptions(thread)};
+		const message: Mail.Options = {
+			from: credential.username,
+			to,
+			...copyOptions(values),
+			subject: values.subject ?? '',
+			text: values.body ?? '',
+			...htmlOptions(html),
+			messageId,
+			...threadOptions(thread),
+		};
 		const transport = smtpTransport(credential);
 		const sent = await Result.wrapAsync(() => transport.sendMail(message));
 		transport.close();
@@ -765,7 +788,7 @@ async function sendDraft(session: Session, id: string): Promise<Result<null, Api
 		const uid = $(uidOf(session, id));
 		const draft = $(await getMessage(session, id));
 		const {parsed} = $(await parsedMessage(session, id));
-		$(await deliver(session.client, session.credential, draft.values, threadOf(parsed)));
+		$(await deliver(session.client, session.credential, draft.values, threadOf(parsed), parsed.html || null));
 
 		const removed = await Result.wrapAsync(() => session.client.messageDelete(String(uid), {uid: true}));
 		if (removed.isErr()) {
@@ -814,7 +837,7 @@ async function replyTo(session: Session, id: string, all: boolean): Promise<Resu
 		);
 		const writer = parsed.from?.value[0];
 		const from = writer ? formatAddresses([writer], true) : '';
-		return {headers, quoted: {from, date: parsed.date ?? null, text: parsed.text ?? ''}};
+		return {headers, quoted: {from, date: parsed.date ?? null, text: parsed.text ?? '', html: parsed.html || null}};
 	});
 }
 
@@ -831,12 +854,13 @@ const replyToMailbox: MailReply = (target, id, reply) =>
 				return $(Err(ApiErr.validationError('A draft isn’t replied to: send it, or reply to the email it answers')));
 			}
 			const {headers, quoted} = $(await inFolder(client, credential, folder, (session) => replyTo(session, id, reply.all)));
-			const values = {to: headers.to, cc: headers.cc, subject: headers.subject, body: withQuote(reply.body, quoted)};
+			const content = replyContent(reply.body, reply.quote ? quoted : null, reply.timeZone);
+			const values = {to: headers.to, cc: headers.cc, subject: headers.subject, body: content.text};
 			if (reply.send) {
-				const messageId = $(await deliver(client, credential, values, headers));
+				const messageId = $(await deliver(client, credential, values, headers, content.html));
 				return {...headers, id: messageId, thread: ''};
 			}
-			const draft = $(await inFolder(client, credential, DRAFTS, async (session) => (await saveDraft(session, values, headers)).map((uid) => recordId(session, uid))));
+			const draft = $(await inFolder(client, credential, DRAFTS, async (session) => (await saveDraft(session, values, headers, content.html)).map((uid) => recordId(session, uid))));
 			return {...headers, id: draft, thread: ''};
 		}),
 	);
@@ -851,9 +875,11 @@ export const emailConnector = {
 			$(
 				await withFolder(target, $(requireDraft(id)), (session) =>
 					Do(async ($$) => {
-						// An edited reply stays in the thread it was written in.
+						// An edited reply stays in the thread it was written in, and keeps its HTML, as a
+						// quoted reply has, while its text is as it was; text written anew goes as text.
 						const {parsed} = $$(await parsedMessage(session, id));
-						const draft = $$(await appendDraft(session, values, threadOf(parsed)));
+						const sameText = (values.body ?? '').trim() === (parsed.text ?? '').trim();
+						const draft = $$(await appendDraft(session, values, threadOf(parsed), sameText ? parsed.html || null : null));
 						$$(await deleteMessage(session, id));
 						return draft;
 					}),

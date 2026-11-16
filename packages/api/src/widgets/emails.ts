@@ -9,6 +9,7 @@ import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {requireViewer} from '../utils/user-org';
 import type {DataRecord} from '../records/connector';
 import type {EmailSearch} from '../records/email-search';
+import {replyTimeZone} from '../records/email-reply';
 import {eachSource} from './each-source';
 import {findSources, requireReadable, requireWritable, summarize, withCapability, type Source} from './sources';
 import {afterWrite} from './writes';
@@ -117,7 +118,8 @@ export function handleReplyEmailRoute(request: AuthenticatedRequest): Promise<Re
 		const source = $(await requireWritable(viewer, body.connectionId, 'emails', write, ['to', 'subject', 'body']));
 		$(await requireReadable(viewer, body.connectionId, 'emails'));
 		const reply = $(requirePresent(source.connector.reply, ApiErr.forbidden()));
-		const written = $(await reply(source, body.emailId, {body: body.body, send: body.send, all: false}));
+		const timeZone = await replyTimeZone(viewer.userId);
+		const written = $(await reply(source, body.emailId, {body: body.body, send: body.send, all: false, quote: true, timeZone}));
 		await afterWrite({viewer, source, action: write, title: written.subject, parent: undefined});
 		return {sent: body.send};
 	});

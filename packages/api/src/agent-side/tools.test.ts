@@ -485,7 +485,7 @@ describe('runAgentTool', () => {
 		const result = await runAgentTool(caller, 'mail-1', 'replies_send', {email: 'inbox-7-12', body: 'Thursday works.'});
 
 		expect(result.unwrap()).toMatchObject({record: {values: {to: 'sam@example.com', subject: 'Re: Friday'}}});
-		expect(sendReply.mock.calls[0]?.[1]).toEqual({email: 'inbox-7-12', body: 'Thursday works.', replyAll: ''});
+		expect(sendReply.mock.calls[0]?.[1]).toEqual({email: 'inbox-7-12', body: 'Thursday works.', replyAll: '', quote: ''});
 		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({collectionId: 'replies', action: 'send', recordTitle: 'Re: Friday', outcome: 'allowed'});
 	});
 

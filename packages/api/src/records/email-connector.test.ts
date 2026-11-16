@@ -131,6 +131,10 @@ class FakeImapFlow {
 
 mock.module('imapflow', () => ({ImapFlow: FakeImapFlow}));
 
+// The mailbox owner's time zone, which a quoted reply's "On … wrote:" line keeps to.
+const getUserTimeZone = mock(async () => Ok<string | null>(null));
+mock.module('@proxy/db/user', () => ({getUserTimeZone}));
+
 const sendMail = mock();
 
 mock.module('../connections/email/mail-check', () => ({
@@ -622,7 +626,7 @@ describe('emailConnector.reply', () => {
 	test('sends a reply from the connected address, to where the email asks, in its thread, and files it in Sent', async () => {
 		imap.message = {uid: 12, flags: new Set(), source: asked};
 		const replyToMailbox = (await import('./email-connector')).emailConnector.reply;
-		const written = (await replyToMailbox(target, INBOX_EMAIL, {body: 'Thursday works.', send: true, all: false})).unwrap();
+		const written = (await replyToMailbox(target, INBOX_EMAIL, {body: 'Thursday works.', send: true, all: false, quote: true, timeZone: null})).unwrap();
 
 		expect(written).toEqual({
 			to: '"Planning" <planning@example.com>',
@@ -650,7 +654,7 @@ describe('emailConnector.reply', () => {
 	test('saves a reply in Drafts, keeping its thread', async () => {
 		imap.message = {uid: 12, flags: new Set(), source: asked};
 		const replyToMailbox = (await import('./email-connector')).emailConnector.reply;
-		const written = (await replyToMailbox(target, INBOX_EMAIL, {body: 'Thursday works.', send: false, all: false})).unwrap();
+		const written = (await replyToMailbox(target, INBOX_EMAIL, {body: 'Thursday works.', send: false, all: false, quote: true, timeZone: null})).unwrap();
 
 		expect(written.id).toBe(`drafts-${UID_VALIDITY}-99`);
 		expect(sendMail).not.toHaveBeenCalled();
@@ -661,6 +665,21 @@ describe('emailConnector.reply', () => {
 		expect(draft).toContain('References: <agenda@example.com> <q3@example.com>');
 		// Above the email it answers, quoted as a mail app quotes it.
 		expect(draft).toContain('Thursday works.\n\nSam Lee <sam@example.com> wrote:\n> Can you make Thursday?');
+	});
+
+	test('a reply quotes the email in HTML too, in Gmail’s quote, and not at all when asked not to', async () => {
+		imap.message = {uid: 12, flags: new Set(), source: asked};
+		const replyToMailbox = (await import('./email-connector')).emailConnector.reply;
+		await replyToMailbox(target, INBOX_EMAIL, {body: 'Thursday works.', send: true, all: false, quote: true, timeZone: null});
+		await replyToMailbox(target, INBOX_EMAIL, {body: 'Thursday works.', send: true, all: false, quote: false, timeZone: null});
+
+		const [quoted, bare] = sendMail.mock.calls.map((call) => call[0]);
+		expect(quoted.html).toContain('<div dir="ltr">Thursday works.</div><br>');
+		expect(quoted.html).toContain('<div dir="ltr" class="gmail_attr">Sam Lee &lt;sam@example.com&gt; wrote:<br></div>');
+		expect(quoted.html).toContain('<blockquote class="gmail_quote" type="cite"');
+		expect(quoted.html).toContain('Can you make Thursday?</blockquote>');
+		expect(bare).toMatchObject({text: 'Thursday works.'});
+		expect(bare.html).toBeUndefined();
 	});
 
 	test('a reply saved as a draft stays in its thread when edited and when sent', async () => {
@@ -681,7 +700,7 @@ describe('emailConnector.reply', () => {
 	test('a reply to all also goes to whom the email went, and copies whom it copied, never the connected address', async () => {
 		imap.message = {uid: 12, flags: new Set(), source: asked};
 		const replyToMailbox = (await import('./email-connector')).emailConnector.reply;
-		const written = (await replyToMailbox(target, INBOX_EMAIL, {body: 'Thursday works.', send: true, all: true})).unwrap();
+		const written = (await replyToMailbox(target, INBOX_EMAIL, {body: 'Thursday works.', send: true, all: true, quote: true, timeZone: null})).unwrap();
 
 		expect(written).toMatchObject({to: '"Planning" <planning@example.com>, "Dana Cruz" <dana@example.com>', cc: '"Jo Park" <jo@example.com>'});
 		expect(sendMail.mock.calls[0]?.[0]).toMatchObject({to: '"Planning" <planning@example.com>, "Dana Cruz" <dana@example.com>', cc: '"Jo Park" <jo@example.com>'});
@@ -690,7 +709,7 @@ describe('emailConnector.reply', () => {
 	test('an email sent is replied to as well, to whom it went', async () => {
 		imap.message = {uid: 12, flags: new Set(), source};
 		const replyToMailbox = (await import('./email-connector')).emailConnector.reply;
-		const written = (await replyToMailbox(target, `sent-${UID_VALIDITY}-12`, {body: 'Any news?', send: true, all: false})).unwrap();
+		const written = (await replyToMailbox(target, `sent-${UID_VALIDITY}-12`, {body: 'Any news?', send: true, all: false, quote: true, timeZone: null})).unwrap();
 
 		expect(imap.opened).toBe('Sent Items');
 		expect(written).toMatchObject({to: 'sam@example.com', subject: 'Re: Q3 planning'});
@@ -699,8 +718,8 @@ describe('emailConnector.reply', () => {
 	test('replies to no draft, and to no email that isn’t there', async () => {
 		const replyToMailbox = (await import('./email-connector')).emailConnector.reply;
 
-		expect((await replyToMailbox(target, DRAFT, {body: 'x', send: true, all: false})).unwrapErr().kind).toBe('validation_error');
-		expect((await replyToMailbox(target, `inbox-${UID_VALIDITY}-13`, {body: 'x', send: true, all: false})).unwrapErr().kind).toBe('not_found');
+		expect((await replyToMailbox(target, DRAFT, {body: 'x', send: true, all: false, quote: true, timeZone: null})).unwrapErr().kind).toBe('validation_error');
+		expect((await replyToMailbox(target, `inbox-${UID_VALIDITY}-13`, {body: 'x', send: true, all: false, quote: true, timeZone: null})).unwrapErr().kind).toBe('not_found');
 		expect(sendMail).not.toHaveBeenCalled();
 	});
 
@@ -710,7 +729,7 @@ describe('emailConnector.reply', () => {
 		const sent = (await emailRepliesConnector.newCommands.send(repliesTarget(), {email: INBOX_EMAIL, body: 'Thursday works.', replyAll: 'No'})).unwrap();
 		const drafted = (await emailRepliesConnector.newCommands.draft(repliesTarget(), {email: INBOX_EMAIL, body: 'Thursday works.', replyAll: 'Yes'})).unwrap();
 
-		expect(sent?.values).toEqual({email: INBOX_EMAIL, body: 'Thursday works.', replyAll: 'No', to: '"Planning" <planning@example.com>', cc: '', subject: 'Re: Q3 planning'});
+		expect(sent?.values).toEqual({email: INBOX_EMAIL, body: 'Thursday works.', replyAll: 'No', quote: '', to: '"Planning" <planning@example.com>', cc: '', subject: 'Re: Q3 planning'});
 		expect(drafted).toMatchObject({id: `drafts-${UID_VALIDITY}-99`, values: {cc: '"Jo Park" <jo@example.com>'}});
 		expect(imap.appended.at(-1)?.replace(/\r\n[ \t]+/g, ' ')).toContain('Cc: Jo Park <jo@example.com>');
 	});
