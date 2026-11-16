@@ -268,8 +268,8 @@ export function AccessGrid({
 	return (
 		<div className="flex flex-col gap-2">
 			{all && available.length > 0 && (mayChangeDefaults || changeable.length > 0) && (
-				<div className="flex justify-end">
-					<PillButton variant="ghost" onClick={() => setEverything(!everythingOn)}>
+				<div className="flex">
+					<PillButton onClick={() => setEverything(!everythingOn)}>
 						{everythingOn ? 'Disable all' : 'Enable all'}
 					</PillButton>
 				</div>
