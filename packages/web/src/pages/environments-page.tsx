@@ -263,7 +263,7 @@ function EnvironmentList({org}: {org: string}) {
 		) ?? [];
 	return (
 		<AppShell
-			wide
+			scroll="inside"
 			title={
 				<PageTitle detail={data ? `${data.rows.length} shown` : undefined}>Environments</PageTitle>
 			}
@@ -288,7 +288,7 @@ function EnvironmentList({org}: {org: string}) {
 				)
 			}
 		>
-			<div className="space-y-6">
+			<div className="w-full min-w-0 space-y-6 overflow-auto p-6">
 				{error && (
 					<p
 						role="alert"
