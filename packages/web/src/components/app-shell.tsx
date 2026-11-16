@@ -65,6 +65,8 @@ export type Side = {
 	header: ReactNode;
 	content: ReactNode;
 	full: boolean;
+	// When Escape closes a full-width conversation, preserve unsent typing too.
+	escapeCloses?: boolean;
 	// What Escape does (`useEscape`): give the content back where the side has the page's width,
 	// and close the side otherwise.
 	onEscape: () => void;
@@ -294,7 +296,7 @@ export function AppShell({
 	const page = useRef<HTMLDivElement>(null);
 	const contentColumn = useRef<HTMLDivElement>(null);
 	const sideColumn = useRef<HTMLDivElement>(null);
-	useEscape(side?.onEscape, side?.full !== true, sideColumn);
+	useEscape(side?.onEscape, side?.escapeCloses ?? side?.full !== true, sideColumn);
 	const {width: storedContentWidth, setWidth: setContentWidth} =
 		useStoredWidth('proxy-content-width');
 	const heading = loadsTitle ? <span ref={setTitleSlot} className="contents" /> : title;

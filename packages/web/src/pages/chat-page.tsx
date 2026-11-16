@@ -8,18 +8,9 @@ import type {
 	ThreadStanding,
 	ThreadView,
 } from '@proxy/contracts/harness';
-import {
-	ArchiveIcon,
-	CheckIcon,
-	Maximize2Icon,
-	Minimize2Icon,
-	PencilIcon,
-	Trash2Icon,
-	XIcon,
-} from 'lucide-react';
+import {ArchiveIcon, CheckIcon, HistoryIcon, PencilIcon, Trash2Icon, XIcon} from 'lucide-react';
 import {
 	memo,
-	type MouseEvent,
 	Suspense,
 	useCallback,
 	useEffect,
@@ -103,7 +94,7 @@ import {
 const IN_PROGRESS_POLL_MS = 4000;
 const IN_PROGRESS_VISIBLE_GAP_MS = 2000;
 
-// The band behind the thread open beside the chat, the width of the chat.
+// The band behind the full-width conversation, the width of the chat.
 const OPEN_BAND = 'bg-[color-mix(in_srgb,var(--muted)_55%,var(--background))]';
 
 type LastMessage = ChatPersona['lastMessage'];
@@ -199,7 +190,15 @@ function PersonaList({
 				),
 			};
 		})
-		.toSorted((a, b) => lastActive(b.persona, b.last) - lastActive(a.persona, a.last));
+		.toSorted((a, b) => {
+			if (Boolean(a.persona.headAgent) !== Boolean(b.persona.headAgent)) {
+				return a.persona.headAgent ? -1 : 1;
+			}
+			if (a.persona.headAgent && b.persona.headAgent) {
+				return a.persona.createdAt.localeCompare(b.persona.createdAt);
+			}
+			return lastActive(b.persona, b.last) - lastActive(a.persona, a.last);
+		});
 	return (
 		<div className="flex h-full min-h-0 flex-col">
 			{/* Right under the sidebar's way back up, as close as the rows are to each other. */}
@@ -233,16 +232,22 @@ function PersonaList({
 								className={cn(
 									'flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
 									lit && 'bg-sidebar-accent text-sidebar-accent-foreground',
+									persona.headAgent && 'flex-col py-4 text-center',
 								)}
 							>
 								<LiveHead
 									look={persona.look}
 									color={persona.color}
-									size={40}
+									size={persona.headAgent ? 64 : 40}
 									watching={hovered === persona.id}
 									tracking="head"
 								/>
-								<span className="flex min-w-0 flex-1 flex-col">
+								<span
+									className={cn(
+										'flex min-w-0 flex-1 flex-col',
+										persona.headAgent && 'w-full items-center',
+									)}
+								>
 									<span className="flex items-baseline gap-2">
 										<span className="min-w-0 flex-1 truncate text-sm font-medium">
 											{persona.name}
@@ -257,13 +262,18 @@ function PersonaList({
 												</span>
 											)}
 										</span>
-										{last && (
+										{last && !persona.headAgent && (
 											<span className="shrink-0 text-xs text-muted-foreground">
 												{formatAgo(last.at)}
 											</span>
 										)}
 									</span>
-									<span className="flex items-center gap-2">
+									<span
+										className={cn(
+											'flex min-w-0 w-full items-center gap-2',
+											persona.headAgent && 'hidden',
+										)}
+									>
 										<span
 											className={cn(
 												'min-w-0 flex-1 truncate text-xs',
@@ -355,8 +365,7 @@ function ThreadHeader({
 	thread,
 	standing,
 	missing,
-	expanded,
-	onExpand,
+	conversationName,
 	onDone,
 	onArchive,
 	closeTo,
@@ -365,15 +374,18 @@ function ThreadHeader({
 	standing: ThreadStanding | null;
 	// The address names a thread the chat doesn't have.
 	missing: boolean;
-	expanded: boolean;
-	onExpand: () => void;
+	conversationName?: string;
 	onDone: (thread: ChatThread) => void;
 	onArchive: (thread: ChatThread) => void;
 	closeTo: string;
 }) {
 	return (
 		<>
-			<ThreadName thread={thread} standing={standing} missing={missing} />
+			{conversationName ? (
+				<PageTitle>{conversationName}</PageTitle>
+			) : (
+				<ThreadName thread={thread} standing={standing} missing={missing} />
+			)}
 			<span className="flex-1" />
 			{thread !== null && standing === 'waiting' && (
 				<IconButton label={DONE_LABEL} onClick={() => onDone(thread)}>
@@ -385,21 +397,16 @@ function ThreadHeader({
 					<ArchiveIcon className="size-4" />
 				</IconButton>
 			)}
-			{/* On a narrow window the thread always has the page's width. */}
-			<span className="flex max-lg:hidden">
-				<IconButton label={expanded ? 'Show the chat beside it' : 'Expand'} onClick={onExpand}>
-					{expanded ? <Minimize2Icon className="size-4" /> : <Maximize2Icon className="size-4" />}
-				</IconButton>
-			</span>
-			<IconButton label="Close" to={closeTo}>
-				<XIcon className="size-4" />
+
+			<IconButton label={conversationName ? 'Conversation history' : 'Close'} to={closeTo}>
+				{conversationName ? <HistoryIcon className="size-4" /> : <XIcon className="size-4" />}
 			</IconButton>
 		</>
 	);
 }
 
 // The page: the organization's agents in the sidebar, beside the person's chat with the one in its
-// address, a list of its threads, and the thread the address names open beside it (pages/
+// address, a list of its threads, and the conversation the address names in its place (pages/
 // chat-thread.tsx). The list of agents is the frame's, so moving to another chat shows it at once,
 // lit in the list and named in the header, while it loads; the chat is started over as the agent
 // in the address changes, so what one showed never lingers on another, and stays as it is as a
@@ -409,27 +416,23 @@ export function ChatPage() {
 	const navigate = useNavigate();
 	const reload = useReload();
 	const {id: current = '', threadId} = useParams();
-	// What the address's thread's route loads, which the thread open beside the chat is drawn from.
+	// What the address's thread's route loads, which the full-width conversation is drawn from.
 	const threadLoad = useRouteLoaderData<{later: ThreadLoad}>(THREAD_ROUTE)?.later;
 	// The agents as last listed, with each chat as it loads; until the first has, as the list last
 	// came anywhere (lib/persona-list.ts), so they are there as the page opens.
 	const listed = useLastLoaded<typeof chatLoader>();
 	const list = listed.answer ?? rememberedPersonaList(org);
 	const personas = list?.personas ?? null;
-	const name = personas?.find((persona) => persona.id === current)?.name;
+	const activePersona = personas?.find((persona) => persona.id === current);
+	const name = activePersona?.name;
+	const directChat = activePersona?.headAgent || activePersona?.conversationScope === 'team';
 	const [shownSaid, setShownSaid] = useState<ShownSaid | null>(null);
 	const [shownDraft, setShownDraft] = useState<ShownDraft | null>(null);
 	const [shownThreads, setShownThreads] = useState<ChatThread[]>([]);
-	// The thread open beside the chat, as it shows it, while the address names it: one closed is
+	// The full-width conversation, as it shows it, while the address names it: one closed is
 	// no more, though it says it is shown as it slides shut (app-shell.tsx).
 	const [shownAnyThread, setShownThread] = useState<ThreadView | null>(null);
 	const shownThread = shownAnyThread?.thread.id === threadId ? shownAnyThread : null;
-	// The thread given the page's width, by its id, until it is given the chat back or closed, as
-	// it is once the address names it no more: opened again, it is beside the chat.
-	const [expanded, setExpanded] = useState<string | null>(null);
-	if (expanded !== null && expanded !== threadId) {
-		setExpanded(null);
-	}
 	// Whether the address names a thread the chat doesn't have, as the thread's place says.
 	const [threadMissing, setThreadMissing] = useState(false);
 	// The agent dialog: making a new one, or changing the selected one; closed as null.
@@ -570,7 +573,7 @@ export function ChatPage() {
 				}
 			: null;
 
-	// The thread open beside the chat as the title bar names it: as it shows itself, or, while it
+	// The full-width conversation as the title bar names it: as it shows itself, or, while it
 	// loads, as the chat lists it, so its name is there as it is opened.
 	const openThread =
 		threadId === undefined
@@ -578,17 +581,15 @@ export function ChatPage() {
 			: shownThread?.thread.id === threadId
 				? shownThread.thread
 				: (shownThreads.find((thread) => thread.id === threadId) ?? null);
-	const chatTo = `/${org}/chat/${current}`;
+	const chatTo = `/${org}/chat/${current}${directChat ? '?history=1' : ''}`;
 	const closeThread = useCallback(() => void navigate(chatTo), [navigate, chatTo]);
-	const giveChatBack = useCallback(() => setExpanded(null), []);
-	// The thread open beside the chat closes as it is archived.
+	// The full-width conversation closes as it is archived.
 	const openArchived = openThread !== null && isArchived(openThread);
 	useEffect(() => {
 		if (openArchived) {
 			void navigate(chatTo);
 		}
 	}, [openArchived, navigate, chatTo]);
-	const full = threadId !== undefined && expanded === threadId;
 	const context: ThreadContext = {
 		harnesses: list?.harnesses ?? [],
 		managing: editing !== null || deleting !== null,
@@ -599,17 +600,16 @@ export function ChatPage() {
 		threadId === undefined
 			? undefined
 			: {
-					full,
-					// Escape gives the chat back beside a thread with the page's width, and closes one
-					// beside it.
-					onEscape: full ? giveChatBack : closeThread,
+					full: true,
+					escapeCloses: true,
+					// One conversation fills the page; Escape returns to its history.
+					onEscape: closeThread,
 					header: (
 						<ThreadHeader
 							thread={openThread}
 							standing={openThread === null ? null : standingOf(openThread)}
 							missing={threadMissing}
-							expanded={full}
-							onExpand={() => setExpanded(full ? null : threadId)}
+							conversationName={directChat ? name : undefined}
 							onDone={markDone}
 							onArchive={archive}
 							closeTo={chatTo}
@@ -677,7 +677,6 @@ export function ChatPage() {
 					onDone={markDone}
 					isArchived={isArchived}
 					onArchive={archive}
-					onCloseThread={closeThread}
 					managing={editing !== null || deleting !== null}
 					listError={error}
 					focusRequested={focusRequestedFor === current}
@@ -735,14 +734,14 @@ export function ChatPage() {
 
 // What the page gives the chat open in it.
 type Opened = {
-	// The thread open beside the chat, as it shows it, fresher than the list; and its id, from the
+	// The full-width conversation, as it shows it, fresher than the list; and its id, from the
 	// address, before it has loaded.
 	openThread: ThreadView | null;
 	threadId: string | null;
 	recallDraft: (personaId: string) => string | null;
 	rememberDraft: (personaId: string, text: string) => void;
 	// The list beside the chat shows it as the page does: what the person said in it last, and what
-	// is typed in it; the title bar names the thread open beside it as the chat lists it.
+	// is typed in it; the title bar names the conversation open in its place as the chat lists it.
 	onShownSaid: (shown: ShownSaid) => void;
 	onShownDraft: (shown: ShownDraft) => void;
 	onShownThreads: (threads: ChatThread[]) => void;
@@ -752,8 +751,6 @@ type Opened = {
 	// Whether the person archived a thread on the page, which the list leaves out, and archiving one.
 	isArchived: (thread: ChatThread) => boolean;
 	onArchive: (thread: ChatThread) => void;
-	// Closes the thread open beside the chat.
-	onCloseThread: () => void;
 	// An agent is being made, changed or deleted in a dialog.
 	managing: boolean;
 	// What deleting an agent from the list failed with.
@@ -793,7 +790,7 @@ function Opener({opener, open}: {opener: ChatThread['opener']; open: boolean}) {
 	);
 }
 
-// One thread in the chat, opening it beside the chat: where it stands, what opened it, where it
+// One thread in the chat, opening it at full width: where it stands, what opened it, where it
 // stands in a sentence, or, without a current one, the start of the latest thing the persona said
 // in it, how many messages it holds with when the last came, and, where it waits for the person,
 // the check after that which says it is done, or, once it is done, the button that archives it. The one open has a band behind it, the width of the chat. The
@@ -854,29 +851,6 @@ const ThreadItem = memo(function ThreadItem({
 });
 
 // The parts of the chat's scroller that are only room around its threads.
-const EMPTY_SLOTS = new Set([
-	'message-scroller-viewport',
-	'message-scroller-content',
-	'message-scroller-spacer',
-]);
-
-// A click on the chat's empty space, around and between its threads, closes the thread open beside
-// it; one on a thread, on the scroller's scrollbar, or that ends a drag selecting text doesn't.
-function closeOnEmpty(event: MouseEvent<HTMLDivElement>, close: () => void): void {
-	const target = event.target;
-	if (!(target instanceof HTMLElement) || !EMPTY_SLOTS.has(target.dataset.slot ?? '')) {
-		return;
-	}
-	const viewport = event.currentTarget;
-	if (event.clientX - viewport.getBoundingClientRect().left > viewport.clientWidth) {
-		return;
-	}
-	if (window.getSelection()?.isCollapsed === false) {
-		return;
-	}
-	close();
-}
-
 // The threads in the order the chat lists them, by when each was opened, the newest last, so that
 // none moves when a message comes to it; those the page has fresher in their place.
 function inOrder(threads: ChatThread[], fresher: ChatThread | null): ChatThread[] {
@@ -906,13 +880,14 @@ const Chat = memo(function Chat({
 	onDone,
 	isArchived,
 	onArchive,
-	onCloseThread,
 	managing,
 	listError,
 	focusRequested,
 	onFocused,
 }: Opened & {loaded: ChatThreads; harnesses: ChatHarness[]}) {
 	const org = useOrgSlug();
+	const navigate = useNavigate();
+	const location = useLocation();
 	const reload = useReload();
 	const personaId = loaded.persona.id;
 	const current = loaded.persona;
@@ -928,6 +903,19 @@ const Chat = memo(function Chat({
 			}),
 		[sending.entries, fresher, standingOf, isArchived],
 	);
+	// Team chats and coordinators resume their conversation instead of showing a task overview.
+	const directChat = current.headAgent || current.conversationScope === 'team';
+	const showHistory = new URLSearchParams(location.search).has('history');
+	const latestThread = loaded.threads
+		.filter((thread) => !isArchived(thread))
+		.toSorted((a, b) => Date.parse(b.lastMessageAt) - Date.parse(a.lastMessageAt))[0]?.id;
+	useEffect(() => {
+		if (!directChat || showHistory || threadId !== null || latestThread === undefined) {
+			return;
+		}
+		void navigate(`/${org}/chat/${personaId}/threads/${latestThread}`, {replace: true});
+	}, [directChat, showHistory, threadId, latestThread, navigate, org, personaId]);
+
 	// What the chat had as it opened: what comes after it rises into place.
 	const [opened] = useState(() => new Set(loaded.threads.map((thread) => thread.id)));
 
@@ -1025,6 +1013,10 @@ const Chat = memo(function Chat({
 			return describeApiError(posted.error);
 		}
 		sending.posted(key, posted.value.thread.id);
+		if (directChat) {
+			await navigate(`/${org}/chat/${personaId}/threads/${posted.value.thread.id}`);
+			return null;
+		}
 		await reload();
 		return null;
 	};
@@ -1032,20 +1024,18 @@ const Chat = memo(function Chat({
 	return (
 		<>
 			<MessageScroller className="min-h-0 flex-1">
-				<MessageScrollerViewport
-					aria-label="Chat"
-					onClick={threadId === null ? undefined : (event) => closeOnEmpty(event, onCloseThread)}
-				>
+				<MessageScrollerViewport aria-label="Chat">
 					<MessageScrollerContent className="w-full gap-3.5 pt-2 pb-4">
 						{threads.length === 0 && (
 							<div className="page-column flex flex-1 flex-col items-center justify-center gap-2 py-12 text-center">
 								<LiveHead look={current.look} color={current.color} size={64} />
 								<p className="text-lg font-medium">What should {current.name} do?</p>
 								<p className="max-w-md text-sm text-muted-foreground">
-									This conversation is yours alone. Each message opens a thread of its own, where{' '}
-									{current.name} works on it and answers you. It can use what is shared with
-									everyone and what you connected yourself, as far as its access allows. Everything
-									it does is in the activity log.
+									{current.conversationScope === 'team'
+										? 'A shared conversation for everyone in this workspace. Messages and sent files are visible to the team.'
+										: current.headAgent
+											? 'Your own conversation with your coordinator. Ask it to bring in specialists and collect their results here.'
+											: 'Your private conversation. Open a task to work on it together; actions are recorded in the activity log.'}
 								</p>
 							</div>
 						)}

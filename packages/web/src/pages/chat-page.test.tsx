@@ -279,6 +279,43 @@ function answering(answer: (input: string, init?: RequestInit) => Promise<Respon
 }
 
 describe('ChatPage', () => {
+	test('pins the coordinator above more recently active specialists and resumes its conversation', async () => {
+		const head = {...general, headAgent: true, conversationScope: 'team' as const};
+		const active = {
+			...finance,
+			lastMessage: {
+				kind: 'assistant' as const,
+				text: 'Newer specialist update',
+				at: '2026-11-16T12:00:00Z',
+			},
+		};
+		const {container, router} = renderChatPage({
+			personas: [active, head],
+			threads: [pricing],
+			views: {t1: {...pricingView, persona: head}},
+		});
+		await screen.findByLabelText('Reply');
+		await waitFor(() =>
+			expect(router.state.location.pathname).toBe('/acme/chat/general/threads/t1'),
+		);
+		expect(container.querySelector('[data-row]')?.getAttribute('data-row')).toBe('general');
+		expect(screen.getByLabelText('Chat').closest('[inert]')).not.toBeNull();
+		expect(within(screen.getByRole('banner')).getAllByText('General').length).toBeGreaterThan(0);
+		await follow(screen.getByRole('button', {name: 'Conversation history'}));
+		await waitFor(() => expect(screen.queryByLabelText('Thread')).toBeNull());
+		expect(router.state.location.search).toBe('?history=1');
+	});
+	test('team agents also resume a single conversation without opening a second pane', async () => {
+		const team = {...general, conversationScope: 'team' as const};
+		const {router} = renderChatPage({
+			personas: [team],
+			threads: [pricing],
+			views: {t1: {...pricingView, persona: team}},
+		});
+		await screen.findByLabelText('Reply');
+		expect(router.state.location.pathname).toBe('/acme/chat/general/threads/t1');
+		expect(screen.getByLabelText('Chat').closest('[inert]')).not.toBeNull();
+	});
 	test('focuses the message input after a conversation is picked from the list', async () => {
 		let arrive = () => undefined;
 		const held = new Promise<void>((resolve) => {
@@ -1219,16 +1256,13 @@ describe('ChatPage', () => {
 			expect(uploads).toEqual(['/api/orgs/acme/chat/personas/general/threads/t1/attachments']);
 		});
 
-		test('takes the page’s width and gives it back, and closes back to the chat', async () => {
+		test('opens at full width with no split-view toggle, and closes back to the chat', async () => {
 			renderChatPage({threads: [pricing], initial: '/acme/chat/general/threads/t1'});
 			await screen.findByLabelText('Thread');
 			const chatColumn = () => screen.getByLabelText('Chat').closest('[inert]');
-			expect(chatColumn()).toBeNull();
-
-			fireEvent.click(screen.getByRole('button', {name: 'Expand'}));
 			expect(chatColumn()).not.toBeNull();
-			fireEvent.click(screen.getByRole('button', {name: 'Show the chat beside it'}));
-			expect(chatColumn()).toBeNull();
+			expect(screen.queryByRole('button', {name: 'Expand'})).toBeNull();
+			expect(screen.queryByRole('button', {name: 'Show the chat beside it'})).toBeNull();
 
 			await follow(screen.getByRole('button', {name: 'Close'}));
 			await waitFor(() => expect(screen.queryByLabelText('Thread')).toBeNull());
@@ -1238,52 +1272,14 @@ describe('ChatPage', () => {
 			).toBeNull();
 		});
 
-		test('Escape gives the chat back beside one with the page’s width, and closes one beside it', async () => {
+		test('Escape closes the full-width conversation back to history', async () => {
 			renderChatPage({threads: [pricing], initial: '/acme/chat/general/threads/t1'});
 			await screen.findByLabelText('Thread');
-			const chatColumn = () => screen.getByLabelText('Chat').closest('[inert]');
-
-			fireEvent.click(screen.getByRole('button', {name: 'Expand'}));
-			expect(chatColumn()).not.toBeNull();
+			expect(screen.getByLabelText('Chat').closest('[inert]')).not.toBeNull();
 			await act(async () => {
 				fireEvent.keyDown(document.body, {key: 'Escape'});
-			});
-			expect(screen.getByLabelText('Thread')).toBeTruthy();
-			expect(chatColumn()).toBeNull();
-
-			await act(async () => {
-				fireEvent.keyDown(document.body, {key: 'Escape'});
-			});
-			await waitFor(() => expect(screen.queryByLabelText('Thread') === null).toBe(true));
-			expect(screen.getByLabelText('Chat')).toBeTruthy();
-		});
-
-		test('closes as the chat’s empty space is clicked, and stays open as a thread in it is', async () => {
-			renderChatPage({threads: [pricing], initial: '/acme/chat/general/threads/t1'});
-			await screen.findByLabelText('Thread');
-			const row = screen.getByRole('link', {name: 'Pricing review with Dana'});
-
-			fireEvent.click(row.parentElement as HTMLElement);
-			expect(screen.getByLabelText('Thread')).toBeTruthy();
-
-			await act(async () => {
-				fireEvent.click(within(screen.getByLabelText('Chat')).getByRole('log'));
 			});
 			await waitFor(() => expect(screen.queryByLabelText('Thread')).toBeNull());
-			expect(row.getAttribute('aria-current')).toBeNull();
-		});
-
-		test('stays open as the chat’s empty space is clicked to end a selection', async () => {
-			renderChatPage({threads: [pricing], initial: '/acme/chat/general/threads/t1'});
-			await screen.findByLabelText('Thread');
-			const selection = window.getSelection() as Selection;
-			selection.selectAllChildren(within(screen.getByLabelText('Chat')).getByRole('log'));
-
-			await act(async () => {
-				fireEvent.click(within(screen.getByLabelText('Chat')).getByRole('log'));
-			});
-			expect(screen.getByLabelText('Thread')).toBeTruthy();
-			selection.removeAllRanges();
 		});
 
 		test('Escape leaves one open with a reply typed in its box', async () => {
@@ -1304,20 +1300,15 @@ describe('ChatPage', () => {
 			await waitFor(() => expect(screen.queryByLabelText('Thread') === null).toBe(true));
 		});
 
-		test('given the page’s width and closed, opens beside the chat again', async () => {
+		test('reopens a conversation at full width', async () => {
 			renderChatPage({threads: [pricing], initial: '/acme/chat/general/threads/t1'});
 			await screen.findByLabelText('Thread');
-			const chatColumn = () => screen.getByLabelText('Chat').closest('[inert]');
-
-			fireEvent.click(screen.getByRole('button', {name: 'Expand'}));
-			expect(chatColumn()).not.toBeNull();
 			await follow(screen.getByRole('button', {name: 'Close'}));
 			await waitFor(() => expect(screen.queryByLabelText('Thread')).toBeNull());
-
 			await follow(screen.getByRole('link', {name: 'Pricing review with Dana'}));
 			await screen.findByLabelText('Thread');
-			expect(chatColumn()).toBeNull();
-			expect(screen.getByRole('button', {name: 'Expand'})).toBeTruthy();
+			expect(screen.getByLabelText('Chat').closest('[inert]')).not.toBeNull();
+			expect(screen.queryByRole('button', {name: 'Expand'})).toBeNull();
 		});
 
 		test('says where it is gone, the title bar waiting for no name', async () => {
@@ -1472,6 +1463,31 @@ describe('ChatPage', () => {
 			);
 		}
 
+		test('a new head chat opens only the persisted conversation and keeps replies in it', async () => {
+			const responses: ((response: Response) => void)[] = [];
+			answerSends(() => new Promise((resolve) => responses.push(resolve)));
+			const head = {...general, headAgent: true};
+			const {router} = renderChatPage({
+				personas: [head],
+				views: {
+					't-new': {
+						...view(opened('Plan a pilot'), [said('m1', 'person', 'Plan a pilot')]),
+						persona: head,
+					},
+				},
+			});
+			const box = await screen.findByLabelText('Message');
+			typeIn(box, 'Plan a pilot');
+			fireEvent.click(screen.getByRole('button', {name: 'Send'}));
+			await waitFor(() => expect(responses).toHaveLength(1));
+			expect(router.state.location.pathname).toBe('/acme/chat/general');
+			await act(async () => {
+				responses[0]!(Response.json({thread: opened('Plan a pilot')}));
+			});
+			await screen.findByLabelText('Reply');
+			expect(router.state.location.pathname).toBe('/acme/chat/general/threads/t-new');
+			expect(screen.getByLabelText('Chat').closest('[inert]')).not.toBeNull();
+		});
 		test('opens a thread with what is sent, shown at once at the chat’s end, rising into place, and keeps it as the server answers, without going to it', async () => {
 			const answeredOpen: ((response: Response) => void)[] = [];
 			answerSends(() => new Promise((resolve) => answeredOpen.push(resolve)));

@@ -2,7 +2,7 @@
 
 ## Product contract
 
-A team agent is a shared conversation. All current organization members participating in that conversation see the same messages and task state. Personal agents and their histories stay private. A head agent can delegate to specialists and consolidate their results, with the delegation visible in the originating conversation.
+A team agent is a shared conversation. All current organization members participating in that conversation see the same messages and task state. Personal agents and their histories stay private. A head agent stays pinned above the specialist chats, opens as its own full-width conversation, and can delegate to specialists and consolidate their results there. Team and head-agent chats resume their latest conversation; earlier conversations remain accessible through Conversation history.
 
 Existing shared personas such as General are shared configurations with separate member histories. They must not become shared conversations through a migration. Team conversations are created explicitly; changing a name, provider, model, or coordinator role must never publish existing history.
 
