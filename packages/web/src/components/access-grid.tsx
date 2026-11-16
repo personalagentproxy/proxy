@@ -271,7 +271,7 @@ export function AccessGrid({
 		<div className="flex flex-col gap-2">
 			{/* Apart from the page's text over the grid, and close over the grid it acts on. */}
 			{everythingButton && (
-				<div className="mt-2 flex">
+				<div className="flex pt-2">
 					<PillButton onClick={() => setEverything(!everythingOn)}>
 						{everythingOn ? 'Disable all' : 'Enable all'}
 					</PillButton>
