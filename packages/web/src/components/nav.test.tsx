@@ -100,7 +100,7 @@ describe('AppSidebar', () => {
 
 		expect(groupLabels()).toEqual([
 			['Chat'],
-			['Connections and permissions', 'Environments', 'External agents'],
+			['Connections and permissions', '🔑Environments', 'External agents'],
 			['Activity', 'Alerts'],
 		]);
 
