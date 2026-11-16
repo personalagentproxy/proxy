@@ -121,6 +121,8 @@ model VerificationToken {
 // `slug` is its address in the web app and the api (`/acme/connections`, `/api/orgs/acme/…`),
 // fixed when it is made.
 model Organization {
+  developmentEnvironments DevelopmentEnvironment[]
+  environmentAccess EnvironmentAccess[]
   id          String    @id @default(cuid())
   name        String
   slug        String    @unique
@@ -329,6 +331,7 @@ model VaultEntry {
 // of it, which reaches the connections shared with every member alone; one that is shared stays
 // shared. The password is shown once, when it is made or reset; only its hash is kept.
 model Agent {
+  environmentGrants DevelopmentEnvironmentGrant[]
   id           String    @id @default(cuid())
   orgId        String
   // One of the catalog's AGENT_PROVIDERS, of which there can be any number of logins, each named by
@@ -1161,4 +1164,36 @@ model ClaudeAccount {
   updatedAt DateTime @default(now()) @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+model DevelopmentEnvironment {
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  id String @id @default(cuid())
+  orgId String
+  project String
+  ciphertext String
+  names String[]
+  grants DevelopmentEnvironmentGrant[]
+  @@unique([orgId, project])
+}
+
+model DevelopmentEnvironmentGrant {
+  @@index([agentId])
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  environmentId String
+  agentId String
+  names String[]
+  environment DevelopmentEnvironment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
+  @@id([environmentId, agentId])
+}
+
+model EnvironmentAccess {
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  @@index([orgId, createdAt, id])
+  id String @id @default(cuid())
+  orgId String
+  project String
+  agentId String
+  names String[]
+  allowed Boolean
+  createdAt DateTime @default(now())
 }

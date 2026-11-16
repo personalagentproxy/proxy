@@ -5,6 +5,8 @@
 		"packages/*"
 	],
 	"scripts": {
+		"proxy": "node scripts/proxy.mjs",
+		"test:environments": "node --test scripts/proxy.test.mjs && bun test --isolate packages/api/src/environments && bun run packages/db/scripts/environment-e2e.ts",
 		"setup": "node scripts/setup-ai.mjs",
 		"postinstall": "bun run --cwd packages/db db:generate",
 		"dev": "node scripts/dev.mjs",

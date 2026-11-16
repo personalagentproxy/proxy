@@ -1,3 +1,4 @@
+import {EnvironmentsPage} from '@/pages/environments-page';
 import type {SignInMethods} from '@proxy/contracts/auth';
 import type {Org} from '@proxy/contracts/orgs';
 import {createBrowserRouter, redirect, redirectDocument, type RouteObject} from 'react-router';
@@ -313,6 +314,7 @@ const routes: RouteObject[] = [
 				],
 			},
 			{path: '/:org/alerts', loader: alertsLoader, element: <AlertsPage />},
+			{path: '/:org/environments', element: <EnvironmentsPage />},
 			{path: '/:org/agents', loader: agentsLoader, element: <AgentsPage />},
 			{path: '/:org/agents/new', loader: agentsLoader, element: <NewAgentPage />},
 			{

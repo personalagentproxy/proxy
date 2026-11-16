@@ -18,5 +18,6 @@ jobs:
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: 1
       - run: bun run typecheck
+      - run: bun run test:environments
       - run: bun run test
       - run: bun run build

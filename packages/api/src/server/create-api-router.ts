@@ -1,3 +1,4 @@
+import {saveEnvironment, grantEnvironment, readEnvironment, listEnvironments, deleteEnvironment, listEnvironmentAccess} from '../environments/route';
 import express from 'express';
 import {z} from 'zod';
 
@@ -228,6 +229,12 @@ export function createApiRouter(): express.Router {
 	router.get('/api/link-previews', wrapAsyncRoute('Link preview route', handleLinkPreviewRoute));
 	router.get('/api/link-previews/image', wrapAsyncRoute('Link preview image route', handleLinkPreviewImageRoute));
 
+	org.get('/environments/development', withAuthResult('List environments', listEnvironments));
+	org.get('/environments/access', withAuthResult('Environment audit', listEnvironmentAccess));
+	org.delete('/environments/development/:project', withAuthResult('Delete environment', deleteEnvironment));
+	org.put('/environments/development/:project', withAuthResult('Save environment', saveEnvironment));
+	org.put('/environments/development/:project/grants', withAuthResult('Grant environment', grantEnvironment));
+	router.get('/api/agent/environments/development/:project', withAgentAuthResult('Read environment', readEnvironment));
 	org.get('/agents', withAuthResult('List agents route', handleListAgentsRoute));
 	org.post('/agents', withAuthResult('Create agent route', handleCreateAgentRoute));
 	org.get('/agents/:agentId', withAuthResult('Get agent route', handleGetAgentRoute));
