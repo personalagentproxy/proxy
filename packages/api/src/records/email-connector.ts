@@ -28,7 +28,7 @@ import {
 	type RunOnly,
 } from './connector';
 import {gmailQuery, type EmailSearch, type MailSearch} from './email-search';
-import {replyCommands, replyHeaders, type MailReply, type ReplyHeaders} from './email-reply';
+import {replyCommands, replyHeaders, withQuote, type MailReply, type Quoted, type ReplyHeaders} from './email-reply';
 
 /**
  * A mailbox over IMAP, signed in fresh for every request. Its one list is the inbox and the
@@ -234,32 +234,78 @@ function searchCriteria(client: ImapFlow, search: string | null): SearchObject {
 	return {text: search};
 }
 
+// Any of the email's headers a mail app shows, its sender, recipients and subject, holding `word`.
+function inHeaders(word: string): SearchObject {
+	return {or: [{from: word}, {to: word}, {cc: word}, {subject: word}]};
+}
+
+/**
+ * The UIDs a search finds, or null where the server refused it or gave up on it: imapflow answers
+ * such a search with `false` rather than throwing, which is no answer, not an empty one.
+ */
+async function searchUids(client: ImapFlow, criteria: SearchObject): Promise<number[] | null> {
+	const found = await client.search(criteria, {uid: true});
+	if (!Array.isArray(found)) {
+		return null;
+	}
+	return found;
+}
+
+/**
+ * The UIDs a search finds, newest first. Some servers refuse a search of every email's text in a
+ * large folder, or give up on it, as IONOS does on an inbox of thousands: the words are then looked
+ * for in the headers alone, `inHeadersOnly`, which is how most searches for someone or a subject
+ * are meant. A search the server answers neither way fails, rather than finding nothing.
+ */
+async function searchNewest(session: Session, criteria: SearchObject, inHeadersOnly: SearchObject | null): Promise<Result<number[], ApiError>> {
+	const found = await searchUids(session.client, criteria);
+	if (found) {
+		return Ok(found.sort((a, b) => b - a));
+	}
+	log.warn('imap search refused', {folder: session.folder.key, fallback: inHeadersOnly !== null});
+	const inHeaders = inHeadersOnly ? await searchUids(session.client, inHeadersOnly) : null;
+	if (inHeaders) {
+		return Ok(inHeaders.sort((a, b) => b - a));
+	}
+	return Err(
+		ApiErr.providerUnreachable(
+			new Error(`The mail server didn’t answer a search of ${session.folder.label}`),
+			'The mail server didn’t answer the search: try fewer or other words, or list the email without one.',
+		),
+	);
+}
+
 // What a list reads of each message.
 const SUMMARY_FIELDS = {uid: true, envelope: true, internalDate: true, flags: true};
 
 /** A folder's newest messages below the UID `before`, matching the search, and whether it has more. */
-async function folderPage(session: Session, search: string | null, before: number | null): Promise<{messages: FetchMessageObject[]; more: boolean}> {
+async function folderPage(session: Session, search: string | null, before: number | null): Promise<Result<{messages: FetchMessageObject[]; more: boolean}, ApiError>> {
 	const {client, mailbox} = session;
 
 	// The common case, the newest messages: read by position, without a search.
 	if (!search && before === null) {
 		if (mailbox.exists === 0) {
-			return {messages: [], more: false};
+			return Ok({messages: [], more: false});
 		}
 		const range = `${Math.max(1, mailbox.exists - PAGE_SIZE + 1)}:*`;
-		return {messages: await client.fetchAll(range, SUMMARY_FIELDS), more: mailbox.exists > PAGE_SIZE};
+		return Ok({messages: await client.fetchAll(range, SUMMARY_FIELDS), more: mailbox.exists > PAGE_SIZE});
 	}
 
 	if (before !== null && before <= 1) {
-		return {messages: [], more: false};
+		return Ok({messages: [], more: false});
 	}
-	const criteria = {...searchCriteria(client, search), ...(before === null ? {} : {uid: `1:${before - 1}`})};
-	const found = ((await client.search(criteria, {uid: true})) || []).sort((a, b) => b - a);
-	const uids = found.slice(0, PAGE_SIZE);
+	const below = before === null ? {} : {uid: `1:${before - 1}`};
+	const criteria = {...searchCriteria(client, search), ...below};
+	const inHeadersOnly = search && !isGmail(client) ? {...inHeaders(search), ...below} : null;
+	const found = await searchNewest(session, criteria, inHeadersOnly);
+	if (found.isErr()) {
+		return found;
+	}
+	const uids = found.value.slice(0, PAGE_SIZE);
 	if (uids.length === 0) {
-		return {messages: [], more: false};
+		return Ok({messages: [], more: false});
 	}
-	return {messages: await client.fetchAll(uids.join(','), SUMMARY_FIELDS, {uid: true}), more: found.length > PAGE_SIZE};
+	return Ok({messages: await client.fetchAll(uids.join(','), SUMMARY_FIELDS, {uid: true}), more: found.value.length > PAGE_SIZE});
 }
 
 // Any one of `conditions`.
@@ -281,13 +327,15 @@ function allOf(conditions: SearchObject[]): SearchObject {
 }
 
 // A command bar search in IMAP's own terms: from the sender, from, to or copied to someone, any of
-// each term's words anywhere in the email, received since the day.
-function imapCriteria(search: EmailSearch): SearchObject {
+// each term's words anywhere in the email, or, `inHeadersOnly`, in its sender, recipients and
+// subject, received since the day.
+function imapCriteria(search: EmailSearch, inHeadersOnly = false): SearchObject {
 	const {involving} = search;
+	const matching = (word: string): SearchObject => (inHeadersOnly ? inHeaders(word) : {text: word});
 	return allOf([
 		...(search.from ? [{from: search.from}] : []),
 		...(involving ? [anyOf([{from: involving}, {to: involving}, {cc: involving}])] : []),
-		...search.words.filter((term) => term.length > 0).map((term) => anyOf(term.map((word) => ({text: word})))),
+		...search.words.filter((term) => term.length > 0).map((term) => anyOf(term.map(matching))),
 		...(search.since ? [{since: search.since}] : []),
 	]);
 }
@@ -308,15 +356,20 @@ function findCriteria(client: ImapFlow, search: EmailSearch): SearchObject {
 }
 
 // The newest emails in the open inbox one search finds, at most `limit`.
-async function findInSession(session: Session, search: EmailSearch, limit: number): Promise<DataRecord[]> {
+async function findInSession(session: Session, search: EmailSearch, limit: number): Promise<Result<DataRecord[], ApiError>> {
 	const {client} = session;
 	const criteria = findCriteria(client, search);
-	const uids = ((await client.search(criteria, {uid: true})) || []).sort((a, b) => b - a).slice(0, limit);
+	const inHeadersOnly = !isGmail(client) && search.words.length > 0 ? imapCriteria(search, true) : null;
+	const found = await searchNewest(session, criteria, inHeadersOnly);
+	if (found.isErr()) {
+		return found;
+	}
+	const uids = found.value.slice(0, limit);
 	if (uids.length === 0) {
-		return [];
+		return Ok([]);
 	}
 	const messages = await client.fetchAll(uids.join(','), SUMMARY_FIELDS, {uid: true});
-	return messages.sort((a, b) => b.uid - a.uid).map((message) => withCc(toRecord(session, message), message));
+	return Ok(messages.sort((a, b) => b.uid - a.uid).map((message) => withCc(toRecord(session, message), message)));
 }
 
 // A search only for someone the email is from, to or copied to, which the envelope alone tells.
@@ -338,19 +391,21 @@ function involves(message: FetchMessageObject, someone: string): boolean {
  * each going to everyone it involves. Someone those leave short, behind someone written to more,
  * is searched for on their own, so each still gets their own newest.
  */
-async function findEveryone(session: Session, searches: Array<EmailSearch & {involving: string}>, limit: number): Promise<DataRecord[][]> {
-	const {client} = session;
-	const criteria: SearchObject = {or: searches.flatMap(({involving}) => [{from: involving}, {to: involving}, {cc: involving}])};
-	const uids = ((await client.search(criteria, {uid: true})) || []).sort((a, b) => b - a);
-	const newest = uids.slice(0, limit * searches.length);
-	const messages = newest.length === 0 ? [] : (await client.fetchAll(newest.join(','), SUMMARY_FIELDS, {uid: true})).sort((a, b) => b.uid - a.uid);
-	const found: DataRecord[][] = [];
-	for (const search of searches) {
-		const theirs = messages.filter((message) => involves(message, search.involving)).slice(0, limit);
-		const short = theirs.length < limit && uids.length > newest.length;
-		found.push(short ? await findInSession(session, search, limit) : theirs.map((message) => withCc(toRecord(session, message), message)));
-	}
-	return found;
+function findEveryone(session: Session, searches: Array<EmailSearch & {involving: string}>, limit: number): Promise<Result<DataRecord[][], ApiError>> {
+	return Do(async ($) => {
+		const {client} = session;
+		const criteria: SearchObject = {or: searches.flatMap(({involving}) => [{from: involving}, {to: involving}, {cc: involving}])};
+		const uids = $(await searchNewest(session, criteria, null));
+		const newest = uids.slice(0, limit * searches.length);
+		const messages = newest.length === 0 ? [] : (await client.fetchAll(newest.join(','), SUMMARY_FIELDS, {uid: true})).sort((a, b) => b.uid - a.uid);
+		const found: DataRecord[][] = [];
+		for (const search of searches) {
+			const theirs = messages.filter((message) => involves(message, search.involving)).slice(0, limit);
+			const short = theirs.length < limit && uids.length > newest.length;
+			found.push(short ? $(await findInSession(session, search, limit)) : theirs.map((message) => withCc(toRecord(session, message), message)));
+		}
+		return found;
+	});
 }
 
 /**
@@ -363,17 +418,18 @@ const findInboxEmails: MailSearch = (target, searches, limit, signal) =>
 	withFolder(
 		target,
 		INBOX,
-		async (session) => {
-			const people = searches.filter(onlyInvolving);
-			if (searches.length > 1 && people.length === searches.length) {
-				return Ok(await findEveryone(session, people, limit));
-			}
-			const found: DataRecord[][] = [];
-			for (const search of searches) {
-				found.push(await findInSession(session, search, limit));
-			}
-			return Ok(found);
-		},
+		(session) =>
+			Do(async ($) => {
+				const people = searches.filter(onlyInvolving);
+				if (searches.length > 1 && people.length === searches.length) {
+					return $(await findEveryone(session, people, limit));
+				}
+				const found: DataRecord[][] = [];
+				for (const search of searches) {
+					found.push($(await findInSession(session, search, limit)));
+				}
+				return found;
+			}),
 		signal,
 	);
 
@@ -446,7 +502,7 @@ function listPage(target: RecordTarget, query: ListQuery): Promise<Result<Record
 							return $$(Err(ApiErr.validationError('The mailbox changed; list it again from the start')));
 						}
 						const before = cursor?.before ?? null;
-						const {messages, more} = await folderPage(session, query.search, before);
+						const {messages, more} = $$(await folderPage(session, query.search, before));
 						const records = messages.sort((a, b) => b.uid - a.uid).map((message) => ({...toRecord(session, message), uid: message.uid}));
 						return {folder, uidValidity, uidNext: session.mailbox.uidNext, before, records, more};
 					}),
@@ -561,6 +617,15 @@ function readAttachment(target: RecordTarget, values: RecordValues): Promise<Res
 // The headers that keep a reply in the thread of the email it answers.
 type Thread = Pick<ReplyHeaders, 'inReplyTo' | 'references'>;
 
+// The thread a draft is a reply in, as its own headers say, or null for a new email.
+function threadOf(parsed: ParsedMail): Thread | null {
+	const inReplyTo = parsed.inReplyTo ?? '';
+	if (inReplyTo === '') {
+		return null;
+	}
+	return {inReplyTo, references: referencesOf(parsed.references)};
+}
+
 function threadOptions(thread: Thread | null): Mail.Options {
 	return thread ? {inReplyTo: thread.inReplyTo, references: thread.references} : {};
 }
@@ -598,10 +663,10 @@ async function saveDraft(session: Session, values: RecordValues, thread: Thread 
 	});
 }
 
-/** Saves a draft from the typed-in values, from the connected address, and reads it back. */
-async function appendDraft(session: Session, values: RecordValues): Promise<Result<DataRecord, ApiError>> {
+/** Saves a draft from the typed-in values, from the connected address, a reply in `thread`, and reads it back. */
+async function appendDraft(session: Session, values: RecordValues, thread: Thread | null = null): Promise<Result<DataRecord, ApiError>> {
 	return Do(async ($) => {
-		const uid = $(await saveDraft(session, values, null));
+		const uid = $(await saveDraft(session, values, thread));
 		return $(await getMessage(session, recordId(session, uid)));
 	});
 }
@@ -693,12 +758,14 @@ async function deliver(client: ImapFlow, credential: EmailCredential, values: Re
 	});
 }
 
-// Sends a draft and deletes it; a draft left behind once sent is only logged, as in `deliver`.
+// Sends a draft and deletes it, in the thread it was a reply in; a draft left behind once sent is
+// only logged, as in `deliver`.
 async function sendDraft(session: Session, id: string): Promise<Result<null, ApiError>> {
 	return Do(async ($) => {
 		const uid = $(uidOf(session, id));
 		const draft = $(await getMessage(session, id));
-		$(await deliver(session.client, session.credential, draft.values));
+		const {parsed} = $(await parsedMessage(session, id));
+		$(await deliver(session.client, session.credential, draft.values, threadOf(parsed)));
 
 		const removed = await Result.wrapAsync(() => session.client.messageDelete(String(uid), {uid: true}));
 		if (removed.isErr()) {
@@ -721,8 +788,9 @@ function referencesOf(references: string | string[] | undefined): string {
 	return [references ?? []].flat().join(' ');
 }
 
-// The headers of a reply to the email in the open folder, from its own headers, to all where `all`.
-async function replyTo(session: Session, id: string, all: boolean): Promise<Result<ReplyHeaders, ApiError>> {
+// The headers of a reply to the email in the open folder, from its own headers, to all where `all`,
+// and the email as the reply quotes it.
+async function replyTo(session: Session, id: string, all: boolean): Promise<Result<{headers: ReplyHeaders; quoted: Quoted}, ApiError>> {
 	return Do(async ($) => {
 		const uid = $(uidOf(session, id));
 		const message = await session.client.fetchOne(String(uid), {uid: true, source: true}, {uid: true});
@@ -731,7 +799,7 @@ async function replyTo(session: Session, id: string, all: boolean): Promise<Resu
 		}
 		const source = message.source;
 		const parsed = $((await Result.wrapAsync(() => simpleParser(source))).mapErr((cause) => ApiErr.providerUnreachable(cause)));
-		return replyHeaders(
+		const headers = replyHeaders(
 			session.credential.username,
 			{
 				from: parsed.from?.text ?? '',
@@ -744,6 +812,9 @@ async function replyTo(session: Session, id: string, all: boolean): Promise<Resu
 			},
 			all,
 		);
+		const writer = parsed.from?.value[0];
+		const from = writer ? formatAddresses([writer], true) : '';
+		return {headers, quoted: {from, date: parsed.date ?? null, text: parsed.text ?? ''}};
 	});
 }
 
@@ -759,8 +830,8 @@ const replyToMailbox: MailReply = (target, id, reply) =>
 			if (folder === DRAFTS) {
 				return $(Err(ApiErr.validationError('A draft isn’t replied to: send it, or reply to the email it answers')));
 			}
-			const headers = $(await inFolder(client, credential, folder, (session) => replyTo(session, id, reply.all)));
-			const values = {to: headers.to, cc: headers.cc, subject: headers.subject, body: reply.body};
+			const {headers, quoted} = $(await inFolder(client, credential, folder, (session) => replyTo(session, id, reply.all)));
+			const values = {to: headers.to, cc: headers.cc, subject: headers.subject, body: withQuote(reply.body, quoted)};
 			if (reply.send) {
 				const messageId = $(await deliver(client, credential, values, headers));
 				return {...headers, id: messageId, thread: ''};
@@ -780,8 +851,9 @@ export const emailConnector = {
 			$(
 				await withFolder(target, $(requireDraft(id)), (session) =>
 					Do(async ($$) => {
-						$$(await requireMessage(session, id));
-						const draft = $$(await appendDraft(session, values));
+						// An edited reply stays in the thread it was written in.
+						const {parsed} = $$(await parsedMessage(session, id));
+						const draft = $$(await appendDraft(session, values, threadOf(parsed)));
 						$$(await deleteMessage(session, id));
 						return draft;
 					}),

@@ -626,7 +626,8 @@ describe('gmailConnector.reply', () => {
 		expect(raw).toContain('Subject: Re: Q3 planning');
 		expect(raw).toContain('In-Reply-To: <q3@example.com>');
 		expect(raw).toContain('References: <agenda@example.com> <q3@example.com>');
-		expect(raw).toContain('Works for me.');
+		// Above the email it answers, quoted as a mail app quotes it.
+		expect(raw).toContain('Works for me.\n\nOn Thu, 01 Oct 2026 09:00:00 GMT, Sam Lee <sam@example.com> wrote:\n> Agenda attached.');
 		expect(raw).not.toContain('Cc:');
 		expect(calls('POST', '/drafts')).toEqual([]);
 	});

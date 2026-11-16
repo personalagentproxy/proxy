@@ -74,6 +74,25 @@ export function replyHeaders(account: string, answered: Answered, all = false): 
 	return {to: [to, ...alsoTo].filter((one) => one !== '').join(', '), cc: cc.join(', '), ...thread};
 }
 
+/** The email a reply quotes: who wrote it, when, and its text. */
+export type Quoted = {from: string; date: Date | null; text: string};
+
+/**
+ * The reply's text as a mail app writes it: what was written, then the email it answers quoted
+ * below, each line after "> ", under who wrote it and when. An email without text is not quoted.
+ */
+export function withQuote(body: string, quoted: Quoted): string {
+	const text = quoted.text.replace(/\r\n/g, '\n').trim();
+	if (text === '') {
+		return body;
+	}
+	const when = quoted.date && !Number.isNaN(quoted.date.getTime()) ? `On ${quoted.date.toUTCString()}, ` : '';
+	const [writer] = parsed(quoted.from);
+	const who = writer ? [writer.name, `<${writer.address}>`].filter((part) => part !== '').join(' ') : quoted.from.trim() || 'they';
+	const lines = text.split('\n').map((line) => (line === '' ? '>' : `> ${line}`));
+	return `${body.trimEnd()}\n\n${when}${who} wrote:\n${lines.join('\n')}\n`;
+}
+
 /** A reply as the `replies` collection's record: the email answered, what was written, and where it went. */
 function replyRunner(reply: MailReply, send: boolean): NewCommandRunner {
 	return (target, values) =>
