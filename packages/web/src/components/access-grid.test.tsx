@@ -113,6 +113,60 @@ describe('AccessGrid', () => {
 		expect(onChangeAgent).not.toHaveBeenCalled();
 	});
 
+	test('an agent following the default follows a click on the default’s box at once, before it is saved', async () => {
+		let save = () => {};
+		const onChangeDefaults = mock(
+			(_actions: Record<string, boolean>) => new Promise<void>((resolve) => (save = resolve)),
+		);
+		renderGrid({onChangeDefaults});
+
+		fireEvent.click(box('Archive by default'));
+
+		expect(['Archive by default', 'Archive for Claude', 'Archive for Scout'].map(ticked)).toEqual([
+			'true',
+			'true',
+			'true',
+		]);
+		save();
+		await waitFor(() => expect(onChangeDefaults).toHaveBeenCalledWith({archive: true}));
+	});
+
+	test('with `all`, Enable all turns every available action on by default and for every agent, dropping settings of their own', async () => {
+		const {onChangeDefaults, onChangeAgent} = renderGrid({
+			all: true,
+			unavailable: ['send'],
+			agents: [{...claude, own: {read: false, send: true}}, scout],
+		});
+
+		fireEvent.click(screen.getByRole('button', {name: 'Enable all'}));
+
+		expect(
+			['Read for Claude, its own setting', 'Archive for Claude', 'Archive for Scout'].map(ticked),
+		).toEqual(['true', 'true', 'true']);
+		await waitFor(() => expect(onChangeDefaults).toHaveBeenCalledWith({archive: true}));
+		await waitFor(() => expect(onChangeAgent).toHaveBeenCalledWith('agent-1', {read: null}));
+		expect(onChangeAgent).toHaveBeenCalledTimes(1);
+		cleanup();
+
+		renderGrid();
+		expect(screen.queryByRole('button', {name: 'Enable all'})).toBeNull();
+	});
+
+	test('with everything on, the button is Disable all, and turns every column off', async () => {
+		const {onChangeDefaults, onChangeAgent} = renderGrid({
+			all: true,
+			defaults: ['read', 'archive', 'send'],
+			agents: [{...claude, own: {}}, scout],
+		});
+
+		fireEvent.click(screen.getByRole('button', {name: 'Disable all'}));
+
+		await waitFor(() =>
+			expect(onChangeDefaults).toHaveBeenCalledWith({read: false, archive: false, send: false}),
+		);
+		expect(onChangeAgent).not.toHaveBeenCalled();
+	});
+
 	test('a box under an agent gives it a setting of its own, and ticking it back to what the default says drops the setting', async () => {
 		const {onChangeAgent, onChangeDefaults} = renderGrid();
 
