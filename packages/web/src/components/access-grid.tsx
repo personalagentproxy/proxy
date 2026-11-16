@@ -265,10 +265,13 @@ export function AccessGrid({
 	};
 
 	const groups = groupsOf(actions);
+	const everythingButton =
+		all && available.length > 0 && (mayChangeDefaults || changeable.length > 0);
 	return (
 		<div className="flex flex-col gap-2">
-			{all && available.length > 0 && (mayChangeDefaults || changeable.length > 0) && (
-				<div className="flex">
+			{/* Apart from the page's text over the grid, and close over the grid it acts on. */}
+			{everythingButton && (
+				<div className="mt-2 flex">
 					<PillButton onClick={() => setEverything(!everythingOn)}>
 						{everythingOn ? 'Disable all' : 'Enable all'}
 					</PillButton>
@@ -278,8 +281,9 @@ export function AccessGrid({
 				<table className="w-full border-collapse text-sm">
 					{groups.map((group, index) => {
 						// Room above each part, over every heading of its row, the agents' logos being the
-						// tallest: a little over the first part, more between two.
-						const above = index === 0 ? 'pt-4' : 'pt-12';
+						// tallest: a little over the first part, less under the button that turns everything
+						// on, more between two.
+						const above = index > 0 ? 'pt-12' : everythingButton ? 'pt-2' : 'pt-4';
 						return (
 							<tbody key={group.name ?? 'all'}>
 								{!(headed && group.name === undefined) && (
