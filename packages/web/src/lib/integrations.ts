@@ -58,6 +58,8 @@ const LOGOS: Partial<Record<IntegrationId, LucideIcon | IntegrationLogoImage>> =
 	vault: LibraryIcon,
 	sandbox: SquareTerminalIcon,
 	files: FolderIcon,
+	// The catalog fallback; IntegrationLogo renders Chat with its 3D head.
+	chat: {src: MCP_MARK, ink: true},
 	email: MailIcon,
 	mcp: {src: MCP_MARK, ink: true},
 	github: {src: '/integrations/github.svg', ink: true},
