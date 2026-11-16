@@ -98,12 +98,79 @@ if (process.argv.includes('--serve')) {
 	process.exit(0);
 }
 const base = '/api/orgs/env-e2e/environments/development/example';
+const member = await db.user.create({data: {email: 'member@example.test'}});
+await db.orgMember.create({data: {userId: member.id, orgId: org.id}});
+const memberToken = randomBytes(32).toString('hex');
+await db.session.create({
+	data: {
+		userId: member.id,
+		tokenHash: createHash('sha256').update(memberToken).digest('hex'),
+		expires: new Date(Date.now() + 60000),
+	},
+});
+const memberCookie = 'proxy.session-token=' + memberToken;
+assert.equal((await call(base, 'PUT', {PUBLIC: 'forbidden'}, memberCookie)).status, 403);
+assert.equal(
+	(await call('/api/orgs/env-e2e/environments/development', 'GET', undefined, memberCookie)).status,
+	403,
+);
+assert.equal(
+	(await call('/api/orgs/env-e2e/environments/access', 'GET', undefined, memberCookie)).status,
+	403,
+);
+assert.equal(
+	(
+		await fetch(origin + base, {
+			method: 'PUT',
+			headers: {
+				'Content-Type': 'application/json',
+				Origin: 'https://untrusted.example',
+				Cookie: humanCookie,
+			},
+			body: '{"PUBLIC":"forbidden"}',
+		})
+	).status,
+	403,
+);
+const otherOrg = await db.organization.create({
+	data: {name: 'Other', slug: 'other', ownerUserId: member.id},
+});
+const foreignAgent = await db.agent.create({
+	data: {
+		orgId: otherOrg.id,
+		name: 'Other agent',
+		username: 'other-agent',
+		providerId: 'claude-code',
+		passwordHash: await Bun.password.hash('invented-password'),
+	},
+});
+
 assert.equal(
 	(await call(base, 'PUT', {PUBLIC: 'example-value', SECRET: 'private-value'})).status,
 	200,
 );
 const saved = await db.developmentEnvironment.findFirstOrThrow();
 assert.ok(!saved.ciphertext.includes('private-value'));
+assert.equal(
+	(await call(base + '/grants', 'PUT', {agentId: foreignAgent.id, names: ['PUBLIC']})).status,
+	403,
+);
+const otherLogin = await call(
+	'/agent-auth/login',
+	'POST',
+	{username: foreignAgent.username, password: 'invented-password'},
+	'',
+);
+const otherCookie = otherLogin.headers
+	.getSetCookie()
+	.map((value) => value.split(';')[0])
+	.join('; ');
+assert.equal(
+	(await call('/api/agent/environments/development/example', 'GET', undefined, otherCookie)).status,
+	403,
+);
+await db.organization.delete({where: {id: otherOrg.id}});
+
 const login = await call(
 	'/agent-auth/login',
 	'POST',

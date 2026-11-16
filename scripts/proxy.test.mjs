@@ -103,3 +103,69 @@ test('requires option values and refuses remote cleartext', async () => {
 	assert.equal(result.code, 1);
 	assert.match(result.stderr, /HTTPS/);
 });
+
+test('interactive login hides password, saves a private session and logout revokes it', async (t) => {
+	const args = await fixture(t, (req, res) => {
+		if (req.url === '/agent-auth/login') {
+			let body = '';
+			req.on('data', (chunk) => {
+				body += chunk;
+			});
+			req.on('end', () => {
+				assert.deepEqual(JSON.parse(body), {
+					username: 'example-agent',
+					password: 'invented-password',
+				});
+				res.setHeader('Set-Cookie', 'proxy.agent-session=example-session; Path=/; HttpOnly');
+				res.end('{"agentId":"example"}');
+			});
+			return;
+		}
+		assert.equal(req.url, '/agent-auth/logout');
+		assert.equal(req.headers.cookie, 'proxy.agent-session=example-session');
+		res.end('{"ok":true}');
+	});
+	const url = args[2];
+	const script = [
+		'import os, pty, select, sys, time',
+		'pid, fd = pty.fork()',
+		'if pid == 0: os.execv(sys.argv[1], [sys.argv[1], sys.argv[2], "login", "--url", sys.argv[3]])',
+		'out = b""',
+		'try:',
+		' for prompt, answer in [(b"Agent username:", b"example-agent\\r"), (b"Agent password:", b"invented-password\\r"), (b"Signed in.", None)]:',
+		'  deadline = time.time() + 15',
+		'  while prompt not in out and time.time() < deadline:',
+		'   if select.select([fd], [], [], 1)[0]:',
+		'    try: out += os.read(fd, 4096)',
+		'    except OSError: break',
+		'  assert prompt in out, "Terminal prompt missing"',
+		'  if answer: os.write(fd, answer)',
+		' assert b"invented-password" not in out, "Password echoed"',
+		' _, status = os.waitpid(pid, 0)',
+		' assert status == 0, "Login failed"',
+		'finally:',
+		' os.close(fd)',
+	].join('\n');
+	const child = spawn('python3', ['-c', script, process.execPath, cli, url], {
+		stdio: ['ignore', 'pipe', 'pipe'],
+	});
+	let error = '';
+	child.stderr.on('data', (chunk) => {
+		error += chunk;
+	});
+	const code = await new Promise((resolve) => child.on('close', resolve));
+	assert.equal(code, 0, error);
+	const {homedir} = await import('node:os');
+	const {stat} = await import('node:fs/promises');
+	const file = join(
+		homedir(),
+		'.config',
+		'personal-agent-proxy',
+		Buffer.from(url).toString('base64url') + '.cookie',
+	);
+	t.after(() => rm(file, {force: true}));
+	assert.equal((await stat(file)).mode & 0o777, 0o600);
+	const logout = await run(['logout', '--url', url]);
+	assert.equal(logout.code, 0, logout.stderr);
+	await assert.rejects(stat(file), {code: 'ENOENT'});
+});
