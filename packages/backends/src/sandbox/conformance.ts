@@ -38,7 +38,7 @@ export function sandboxBackendTests(make: () => Promise<SandboxBackend>): void {
 
 			expect(await exec(ref, 'echo hello; echo oops >&2; exit 3')).toEqual({stdout: 'hello\n', stderr: 'oops\n', exitCode: 3, timedOut: false});
 			expect(await exec(ref, 'cat > note.txt; wc -c < note.txt | tr -d " "', 'hi there')).toMatchObject({stdout: '8\n', exitCode: 0});
-			expect(await exec(ref, 'test "$(pwd)" = "$HOME" && test -f "$HOME/note.txt" && echo home')).toMatchObject({stdout: 'home\n', exitCode: 0});
+			expect(await exec(ref, 'test "$(pwd -P)" = "$(cd "$HOME" && pwd -P)" && test -f "$HOME/note.txt" && echo home')).toMatchObject({stdout: 'home\n', exitCode: 0});
 		});
 
 		test('a command runs where cwd says, under the home, with the environment it is sent', async () => {

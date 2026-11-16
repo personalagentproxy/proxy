@@ -180,7 +180,7 @@ function log(run: ToolRun, outcome: Outcome, title: string | null, query: string
 		outcome,
 		via: run.caller.via,
 		taskId: run.caller.taskId,
-		ownerUserId: run.caller.agent.ownerUserId,
+		ownerUserId: run.caller.agent.auditOwnerUserId ?? run.caller.agent.ownerUserId,
 		startedAt: run.startedAt,
 		error,
 	});
@@ -363,7 +363,7 @@ export function gateRun<T>(target: RunTarget, tool: ServerTool | ApiTool, params
 				outcome,
 				via: caller.via,
 				taskId: caller.taskId,
-				ownerUserId: caller.agent.ownerUserId,
+				ownerUserId: caller.agent.auditOwnerUserId ?? caller.agent.ownerUserId,
 				startedAt,
 				error,
 			});

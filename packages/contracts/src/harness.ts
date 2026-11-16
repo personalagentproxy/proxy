@@ -18,6 +18,8 @@ import {z} from 'zod';
  * where the harness stays. One the server hasn't got is refused.
  */
 export const personaBodySchema = z.object({
+	conversationScope: z.enum(['member', 'team']).optional(),
+	headAgent: z.boolean().optional(),
 	name: z.string().trim().pipe(z.string().min(1).max(AGENT_NAME_MAX)),
 	look: lookSchema,
 	color: z.enum(AVATAR_COLORS),
@@ -31,6 +33,8 @@ const speakerSchema = z.enum(['person', 'assistant']);
 
 /** A persona as the page lists it. */
 export const chatPersonaSchema = z.object({
+	conversationScope: z.enum(['member', 'team']).optional(),
+	headAgent: z.boolean().optional(),
 	id: z.string(),
 	name: z.string(),
 	look: lookSchema,
@@ -228,6 +232,8 @@ export type ThreadStanding = z.infer<typeof threadStandingSchema>;
  * that came. What the persona did to get there is in the activity log, not here.
  */
 export const threadMessageSchema = z.object({
+	senderName: z.string().nullable().optional(),
+	mine: z.boolean().optional(),
 	id: z.string(),
 	kind: z.enum(['person', 'assistant', 'event']),
 	text: z.string(),
@@ -262,6 +268,8 @@ export const chatThreadSchema = z.object({
 		.discriminatedUnion('kind', [
 			z.object({
 				kind: z.literal('person'),
+				senderName: z.string().nullable().optional(),
+				mine: z.boolean().optional(),
 				text: z.string(),
 				attachments: z.array(chatAttachmentSchema),
 			}),
@@ -302,7 +310,18 @@ export type ChatThreads = z.infer<typeof chatThreadsSchema>;
  * thread, whether it is at work, as against asleep or done for now, and what was said in it, in
  * order.
  */
+export const delegationSchema = z.object({
+	id: z.string(),
+	agentName: z.string(),
+	task: z.string(),
+	status: z.enum(['running', 'completed', 'failed', 'cancelled']),
+	result: z.string().nullable(),
+	createdAt: z.string(),
+});
+export type ChatDelegation = z.infer<typeof delegationSchema>;
+
 export const threadViewSchema = z.object({
+	delegations: z.array(delegationSchema).optional(),
 	persona: chatPersonaSchema,
 	thread: chatThreadSchema,
 	busy: z.boolean(),

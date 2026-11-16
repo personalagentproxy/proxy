@@ -3,10 +3,10 @@ import {Err, type Result} from 'ts-results-es';
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
 import {type FileLinkTarget, markdownImages, readFileLink} from '@proxy/utils/file-links';
 import type {EntryAttachment} from '@proxy/utils/harness-context';
-import {FILES_INTEGRATION_ID} from '@proxy/integrations';
+import {FILES_DEFAULT_ACTIONS, FILES_INTEGRATION_ID} from '@proxy/integrations';
 import {uploadAttachmentQuerySchema} from '@proxy/contracts/harness';
 import type {AgentRow, SignedInAgent} from '@proxy/db/agent';
-import {createFile, ensureFolder, type FileChangeBy, getFileVersion, getOwnDrive, purgeTrashed, trashFile} from '@proxy/db/files';
+import {createFile, ensureTeamChatDrive, ensureFolder, type FileChangeBy, getFileVersion, getOwnDrive, purgeTrashed, trashFile} from '@proxy/db/files';
 
 import {actionsOf, agentViewer, requireAgent} from '../../agent-side/tools';
 import {unavailableActions} from '../../connections/unavailable';
@@ -65,6 +65,7 @@ function folderName(persona: {name: string}): string {
 function resolveOne(viewer: OrgViewer, ref: AttachmentRef, room: number): Promise<Result<EntryAttachment, ApiError>> {
 	return Do(async ($) => {
 		const {connection, integration} = $(await loadConnection(viewer, ref.connectionId));
+
 		if (integration.id !== FILES_INTEGRATION_ID) {
 			return $(Err(ApiErr.notFound('connection', ref.connectionId)));
 		}
@@ -86,6 +87,29 @@ function resolveOne(viewer: OrgViewer, ref: AttachmentRef, room: number): Promis
 			text: whole === null ? null : whole.slice(0, kept),
 			cut: whole !== null && whole.length > kept,
 		};
+	});
+}
+
+// Sending a private attachment to a team publishes an immutable copy, never its whole drive.
+// Uploads and drafts stay in the member's private drive until the send action.
+function publishTeamFile(viewer: OrgViewer, attachment: EntryAttachment): Promise<Result<EntryAttachment, ApiError>> {
+	return Do(async ($) => {
+		$(await loadConnection(viewer, attachment.connectionId));
+		const connectionId = $(await ensureTeamChatDrive({orgId: viewer.orgId, integrationId: FILES_INTEGRATION_ID, defaults: FILES_DEFAULT_ACTIONS}));
+		const version = $(requirePresent($(await getFileVersion(attachment.connectionId, attachment.fileId, attachment.version)), ApiErr.notFound('version', attachment.version)));
+		const copy = $(
+			await createFile(
+				{orgId: viewer.orgId, connectionId, by: {userId: viewer.userId}},
+				{
+					parentId: null,
+					name: attachment.name,
+					rename: true,
+					content: {blobId: version.blobId, size: version.size, type: version.type},
+				},
+			),
+		);
+		const head = $(requirePresent(copy.head, ApiErr.internalError(new Error('A copied attachment has no version'))));
+		return {...attachment, connectionId, fileId: copy.id, version: head.id};
 	});
 }
 
@@ -131,6 +155,7 @@ export const chatFiles: ChatFiles = {
 			const {name: raw, type} = $(parseSchema(uploadAttachmentQuerySchema, request.query));
 			const name = $(requireFileName(raw));
 			const change = $(await ownDrive(viewer));
+
 			const chats = $(await ensureFolder(change, {parentId: null, name: CHATS_FOLDER}));
 			const folder = $(await ensureFolder(change, {parentId: chats.id, name: folderName(persona)}));
 			const stored = $(await storeContent(change.orgId, $(uploadBody(request)), maxFileBytes()));
@@ -156,7 +181,7 @@ export const chatFiles: ChatFiles = {
 			$(await trashFile(change, fileId));
 			$(await purgeTrashed(connectionId, fileId));
 		}),
-	resolve: (viewer, refs) =>
+	resolve: (viewer, refs, teamChat = false) =>
 		Do(async ($) => {
 			const attachments: EntryAttachment[] = [];
 			let room = MESSAGE_CHARACTERS;
@@ -165,7 +190,14 @@ export const chatFiles: ChatFiles = {
 				room -= attachment.text?.length ?? 0;
 				attachments.push(attachment);
 			}
-			return attachments;
+			if (!teamChat) {
+				return attachments;
+			}
+			const published: EntryAttachment[] = [];
+			for (const attachment of attachments) {
+				published.push($(await publishTeamFile(viewer, attachment)));
+			}
+			return published;
 		}),
 	shown: ({connectionId, fileId, version, name, type, size, gone}) => ({connectionId, fileId, version, name, type, size, shown: isShownImage(type), gone}),
 	// Read as the thread's own, not as anyone's: the person attached it for the model to see.

@@ -83,7 +83,11 @@ export function authenticateCliRequest(headers: IncomingHttpHeaders, now = new D
 		}
 		const claims = verified.value;
 		const found = $(requirePresent($(await getSignedInAgentById(claims.orgId, claims.agentId)), ApiErr.unauthenticated(AGENT_GONE)));
-		const agent = $(await actingAs(found, claims.ownerUserId));
+		const acting = $(await actingAs(found, claims.ownerUserId));
+		if (claims.auditOwnerUserId) {
+			$(requirePresent($(await getMembership(claims.auditOwnerUserId, acting.orgId)), ApiErr.unauthenticated(MEMBER_GONE)));
+		}
+		const agent = claims.auditOwnerUserId === undefined ? acting : {...acting, auditOwnerUserId: claims.auditOwnerUserId};
 		$((await requireOpenTask(agent, claims.taskId)).mapErr(taskRefusal));
 		const sandbox = $(requirePresent($(await getSandbox(claims.connectionId, claims.sandboxId)), ApiErr.unauthenticated(SANDBOX_GONE)));
 		if (sandbox.orgId !== agent.orgId || !$(await isHeldFor(sandbox, claims.taskId, now))) {

@@ -33,7 +33,17 @@ function tool(name: string) {
 
 describe('a thread’s tools', () => {
 	test('are the MCP server’s script, a message to the person, a sleep, and setting an alert and cancelling one', () => {
-		expect(THREAD_TOOLS.map((candidate) => candidate.name)).toEqual(['script', 'send_to_person', 'sleep_until', 'set_alert', 'cancel_alert']);
+		expect(THREAD_TOOLS.map((candidate) => candidate.name)).toEqual([
+			'script',
+			'send_to_person',
+			'sleep_until',
+			'set_alert',
+			'cancel_alert',
+			'list_agents',
+			'delegate_to_agent',
+			'list_delegations',
+			'cancel_delegation',
+		]);
 		expect(tool('send_to_person').parameters.required).toEqual(['text']);
 		expect(tool('send_to_person').description).toContain('Tells the person something while you go on');
 		expect(tool('set_alert').parameters.required).toEqual(['title', 'brief']);
@@ -121,7 +131,17 @@ describe('running a call inline', () => {
 	});
 
 	test('gives the harness the thread’s tools', () => {
-		expect(surface().tools.map((candidate) => candidate.name)).toEqual(['script', 'send_to_person', 'sleep_until', 'set_alert', 'cancel_alert']);
+		expect(surface().tools.map((candidate) => candidate.name)).toEqual([
+			'script',
+			'send_to_person',
+			'sleep_until',
+			'set_alert',
+			'cancel_alert',
+			'list_agents',
+			'delegate_to_agent',
+			'list_delegations',
+			'cancel_delegation',
+		]);
 		expect(surface().tools.every((candidate) => !candidate.readOnly)).toBe(true);
 	});
 

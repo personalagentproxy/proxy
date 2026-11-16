@@ -211,7 +211,18 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		expect(listed?.attachments).toEqual([{...file, entryId: entry.id, gone: true}]);
 		// Each entry as a thread shows it, without what the model was sent for it.
 		expect(Object.keys(listed?.entries[0] ?? {}).toSorted()).toEqual(
-			['createdAt', 'id', 'isError', 'kind', 'pending', 'seq', 'text', 'toolCalls'].toSorted(),
+			[
+				'createdAt',
+				'id',
+				'isError',
+				'kind',
+				'pending',
+				'seq',
+				'text',
+				'toolCalls',
+				'senderUserId',
+				'senderName',
+			].toSorted(),
 		);
 
 		// The chat's list has the files of what opened each thread, not of what was said after.

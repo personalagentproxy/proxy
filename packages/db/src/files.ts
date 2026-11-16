@@ -1087,3 +1087,40 @@ export function createMissingFilesConnection(data: {
 		});
 	});
 }
+
+/** A workspace-owned drive containing only file versions explicitly sent to team chats. */
+export function ensureTeamChatDrive(data: {
+	orgId: string;
+	integrationId: string;
+	defaults: string[];
+}): Promise<Result<string, ApiError>> {
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			await tx.$queryRaw`SELECT "id" FROM "Organization" WHERE "id" = ${data.orgId} FOR UPDATE`;
+			const org = await tx.organization.findUniqueOrThrow({
+				where: {id: data.orgId},
+				select: {ownerUserId: true, name: true},
+			});
+			const where = {
+				orgId: data.orgId,
+				integrationId: data.integrationId,
+				ownerUserId: org.ownerUserId,
+				name: 'Team chat files',
+				sharedWithEveryone: true,
+			};
+			const found = await tx.connection.findFirst({where, select: {id: true}});
+			if (found) {
+				return found.id;
+			}
+			const made = await tx.connection.create({
+				data: {
+					...where,
+					account: org.name,
+					defaults: {create: data.defaults.map((actionId) => ({actionId}))},
+				},
+				select: {id: true},
+			});
+			return made.id;
+		}),
+	);
+}

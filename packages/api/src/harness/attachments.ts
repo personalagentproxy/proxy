@@ -31,11 +31,11 @@ export type AttachmentRef = z.infer<typeof postMessageBodySchema>['attachments']
 
 export type ChatFiles = {
 	/** A file uploaded from the chat's input, or a thread's, into the person's own drive, to be attached to what they say next: the request's body is the file. */
-	upload: (viewer: OrgViewer, persona: {name: string}, request: AuthenticatedRequest) => Promise<Result<ChatAttachment, ApiError>>;
+	upload: (viewer: OrgViewer, persona: {name: string; conversationScope?: 'member' | 'team'}, request: AuthenticatedRequest) => Promise<Result<ChatAttachment, ApiError>>;
 	/** A file `upload` put in the person's drive taken out again for good, as when the input it was for refused it. */
 	discard: (viewer: OrgViewer, attachment: Pick<ChatAttachment, 'connectionId' | 'fileId'>) => Promise<Result<void, ApiError>>;
 	/** The files named, each one the person can read, as the log keeps them; refused where one isn't. */
-	resolve: (viewer: OrgViewer, refs: AttachmentRef[]) => Promise<Result<EntryAttachment[], ApiError>>;
+	resolve: (viewer: OrgViewer, refs: AttachmentRef[], teamChat?: boolean) => Promise<Result<EntryAttachment[], ApiError>>;
 	/** A file the log or the chat's input keeps, as the page shows it, with whether its version is gone from its drive since. */
 	shown: (attachment: DraftAttachment & {gone: boolean}) => ChatAttachment;
 	/** A file the log keeps as a picture for a model that sees pictures (`PictureOf`). */

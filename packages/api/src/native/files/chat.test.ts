@@ -127,4 +127,41 @@ describe.skipIf(!databaseUrl)('the files an answer shows', () => {
 
 		expect(unwrap(await chatFiles.pinned(agent, text))).toEqual([]);
 	});
+	test('sending a team attachment copies only the selected version and leaves the source drive private', async () => {
+		const {db} = await import('@proxy/db');
+		const {chatFiles} = await import('./chat');
+		const source = await made(driveId, userId, 'team-note.txt', 'Shared at send time', 'text/plain');
+		const viewer = {orgId, userId, slug, name: 'Team tests', role: 'owner' as const, onboarded: true, experiments: []};
+		const refs = [{connectionId: driveId, fileId: source.file.id, version: source.file.head!.id}];
+		const privateFiles = unwrap(await chatFiles.resolve(viewer, refs));
+		expect(privateFiles[0]?.connectionId).toBe(driveId);
+		expect((await db.connection.findUniqueOrThrow({where: {id: driveId}})).sharedWithEveryone).toBe(false);
+		const shared = unwrap(await chatFiles.resolve(viewer, refs, true));
+		expect(shared[0]?.connectionId).not.toBe(driveId);
+		expect(shared[0]?.fileId).not.toBe(source.file.id);
+		expect(shared[0]?.text).toBe('Shared at send time');
+		const teamDrive = await db.connection.findUniqueOrThrow({where: {id: shared[0]!.connectionId}});
+		expect(teamDrive.sharedWithEveryone).toBe(true);
+		expect((await db.connection.findUniqueOrThrow({where: {id: driveId}})).sharedWithEveryone).toBe(false);
+		const copiedVersion = await db.fileVersion.findUniqueOrThrow({where: {id: shared[0]!.version}});
+		const sourceVersion = await db.fileVersion.findUniqueOrThrow({where: {id: source.file.head!.id}});
+		expect(copiedVersion.blobId).toBe(sourceVersion.blobId);
+		const before = await db.fileNode.count({where: {connectionId: teamDrive.id}});
+		const invalid = await chatFiles.resolve(viewer, [...refs, {...refs[0]!, fileId: 'missing'}], true);
+		expect(invalid.isErr()).toBe(true);
+		expect(await db.fileNode.count({where: {connectionId: teamDrive.id}})).toBe(before);
+	});
+	test('published attachments survive deletion of the sending member', async () => {
+		const {db} = await import('@proxy/db');
+		const {chatFiles} = await import('./chat');
+		const source = await made(othersDriveId, otherUserId, 'shared-note.txt', 'Retained team content', 'text/plain');
+		const viewer = {orgId, userId: otherUserId, slug, name: 'Team tests', role: 'member' as const, onboarded: true, experiments: []};
+		const shared = unwrap(await chatFiles.resolve(viewer, [{connectionId: othersDriveId, fileId: source.file.id, version: source.file.head!.id}], true));
+		const destination = await db.connection.findUniqueOrThrow({where: {id: shared[0]!.connectionId}});
+		expect(destination.ownerUserId).toBe(userId);
+		await db.user.delete({where: {id: otherUserId}});
+		expect(await db.fileVersion.findUnique({where: {id: shared[0]!.version}})).not.toBeNull();
+		const remaining = unwrap(await chatFiles.pinned({...agent, ownerUserId: null}, `![Shared](${APP_URL}/${slug}/connections/${destination.id}?file=${shared[0]!.fileId})`));
+		expect(remaining).toHaveLength(1);
+	});
 });

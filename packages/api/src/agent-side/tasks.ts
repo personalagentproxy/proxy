@@ -72,7 +72,9 @@ export function startAgentTask(caller: AgentCaller, args: unknown): Promise<Resu
 		const parentId = parsed.parent?.trim() || null;
 		// Only read: making the sub-task takes the parent, and every task above it, up again.
 		const parent = parentId === null ? null : $(await readUnfinishedTask(caller.agent, parentId));
-		const task = $(await createAgentTask({orgId: caller.agent.orgId, agentId: caller.agent.agentId, ownerUserId: caller.agent.ownerUserId, parentId, title, goal, via: caller.via}));
+		const task = $(
+			await createAgentTask({orgId: caller.agent.orgId, agentId: caller.agent.agentId, ownerUserId: caller.agent.auditOwnerUserId ?? caller.agent.ownerUserId, parentId, title, goal, via: caller.via}),
+		);
 		if (task !== null) {
 			return toResponse(task);
 		}

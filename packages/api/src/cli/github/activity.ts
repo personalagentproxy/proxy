@@ -75,7 +75,7 @@ export function logGitHubRequest(
 		outcome,
 		via: 'cli',
 		taskId: caller.taskId,
-		ownerUserId: caller.agent.ownerUserId,
+		ownerUserId: caller.agent.auditOwnerUserId ?? caller.agent.ownerUserId,
 		startedAt,
 		error,
 	});

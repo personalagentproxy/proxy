@@ -41,6 +41,7 @@ let store: FakeStore;
 
 beforeEach(() => {
 	store = fakeStore();
+	store.getThreadAgent.mockResolvedValue(Ok({agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'proxy', name: 'Agent', orgSlug: 'org', experiments: []}));
 	store.createAgentTask.mockResolvedValue(Ok({...task, id: 'task-2'}));
 	store.setThreadTask.mockResolvedValue(Ok(undefined));
 });

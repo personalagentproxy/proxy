@@ -155,6 +155,43 @@ export function PersonaDialog({open, initial, onClose, onSave, onDelete}: Props)
 							</div>
 						</div>
 					</div>
+					<div className="grid gap-2">
+						<Label htmlFor="persona-scope">Conversation</Label>
+						<select
+							id="persona-scope"
+							className="h-10 rounded-md border bg-background px-3 text-sm"
+							disabled={initial !== null || busy}
+							value={persona.conversationScope ?? 'member'}
+							onChange={(event) =>
+								setPersona({
+									...persona,
+									conversationScope: event.target.value === 'team' ? 'team' : 'member',
+								})
+							}
+						>
+							<option value="member">Personal chat</option>
+							<option value="team">Shared team chat</option>
+						</select>
+						<p className="text-xs text-muted-foreground">
+							{persona.conversationScope === 'team'
+								? 'Everyone in this workspace sees the same messages and tasks. Files are shared when sent; drafts stay personal.'
+								: 'Your conversation is private. Existing history is never shared by changing an agent.'}
+						</p>
+					</div>
+					<label className="flex items-start gap-3 text-sm">
+						<input
+							type="checkbox"
+							className="shrink-0"
+							checked={persona.headAgent ?? false}
+							onChange={(event) => setPersona({...persona, headAgent: event.target.checked})}
+						/>
+						<span>
+							Head agent
+							<span className="block text-xs text-muted-foreground">
+								Coordinates specialist agents and brings their results back here.
+							</span>
+						</span>
+					</label>
 					{error && <p className="text-sm text-destructive">{error}</p>}
 					<DialogFooter>
 						{onDelete && (

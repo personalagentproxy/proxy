@@ -11,6 +11,8 @@ export type SignedInAgent = {
 	// The member whose own the agent is, whose connections it reaches beside the shared ones; null
 	// for a shared agent, which reaches the shared ones alone.
 	ownerUserId: string | null;
+	// Audit/task audience can stay private while delegated execution uses only shared resources.
+	auditOwnerUserId?: string | null;
 	providerId: string;
 	name: string;
 	// The organization's slug, its address in the web app.

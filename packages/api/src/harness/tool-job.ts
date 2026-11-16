@@ -1,3 +1,4 @@
+import {isDelegationTool, runDelegationTool, type DelegationToolStore} from './delegation-tools';
 import type {Result} from 'ts-results-es';
 
 import {type ApiError, Do} from '@proxy/utils';
@@ -25,13 +26,16 @@ import {isGateTool} from './tool-surface';
  */
 
 /** What a tool job needs of the store. */
-export type ToolJobStore = Pick<HarnessStore, 'getJobThread' | 'getEntry' | 'completeToolJob' | 'completeSetAlert' | 'failJob' | 'finishJob'> & ToolAnswerStore;
+export type ToolJobStore = Pick<HarnessStore, 'getJobThread' | 'getEntry' | 'completeToolJob' | 'completeSetAlert' | 'failJob' | 'finishJob'> & ToolAnswerStore & DelegationToolStore;
 
-function answer(store: ToolJobStore, thread: ThreadRow, job: JobRow, call: ToolCall, now: Date): Promise<Result<AlertCallOutcome, ApiError>> {
+function answer(store: ToolJobStore, thread: ThreadRow, job: JobRow, call: ToolCall, now: Date, workerId: string): Promise<Result<AlertCallOutcome, ApiError>> {
 	return Do(async ($) => {
 		const args = callArguments(call);
 		if (!isRecord(args)) {
 			return error(NOT_JSON);
+		}
+		if (isDelegationTool(call.name)) {
+			return $(await runDelegationTool(store, thread, {jobId: job.id, threadId: thread.id, workerId}, call));
 		}
 		if (call.name === SET_ALERT_TOOL || call.name === CANCEL_ALERT_TOOL) {
 			return $(await alertCall(store, thread, call, args, now));
@@ -68,7 +72,7 @@ export function runToolJob(store: ToolJobStore, job: JobRow, workerId: string, n
 			$(await store.failJob(job.id, workerId, why, failureNote(why)));
 			return;
 		}
-		const outcome = $(await answer(store, thread, job, call, now));
+		const outcome = $(await answer(store, thread, job, call, now, workerId));
 		if ('alert' in outcome) {
 			$(await store.completeSetAlert({jobId: job.id, workerId, threadId: thread.id, callId: call.id}, outcome.alert, setText));
 			return;

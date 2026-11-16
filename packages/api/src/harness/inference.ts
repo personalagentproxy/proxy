@@ -73,6 +73,7 @@ export type InferenceStore = Pick<
 	| 'getThreadAgent'
 	| 'getPersonaModel'
 	| 'getPersonaName'
+	| 'getPersonaCoordination'
 	| 'listEntries'
 	| 'listAttachments'
 	| 'listMemberAlerts'
@@ -161,8 +162,13 @@ function systemPrompt(store: InferenceStore, thread: ThreadRow, signedIn: Signed
 	return Do(async ($) => {
 		const persona = $(await store.getPersonaName(thread));
 		const folder = persona === null ? undefined : chatFolder(persona);
-		const instructions = $(await agentInstructions(signedIn, THREAD_FLOW, folder));
-		const alerts = alertsParagraph($(await store.listMemberAlerts(thread.orgId, thread.userId)), thread.id);
+		const coordination = $(await store.getPersonaCoordination(thread));
+		const role = coordination?.headAgent
+			? `You are ${coordination.name}, the head agent. For work spanning specialties, use list_agents to discover available specialists, delegate concrete self-contained tasks, and consolidate their returned results. Track unresolved decisions and explain which specialist did what. Do simple work yourself. Do not invent completed work: after delegating, tell the user what is running and end your turn; results will wake you. Do not poll repeatedly. Private contexts must never be posted into shared chats.`
+			: `You are ${coordination?.name ?? persona ?? 'an agent'}. You may consult specialists through list_agents and delegate_to_agent. A delegated request is isolated from your ordinary chat history; answer that task from its supplied context and your authorized tools. Results return automatically to the originating agent.`;
+		const audience = thread.teamChat ? 'This is a shared team conversation visible to the workspace. Use only shared resources.' : '';
+		const instructions = $(await agentInstructions(signedIn, [THREAD_FLOW, role, audience].filter(Boolean).join('\n\n'), folder));
+		const alerts = alertsParagraph($(await store.listMemberAlerts(thread.orgId, signedIn.auditOwnerUserId ?? thread.userId, thread.delegated ? thread.id : undefined)), thread.id);
 		return [instructions, alerts, `The time now is ${now.toISOString()}.`].join('\n\n');
 	});
 }
@@ -306,11 +312,12 @@ function limited<T>(harness: HarnessBackend, work: () => Promise<T>): Promise<T>
 // their credential, as best it can be kept; nowhere on the server's key, which has no plan of
 // theirs to speak of.
 function usageSink(credentials: ClaudeCredentials, choice: HarnessChoice, thread: ThreadRow, clock: () => Date): UsageSink {
-	if (choice.auth === null) {
+	if (choice.auth === null || thread.userId === null) {
 		return async () => {};
 	}
+	const userId = thread.userId;
 	return async (usage) => {
-		const kept = await credentials.recordUsage(thread.userId, {...(usage.fiveHour ? {fiveHour: usage.fiveHour} : {}), ...(usage.sevenDay ? {sevenDay: usage.sevenDay} : {}), readAt: clock()});
+		const kept = await credentials.recordUsage(userId, {...(usage.fiveHour ? {fiveHour: usage.fiveHour} : {}), ...(usage.sevenDay ? {sevenDay: usage.sevenDay} : {}), readAt: clock()});
 		if (kept.isErr()) {
 			log.warn('What the model’s provider said of the member’s plan could not be kept', {userId: thread.userId, ...serializeError(kept.error)});
 		}
@@ -454,6 +461,9 @@ function chooseHarness(store: InferenceStore, harnesses: Harnesses, thread: Thre
 		if (chosen === null || !needsCredential(registry, chosen.harness)) {
 			return harnessFor(registry, persona, null);
 		}
+		if (thread.userId === null) {
+			return {harness: null, auth: null, why: 'Team chats require a workspace or server model provider.'};
+		}
 		const credential = await harnesses.credentials.claudeCredentialFor(thread.userId);
 		if (credential.isErr() && credential.error.kind === 'unavailable') {
 			return {harness: null, auth: null, why: RECONNECT_CLAUDE};
@@ -482,7 +492,7 @@ export function runInference(store: InferenceStore, harnesses: Harnesses, job: J
 			return;
 		}
 		const outcome = $(await askOnLog(store, harnesses, choice, job, workerId, thread, entries, woken, clock));
-		if (credentialRefused(outcome, choice)) {
+		if (credentialRefused(outcome, choice) && thread.userId !== null) {
 			// Noted on the account as best it can be: the person is told either way.
 			const marked = await harnesses.credentials.markRefused(thread.userId);
 			if (marked.isErr()) {

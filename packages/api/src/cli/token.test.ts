@@ -66,3 +66,9 @@ describe('cli tokens', () => {
 		}
 	});
 });
+
+test('delegated execution retains a separate private audit audience', () => {
+	const privateAudience = {...claims, ownerUserId: null, auditOwnerUserId: 'member-private'};
+	const token = signCliToken(privateAudience, 'test-secret');
+	expect(verifyCliToken(token, 'test-secret', new Date(0)).unwrap()).toEqual(privateAudience);
+});

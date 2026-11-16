@@ -34,7 +34,7 @@ import {
 export type AlertRow = {
 	id: string;
 	orgId: string;
-	userId: string;
+	userId: string | null;
 	// The thread it was set in, where what it comes to lands.
 	threadId: string;
 	title: string;
@@ -85,10 +85,18 @@ async function createAlert(
 	thread: ThreadRow,
 	alert: NewAlert,
 ): Promise<AlertRow> {
+	const handoff = thread.delegated
+		? await tx.agentDelegation.findUnique({where: {childThreadId: thread.id}})
+		: null;
+	const audienceUserId = handoff
+		? handoff.teamAudience
+			? null
+			: handoff.initiatorUserId
+		: thread.userId;
 	const made = await tx.agentAlert.create({
 		data: {
 			orgId: thread.orgId,
-			userId: thread.userId,
+			userId: audienceUserId,
 			threadId: thread.id,
 			title: alert.title,
 			brief: alert.brief,
@@ -180,12 +188,21 @@ export type MemberAlertRow = AlertRow & {persona: PersonaRow; threadTitle: strin
 /** The member's alerts in the organization, newest first, each with the persona it was set with and its thread's title. */
 export async function listMemberAlerts(
 	orgId: string,
-	userId: string,
+	userId: string | null,
+	threadId?: string,
 ): Promise<Result<MemberAlertRow[], ApiError>> {
 	return (
 		await wrapDb(() =>
 			db.agentAlert.findMany({
-				where: {orgId, userId},
+				where: {
+					orgId,
+					...(threadId
+						? {threadId, userId}
+						: {
+								thread: {delegated: false},
+								OR: [{userId}, {userId: null, thread: {teamChat: true}}],
+							}),
+				},
 				select: {
 					...alertSelect,
 					thread: {select: {title: true, persona: {select: personaSelect}}},
@@ -209,11 +226,19 @@ export async function listMemberAlerts(
  */
 export async function deleteAlert(
 	alertId: string,
-	owner: {orgId: string; userId: string},
+	owner: {orgId: string; userId: string | null; threadId?: string},
 ): Promise<Result<boolean, ApiError>> {
-	return (await wrapDb(() => db.agentAlert.deleteMany({where: {id: alertId, ...owner}}))).map(
-		({count}) => count > 0,
-	);
+	const audience = owner.threadId
+		? {threadId: owner.threadId, userId: owner.userId}
+		: {
+				thread: {delegated: false},
+				OR: [{userId: owner.userId}, {userId: null, thread: {teamChat: true}}],
+			};
+	return (
+		await wrapDb(() =>
+			db.agentAlert.deleteMany({where: {id: alertId, orgId: owner.orgId, ...audience}}),
+		)
+	).map(({count}) => count > 0);
 }
 
 // Prisma writes a DateTime as the UTC wall clock, in a column without a time zone; now() has one,

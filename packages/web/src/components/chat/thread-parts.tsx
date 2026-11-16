@@ -98,10 +98,14 @@ export function PersonBubble({
 	text,
 	attachments,
 	outlined = false,
+	mine = true,
+	senderName,
 }: {
 	text: string;
 	attachments: ChatAttachment[];
 	outlined?: boolean;
+	mine?: boolean;
+	senderName?: string | null;
 }) {
 	const [viewing, setViewing] = useState<number | null>(null);
 	const parts = useMemo(() => attachedParts(text, attachments), [text, attachments]);
@@ -116,9 +120,19 @@ export function PersonBubble({
 		<>
 			<Bubble
 				variant="muted"
-				className={cn('max-w-[40rem]', outlined && '*:data-[slot=bubble-content]:border-border')}
+				align={mine ? 'end' : 'start'}
+				className={cn(
+					'max-w-[min(85%,40rem)]',
+					mine ? 'ml-auto' : 'mr-auto',
+					outlined && '*:data-[slot=bubble-content]:border-border',
+				)}
 			>
 				<BubbleContent className="whitespace-pre-wrap">
+					{senderName && (
+						<span className="pb-1 block text-xs font-medium text-muted-foreground">
+							{mine ? 'You' : senderName}
+						</span>
+					)}
 					{parts.map((part, index) => {
 						if ('text' in part) {
 							return <Fragment key={index}>{part.text}</Fragment>;

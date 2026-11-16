@@ -12,8 +12,16 @@ import type {HarnessRegistry} from '../backends/harness';
 import type {ChatFiles} from './attachments';
 import {type FakeStore, fakeStore} from './fake-store';
 
-const viewer = {orgId: 'org-1', userId: 'user-1', slug: 'acme', name: 'Acme', role: 'member' as 'member' | 'owner', onboarded: true, experiments: ['openrouter']};
-const requireViewer = mock(async () => Ok(viewer));
+const viewer: import('../utils/user-org').OrgViewer = {
+	orgId: 'org-1',
+	userId: 'user-1',
+	slug: 'acme',
+	name: 'Acme',
+	role: 'member' as 'member' | 'owner',
+	onboarded: true,
+	experiments: ['openrouter'],
+};
+const requireViewer = mock<(request: Parameters<typeof import('../utils/user-org').requireViewer>[0]) => ReturnType<typeof import('../utils/user-org').requireViewer>>(async () => Ok(viewer));
 mock.module('../utils/user-org', () => ({requireViewer}));
 
 const ensureBuiltInAgent = mock(async () => Ok({id: 'login-1'}));
@@ -23,6 +31,8 @@ const now = new Date('2026-10-21T10:00:00Z');
 const look = {nose: 0.48, noseOut: 0.35, eye: 27, eyeTheta: 55, eyeLat: 8, eyes: 2 as const};
 const persona = {id: 'persona-1', name: 'Finance', look, color: 'blue', harness: 'proxy', chatModel: 'claude', ownerUserId: 'user-1', createdById: 'user-1', createdAt: now};
 const personaResponse = {
+	conversationScope: 'member' as const,
+	headAgent: false,
 	id: 'persona-1',
 	name: 'Finance',
 	look,
@@ -472,6 +482,7 @@ describe('the chat’s threads', () => {
 	});
 
 	beforeEach(() => {
+		store.hasChatThread.mockResolvedValue(Ok(true));
 		store.listChatThreads.mockResolvedValue(Ok([watch, review]));
 		store.getChatThread.mockResolvedValue(Ok(review));
 		store.openThread.mockResolvedValue(Ok({thread: review, entry: logEntry({id: 'e1', seq: 1, threadId: 'thread-2', kind: 'person', text: 'Find the pricing review with Dana'})}));
@@ -513,7 +524,7 @@ describe('the chat’s threads', () => {
 				state: {kind: 'stopped'},
 				standing: 'done',
 				standingPending: false,
-				opener: {kind: 'person', text: 'Find the pricing review with Dana', attachments: [shownAttachment]},
+				opener: {kind: 'person', text: 'Find the pricing review with Dana', attachments: [shownAttachment], mine: true, senderName: null},
 				summary: null,
 				latest: 'It moved to Friday, with the new prices attached.',
 				latestEntryId: 'e3',
@@ -643,7 +654,7 @@ describe('the chat’s threads', () => {
 		expect(view.busy).toBe(true);
 		expect(view.thread).toMatchObject({id: 'thread-2', state: {kind: 'working'}, messageCount: 3});
 		expect(view.messages).toEqual([
-			{id: 'e1', kind: 'person', text: 'Find the pricing review with Dana', isError: false, at: now.toISOString(), attachments: [shownAttachment]},
+			{id: 'e1', kind: 'person', mine: true, senderName: null, text: 'Find the pricing review with Dana', isError: false, at: now.toISOString(), attachments: [shownAttachment]},
 			{id: 'e2:c1', kind: 'assistant', text: 'Looking through the shared drive.', isError: false, at: later(1).toISOString(), attachments: []},
 			{id: 'e3', kind: 'assistant', text: 'It moved to **Friday**, with the new prices attached.', isError: false, at: later(2).toISOString(), attachments: []},
 		]);
@@ -730,7 +741,7 @@ describe('the chat’s threads', () => {
 		const replied = (await handleReplyInThreadRoute(request({personaId: 'persona-1', threadId: 'thread-2'}, {text: ' And the old prices? ', attachments: [ref]}))).unwrap();
 
 		expect(store.replyInThread).toHaveBeenCalledWith('chat-1', 'thread-2', 'And the old prices?', [attached]);
-		expect(replied.message).toEqual({id: 'e5', kind: 'person', text: 'And the old prices?', isError: false, at: now.toISOString(), attachments: [shownAttachment]});
+		expect(replied.message).toEqual({id: 'e5', kind: 'person', mine: true, senderName: null, text: 'And the old prices?', isError: false, at: now.toISOString(), attachments: [shownAttachment]});
 
 		store.replyInThread.mockResolvedValue(Ok(null));
 		expect((await handleReplyInThreadRoute(request({personaId: 'persona-1', threadId: 'thread-9'}, {text: 'Hi'}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'thread'});
@@ -755,5 +766,62 @@ describe('the chat’s threads', () => {
 		store.hasChatThread.mockResolvedValue(Ok(false));
 		expect((await handleUploadThreadAttachmentRoute(request({personaId: 'persona-1', threadId: 'thread-9'}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'thread'});
 		expect(files.upload).not.toHaveBeenCalled();
+	});
+	test('attributes other team members and opens a member root for a shared deep link', async () => {
+		store.getPersona.mockResolvedValue(Ok({...persona, ownerUserId: null, conversationScope: 'team'}));
+		store.getMemberChat.mockResolvedValue(Ok(null));
+		store.ensureMemberChat.mockResolvedValue(Ok(chat));
+		store.getChatThread.mockResolvedValue(
+			Ok(
+				chatThread({
+					id: 'shared-thread',
+					userId: null,
+					teamChat: true,
+					entries: [logEntry({id: 'other-message', seq: 1, kind: 'person', text: 'Team request', senderUserId: 'user-2', senderName: 'Robin'})],
+				}),
+			),
+		);
+		const result = (await routes.handleGetChatThreadRoute(request({personaId: persona.id, threadId: 'shared-thread'}))).unwrap();
+		expect(result.persona.conversationScope).toBe('team');
+		expect(result.messages[0]).toMatchObject({mine: false, senderName: 'Robin'});
+		expect(result.thread.opener).toMatchObject({mine: false, senderName: 'Robin'});
+		expect(store.ensureMemberChat).toHaveBeenCalledWith({orgId: viewer.orgId, agentId: 'login-1', personaId: persona.id, userId: viewer.userId});
+	});
+
+	test('scope cannot be changed by an edit and team attachments use audience validation', async () => {
+		const changed = await routes.handleUpdatePersonaRoute(request({personaId: persona.id}, {name: persona.name, look, color: 'blue', conversationScope: 'team'}));
+		expect(changed.unwrapErr().kind).toBe('validation_error');
+		expect(store.updatePersona).not.toHaveBeenCalled();
+		store.getPersona.mockResolvedValue(Ok({...persona, ownerUserId: null, conversationScope: 'team'}));
+		await routes.handleReplyInThreadRoute(request({personaId: persona.id, threadId: 'thread-2'}, {text: 'Shared file', attachments: [{connectionId: 'drive-1', fileId: 'file-1', version: 'v1'}]}));
+		expect(files.resolve).toHaveBeenLastCalledWith(viewer, expect.any(Array), true);
+	});
+
+	test('revoked organization access stops shared reads and replies before files are published', async () => {
+		requireViewer.mockResolvedValue(Err(ApiErr.notFound('organization', 'acme')));
+		expect((await routes.handleGetChatThreadRoute(request({personaId: persona.id, threadId: 'shared'}))).isErr()).toBe(true);
+		expect(
+			(
+				await routes.handleReplyInThreadRoute(request({personaId: persona.id, threadId: 'shared'}, {text: 'Blocked', attachments: [{connectionId: 'drive-1', fileId: 'file-1', version: 'v1'}]}))
+			).isErr(),
+		).toBe(true);
+		expect(store.getChatThread).not.toHaveBeenCalled();
+		expect(files.resolve).not.toHaveBeenCalled();
+	});
+	test('foreign or inaccessible personas cannot disclose threads or delegations', async () => {
+		store.getPersona.mockResolvedValue(Ok(null));
+		expect((await routes.handleGetChatThreadRoute(request({personaId: 'foreign', threadId: 'shared'}))).isErr()).toBe(true);
+		expect(store.getChatThread).not.toHaveBeenCalled();
+		expect(store.listDelegations).not.toHaveBeenCalled();
+	});
+	test('a new team chat defaults to the available server harness rather than a personal credential', async () => {
+		const result = await routes.handleCreatePersonaRoute(request({}, {name: 'Team', look, color: 'blue', conversationScope: 'team'}));
+		expect(result.isOk()).toBe(true);
+		expect(store.createPersona).toHaveBeenCalledWith('org-1', 'user-1', {name: 'Team', look, color: 'blue', conversationScope: 'team', harness: 'proxy', chatModel: 'claude'});
+	});
+	test('team chats cannot select a personal model credential', async () => {
+		const result = await routes.handleCreatePersonaRoute(request({}, {name: 'Team', look, color: 'blue', conversationScope: 'team', harness: 'claude-agent-sdk', chatModel: 'opus'}));
+		expect(result.unwrapErr()).toMatchObject({kind: 'validation_error'});
+		expect(store.createPersona).not.toHaveBeenCalled();
 	});
 });

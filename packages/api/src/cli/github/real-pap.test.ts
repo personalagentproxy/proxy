@@ -1,6 +1,6 @@
 import {afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, test} from 'bun:test';
 import {spawn, spawnSync} from 'node:child_process';
-import {existsSync, mkdirSync, readdirSync, readFileSync, symlinkSync, writeFileSync} from 'node:fs';
+import {existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync} from 'node:fs';
 import type {Server} from 'node:http';
 import {dirname, join} from 'node:path';
 
@@ -20,7 +20,8 @@ const fake = await startFakeGitHub('pap-real-pap-');
 const {root, projects, home, git} = fake;
 const bin = join(root, 'bin');
 const pap = join(bin, 'pap');
-const tmp = join(root, 'tmp');
+// Keep the socket path short enough on macOS, so the CLI need not fall back to /tmp.
+const tmp = mkdtempSync('/tmp/pap-test-');
 const work = join(root, 'work');
 const NODE = spawnSync('node', ['-p', 'process.execPath'], {encoding: 'utf8'}).stdout.trim();
 
@@ -53,6 +54,7 @@ beforeAll(async () => {
 });
 
 afterAll(() => {
+	rmSync(tmp, {recursive: true, force: true});
 	app.close();
 	fake.close();
 });
@@ -315,7 +317,11 @@ describe.skipIf(GH === null)('pap gh, the real gh as the person', () => {
 
 	test('a release upload is refused by pap, saying it isn’t supported, and nothing is sent', async () => {
 		fake.answerApi.current = (request, res) => {
-			if (!request.path.startsWith('/repos/acme/demo/releases/tags/v1')) {
+			if (request.path === '/graphql' && request.body.includes('RepositoryReleaseByTag')) {
+				res.writeHead(200, {'content-type': 'application/json'}).end(JSON.stringify({data: {repository: {release: {databaseId: 1, isDraft: false}}}}));
+				return true;
+			}
+			if (!request.path.startsWith('/repos/acme/demo/releases/tags/v1') && request.path !== '/repos/acme/demo/releases/1') {
 				return false;
 			}
 			res

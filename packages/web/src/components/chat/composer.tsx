@@ -240,6 +240,11 @@ export function Composer({
 			onSubmit={(event) => void submit(event)}
 			className={cn('flex w-full shrink-0 flex-col gap-2 pt-2 pb-4', className)}
 		>
+			{persona.conversationScope === 'team' && (
+				<p className="px-1 text-xs text-muted-foreground">
+					Team chat · Messages and sent files are visible to everyone in this workspace.
+				</p>
+			)}
 			{dropping && <DropToAttach name={persona.name} />}
 			{shownError && <p className="text-sm text-destructive">{shownError}</p>}
 			<input
@@ -272,7 +277,11 @@ export function Composer({
 				    and its 6px padding make the textarea's 12px. It sits on the send button's bottom. */}
 				<InputGroupAddon align="block-end" className="items-end pl-[5px]">
 					<ModelSwitcher
-						harnesses={harnesses}
+						harnesses={
+							persona.conversationScope === 'team'
+								? harnesses.filter((harness) => harness.id !== 'claude-agent-sdk')
+								: harnesses
+						}
 						chosen={runsOn}
 						mayChange={persona.mayChange}
 						onPick={(choice) => void switchModel(choice)}

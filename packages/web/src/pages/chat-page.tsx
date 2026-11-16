@@ -109,11 +109,11 @@ const OPEN_BAND = 'bg-[color-mix(in_srgb,var(--muted)_55%,var(--background))]';
 type LastMessage = ChatPersona['lastMessage'];
 
 // What a row shows under the name: the last thing said in the chat, the person's with "You:".
-function subtitle(last: LastMessage): string {
+function subtitle(last: LastMessage, teamChat = false): string {
 	if (last === null) {
 		return 'Nothing yet';
 	}
-	return last.kind === 'person' ? `You: ${last.text}` : last.text;
+	return last.kind === 'person' && !teamChat ? `You: ${last.text}` : last.text;
 }
 
 // The latest of what the page knows was said last, as the list has it and as the page shows it.
@@ -246,6 +246,16 @@ function PersonaList({
 									<span className="flex items-baseline gap-2">
 										<span className="min-w-0 flex-1 truncate text-sm font-medium">
 											{persona.name}
+											{(persona.conversationScope === 'team' || persona.headAgent) && (
+												<span className="pl-2 text-xs font-normal text-muted-foreground">
+													{[
+														persona.conversationScope === 'team' ? 'Team' : null,
+														persona.headAgent ? 'Head' : null,
+													]
+														.filter(Boolean)
+														.join(' · ')}
+												</span>
+											)}
 										</span>
 										{last && (
 											<span className="shrink-0 text-xs text-muted-foreground">
@@ -261,7 +271,7 @@ function PersonaList({
 											)}
 										>
 											{draft === null ? (
-												subtitle(last)
+												subtitle(last, persona.conversationScope === 'team')
 											) : (
 												<>
 													<span className="font-medium text-foreground">Draft:</span> {draft}
@@ -685,6 +695,8 @@ export function ChatPage() {
 									name: editing.name,
 									look: editing.look,
 									color: editing.color,
+									conversationScope: editing.conversationScope,
+									headAgent: editing.headAgent,
 								}
 					}
 					onClose={() => setEditing(null)}
@@ -770,7 +782,15 @@ function Opener({opener, open}: {opener: ChatThread['opener']; open: boolean}) {
 	if (opener.kind === 'event') {
 		return <EventLine text={opener.text} />;
 	}
-	return <PersonBubble text={opener.text} attachments={opener.attachments} outlined={open} />;
+	return (
+		<PersonBubble
+			text={opener.text}
+			attachments={opener.attachments}
+			outlined={open}
+			mine={opener.mine}
+			senderName={opener.senderName}
+		/>
+	);
 }
 
 // One thread in the chat, opening it beside the chat: where it stands, what opened it, where it

@@ -15,6 +15,7 @@
 		"./desktop-auth": "./src/desktop-auth.ts",
 		"./feedback": "./src/feedback.ts",
 		"./files": "./src/files.ts",
+		"./delegations": "./src/delegations.ts",
 		"./harness": "./src/harness.ts",
 		"./harness-transcript": "./src/harness-transcript.ts",
 		"./vault": "./src/vault.ts",

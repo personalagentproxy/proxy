@@ -140,8 +140,16 @@ export async function listMemberThreads(
 		const threads = await db.agentThread.findMany({
 			where: {
 				orgId,
-				userId,
+				AND: [
+					{
+						OR: [
+							{userId},
+							{teamChat: true, persona: {conversationScope: 'team', ownerUserId: null}},
+						],
+					},
+				],
 				parentThreadId: {not: null},
+				delegated: false,
 				...standingWhere(standing),
 				...(has === null ? {} : {OR: [{title: has}, {summary: has}]}),
 			},

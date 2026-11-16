@@ -1,3 +1,4 @@
+import {DELEGATION_TOOLS, isDelegationTool, runDelegationTool, type DelegationToolStore} from './delegation-tools';
 import {Err, Ok, type Result} from 'ts-results-es';
 
 import type {HarnessTool, ToolAnswer, ToolSurface} from '@proxy/backends/harness/backend';
@@ -93,7 +94,7 @@ const SCRIPT: ModelTool = {
 };
 
 /** The tools a thread's agent is given: the MCP server's script, a message to the person, a sleep, and setting an alert and cancelling one. */
-export const THREAD_TOOLS: ModelTool[] = [SCRIPT, SEND_TO_PERSON, SLEEP, SET_ALERT, CANCEL_ALERT];
+export const THREAD_TOOLS: ModelTool[] = [SCRIPT, SEND_TO_PERSON, SLEEP, SET_ALERT, CANCEL_ALERT, ...DELEGATION_TOOLS];
 
 // A tool as the harness is given it. None only reads: a script may change something, and the
 // rest tell or set something.
@@ -102,7 +103,7 @@ function toHarnessTool(tool: ModelTool): HarnessTool {
 }
 
 /** What running a call inline needs of the store: what answering one needs, and the fenced writes beside the log. */
-export type ToolSurfaceStore = ToolAnswerStore & Pick<HarnessStore, 'setAlertInline' | 'scheduleWake'>;
+export type ToolSurfaceStore = ToolAnswerStore & DelegationToolStore & Pick<HarnessStore, 'setAlertInline' | 'scheduleWake'>;
 
 // An alert call, at once: one set, in a transaction of its own fenced by the job, or cancelled.
 function alertInline(store: ToolSurfaceStore, thread: ThreadRow, job: InlineJob, call: ToolCall, args: Record<string, unknown>, now: Date): Promise<Result<ToolAnswer, ApiError>> {
@@ -135,6 +136,9 @@ function sleepInline(store: ToolSurfaceStore, job: InlineJob, args: Record<strin
 // set or cancelled; or a script run.
 function execute(store: ToolSurfaceStore, thread: ThreadRow, job: InlineJob, call: ToolCall, args: Record<string, unknown>, now: Date): Promise<Result<ToolAnswer, ApiError>> {
 	return Do(async ($) => {
+		if (isDelegationTool(call.name)) {
+			return $(await runDelegationTool(store, thread, job, call));
+		}
 		if (call.name === SEND_TO_PERSON_TOOL) {
 			return personMessageArgs(args) ? {text: SENT_TO_PERSON, isError: false} : error(BAD_PERSON_MESSAGE_ARGS);
 		}

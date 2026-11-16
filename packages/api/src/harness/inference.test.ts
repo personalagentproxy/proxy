@@ -170,7 +170,7 @@ describe('runInference', () => {
 		expect(result.isOk()).toBe(true);
 		// The agent acts as the member whose chat the thread is of.
 		expect(getThreadAgent).toHaveBeenCalledWith(thread);
-		expect(store.listMemberAlerts).toHaveBeenCalledWith('org-1', 'user-1');
+		expect(store.listMemberAlerts).toHaveBeenCalledWith('org-1', 'user-1', undefined);
 		// What it makes goes in the persona's folder, where what the person attaches goes.
 		expect(agentInstructions).toHaveBeenCalledWith(
 			expect.objectContaining({agentId: 'agent-1', ownerUserId: 'user-1'}),

@@ -1,3 +1,4 @@
+import {Ok} from 'ts-results-es';
 import {type Mock, mock} from 'bun:test';
 
 import type {HarnessStore} from './store';
@@ -8,6 +9,13 @@ export type FakeStore = {[K in keyof HarnessStore]: Mock<HarnessStore[K]>};
 /** A store for a test, which answers nothing until the test says what each method it calls answers. */
 export function fakeStore(): FakeStore {
 	return {
+		getPersonaCoordination: mock<HarnessStore['getPersonaCoordination']>().mockResolvedValue(Ok(null)),
+		listDelegateAgents: mock<HarnessStore['listDelegateAgents']>().mockResolvedValue(Ok([])),
+		delegateToAgent: mock<HarnessStore['delegateToAgent']>(),
+		listDelegations: mock<HarnessStore['listDelegations']>().mockResolvedValue(Ok([])),
+		cancelDelegation: mock<HarnessStore['cancelDelegation']>(),
+		settleDelegations: mock<HarnessStore['settleDelegations']>().mockResolvedValue(Ok(0)),
+
 		claimJob: mock<HarnessStore['claimJob']>(),
 		renewLease: mock<HarnessStore['renewLease']>(),
 		finishJob: mock<HarnessStore['finishJob']>(),

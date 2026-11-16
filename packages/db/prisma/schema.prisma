@@ -733,6 +733,11 @@ model FileChange {
 // chat of their own with it. Every persona acts through the organization's one built-in
 // agent login (Agent, provider `proxy`), whose grants are every persona's: a persona is who did
 // the work, the login is what it may do.
+enum ConversationScope {
+  member
+  team
+}
+
 model Persona {
   id    String @id @default(cuid())
   orgId String
@@ -746,6 +751,10 @@ model Persona {
   // does (the api's backends/harness.ts).
   harness   String @default("claude-agent-sdk")
   chatModel String @default("sonnet")
+  // Shared configuration does not imply shared history. Existing personas retain member chats.
+  conversationScope ConversationScope @default(member)
+  // Coordinates specialists; independent of the conversation's audience.
+  headAgent Boolean @default(false)
   // The member whose persona it is, which nobody else in the organization sees, its owner
   // included; null for one every member sees, as General is, and as one from before personas
   // were anyone's is where others had talked to it.
@@ -822,7 +831,10 @@ model AgentThread {
   personaId String
   // The member whose chat it is, or whose chat the thread is of: the agent acts as them in it,
   // reaching what they see, and nobody else sees it.
-  userId  String
+  userId  String?
+  // Shared execution has no member identity; roots still hold each member's drafts.
+  teamChat Boolean @default(false)
+  delegated Boolean @default(false)
   // A thread's chat (AgentThread; as a column, as a task's parent is, since its agent, member and
   // organization are the same, and go with them). Null for a chat.
   parentThreadId String?
@@ -866,7 +878,9 @@ model AgentThread {
   org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   agent   Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
   persona Persona      @relation(fields: [personaId], references: [id], onDelete: Cascade)
-  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user    User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  outgoingDelegations AgentDelegation[] @relation("DelegationSource")
+  incomingDelegation AgentDelegation? @relation("DelegationChild")
   entries     AgentEntry[]
   jobs        AgentJob[]
   jobEvents   AgentJobEvent[]
@@ -874,6 +888,7 @@ model AgentThread {
   attachments AgentEntryAttachment[]
 
   @@index([personaId, userId])
+  @@index([personaId, teamChat])
   @@index([agentId])
   @@index([parentThreadId])
   @@index([orgId, createdAt])
@@ -904,6 +919,9 @@ model AgentEntry {
   // What the person said, what the model said (maybe nothing beside its calls), or what a call
   // answered.
   text     String
+  // Human sender, snapshotted for attribution after an account leaves. Not an authorization grant.
+  senderUserId String?
+  senderName   String?
   // An assistant entry's tool calls as JSON (`@proxy/utils/harness` ToolCall[]); null otherwise.
   toolCalls String?
   // A tool_result entry's call, by the id the model gave it; null otherwise.
@@ -1079,7 +1097,7 @@ model AgentAlert {
   id       String @id @default(cuid())
   orgId    String
   // The member whose chat's thread it was set in: the alert is theirs alone to see.
-  userId   String
+  userId   String?
   threadId String
   title    String
   // What the agent noted: what to tell the person at the time, or what the watch is for.
@@ -1161,4 +1179,31 @@ model ClaudeAccount {
   updatedAt DateTime @default(now()) @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// A durable handoff. Child executions never appear in the target's public conversation.
+model AgentDelegation {
+  id String @id @default(cuid())
+  orgId String
+  rootThreadId String
+  sourceThreadId String
+  childThreadId String @unique
+  callKey String
+  targetPersonaId String
+  targetName String
+  initiatorUserId String?
+  teamAudience Boolean
+  ancestors String[]
+  task String
+  status String @default("running")
+  result String?
+  deliveredAt DateTime?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+  source AgentThread @relation("DelegationSource", fields: [sourceThreadId], references: [id], onDelete: Cascade)
+  child AgentThread @relation("DelegationChild", fields: [childThreadId], references: [id], onDelete: Cascade)
+  @@unique([sourceThreadId, callKey])
+  @@index([rootThreadId])
+  @@index([status, deliveredAt])
 }

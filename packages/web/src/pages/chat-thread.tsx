@@ -96,7 +96,7 @@ function AnswerMarkdown({message}: {message: ThreadMessage}) {
 	);
 }
 
-// Something said in the thread: what the person said, on the left, in a grey bubble; what the
+// Something said in the thread: what the person said, aligned by sender, in a grey bubble; what the
 // persona answered, or told them as it went, as plain Markdown, without a bubble, in a red one
 // where its turn failed; or an event, a quiet line. It is drawn again only as it changes, since
 // drawing an answer parses its Markdown; one that came while the thread was open rises into place.
@@ -106,7 +106,14 @@ const Said = memo(function Said({message, fresh}: {message: ThreadMessage; fresh
 
 function saidPart(message: ThreadMessage) {
 	if (message.kind === 'person') {
-		return <PersonBubble text={message.text} attachments={message.attachments} />;
+		return (
+			<PersonBubble
+				text={message.text}
+				attachments={message.attachments}
+				mine={message.mine}
+				senderName={message.senderName}
+			/>
+		);
 	}
 	if (message.kind === 'event') {
 		return <EventLine text={message.text} />;
@@ -277,6 +284,39 @@ function Thread({
 								</MessageScrollerItem>
 							);
 						})}
+						{(view.delegations ?? []).map((delegation) => (
+							<MessageScrollerItem key={delegation.id}>
+								<details
+									id={`delegation-${delegation.id}`}
+									className="rounded-xl border bg-muted/30 p-3 text-sm"
+								>
+									<summary className="cursor-pointer font-medium">
+										{delegation.agentName}{' '}
+										<span className="pl-2 text-xs font-normal text-muted-foreground">
+											{delegation.status === 'running'
+												? 'Working'
+												: delegation.status === 'completed'
+													? 'Completed'
+													: delegation.status === 'cancelled'
+														? 'Cancelled'
+														: 'Failed'}
+										</span>
+									</summary>
+									<p className="pt-2 whitespace-pre-wrap break-words">{delegation.task}</p>
+									{delegation.result && (
+										<div className="border-t pt-3">
+											<Markdown text={delegation.result} />
+										</div>
+									)}
+									<a
+										href={`#delegation-${delegation.id}`}
+										className="pt-2 block text-xs text-muted-foreground"
+									>
+										Task {delegation.id}
+									</a>
+								</details>
+							</MessageScrollerItem>
+						))}
 						{busy && (
 							<MessageScrollerItem>
 								<div data-enter="fade">

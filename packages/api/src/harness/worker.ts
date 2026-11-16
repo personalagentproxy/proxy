@@ -51,7 +51,7 @@ const STOP_MS = 8_000;
 export type HarnessWorker = {stop: () => Promise<void>};
 
 /** What the worker needs of the store: the queue, what the jobs it runs need, and where a thread stands. */
-export type WorkerStore = Pick<HarnessStore, 'claimJob' | 'renewLease' | 'failJob'> & InferenceStore & ToolJobStore & StandingStore;
+export type WorkerStore = Pick<HarnessStore, 'claimJob' | 'renewLease' | 'failJob' | 'settleDelegations'> & InferenceStore & ToolJobStore & StandingStore;
 
 // Without the server's OpenRouter key, no thread's standing is read: each is done, with no summary.
 const NO_STANDING: StandingModel = {key: undefined, ask: async () => Err(ApiErr.unavailable('No model reads where a thread stands'))};
@@ -151,6 +151,10 @@ export function startHarnessWorker(store: WorkerStore, harnesses: Harnesses, sta
 
 	const loop = async (): Promise<void> => {
 		while (!stopping) {
+			const delivered = await store.settleDelegations();
+			if (delivered.isErr()) {
+				log.error('Could not deliver agent delegations', serializeError(delivered.error));
+			}
 			if (running.size >= CONCURRENCY) {
 				await Promise.race(running);
 				continue;

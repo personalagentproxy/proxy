@@ -26,7 +26,7 @@ import {
 	type uploadedAttachmentSchema,
 } from '@proxy/contracts/harness';
 
-import {chosenFor, harnessesOf, type HarnessRegistry, offeredTo} from '../backends/harness';
+import {chosenFor, harnessesOf, type HarnessRegistry, needsCredential, offeredTo} from '../backends/harness';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {manages} from '../utils/manages';
 import type {AttachmentRef, ChatFiles} from './attachments';
@@ -52,6 +52,7 @@ import type {HarnessStore} from './store';
 /** What the Chat page's routes need of the store. */
 export type ChatStore = Pick<
 	HarnessStore,
+	| 'listDelegations'
 	| 'listPersonas'
 	| 'listAnswers'
 	| 'ensureFirstPersona'
@@ -104,6 +105,8 @@ function toPersona(harnesses: Harnesses, viewer: OrgViewer, persona: PersonaRow 
 	const chosen = chosenFor(offeredTo(harnesses(), viewer), persona);
 	return {
 		id: persona.id,
+		conversationScope: persona.conversationScope ?? 'member',
+		headAgent: persona.headAgent ?? false,
 		name: persona.name,
 		look: persona.look,
 		color: toAvatarColor(persona.color),
@@ -127,7 +130,7 @@ function toHarnesses(registry: HarnessRegistry, viewer: OrgViewer): ChatHarness[
 // the harness's; the model left out is the harness's first, or the persona's own where the harness
 // stays. With neither named, one changed (`existing`) keeps what it has, and a new one gets the
 // first harness offered with its first model.
-function readPersona(harnesses: Harnesses, viewer: OrgViewer, request: AuthenticatedRequest, existing: PersonaModel | null): Result<Persona, ApiError> {
+function readPersona(harnesses: Harnesses, viewer: OrgViewer, request: AuthenticatedRequest, existing: (PersonaModel & {conversationScope?: 'member' | 'team'}) | null): Result<Persona, ApiError> {
 	const parsed = parseSchema(personaBodySchema, request.body);
 	if (parsed.isErr()) {
 		return Err(parsed.error);
@@ -137,9 +140,18 @@ function readPersona(harnesses: Harnesses, viewer: OrgViewer, request: Authentic
 		return Ok(persona);
 	}
 	const sameHarness = harness === undefined || harness === existing?.harness;
-	const chosen = chosenFor(offeredTo(harnesses(), viewer), {harness: harness ?? existing?.harness ?? '', chatModel: chatModel ?? (sameHarness ? (existing?.chatModel ?? '') : '')});
+	const team = (persona.conversationScope ?? existing?.conversationScope) === 'team';
+	const offered = offeredTo(harnesses(), viewer);
+	const available = team ? {...offered, claudeAgentSdk: null} : offered;
+	const chosen = chosenFor(available, {harness: harness ?? existing?.harness ?? '', chatModel: chatModel ?? (sameHarness ? (existing?.chatModel ?? '') : '')});
 	if (chosen === null) {
+		if (team) {
+			return Err(ApiErr.validationError('Team chats require a workspace or server model provider.'));
+		}
 		return Ok(persona);
+	}
+	if ((persona.conversationScope ?? existing?.conversationScope) === 'team' && needsCredential(harnesses(), chosen.harness)) {
+		return Err(ApiErr.validationError('Team chats require a workspace or server model provider.'));
 	}
 	if (harness !== undefined && chosen.harness.id !== harness) {
 		return Err(ApiErr.validationError(`This server has no harness ${harness}.`));
@@ -230,6 +242,9 @@ function handleUpdatePersonaRoute(store: ChatStore, harnesses: Harnesses, reques
 		const viewer = $(await requireViewer(request));
 		const existing = $(await requireManagedPersona(store, viewer, request));
 		const persona = $(readPersona(harnesses, viewer, request, existing));
+		if (persona.conversationScope !== undefined && persona.conversationScope !== (existing.conversationScope ?? 'member')) {
+			return $(Err(ApiErr.validationError('Create a new chat to change who can see its conversation.')));
+		}
 		if (!$(await store.updatePersona(viewer.orgId, existing.id, persona))) {
 			return $(Err(ApiErr.notFound('persona', existing.id)));
 		}
@@ -337,13 +352,23 @@ type Shown = {entryId: string; message: ThreadMessage};
 // What a thread shows (db/harness listChatThreads), each message with the files it went with: what
 // the person said; the events that came into it; what the persona answered in words, then what it
 // told the person as it went in the same step; not the calls it worked through.
-function threadShown(thread: ChatThreadRow, files: RouteFiles): Shown[] {
+function threadShown(thread: ChatThreadRow, files: RouteFiles, userId: string): Shown[] {
 	const attachmentsOf = (entryId: string) => thread.attachments.filter((attachment) => attachment.entryId === entryId).map(files.shown);
 	return thread.entries.flatMap((entry): Shown[] => {
 		const at = entry.createdAt.toISOString();
 		const from = (message: ThreadMessage): Shown => ({entryId: entry.id, message});
 		if (entry.kind === 'person' || entry.kind === 'event') {
-			return [from({id: entry.id, kind: entry.kind, text: entry.text, isError: entry.isError, at, attachments: attachmentsOf(entry.id)})];
+			return [
+				from({
+					id: entry.id,
+					kind: entry.kind,
+					...(entry.kind === 'person' ? {senderName: entry.senderName ?? null, mine: entry.senderUserId ? entry.senderUserId === userId : thread.userId === userId} : {}),
+					text: entry.text,
+					isError: entry.isError,
+					at,
+					attachments: attachmentsOf(entry.id),
+				}),
+			];
 		}
 		if (entry.kind !== 'assistant') {
 			return [];
@@ -399,7 +424,12 @@ function toChatThread(thread: ChatThreadRow, shown: Shown[], now: Date): ChatThr
 	const first = messages[0];
 	const latest = shown.findLast(({message}) => message.kind === 'assistant');
 	const answer = shown.findLast(({entryId, message}) => message.kind === 'assistant' && message.id === entryId);
-	const opener = first?.kind === 'person' ? {kind: 'person' as const, text: first.text, attachments: first.attachments} : first?.kind === 'event' ? {kind: 'event' as const, text: first.text} : null;
+	const opener =
+		first?.kind === 'person'
+			? {kind: 'person' as const, text: first.text, attachments: first.attachments, senderName: first.senderName, mine: first.mine}
+			: first?.kind === 'event'
+				? {kind: 'event' as const, text: first.text}
+				: null;
 	const {state} = thread;
 	return {
 		id: thread.id,
@@ -422,6 +452,9 @@ function toChatThread(thread: ChatThreadRow, shown: Shown[], now: Date): ChatThr
 // without one has no thread in it.
 function requireChat(store: ChatStore, viewer: OrgViewer, persona: PersonaRow, threadId: string): Promise<Result<ThreadRow, ApiError>> {
 	return Do(async ($) => {
+		if (persona.conversationScope === 'team') {
+			return $(await ensureChat(store, viewer, persona));
+		}
 		return $(requirePresent($(await store.getMemberChat(persona.id, viewer.userId)), ApiErr.notFound('thread', threadId)));
 	});
 }
@@ -442,7 +475,7 @@ function handleListThreadsRoute(store: ChatStore, harnesses: Harnesses, files: R
 		const chat = $(await ensureChat(store, viewer, persona));
 		const now = new Date();
 		const [threads, draft, waiting] = await Promise.all([store.listChatThreads(chat.id, SHOWN_CALLS, now), store.getChatDraft(chat.id), store.listDraftAttachments(chat.id)]);
-		const listed = $(threads).map((thread) => toChatThread(thread, threadShown(thread, files), now));
+		const listed = $(threads).map((thread) => toChatThread(thread, threadShown(thread, files, viewer.userId), now));
 		return {
 			persona: toPersona(harnesses, viewer, persona),
 			draft: $(draft),
@@ -460,8 +493,17 @@ function handleGetChatThreadRoute(store: ChatStore, harnesses: Harnesses, files:
 		const persona = $(await requirePersona(store, viewer, request));
 		const now = new Date();
 		const thread = $(await requireChatThread(store, viewer, persona, request.params.threadId ?? '', now));
-		const shown = threadShown(thread, files);
+		const shown = threadShown(thread, files, viewer.userId);
+		const delegations = $(await store.listDelegations(thread.id));
 		return {
+			delegations: delegations.map((row) => ({
+				id: row.id,
+				agentName: row.targetName,
+				task: row.task,
+				status: row.status === 'completed' ? ('completed' as const) : row.status === 'failed' ? ('failed' as const) : row.status === 'cancelled' ? ('cancelled' as const) : ('running' as const),
+				result: row.result,
+				createdAt: row.createdAt.toISOString(),
+			})),
 			persona: toPersona(harnesses, viewer, persona),
 			thread: toChatThread(thread, shown, now),
 			busy: thread.state.kind === 'working',
@@ -477,12 +519,12 @@ function handleOpenThreadRoute(store: ChatStore, files: RouteFiles, request: Aut
 		const {text, refs} = $(readMessage(request));
 		const persona = $(await requirePersona(store, viewer, request));
 		const chat = $(await ensureChat(store, viewer, persona));
-		const attachments = refs.length === 0 ? [] : $(await files.resolve(viewer, refs));
+		const attachments = refs.length === 0 ? [] : $(await files.resolve(viewer, refs, persona.conversationScope === 'team'));
 		const opening = threadOpening(chat, {text, files: attachments.map((attachment) => attachment.name)});
 		const opened = $(requirePresent($(await store.openThread(chat.id, text, opening, attachments)), ApiErr.notFound('thread', chat.id)));
 		const now = new Date();
 		const thread = $(requirePresent($(await store.getChatThread(chat.id, opened.thread.id, SHOWN_CALLS, now)), ApiErr.notFound('thread', opened.thread.id)));
-		return {thread: toChatThread(thread, threadShown(thread, files), now)};
+		return {thread: toChatThread(thread, threadShown(thread, files, viewer.userId), now)};
 	});
 }
 
@@ -494,11 +536,14 @@ function handleReplyInThreadRoute(store: ChatStore, files: RouteFiles, request: 
 		const {text, refs} = $(readMessage(request));
 		const persona = $(await requirePersona(store, viewer, request));
 		const chat = $(await requireChat(store, viewer, persona, threadId));
-		const attachments = refs.length === 0 ? [] : $(await files.resolve(viewer, refs));
+		if (!$(await store.hasChatThread(chat.id, threadId))) {
+			return $(Err(ApiErr.notFound('thread', threadId)));
+		}
+		const attachments = refs.length === 0 ? [] : $(await files.resolve(viewer, refs, persona.conversationScope === 'team'));
 		const entry = $(requirePresent($(await store.replyInThread(chat.id, threadId, text, attachments)), ApiErr.notFound('thread', threadId)));
 		// Read from their drives just now.
 		const shown = attachments.map((attachment) => files.shown({...attachment, gone: false}));
-		return {message: {id: entry.id, kind: 'person', text: entry.text, isError: false, at: entry.createdAt.toISOString(), attachments: shown}};
+		return {message: {id: entry.id, kind: 'person', mine: true, senderName: entry.senderName ?? null, text: entry.text, isError: false, at: entry.createdAt.toISOString(), attachments: shown}};
 	});
 }
 

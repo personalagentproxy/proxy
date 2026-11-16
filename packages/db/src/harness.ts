@@ -7,7 +7,7 @@ import {
 } from '@prisma/client';
 import {Err, Ok, type Result} from 'ts-results-es';
 
-import {ApiErr, type ApiError, wrapDb} from '@proxy/utils';
+import {ApiErr, type ApiError, Do, wrapDb} from '@proxy/utils';
 import {
 	DEFAULT_LOOK,
 	type HarnessSession,
@@ -24,6 +24,7 @@ import type {EntryAttachment} from '@proxy/utils/harness-context';
 import {taskEndedLongAgo} from '@proxy/utils/tasks';
 
 import {db} from '.';
+import {delegationAllowed} from './delegations';
 import {signedInAgentSelect, type SignedInAgent, toSignedInAgent} from './signed-in-agent';
 import type {NewAgentTask} from './task';
 
@@ -62,7 +63,9 @@ export type ThreadRow = {
 	// The persona the chat is with.
 	personaId: string;
 	// The member whose chat it is, or whose chat the thread is of.
-	userId: string;
+	userId: string | null;
+	teamChat?: boolean;
+	delegated?: boolean;
 	// A thread's chat; null for a chat.
 	parentThreadId: string | null;
 	// A thread's title; null for a chat.
@@ -86,7 +89,13 @@ export type PersonaModel = {harness: string; chatModel: string};
  * turns with the model it answers with, where they are chosen; left as they are otherwise, the
  * database's defaults for a new one.
  */
-export type Persona = {name: string; look: Look; color: string} & Partial<PersonaModel>;
+export type Persona = {
+	name: string;
+	look: Look;
+	color: string;
+	conversationScope?: 'member' | 'team';
+	headAgent?: boolean;
+} & Partial<PersonaModel>;
 
 /**
  * A persona as the Chat page lists it, with the harness and the model chosen for it, whose it is,
@@ -102,6 +111,8 @@ export type PersonaRow = Omit<Persona, keyof PersonaModel> &
 	};
 
 export type EntryRow = LogEntry & {
+	senderUserId?: string | null;
+	senderName?: string | null;
 	id: string;
 	seq: number;
 	threadId: string;
@@ -161,7 +172,12 @@ export type CallPlan =
 export type Wakes = (tail: LogEntry[]) => boolean;
 
 /** An entry to land in a thread. */
-export type NewEntry = {kind: AgentEntryKind; text: string};
+export type NewEntry = {
+	kind: AgentEntryKind;
+	text: string;
+	senderUserId?: string | null;
+	senderName?: string | null;
+};
 
 /** The harness and the model a turn ran on, by their ids, kept with what the model answered. */
 export type RanOn = {harness: string; model: string};
@@ -210,6 +226,8 @@ const threadSelect = {
 	agentId: true,
 	personaId: true,
 	userId: true,
+	teamChat: true,
+	delegated: true,
 	parentThreadId: true,
 	title: true,
 	taskId: true,
@@ -227,7 +245,12 @@ function toThread(thread: ThreadRecord): ThreadRow {
 
 // The chat `chat` and its threads, as a condition on the thread `t` in SQL.
 function inChatSql(chat: Prisma.Sql, t: Prisma.Sql): Prisma.Sql {
-	return Prisma.sql`(${t}."id" = ${chat} OR ${t}."parentThreadId" = ${chat})`;
+	return Prisma.sql`(${t}."id" = ${chat} OR ${t}."parentThreadId" = ${chat} OR (${t}."teamChat" = true AND EXISTS (
+        SELECT 1 FROM "AgentThread" root JOIN "Persona" p ON p."id" = root."personaId"
+        WHERE root."id" = ${chat} AND root."parentThreadId" IS NULL
+        AND root."orgId" = ${t}."orgId" AND root."personaId" = ${t}."personaId"
+        AND p."conversationScope" = 'team' AND p."ownerUserId" IS NULL
+    )))`;
 }
 
 // A thread's jobs still to run or running, as much of them as says what its agent is up to.
@@ -243,6 +266,8 @@ export const personaSelect = {
 	color: true,
 	harness: true,
 	chatModel: true,
+	conversationScope: true,
+	headAgent: true,
 	ownerUserId: true,
 	createdById: true,
 	createdAt: true,
@@ -275,6 +300,8 @@ export const entrySelect = {
 	id: true,
 	seq: true,
 	threadId: true,
+	senderUserId: true,
+	senderName: true,
 	kind: true,
 	pending: true,
 	text: true,
@@ -355,7 +382,13 @@ export async function listPersonas(
 				...personaSelect,
 				// The member's chat and its threads.
 				threads: {
-					where: {userId},
+					where: {
+						delegated: false,
+						OR: [
+							{userId},
+							{teamChat: true, persona: {conversationScope: 'team', ownerUserId: null}},
+						],
+					},
 					select: {
 						parentThreadId: true,
 						draft: true,
@@ -549,13 +582,15 @@ export async function createPersona(
 			db.persona.create({
 				data: {
 					orgId,
-					ownerUserId: userId,
+					ownerUserId: persona.conversationScope === 'team' ? null : userId,
+					conversationScope: persona.conversationScope,
 					createdById: userId,
 					name: persona.name,
 					look: JSON.stringify(persona.look),
 					color: persona.color,
 					harness: persona.harness,
 					chatModel: persona.chatModel,
+					headAgent: persona.headAgent,
 				},
 				select: personaSelect,
 			}),
@@ -579,6 +614,7 @@ export async function updatePersona(
 					color: persona.color,
 					harness: persona.harness,
 					chatModel: persona.chatModel,
+					headAgent: persona.headAgent,
 				},
 			}),
 		)
@@ -817,13 +853,26 @@ export async function saveChatDraft(
 export async function getThreadAgent(
 	thread: ThreadRow,
 ): Promise<Result<SignedInAgent | null, ApiError>> {
-	return (
-		await wrapDb(() =>
-			db.agent.findUnique({where: {id: thread.agentId}, select: signedInAgentSelect}),
-		)
-	).map((agent) => {
+	return wrapDb(async () => {
+		let auditOwnerUserId = thread.userId;
+		if (thread.delegated) {
+			const handoff = await db.agentDelegation.findUnique({where: {childThreadId: thread.id}});
+			if (
+				!handoff ||
+				handoff.status !== 'running' ||
+				handoff.expiresAt <= new Date() ||
+				!(await delegationAllowed(db, handoff))
+			) {
+				return null;
+			}
+			auditOwnerUserId = handoff.teamAudience ? null : handoff.initiatorUserId;
+		}
+		const agent = await db.agent.findUnique({
+			where: {id: thread.agentId},
+			select: signedInAgentSelect,
+		});
 		const signedIn = agent ? toSignedInAgent(agent) : null;
-		return signedIn ? {...signedIn, ownerUserId: thread.userId} : null;
+		return signedIn ? {...signedIn, ownerUserId: thread.userId, auditOwnerUserId} : null;
 	});
 }
 
@@ -895,7 +944,7 @@ export async function setThreadTask(
 export async function lockThread(tx: Tx, threadId: string): Promise<ThreadRow | null> {
 	const rows = await tx.$queryRaw<Array<{id: string}>>`
 		SELECT "id" FROM "AgentThread"
-		WHERE "id" = (SELECT COALESCE("parentThreadId", "id") FROM "AgentThread" WHERE "id" = ${threadId})
+		WHERE "id" = (SELECT CASE WHEN "teamChat" OR "delegated" THEN "id" ELSE COALESCE("parentThreadId", "id") END FROM "AgentThread" WHERE "id" = ${threadId})
 		FOR UPDATE`;
 	if (rows.length === 0) {
 		return null;
@@ -1036,7 +1085,28 @@ async function endTurn(tx: Tx, thread: ThreadRow, end: ThreadEnd): Promise<void>
 	if (await messageWaiting(tx, thread)) {
 		return;
 	}
+	const unfinishedDelegations = await tx.agentDelegation.count({
+		where: {sourceThreadId: thread.id, deliveredAt: null},
+	});
+	if (unfinishedDelegations > 0) {
+		return;
+	}
 	await finishTask(tx, thread, end.outcome);
+	if (thread.delegated) {
+		await tx.agentAlert.deleteMany({where: {threadId: thread.id}});
+		const last = await tx.agentEntry.findFirst({
+			where: {threadId: thread.id, kind: 'assistant', text: {not: ''}},
+			orderBy: {seq: 'desc'},
+			select: {text: true, isError: true},
+		});
+		await tx.agentDelegation.updateMany({
+			where: {childThreadId: thread.id, status: 'running'},
+			data: {
+				status: last?.isError ? 'failed' : 'completed',
+				result: (last?.text ?? end.outcome).slice(0, 20000),
+			},
+		});
+	}
 }
 
 /** A thread of a chat as the member's message opens it: its title and its task, as the api composes them from what they said. */
@@ -1063,9 +1133,22 @@ export async function openThread(
 			}
 			await tx.agentThread.update({where: {id: chatId}, data: {draft: null}});
 			await tx.agentEntryAttachment.deleteMany({where: inInput(chatId)});
+			const persona = await tx.persona.findUniqueOrThrow({
+				where: {id: chat.personaId},
+				select: {conversationScope: true},
+			});
+			const teamChat = persona.conversationScope === 'team';
+			const sender = chat.userId
+				? await tx.user.findUnique({where: {id: chat.userId}, select: {name: true}})
+				: null;
 			const now = new Date();
 			const task = await tx.agentTask.create({
-				data: {...opening.task, createdAt: now, lastActiveAt: now},
+				data: {
+					...opening.task,
+					ownerUserId: teamChat ? null : chat.userId,
+					createdAt: now,
+					lastActiveAt: now,
+				},
 				select: {id: true},
 			});
 			const thread = toThread(
@@ -1074,7 +1157,8 @@ export async function openThread(
 						orgId: chat.orgId,
 						agentId: chat.agentId,
 						personaId: chat.personaId,
-						userId: chat.userId,
+						userId: teamChat ? null : chat.userId,
+						teamChat,
 						parentThreadId: chat.id,
 						title: opening.title,
 						taskId: task.id,
@@ -1082,7 +1166,12 @@ export async function openThread(
 					select: threadSelect,
 				}),
 			);
-			const entry = await appendEntry(tx, thread, {kind: 'person', text}, wakes);
+			const entry = await appendEntry(
+				tx,
+				thread,
+				{kind: 'person', text, senderUserId: chat.userId, senderName: sender?.name ?? 'Member'},
+				wakes,
+			);
 			await attach(tx, thread.id, entry.id, attachments);
 			return {thread, entry};
 		}),
@@ -1108,13 +1197,26 @@ export async function replyInThread(
 				return null;
 			}
 			const found = await tx.agentThread.findFirst({
-				where: {id: threadId, parentThreadId: chat.id},
+				where: {...(await chatThreadsWhere(tx, chat.id)), id: threadId},
 				select: threadSelect,
 			});
 			if (!found) {
 				return null;
 			}
-			return wakeWith(tx, toThread(found), {kind: 'person', text}, wakes, attachments);
+			const locked = await lockThread(tx, threadId);
+			if (!locked) {
+				return null;
+			}
+			const sender = chat.userId
+				? await tx.user.findUnique({where: {id: chat.userId}, select: {name: true}})
+				: null;
+			return wakeWith(
+				tx,
+				toThread(found),
+				{kind: 'person', text, senderUserId: chat.userId, senderName: sender?.name ?? 'Member'},
+				wakes,
+				attachments,
+			);
 		}),
 	);
 }
@@ -1135,12 +1237,23 @@ export type ThreadStandingRow = {
 /** An entry as a thread shows it: what was said, by whom and when, without what the model was sent or how it ran. */
 export type ShownEntryRow = Pick<
 	EntryRow,
-	'id' | 'seq' | 'kind' | 'pending' | 'text' | 'toolCalls' | 'isError' | 'createdAt'
+	| 'id'
+	| 'seq'
+	| 'kind'
+	| 'pending'
+	| 'text'
+	| 'toolCalls'
+	| 'isError'
+	| 'createdAt'
+	| 'senderUserId'
+	| 'senderName'
 >;
 
 // The columns of an entry a thread shows it by, as `ShownEntryRow` has them: not the system prompt
 // each answer keeps, which is long, nor the rest of how it was run.
 const shownEntrySelect = {
+	senderUserId: true,
+	senderName: true,
 	id: true,
 	seq: true,
 	kind: true,
@@ -1201,6 +1314,7 @@ async function readChatThreads(
 				summarySeq: true,
 				archived: true,
 				jobs: openJobsSelect,
+				outgoingDelegations: {where: {deliveredAt: null}, select: {id: true}},
 				entries: {
 					where: shownInThread(calls),
 					select: shownEntrySelect,
@@ -1215,11 +1329,21 @@ async function readChatThreads(
 			),
 		);
 		return threads.map(
-			({jobs, entries, waitingForMember, summary, summarySeq, archived, ...thread}) => {
+			({
+				jobs,
+				outgoingDelegations,
+				entries,
+				waitingForMember,
+				summary,
+				summarySeq,
+				archived,
+				...thread
+			}) => {
 				const shown = new Set(entries.map((entry) => entry.id));
 				return {
 					...toThread(thread),
-					state: threadState(jobs, now),
+					state:
+						outgoingDelegations.length > 0 ? {kind: 'working' as const} : threadState(jobs, now),
 					standing: {waitingForMember, summary, summarySeq, archived},
 					entries: entries.map((entry) => ({...entry, toolCalls: toToolCalls(entry.toolCalls)})),
 					attachments: attachments.filter((attachment) => shown.has(attachment.entryId)),
@@ -1229,17 +1353,51 @@ async function readChatThreads(
 	});
 }
 
+// Resolve a member root to its conversation audience. Never widen legacy member conversations.
+async function chatThreadsWhere(client: Tx, chatId: string): Promise<Prisma.AgentThreadWhereInput> {
+	const chat = await client.agentThread.findFirst({
+		where: {id: chatId, parentThreadId: null},
+		select: {
+			orgId: true,
+			personaId: true,
+			persona: {select: {conversationScope: true, ownerUserId: true}},
+		},
+	});
+	if (!chat) {
+		return {AND: [{id: {in: []}}]};
+	}
+	if (chat.persona.conversationScope === 'team' && chat.persona.ownerUserId === null) {
+		return {
+			orgId: chat.orgId,
+			personaId: chat.personaId,
+			teamChat: true,
+			delegated: false,
+			parentThreadId: {not: null},
+		};
+	}
+	return {parentThreadId: chatId, teamChat: false, delegated: false};
+}
+
 /**
  * The chat's threads, oldest first, each with what it is up to, the entries of it the member sees,
  * in order, what is pending last, the answers that made a call of one of `calls` among them, and
  * the files attached to what opened it, which is all of them a list shows.
  */
-export function listChatThreads(
+export async function listChatThreads(
 	chatId: string,
 	calls: string[],
 	now = new Date(),
 ): Promise<Result<ChatThreadRow[], ApiError>> {
-	return readChatThreads({parentThreadId: chatId, archived: false}, calls, now, 'opener');
+	return Do(async ($) =>
+		$(
+			await readChatThreads(
+				{...$(await wrapDb(() => chatThreadsWhere(db, chatId))), archived: false},
+				calls,
+				now,
+				'opener',
+			),
+		),
+	);
 }
 
 /** One of the chat's threads, as listChatThreads has it, with the files attached to every entry of it; `Ok(null)` for no such thread of the chat. */
@@ -1249,8 +1407,16 @@ export async function getChatThread(
 	calls: string[],
 	now = new Date(),
 ): Promise<Result<ChatThreadRow | null, ApiError>> {
-	return (await readChatThreads({id: threadId, parentThreadId: chatId}, calls, now, 'all')).map(
-		(threads) => threads[0] ?? null,
+	return Do(
+		async ($) =>
+			$(
+				await readChatThreads(
+					{...$(await wrapDb(() => chatThreadsWhere(db, chatId))), id: threadId},
+					calls,
+					now,
+					'all',
+				),
+			)[0] ?? null,
 	);
 }
 
@@ -1265,7 +1431,16 @@ export async function getMemberThread(
 	calls: string[],
 	now = new Date(),
 ): Promise<Result<ChatThreadRow | null, ApiError>> {
-	const where = {...member, id: threadId, parentThreadId: {not: null}};
+	const where = {
+		delegated: false,
+		orgId: member.orgId,
+		OR: [
+			{userId: member.userId},
+			{teamChat: true, persona: {conversationScope: 'team' as const, ownerUserId: null}},
+		],
+		id: threadId,
+		parentThreadId: {not: null},
+	};
 	return (await readChatThreads(where, calls, now, 'all')).map((threads) => threads[0] ?? null);
 }
 
@@ -1275,7 +1450,9 @@ export async function hasChatThread(
 	threadId: string,
 ): Promise<Result<boolean, ApiError>> {
 	return (
-		await wrapDb(() => db.agentThread.count({where: {id: threadId, parentThreadId: chatId}}))
+		await wrapDb(async () =>
+			db.agentThread.count({where: {...(await chatThreadsWhere(db, chatId)), id: threadId}}),
+		)
 	).map((count) => count > 0);
 }
 
@@ -1331,7 +1508,7 @@ export async function markThreadDone(
 ): Promise<Result<boolean, ApiError>> {
 	return wrapDb(async () => {
 		const {count} = await db.agentThread.updateMany({
-			where: {id: threadId, parentThreadId: chatId},
+			where: {...(await chatThreadsWhere(db, chatId)), id: threadId},
 			data: {waitingForMember: false},
 		});
 		return count > 0;
@@ -1349,7 +1526,7 @@ export async function archiveThread(
 ): Promise<Result<boolean, ApiError>> {
 	return wrapDb(async () => {
 		const {count} = await db.agentThread.updateMany({
-			where: {id: threadId, parentThreadId: chatId},
+			where: {...(await chatThreadsWhere(db, chatId)), id: threadId},
 			data: {archived: true},
 		});
 		return count > 0;
@@ -1664,6 +1841,12 @@ export async function failJob(
 				const note = noteFor(job);
 				if (note) {
 					await writeNote(tx, thread, note, job.id, wakes);
+					if (thread.delegated && note.kind !== 'answer') {
+						await tx.agentDelegation.updateMany({
+							where: {childThreadId: thread.id, deliveredAt: null},
+							data: {status: 'failed', result: error.slice(0, 2000)},
+						});
+					}
 				}
 			});
 		}),

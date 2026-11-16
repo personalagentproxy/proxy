@@ -1,3 +1,4 @@
+import * as delegations from '@proxy/db/delegations';
 import type {Result} from 'ts-results-es';
 
 import type {ApiError} from '@proxy/utils';
@@ -50,6 +51,13 @@ import type {SignedInAgent} from '@proxy/db/agent';
  * the transcript methods (session-store.ts), the model's memory beside the log.
  */
 export type HarnessStore = {
+	getPersonaCoordination: typeof delegations.getPersonaCoordination;
+	listDelegateAgents: typeof delegations.listDelegateAgents;
+	delegateToAgent: typeof delegations.delegateToAgent;
+	listDelegations: typeof delegations.listDelegations;
+	cancelDelegation: typeof delegations.cancelDelegation;
+	settleDelegations: typeof delegations.settleDelegations;
+
 	claimJob: (workerId: string, leaseMs: number, capped?: CappedHarness | null) => Promise<Result<ClaimedJob | null, ApiError>>;
 	renewLease: (jobId: string, workerId: string, leaseMs: number) => Promise<Result<boolean, ApiError>>;
 	finishJob: (jobId: string, workerId: string) => Promise<Result<boolean, ApiError>>;
@@ -105,8 +113,8 @@ export type HarnessStore = {
 
 	completeSetAlert: (job: {jobId: string; workerId: string; threadId: string; callId: string}, alert: NewAlert, answer: (alert: AlertRow) => string) => Promise<Result<boolean, ApiError>>;
 	setAlertInline: (job: InlineJob, alert: NewAlert) => Promise<Result<AlertRow | null, ApiError>>;
-	deleteAlert: (alertId: string, owner: {orgId: string; userId: string}) => Promise<Result<boolean, ApiError>>;
-	listMemberAlerts: (orgId: string, userId: string) => Promise<Result<MemberAlertRow[], ApiError>>;
+	deleteAlert: (alertId: string, owner: {orgId: string; userId: string | null; threadId?: string}) => Promise<Result<boolean, ApiError>>;
+	listMemberAlerts: (orgId: string, userId: string | null, threadId?: string) => Promise<Result<MemberAlertRow[], ApiError>>;
 	listConnectionsByIds: (orgId: string, ids: string[]) => Promise<Result<ConnectionRow[], ApiError>>;
 	claimDueAlerts: (everyMs: number, limit: number) => Promise<Result<AlertRow[], ApiError>>;
 	fireAlert: (alert: AlertRow, text: string) => Promise<Result<boolean, ApiError>>;
@@ -126,6 +134,13 @@ export type TranscriptStore = Pick<HarnessStore, 'appendTranscript' | 'loadTrans
 
 /** The store in the database. */
 export const harnessStore: HarnessStore = {
+	getPersonaCoordination: delegations.getPersonaCoordination,
+	listDelegateAgents: delegations.listDelegateAgents,
+	delegateToAgent: delegations.delegateToAgent,
+	listDelegations: delegations.listDelegations,
+	cancelDelegation: delegations.cancelDelegation,
+	settleDelegations: delegations.settleDelegations,
+
 	claimJob: harness.claimJob,
 	renewLease: harness.renewLease,
 	finishJob: harness.finishJob,

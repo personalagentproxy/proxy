@@ -97,7 +97,8 @@ export function alertCall(store: ToolAnswerStore, thread: ThreadRow, call: ToolC
 	return Do(async ($) => {
 		if (call.name === CANCEL_ALERT_TOOL) {
 			const id = typeof args.id === 'string' ? args.id : '';
-			if (!$(await store.deleteAlert(id, {orgId: thread.orgId, userId: thread.userId}))) {
+			const actor = thread.delegated ? $(requirePresent($(await store.getThreadAgent(thread)), ApiErr.notFound('agent', thread.agentId))) : null;
+			if (!$(await store.deleteAlert(id, {orgId: thread.orgId, userId: actor?.auditOwnerUserId ?? thread.userId, ...(thread.delegated ? {threadId: thread.id} : {})}))) {
 				return error(`No alert ${id}.`);
 			}
 			return {text: `Cancelled the alert ${id}.`, isError: false};

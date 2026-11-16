@@ -41,4 +41,30 @@ describe('PersonaDialog', () => {
 		await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
 		expect(onSave).toHaveBeenCalledWith({name: 'Finance', look, color: 'blue'});
 	});
+	test('creates an explicitly shared team coordinator', async () => {
+		const onSave = mock(async () => null);
+		render(<PersonaDialog open initial={null} onClose={() => {}} onSave={onSave} />);
+		fireEvent.change(screen.getByLabelText('Name'), {target: {value: 'Coordinator'}});
+		fireEvent.change(screen.getByLabelText('Conversation'), {target: {value: 'team'}});
+		fireEvent.click(screen.getByRole('checkbox'));
+		fireEvent.click(screen.getByRole('button', {name: 'Create'}));
+		await waitFor(() =>
+			expect(onSave).toHaveBeenCalledWith(
+				expect.objectContaining({name: 'Coordinator', conversationScope: 'team', headAgent: true}),
+			),
+		);
+	});
+
+	test('an existing conversation cannot be made public from the edit dialog', () => {
+		const look = {nose: 0.48, noseOut: 0.35, eye: 27, eyeTheta: 55, eyeLat: 8, eyes: 2 as const};
+		render(
+			<PersonaDialog
+				open
+				initial={{name: 'Finance', look, color: 'blue'}}
+				onClose={() => {}}
+				onSave={async () => null}
+			/>,
+		);
+		expect(screen.getByLabelText('Conversation').hasAttribute('disabled')).toBe(true);
+	});
 });
