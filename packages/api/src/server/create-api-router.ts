@@ -1,3 +1,4 @@
+import {handleOrgImageRoute} from '../orgs/image';
 import {deleteEnvironmentKey, environmentOverview, saveEnvironmentKey, shareEnvironmentKeys, revealEnvironmentKeys, environmentHistory} from '../environments/sharing';
 import {saveEnvironment, grantEnvironment, readEnvironment, listEnvironments, deleteEnvironment, listEnvironmentAccess} from '../environments/route';
 import express from 'express';
@@ -173,6 +174,7 @@ export function createApiRouter(): express.Router {
 	router.use('/api/orgs/:org', org);
 	org.get('/', withAuthResult('Get organization route', handleGetOrgRoute));
 	org.post('/onboarded', withAuthResult('Finish onboarding route', handleFinishOnboardingRoute));
+	org.put('/image', withAuthResult('Workspace image route', handleOrgImageRoute));
 	org.patch('/', withAuthResult('Rename organization route', handleRenameOrgRoute));
 	org.delete('/', withAuthResult('Delete organization route', handleDeleteOrgRoute));
 	org.post('/leave', withAuthResult('Leave organization route', handleLeaveOrgRoute));

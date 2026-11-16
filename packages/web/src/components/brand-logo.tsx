@@ -70,6 +70,10 @@ export function ProxyLogo() {
 	);
 }
 
+export function ProxyChatLogo({className}: {className?: string}) {
+	return <Head look={DEFAULT_LOOK} color="mono" size={20} className={className} />;
+}
+
 /**
  * A connection's logo: our icon for what is no one brand's (the vault, the sandboxes, a mailbox),
  * in the page's ink, or the brand's mark, inset on the tile.
@@ -82,6 +86,9 @@ export function IntegrationLogo({
 	className?: string;
 }) {
 	const [failed, setFailed] = useState<string | null>(null);
+	if (integration.id === 'chat') {
+		return <ProxyChatLogo className={className} />;
+	}
 	if ('src' in integration.logo) {
 		const {src, fallback, ink} = integration.logo;
 		// A logo found on the internet that doesn't load, or that the api found none of, is our mark.

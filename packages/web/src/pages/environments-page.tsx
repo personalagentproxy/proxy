@@ -1,3 +1,4 @@
+import {EnvironmentKeyEntry} from '@/components/environment-key-entry';
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {z} from 'zod';
 import {EyeIcon, EyeOffIcon, KeyRoundIcon, PlusIcon, SearchIcon, ArrowLeftIcon} from 'lucide-react';
@@ -398,6 +399,17 @@ function EnvironmentList({org}: {org: string}) {
 								</tbody>
 							</table>
 						</div>
+						{data?.canManage && (
+							<EnvironmentKeyEntry
+								existing={data.rows.map((row) => ({
+									project: row.project,
+									names: row.keys.map((key) => key.name),
+								}))}
+								base={base}
+								projects={[...new Set(data.rows.map((row) => row.project))]}
+								onSaved={refresh}
+							/>
+						)}
 						{!data && !error && (
 							<p className="py-12 text-center text-muted-foreground">Loading environments…</p>
 						)}

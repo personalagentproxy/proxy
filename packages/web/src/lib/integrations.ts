@@ -1,11 +1,4 @@
-import {
-	FolderIcon,
-	LibraryIcon,
-	MailIcon,
-	MessageSquareIcon,
-	SquareTerminalIcon,
-	type LucideIcon,
-} from 'lucide-react';
+import {FolderIcon, LibraryIcon, MailIcon, SquareTerminalIcon, type LucideIcon} from 'lucide-react';
 import {
 	INTEGRATIONS as CATALOG,
 	integrationFor,
@@ -58,14 +51,13 @@ const NEEDED_BY: Partial<Record<IntegrationId, Need>> = {
 const MCP_MARK = '/favicon.svg';
 
 // The integrations whose logo isn't `public/integrations/<id>.svg` as it is: an icon for those
-// that are no one brand's, the vault, the sandboxes, the files and Chat being ours and Email any mailbox, and our mark for custom
+// that are no one brand's, the vault, the sandboxes, the files being ours; Chat uses its 3D head and Email any mailbox, and our mark for custom
 // MCP servers until a connection has its server's site's icon (`serverLogo`); or a mark in one
 // dark color (`ink`).
 const LOGOS: Partial<Record<IntegrationId, LucideIcon | IntegrationLogoImage>> = {
 	vault: LibraryIcon,
 	sandbox: SquareTerminalIcon,
 	files: FolderIcon,
-	chat: MessageSquareIcon,
 	email: MailIcon,
 	mcp: {src: MCP_MARK, ink: true},
 	github: {src: '/integrations/github.svg', ink: true},

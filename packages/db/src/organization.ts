@@ -181,6 +181,7 @@ export async function getMembership(
 }
 
 export type UserOrgRow = {
+	image?: string | null;
 	id: string;
 	slug: string;
 	name: string;
@@ -208,6 +209,7 @@ export async function listUserOrgs(userId: string): Promise<Result<UserOrgRow[],
 							id: true,
 							slug: true,
 							name: true,
+							image: true,
 							onboardedAt: true,
 							ownerUserId: true,
 							_count: {select: {members: true, invitations: true}},
@@ -221,6 +223,7 @@ export async function listUserOrgs(userId: string): Promise<Result<UserOrgRow[],
 			id: org.id,
 			slug: org.slug,
 			name: org.name,
+			image: org.image,
 			role: roleOf(userId, org),
 			onboarded: org.onboardedAt !== null,
 			memberCount: org._count.members,

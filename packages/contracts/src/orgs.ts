@@ -10,6 +10,7 @@ import {z} from 'zod';
 const roleSchema = z.enum(['owner', 'member']);
 
 export const orgSchema = z.object({
+	image: z.string().nullable().optional(),
 	id: z.string(),
 	slug: z.string(),
 	name: z.string(),

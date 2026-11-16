@@ -42,7 +42,7 @@ import {NAMED_AFTER_ORGANIZATION} from './starter-connections';
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 function toOrg(row: UserOrgRow, experiments: Experiment[]): Org {
-	return {id: row.id, slug: row.slug, name: row.name, role: row.role, onboarded: row.onboarded, experiments, memberCount: row.memberCount, invitationCount: row.invitationCount};
+	return {id: row.id, slug: row.slug, name: row.name, ...(row.image ? {image: row.image} : {}), role: row.role, onboarded: row.onboarded, experiments, memberCount: row.memberCount, invitationCount: row.invitationCount};
 }
 
 function toMember(row: MemberRow): Member {

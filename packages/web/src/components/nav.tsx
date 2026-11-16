@@ -1,3 +1,5 @@
+import type {ComponentType} from 'react';
+import {ProxyChatLogo} from '@/components/brand-logo';
 import {
 	BellIcon,
 	KeyRoundIcon,
@@ -5,10 +7,8 @@ import {
 	ChevronRightIcon,
 	ChartNoAxesGanttIcon,
 	ListChecksIcon,
-	MessageSquareIcon,
 	PlugIcon,
 	SearchIcon,
-	type LucideIcon,
 } from 'lucide-react';
 import {Link, useLocation} from 'react-router';
 import {prefetchPersonaList} from '@/client/harness-client';
@@ -35,7 +35,7 @@ import {useUnread} from '@/hooks/use-unread';
 import {accountPath} from '@/lib/orgs';
 import {shortcutLabel} from '@/lib/platform';
 
-type Destination = {to: string; label: string; icon: LucideIcon};
+type Destination = {to: string; label: string; icon: ComponentType<{className?: string}>};
 
 const CHAT = '/chat';
 
@@ -56,7 +56,7 @@ function UnreadBadge({count}: {count: number}) {
 // The organization's, under the switcher, each under its slug, in groups set apart from each
 // other, the first under Search. Its members and settings are in the switcher.
 const GROUPS: Destination[][] = [
-	[{to: CHAT, label: 'Chat', icon: MessageSquareIcon}],
+	[{to: CHAT, label: 'Chat', icon: ProxyChatLogo}],
 	[
 		{to: '/connections', label: 'Connections and permissions', icon: PlugIcon},
 		{to: '/environments', label: 'Environments', icon: KeyRoundIcon},

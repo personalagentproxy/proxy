@@ -122,6 +122,28 @@ await db.session.create({
 	},
 });
 const memberCookie = 'proxy.session-token=' + memberToken;
+// Workspace images are owner-managed and readable by members, never arbitrary HTML/SVG.
+const imagePath = '/api/orgs/env-e2e/image';
+const sampleImage =
+	'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNw6TgDAAKsAZkaoN/PAAAAAElFTkSuQmCC';
+assert.equal((await call(imagePath, 'PUT', {image: sampleImage}, memberCookie)).status, 403);
+assert.equal(
+	(await call(imagePath, 'PUT', {image: 'data:image/svg+xml;base64,PHN2Zy8+'})).status,
+	400,
+);
+assert.equal((await call(imagePath, 'PUT', {image: 'data:image/png;base64,YmFk'})).status, 400);
+assert.equal((await call(imagePath, 'PUT', {image: sampleImage})).status, 200);
+const withImage = await (await call('/api/orgs/env-e2e', 'GET', undefined, memberCookie)).json();
+assert.ok(withImage.image.startsWith('data:image/webp;base64,'));
+const workspaceList = await (await call('/api/orgs')).json();
+assert.equal(
+	workspaceList.orgs.find((item: {slug: string}) => item.slug === 'env-e2e').image,
+	withImage.image,
+);
+assert.equal((await call(imagePath, 'PUT', {image: null})).status, 200);
+const withoutImage = await (await call('/api/orgs/env-e2e')).json();
+assert.ok(!withoutImage.image);
+
 assert.equal((await call(base, 'PUT', {PUBLIC: 'forbidden'}, memberCookie)).status, 403);
 assert.equal(
 	(await call('/api/orgs/env-e2e/environments/development', 'GET', undefined, memberCookie)).status,

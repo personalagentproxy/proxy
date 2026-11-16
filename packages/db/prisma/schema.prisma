@@ -121,6 +121,7 @@ model VerificationToken {
 // `slug` is its address in the web app and the api (`/acme/connections`, `/api/orgs/acme/…`),
 // fixed when it is made.
 model Organization {
+  image String?
   developmentEnvironments DevelopmentEnvironment[]
   environmentAccess EnvironmentAccess[]
   id          String    @id @default(cuid())

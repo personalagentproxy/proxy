@@ -1,3 +1,4 @@
+import {WorkspaceImage} from '@/components/workspace-image';
 import {PencilIcon} from 'lucide-react';
 import {useState} from 'react';
 import {Link, useNavigate, useRevalidator} from 'react-router';
@@ -41,6 +42,11 @@ export function OrgSettingsPage() {
 			<div className="flex flex-col gap-8">
 				{error && <p className="text-sm text-destructive">{error}</p>}
 				<Section title="Organization">
+					<WorkspaceImage
+						key={organization.id}
+						org={organization}
+						onSaved={() => revalidator.revalidate()}
+					/>
 					<RowList>
 						<SettingRow
 							label="Name"

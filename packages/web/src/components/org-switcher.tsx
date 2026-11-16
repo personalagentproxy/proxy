@@ -28,17 +28,33 @@ import {useHuman} from '@/hooks/use-human';
 import {describeApiError} from '@/lib/loader-utils';
 
 // An organization's mark: its initial in a circle the size of an integration's logo.
-export function OrgTile({org, className}: {org: {name: string}; className?: string}) {
+export function OrgTile({
+	org,
+	className,
+}: {
+	org: {name: string; image?: string | null};
+	className?: string;
+}) {
+	const [failed, setFailed] = useState<string | null>(null);
 	return (
 		<span
 			aria-hidden
 			data-preserve-color
 			className={cn(
-				'flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-medium text-primary-foreground',
+				'flex size-5 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary text-xs font-medium text-primary-foreground',
 				className,
 			)}
 		>
-			{org.name.slice(0, 1).toUpperCase()}
+			{org.image && failed !== org.image ? (
+				<img
+					src={org.image}
+					alt=""
+					className="size-full object-contain"
+					onError={() => setFailed(org.image ?? null)}
+				/>
+			) : (
+				org.name.slice(0, 1).toUpperCase()
+			)}
 		</span>
 	);
 }
