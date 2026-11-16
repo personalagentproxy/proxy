@@ -1,5 +1,6 @@
 import {
 	BellIcon,
+	KeyRoundIcon,
 	ChevronLeftIcon,
 	ChevronRightIcon,
 	ChartNoAxesGanttIcon,
@@ -34,7 +35,7 @@ import {useUnread} from '@/hooks/use-unread';
 import {accountPath} from '@/lib/orgs';
 import {shortcutLabel} from '@/lib/platform';
 
-type Destination = {to: string; label: string; icon: LucideIcon; emoji?: string};
+type Destination = {to: string; label: string; icon: LucideIcon};
 
 const CHAT = '/chat';
 
@@ -58,7 +59,7 @@ const GROUPS: Destination[][] = [
 	[{to: CHAT, label: 'Chat', icon: MessageSquareIcon}],
 	[
 		{to: '/connections', label: 'Connections and permissions', icon: PlugIcon},
-		{to: '/environments', label: 'Environments', icon: PlugIcon, emoji: '🔑'},
+		{to: '/environments', label: 'Environments', icon: KeyRoundIcon},
 		{to: '/agents', label: 'External agents', icon: ListChecksIcon},
 	],
 	[
@@ -156,18 +157,7 @@ export function AppSidebar() {
 														/>
 													}
 												>
-													<>
-														{destination.emoji ? (
-															<span
-																aria-hidden="true"
-																className="flex size-4 shrink-0 items-center justify-center text-sm leading-none"
-															>
-																{destination.emoji}
-															</span>
-														) : (
-															<destination.icon />
-														)}
-													</>
+													<destination.icon />
 													<span>{destination.label}</span>
 													{/* Chat opens into its agents, in the sidebar: said while it is pointed
 													    at, or open. */}
