@@ -73,7 +73,6 @@ function thread(id: string, over: Partial<ChatThread> = {}): ChatThread {
 		summary: null,
 		latest: 'Moved it to Thursday.',
 		latestEntryId: 'm2',
-		latestAnswerId: 'm2',
 		messageCount: 2,
 		lastMessageAt: '2026-10-21T10:01:00Z',
 		createdAt: '2026-10-21T10:01:00Z',
@@ -90,7 +89,6 @@ function opened(text: string, attachments: ChatAttachment[] = []): ChatThread {
 		opener: {kind: 'person', text, attachments},
 		latest: null,
 		latestEntryId: null,
-		latestAnswerId: null,
 		messageCount: 1,
 		lastMessageAt: '2026-10-21T11:00:00Z',
 		createdAt: '2026-10-21T11:00:00Z',
@@ -115,7 +113,6 @@ const backup = thread('t2', {
 	opener: {kind: 'event', text: 'Every weekday at 9:00, as you asked'},
 	latest: null,
 	latestEntryId: null,
-	latestAnswerId: null,
 	messageCount: 1,
 	lastMessageAt: '2026-10-21T10:05:00Z',
 	createdAt: '2026-10-21T10:05:00Z',
@@ -551,21 +548,44 @@ describe('ChatPage', () => {
 		expect(screen.queryByRole('menuitem', {name: 'Delete'})).toBeNull();
 	});
 
-	test('marks the agents with something unread in the list, never the open one', async () => {
-		answers = [general, finance].map(({id, name}) => ({
+	test('counts on each agent in the list its threads ended unread, the open one’s too, and marks one whose only news is from a thread at work, but the open one', async () => {
+		const travel = persona('travel', 'Travel', true);
+		const said = (id: string, ended: boolean) => ({
+			threadId: id,
+			answer: {id: `${id}-answer`, text: 'Done.'},
+			ended,
+		});
+		const chat = (id: string, name: string, unread: ChatAnswer['unread']): ChatAnswer => ({
 			personaId: id,
 			name,
 			answer: {id: `${id}-answer`, text: 'Done.'},
-			unread: true,
-		}));
-		renderChatPage();
-
-		const financeRow = await screen.findByRole('link', {name: /Finance/});
-		await waitFor(() => {
-			expect(within(financeRow).getByRole('status', {name: 'Unread'})).toBeDefined();
+			unread,
 		});
-		const generalRow = screen.getByRole('link', {name: /General/});
-		expect(within(generalRow).queryByRole('status', {name: 'Unread'})).toBeNull();
+		answers = [
+			chat('general', 'General', [said('g1', true), said('g2', true), said('g3', false)]),
+			chat('finance', 'Finance', [said('f1', true)]),
+			chat('travel', 'Travel', [said('t1', false)]),
+		];
+		renderChatPage({personas: [general, finance, travel]});
+
+		const generalRow = await screen.findByRole('link', {name: /General/});
+		await waitFor(() => {
+			expect(within(generalRow).getByRole('status', {name: '2 unread'}).textContent).toBe('2');
+		});
+		const financeRow = screen.getByRole('link', {name: /Finance/});
+		expect(within(financeRow).getByRole('status', {name: '1 unread'}).textContent).toBe('1');
+		const travelRow = screen.getByRole('link', {name: /Travel/});
+		expect(within(travelRow).getByRole('status', {name: 'Unread'})).toBeDefined();
+
+		await follow(travelRow);
+		await waitFor(() => {
+			expect(
+				within(screen.getByRole('link', {name: /Travel/})).queryByRole('status', {name: 'Unread'}),
+			).toBeNull();
+		});
+		expect(
+			within(screen.getByRole('link', {name: /General/})).getByRole('status', {name: '2 unread'}),
+		).toBeDefined();
 	});
 
 	test("shows another agent's new answer in its row, not what was said before it", async () => {
@@ -579,30 +599,35 @@ describe('ChatPage', () => {
 				personaId: 'general',
 				name: 'General',
 				answer: {id: 'm2', text: 'Moved it to Thursday.'},
-				unread: true,
+				unread: [{threadId: 't1', answer: {id: 'm2', text: 'Moved it to Thursday.'}, ended: true}],
 			},
 		];
-		// The provider asks again once the open chat is read: by then Finance has answered.
+		// The provider asks again once the open thread is read: by then Finance has answered.
 		answering((input) => {
 			if (input.endsWith('/read')) {
+				const news = {id: 'finance-new', text: 'New news.'};
 				answers = [
 					{
 						personaId: 'finance',
 						name: 'Finance',
-						answer: {id: 'finance-new', text: 'New news.'},
-						unread: true,
+						answer: news,
+						unread: [{threadId: 'finance-thread', answer: news, ended: true}],
 					},
 				];
 				listed = [general, saidBy('New news.')];
 			}
 			return null;
 		});
-		renderChatPage({threads: [pricing], listPersonas: () => listed});
+		renderChatPage({
+			threads: [pricing],
+			listPersonas: () => listed,
+			initial: '/acme/chat/general/threads/t1',
+		});
 
 		const financeRow = await screen.findByRole('link', {name: /Finance/});
 		expect(within(financeRow).getByText('Old news.')).toBeDefined();
 		await waitFor(() => {
-			expect(within(financeRow).getByRole('status', {name: 'Unread'})).toBeDefined();
+			expect(within(financeRow).getByRole('status', {name: '1 unread'})).toBeDefined();
 		});
 		await waitFor(() => {
 			expect(
@@ -642,16 +667,22 @@ describe('ChatPage', () => {
 		expect(screen.getByRole('link', {name: /General/}).textContent).toContain('You: Hi');
 	});
 
-	test('reads the chat up to the last answer once a thread in it shows it', async () => {
+	test('reads a thread up to its unread answer once it is open and shows it, and no other thread', async () => {
 		answers = [
 			{
 				personaId: 'general',
 				name: 'General',
-				answer: {id: 'm2', text: 'Moved it to Thursday.'},
-				unread: true,
+				answer: {id: 'm5', text: 'Both are paid.'},
+				unread: [
+					{threadId: 't1', answer: {id: 'm2', text: 'Moved it to Thursday.'}, ended: true},
+					{threadId: 't3', answer: {id: 'm5', text: 'Both are paid.'}, ended: true},
+				],
 			},
 		];
-		renderChatPage({threads: [backup, pricing]});
+		renderChatPage({
+			threads: [backup, pricing, thread('t3', {title: 'Invoices for October'})],
+			initial: '/acme/chat/general/threads/t1',
+		});
 
 		await waitFor(() => {
 			expect(fetchMock).toHaveBeenCalledWith(
@@ -659,91 +690,90 @@ describe('ChatPage', () => {
 				expect.objectContaining({method: 'POST', body: JSON.stringify({entryId: 'm2'})}),
 			);
 		});
+		await new Promise((resolve) => setTimeout(resolve, 100));
 		expect(
 			fetchMock.mock.calls.filter(([url]) => url === '/api/orgs/acme/chat/personas/general/read'),
 		).toHaveLength(1);
 	});
 
-	test('marks nothing read that the chat does not show', async () => {
+	test('marks each thread whose turn ended unread until the person opens it, which reads it; not one at work, and nothing as the list shows it', async () => {
+		const invoices = thread('t3', {
+			title: 'Invoices for October',
+			latest: 'Both are paid.',
+			latestEntryId: 'm5',
+			createdAt: '2026-10-21T10:02:00Z',
+		});
+		const moved = {threadId: 't1', answer: {id: 'm2', text: 'Moved it to Thursday.'}, ended: true};
+		const paid = {threadId: 't3', answer: {id: 'm5', text: 'Both are paid.'}, ended: true};
+		const checking = {threadId: 't2', answer: {id: 'm8', text: 'Checking.'}, ended: false};
+		answers = [
+			{
+				personaId: 'general',
+				name: 'General',
+				answer: {id: 'm8', text: 'Checking.'},
+				unread: [moved, paid, checking],
+			},
+		];
+		// The thread read is no longer unread when the provider asks again.
+		const reads = () =>
+			fetchMock.mock.calls.filter(([url]) => url === '/api/orgs/acme/chat/personas/general/read');
+		answering((input) => {
+			if (input.endsWith('/read')) {
+				answers = [
+					{
+						personaId: 'general',
+						name: 'General',
+						answer: {id: 'm8', text: 'Checking.'},
+						unread: [paid, checking],
+					},
+				];
+			}
+			return null;
+		});
+		const rowOf = (name: string) => screen.getByRole('link', {name}).parentElement ?? document.body;
+		renderChatPage({threads: [pricing, backup, invoices]});
+
+		await waitFor(() => {
+			expect(
+				within(rowOf('Invoices for October')).getByRole('status', {name: 'Unread'}),
+			).toBeDefined();
+		});
+		expect(
+			within(rowOf('Pricing review with Dana')).getByRole('status', {name: 'Unread'}),
+		).toBeDefined();
+		expect(within(rowOf('Morning check')).queryByRole('status', {name: 'Unread'})).toBeNull();
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(reads()).toHaveLength(0);
+
+		await follow(screen.getByRole('link', {name: 'Pricing review with Dana'}));
+		await waitFor(() => expect(reads()).toHaveLength(1));
+		expect(reads()[0]?.[1]?.body).toBe(JSON.stringify({entryId: 'm2'}));
+		await waitFor(() => {
+			expect(
+				within(rowOf('Pricing review with Dana')).queryByRole('status', {name: 'Unread'}),
+			).toBeNull();
+		});
+		expect(
+			within(rowOf('Invoices for October')).getByRole('status', {name: 'Unread'}),
+		).toBeDefined();
+	});
+
+	test('reads nothing of an open thread that does not show its unread answer yet', async () => {
 		answers = [
 			{
 				personaId: 'general',
 				name: 'General',
 				answer: {id: 'm9', text: 'Something newer.'},
-				unread: true,
+				unread: [{threadId: 't1', answer: {id: 'm9', text: 'Something newer.'}, ended: true}],
 			},
 		];
-		renderChatPage({threads: [pricing]});
+		renderChatPage({threads: [pricing], initial: '/acme/chat/general/threads/t1'});
 
-		await screen.findByRole('link', {name: 'Pricing review with Dana'});
+		await screen.findByText('Thursday');
 		await new Promise((resolve) => setTimeout(resolve, 100));
 		expect(
 			fetchMock.mock.calls.filter(([url]) => url === '/api/orgs/acme/chat/personas/general/read'),
 		).toHaveLength(0);
-	});
-
-	test('reads the chat up to an answer a thread in the list shows only once that thread’s row is in view', async () => {
-		// A browser that says what is in view: of the rows it is asked about, none, until told.
-		const watched: Array<{row: Element; say: (inView: boolean) => void}> = [];
-		class Watcher {
-			readonly root = null;
-			readonly rootMargin = '0px';
-			readonly scrollMargin = '0px';
-			readonly thresholds = [0];
-			private readonly callback: IntersectionObserverCallback;
-			constructor(callback: IntersectionObserverCallback) {
-				this.callback = callback;
-			}
-			observe(row: Element) {
-				const say = (inView: boolean) =>
-					this.callback(
-						[
-							{
-								target: row,
-								isIntersecting: inView,
-								intersectionRatio: inView ? 1 : 0,
-								time: 0,
-								rootBounds: null,
-								boundingClientRect: new DOMRect(),
-								intersectionRect: new DOMRect(),
-							},
-						],
-						this,
-					);
-				watched.push({row, say});
-			}
-			unobserve() {}
-			disconnect() {}
-			takeRecords() {
-				return [];
-			}
-		}
-		Object.assign(globalThis, {IntersectionObserver: Watcher});
-		const reads = () =>
-			fetchMock.mock.calls.filter(([url]) => url === '/api/orgs/acme/chat/personas/general/read');
-		answers = [
-			{
-				personaId: 'general',
-				name: 'General',
-				answer: {id: 'm2', text: 'Moved it to Thursday.'},
-				unread: true,
-			},
-		];
-		renderChatPage({threads: [backup, pricing]});
-
-		// The row of the thread that answered is the one asked about; out of view, as while another
-		// thread has the page's width, its answer is not read.
-		const link = await screen.findByRole('link', {name: 'Pricing review with Dana'});
-		await waitFor(() => expect(watched).toHaveLength(1));
-		expect(watched[0]?.row.contains(link)).toBe(true);
-		act(() => watched[0]?.say(false));
-		await new Promise((resolve) => setTimeout(resolve, 100));
-		expect(reads()).toHaveLength(0);
-
-		act(() => watched[0]?.say(true));
-		await waitFor(() => expect(reads()).toHaveLength(1));
-		expect(reads()[0]?.[1]?.body).toBe(JSON.stringify({entryId: 'm2'}));
-		Reflect.deleteProperty(globalThis, 'IntersectionObserver');
 	});
 
 	test('lists the threads, the one that last had a message last, each with where it stands, what opened it, the start of the latest answer and how many messages it holds', async () => {
@@ -754,7 +784,6 @@ describe('ChatPage', () => {
 			opener: {kind: 'person', text: 'Book the train to Porto', attachments: []},
 			latest: 'Waiting for the fares to drop.',
 			latestEntryId: 'm7',
-			latestAnswerId: 'm7',
 			messageCount: 1,
 			lastMessageAt: '2026-10-21T10:09:00Z',
 			createdAt: '2026-10-21T10:09:00Z',

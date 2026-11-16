@@ -95,7 +95,7 @@ export type HarnessStore = {
 	/** The member archives a thread of their chat: its list no longer has it until something more comes into it. */
 	archiveThread: (chatId: string, threadId: string) => Promise<Result<boolean, ApiError>>;
 	listThreadsWithoutSummary: () => Promise<Result<Array<{id: string; chatId: string}>, ApiError>>;
-	markChatRead: (chatId: string, entryId: string) => Promise<Result<boolean, ApiError>>;
+	markThreadRead: (chatId: string, entryId: string) => Promise<Result<boolean, ApiError>>;
 	getChatDraft: (chatId: string) => Promise<Result<string | null, ApiError>>;
 	saveChatDraft: (chatId: string, draft: string | null, order?: Array<Pick<DraftAttachment, 'connectionId' | 'fileId' | 'version'>>) => Promise<Result<boolean, ApiError>>;
 	/** The files in a chat's input, not sent yet; put there after those there, at most `max`, and taken out. False for no such chat. */
@@ -166,7 +166,7 @@ export const harnessStore: HarnessStore = {
 	markThreadDone: harness.markThreadDone,
 	archiveThread: harness.archiveThread,
 	listThreadsWithoutSummary: harness.listThreadsWithoutSummary,
-	markChatRead: harness.markChatRead,
+	markThreadRead: harness.markThreadRead,
 	getChatDraft: harness.getChatDraft,
 	saveChatDraft: harness.saveChatDraft,
 	listDraftAttachments: harness.listDraftAttachments,

@@ -84,14 +84,24 @@ export const personaListSchema = z.object({
 });
 
 /**
- * The persona's last answer in one of the person's chats, in any of its threads, cut to a line, which may come before what the person said last, and whether they haven't seen
- * it: the page hasn't shown it to them since it came (`POST chat/personas/:personaId/read`).
+ * The persona's last answer in one of the person's chats, in any of its threads, cut to a line,
+ * which may come before what the person said last; and each of the chat's threads whose last
+ * answer the person hasn't seen, the oldest first: the page hasn't shown it to them with the thread
+ * open since it came (`POST chat/personas/:personaId/read`). With each, whether the thread's turn
+ * has ended, as against one at work still, which may say more before it does: a turn is told of
+ * as it ends, rather than at each thing said in it.
  */
 export const chatAnswerSchema = z.object({
 	personaId: z.string(),
 	name: z.string(),
 	answer: z.object({id: z.string(), text: z.string()}),
-	unread: z.boolean(),
+	unread: z.array(
+		z.object({
+			threadId: z.string(),
+			answer: z.object({id: z.string(), text: z.string()}),
+			ended: z.boolean(),
+		}),
+	),
 });
 
 export type ChatAnswer = z.infer<typeof chatAnswerSchema>;
@@ -190,8 +200,8 @@ export const saveDraftBodySchema = z.object({
 });
 
 /**
- * `POST chat/personas/:personaId/read`: the persona's answer the page showed the person, in the
- * chat or one of its threads, which the chat is read up to.
+ * `POST chat/personas/:personaId/read`: the persona's answer the page showed the person in one of
+ * the chat's threads, open, which that thread is read up to.
  */
 export const markReadBodySchema = z.object({entryId: z.string().min(1)});
 
@@ -247,9 +257,7 @@ export type ThreadMessage = z.infer<typeof threadMessageSchema>;
  * ended, null before one was, where none could be, and once anything was said in it since, until
  * the next is; the start of the latest
  * thing the persona said in it, cut to a line, null before it said anything, and the entry that
- * came from, an answer or one whose step told the person something as it went; the persona's
- * latest answer in words in it, the kind `GET chat/answers` reports and
- * `POST chat/personas/:personaId/read` takes, null before it answered; how many messages it holds
+ * came from, an answer or one whose step told the person something as it went; how many messages it holds
  * (`threadMessageSchema`), and when the last came.
  */
 export const chatThreadSchema = z.object({
@@ -271,7 +279,6 @@ export const chatThreadSchema = z.object({
 	summary: z.string().nullable(),
 	latest: z.string().nullable(),
 	latestEntryId: z.string().nullable(),
-	latestAnswerId: z.string().nullable(),
 	messageCount: z.number(),
 	lastMessageAt: z.string(),
 	createdAt: z.string(),

@@ -117,7 +117,6 @@ async function answer(path: string, method: string): Promise<Response> {
 				summary: null,
 				latest: null,
 				latestEntryId: null,
-				latestAnswerId: null,
 				messageCount: 1,
 				lastMessageAt: '2026-10-20T10:00:00Z',
 				createdAt: '2026-10-20T10:00:00Z',

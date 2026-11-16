@@ -17,9 +17,11 @@ afterEach(() => {
 	cleanup();
 });
 
-// What is unread, as the provider around the human side would have it.
-function unreadOf(ids: string[]): Unread {
+// What is unread, as the provider around the human side would have it: the threads ended unread,
+// and the agents with something unread.
+function unreadOf(count: number, ids: string[]): Unread {
 	return {
+		count,
 		unreadIds: new Set(ids),
 		answers: null,
 		setViewing: () => undefined,
@@ -41,7 +43,7 @@ function Page() {
 	);
 }
 
-function renderSidebar(human: Human, entry = '/acme/connections', unread = unreadOf([])) {
+function renderSidebar(human: Human, entry = '/acme/connections', unread = unreadOf(0, [])) {
 	const router = createMemoryRouter(
 		[
 			{
@@ -118,12 +120,12 @@ describe('AppSidebar', () => {
 		expect(chat.hasAttribute('data-active')).toBe(true);
 	});
 
-	test('counts the conversations with something unread on Chat', async () => {
-		renderSidebar(testHuman(), '/acme/connections', unreadOf(['general', 'finance']));
+	test('counts the threads ended unread on Chat, across the agents', async () => {
+		renderSidebar(testHuman(), '/acme/connections', unreadOf(3, ['general', 'finance']));
 		await screen.findByRole('link', {name: 'Chat'});
 
-		const badge = screen.getByRole('status', {name: '2 unread'});
-		expect(badge.textContent).toBe('2');
+		const badge = screen.getByRole('status', {name: '3 unread'});
+		expect(badge.textContent).toBe('3');
 		expect(badge.closest('li')?.querySelector('a')?.textContent).toBe('Chat');
 	});
 
