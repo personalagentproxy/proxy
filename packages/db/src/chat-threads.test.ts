@@ -509,7 +509,7 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		unwrap(
 			await completeSetAlert(
 				{jobId: tool.id, workerId: 'worker-al', threadId: thread.id, callId: 'c1'},
-				{kind: 'time', title: 'Pricing review', brief: 'Remind them.', at},
+				{kind: 'time', opens: 'this_thread', title: 'Pricing review', brief: 'Remind them.', at},
 				(made) => `Set ${made.id}.`,
 				readyForInference,
 			),
@@ -529,22 +529,24 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 
 		// The member's alerts have it, with the thread it was set in, where it comes, and whom with.
 		const alerts = unwrap(await listMemberAlerts(orgId, userId));
-		expect(alerts.map((one) => [one.threadId, one.title, one.threadTitle, one.persona.id])).toEqual(
-			[
-				[
-					thread.id,
-					'Pricing review',
-					'Remind me about the pricing review tomorrow',
-					chat.personaId,
-				],
-			],
-		);
+		expect(
+			alerts.map((one) => [one.threadId, one.title, one.thread?.title, one.persona.id]),
+		).toEqual([
+			[thread.id, 'Pricing review', 'Remind me about the pricing review tomorrow', chat.personaId],
+		]);
 		const alert = alerts[0];
 		if (!alert) {
 			throw new Error('no alert');
 		}
 		expect(
-			unwrap(await fireAlert(alert, 'The alert “Pricing review” is due now.', readyForInference)),
+			unwrap(
+				await fireAlert(
+					alert,
+					{text: 'The alert “Pricing review” is due now.', opening: null},
+					null,
+					readyForInference,
+				),
+			),
 		).toBe(true);
 		expect(unwrap(await listEntries(thread.id)).at(-1)).toMatchObject({
 			kind: 'event',
@@ -669,6 +671,7 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 			data: {
 				orgId,
 				userId,
+				chatId: chat.id,
 				threadId: thread.id,
 				title: 'Backup',
 				brief: 'Check it.',
@@ -676,7 +679,14 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 			},
 		});
 
-		unwrap(await fireAlert(alert, 'The alert “Backup” is due now.', readyForInference));
+		unwrap(
+			await fireAlert(
+				alert,
+				{text: 'The alert “Backup” is due now.', opening: null},
+				null,
+				readyForInference,
+			),
+		);
 
 		expect((await standingOf(thread))?.waitingForMember).toBe(false);
 		await answer(thread, 'worker-st4', 'It failed twice over the weekend.');

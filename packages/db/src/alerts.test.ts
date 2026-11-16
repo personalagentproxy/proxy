@@ -10,6 +10,7 @@ import {
 	claimDueAlerts,
 	claimDuePolls,
 	completeSetAlert,
+	countChatAlerts,
 	deleteAlert,
 	fireAlert,
 	type NewAlert,
@@ -24,8 +25,13 @@ import {
 	ensureMemberChat,
 	finishJob,
 	type JobRow,
+	archiveThread,
+	dismissThreadInline,
+	listAnswers,
 	listEntries,
+	markThreadDone,
 	openThread,
+	type ThreadOpening,
 	type ThreadRow,
 } from './harness';
 
@@ -44,11 +50,7 @@ function unwrap<T>(result: Result<T, ApiError>): T {
 
 // The alerts set in a thread, oldest first, as an AlertRow has each.
 function alertsIn(threadId: string): Promise<AlertRow[]> {
-	return db.agentAlert.findMany({
-		where: {threadId},
-		omit: {nextAt: true},
-		orderBy: {createdAt: 'asc'},
-	});
+	return db.agentAlert.findMany({where: {threadId}, orderBy: {createdAt: 'asc'}});
 }
 
 const TEN_MINUTES = 10 * 60 * 1000;
@@ -182,9 +184,16 @@ describe.skipIf(!databaseUrl)('the alerts, against the database', () => {
 			threadId: thread.id,
 			callId: job.callId ?? '',
 		});
-		const time: NewAlert = {kind: 'time', title: 'Call Dana', brief: 'Remind them.', at};
+		const time: NewAlert = {
+			kind: 'time',
+			opens: 'this_thread',
+			title: 'Call Dana',
+			brief: 'Remind them.',
+			at,
+		};
 		const bank: NewAlert = {
 			kind: 'watch',
+			opens: 'this_thread',
 			title: 'Bank',
 			brief: 'Tell me.',
 			collectionId: 'emails',
@@ -246,9 +255,16 @@ describe.skipIf(!databaseUrl)('the alerts, against the database', () => {
 			unwrap(await finishJob(claimed.id, 'worker-c'));
 		}
 		const at = new Date(Date.now() + 60 * 60 * 1000);
-		const time: NewAlert = {kind: 'time', title: 'Tomorrow', brief: 'Remind them.', at};
+		const time: NewAlert = {
+			kind: 'time',
+			opens: 'this_thread',
+			title: 'Tomorrow',
+			brief: 'Remind them.',
+			at,
+		};
 		const bank: NewAlert = {
 			kind: 'watch',
+			opens: 'this_thread',
 			title: 'Bank again',
 			brief: 'Tell me.',
 			collectionId: 'emails',
@@ -303,10 +319,19 @@ describe.skipIf(!databaseUrl)('the alerts, against the database', () => {
 
 	test('a timed alert lands as it is deleted, once', async () => {
 		expect(
-			unwrap(await fireAlert(timed, 'The alert “Call Dana” is due now.', readyForInference)),
+			unwrap(
+				await fireAlert(
+					timed,
+					{text: 'The alert “Call Dana” is due now.', opening: null},
+					null,
+					readyForInference,
+				),
+			),
 		).toBe(true);
 		expect(await lastTexts(thread, 1)).toEqual([['event', 'The alert “Call Dana” is due now.']]);
-		expect(unwrap(await fireAlert(timed, 'Again.', readyForInference))).toBe(false);
+		expect(
+			unwrap(await fireAlert(timed, {text: 'Again.', opening: null}, null, readyForInference)),
+		).toBe(false);
 		expect(await lastTexts(thread, 1)).toEqual([['event', 'The alert “Call Dana” is due now.']]);
 		expect((await alertsIn(thread.id)).map((alert) => alert.id)).toEqual([watch.id]);
 	});
@@ -322,6 +347,7 @@ describe.skipIf(!databaseUrl)('the alerts, against the database', () => {
 			data: {
 				orgId,
 				userId,
+				chatId: otherChat.id,
 				threadId: other.id,
 				title: 'Bank too',
 				brief: 'Tell me.',
@@ -329,14 +355,21 @@ describe.skipIf(!databaseUrl)('the alerts, against the database', () => {
 				connectionIds: [connectionId],
 			},
 		});
-		const second = {...watch, id: elsewhere.id, threadId: other.id, title: 'Bank too'};
+		const second = {
+			...watch,
+			id: elsewhere.id,
+			chatId: otherChat.id,
+			threadId: other.id,
+			setInThreadId: other.id,
+			title: 'Bank too',
+		};
 		const at = new Date();
 		expect(unwrap(await recordLook(poll, 'h1', [], at, readyForInference))).toBe(true);
 
 		const looked = {...poll, cursor: 'h1'};
 		const matched = [
-			{alert: second, text: 'The alert “Bank too” matched.'},
-			{alert: watch, text: 'The alert “Bank” matched.'},
+			{alert: second, landings: [{text: 'The alert “Bank too” matched.', opening: null}]},
+			{alert: watch, landings: [{text: 'The alert “Bank” matched.', opening: null}]},
 		];
 		expect(unwrap(await recordLook(looked, 'h2', matched, at, readyForInference))).toBe(true);
 		expect(await lastTexts(thread, 1)).toEqual([['event', 'The alert “Bank” matched.']]);
@@ -349,7 +382,13 @@ describe.skipIf(!databaseUrl)('the alerts, against the database', () => {
 
 		expect(
 			unwrap(
-				await recordLook(looked, 'h3', [{alert: watch, text: 'Again.'}], at, readyForInference),
+				await recordLook(
+					looked,
+					'h3',
+					[{alert: watch, landings: [{text: 'Again.', opening: null}]}],
+					at,
+					readyForInference,
+				),
 			),
 		).toBe(false);
 		expect(await lastTexts(thread, 1)).toEqual([['event', 'The alert “Bank” matched.']]);
@@ -357,8 +396,8 @@ describe.skipIf(!databaseUrl)('the alerts, against the database', () => {
 		// A watch cancelled since the look began is told nothing; the others still are.
 		unwrap(await deleteAlert(elsewhere.id, {orgId, userId}));
 		const again = [
-			{alert: second, text: 'Gone.'},
-			{alert: watch, text: 'The alert “Bank” matched again.'},
+			{alert: second, landings: [{text: 'Gone.', opening: null}]},
+			{alert: watch, landings: [{text: 'The alert “Bank” matched again.', opening: null}]},
 		];
 		expect(
 			unwrap(await recordLook({...poll, cursor: 'h2'}, 'h3', again, at, readyForInference)),
@@ -390,6 +429,174 @@ describe.skipIf(!databaseUrl)('the alerts, against the database', () => {
 		unwrap(await claimDuePolls(TEN_MINUTES, 50));
 		const still = await db.connectionPoll.findMany({where: {connectionId}, select: {nextAt: true}});
 		expect(still[0]?.nextAt.getTime()).toBeLessThan(Date.now());
+	});
+
+	// A thread an alert that opens new threads opens in the chat, titled `title`.
+	function opening(title: string): ThreadOpening {
+		return {
+			title,
+			task: {
+				orgId,
+				agentId,
+				ownerUserId: userId,
+				personaId: chat.personaId,
+				parentId: null,
+				title,
+				goal: 'Sum up my week.',
+				via: 'harness',
+			},
+		};
+	}
+
+	// The chat's threads an alert opened, oldest first.
+	function openedByAlerts() {
+		return db.agentThread.findMany({
+			where: {parentThreadId: chat.id, openedByAlert: true},
+			select: {id: true, title: true, archived: true},
+			orderBy: {createdAt: 'asc'},
+		});
+	}
+
+	test('a timed alert that opens new threads opens one in its chat each time it fires, its agent woken; one that repeats is due again, until it comes no more', async () => {
+		const at = new Date(Date.now() - 1000);
+		const made = await db.agentAlert.create({
+			data: {
+				orgId,
+				userId,
+				chatId: chat.id,
+				setInThreadId: thread.id,
+				title: 'Week ahead',
+				brief: 'Sum up my week.',
+				at,
+				nextAt: at,
+				every: 'FREQ=DAILY',
+				timeZone: 'UTC',
+			},
+		});
+		const next = new Date(Date.now() + 24 * 60 * 60 * 1000);
+		const due = {text: 'The alert “Week ahead” is due now.', opening: opening('Week ahead')};
+
+		// The chat's own, which no thread of it counts.
+		expect(unwrap(await countChatAlerts(chat.id))).toBe(1);
+		expect(unwrap(await countChatAlerts(otherChat.id))).toBe(0);
+		expect(unwrap(await fireAlert(made, due, next, readyForInference))).toBe(true);
+		expect(await db.agentAlert.findUnique({where: {id: made.id}})).toMatchObject({nextAt: next});
+		const [first] = await openedByAlerts();
+		expect(first).toMatchObject({title: 'Week ahead', archived: false});
+		const log = unwrap(await listEntries(first?.id ?? ''));
+		expect(log.map((entry) => [entry.kind, entry.text])).toEqual([
+			['event', 'The alert “Week ahead” is due now.'],
+		]);
+		expect(
+			await db.agentJob.count({where: {threadId: first?.id, kind: 'inference', status: 'queued'}}),
+		).toBe(1);
+
+		// The last time: deleted as it lands, in a thread of its own again.
+		expect(unwrap(await fireAlert(made, due, null, readyForInference))).toBe(true);
+		expect(await db.agentAlert.findUnique({where: {id: made.id}})).toBeNull();
+		expect(await openedByAlerts()).toHaveLength(2);
+		expect(unwrap(await fireAlert(made, due, null, readyForInference))).toBe(false);
+		expect(await openedByAlerts()).toHaveLength(2);
+	});
+
+	test('a watch that opens new threads lands each of what a look found in a thread of its own', async () => {
+		const made = await db.agentAlert.create({
+			data: {
+				orgId,
+				userId,
+				chatId: chat.id,
+				setInThreadId: thread.id,
+				title: 'Bank',
+				brief: 'Tell me.',
+				collectionId: 'emails',
+				connectionIds: [connectionId],
+				split: 'per_record',
+			},
+		});
+		const [current] = await db.connectionPoll.findMany({
+			where: {connectionId},
+			select: {cursor: true},
+		});
+		const landings = [
+			{text: 'Your loan.', opening: opening('Bank: Your loan')},
+			{text: 'Your rate.', opening: opening('Bank: Your rate')},
+		];
+		const looked = {...poll, cursor: current?.cursor ?? null};
+		expect(
+			unwrap(
+				await recordLook(looked, 'h9', [{alert: made, landings}], new Date(), readyForInference),
+			),
+		).toBe(true);
+		expect((await openedByAlerts()).map((opened) => opened.title).slice(-2)).toEqual([
+			'Bank: Your loan',
+			'Bank: Your rate',
+		]);
+		unwrap(await deleteAlert(made.id, {orgId, userId}));
+	});
+
+	test('the agent of a thread an alert opened dismisses it, archived and its answer told nowhere; one the member opened it can’t', async () => {
+		const [opened] = await openedByAlerts();
+		let turn: JobRow | null = null;
+		while (turn === null) {
+			const claimed = unwrap(await claimJob('worker-d', 60_000));
+			if (!claimed) {
+				throw new Error('nothing to claim');
+			}
+			if (claimed.threadId === opened?.id) {
+				turn = claimed;
+				continue;
+			}
+			unwrap(await finishJob(claimed.id, 'worker-d'));
+		}
+		const job = {jobId: turn.id, workerId: 'worker-d', threadId: turn.threadId};
+		expect(unwrap(await dismissThreadInline({...job, workerId: 'worker-z'}))).toBe(false);
+		expect(unwrap(await dismissThreadInline(job))).toBe(true);
+		unwrap(
+			await completeInference(
+				turn.id,
+				'worker-d',
+				turn.threadId,
+				{text: 'Nothing new.', toolCalls: [], inputTokens: 1, outputTokens: 1, system: null},
+				{plans: {}},
+				readyForInference,
+			),
+		);
+		expect((await openedByAlerts())[0]).toMatchObject({id: opened?.id, archived: true});
+		const answers = unwrap(await listAnswers(orgId, userId));
+		expect(answers.find((answer) => answer.personaId === chat.personaId)?.answer.text).not.toBe(
+			'Nothing new.',
+		);
+
+		// A thread the member opened is not the agent's to dismiss.
+		expect(unwrap(await dismissThreadInline({...job, threadId: thread.id}))).toBe(false);
+	});
+
+	test('marking a thread done cancels the alerts that come to it where asked; archiving it always does', async () => {
+		const at = new Date(Date.now() + 60 * 60 * 1000);
+		const data = {
+			orgId,
+			userId,
+			chatId: chat.id,
+			setInThreadId: thread.id,
+			title: 'Check',
+			brief: 'B.',
+			at,
+			nextAt: at,
+		};
+		const comes = await db.agentAlert.create({data: {...data, threadId: thread.id}});
+		const opens = await db.agentAlert.create({data});
+
+		expect(unwrap(await markThreadDone(chat.id, thread.id))).toBe(true);
+		expect(await db.agentAlert.count({where: {id: comes.id}})).toBe(1);
+		expect(unwrap(await markThreadDone(chat.id, thread.id, true))).toBe(true);
+		expect(await db.agentAlert.count({where: {id: comes.id}})).toBe(0);
+
+		const again = await db.agentAlert.create({data: {...data, threadId: thread.id}});
+		expect(unwrap(await archiveThread(chat.id, thread.id))).toBe(true);
+		expect(await db.agentAlert.count({where: {id: again.id}})).toBe(0);
+		// One that opens new threads is the chat's, and stays.
+		expect(await db.agentAlert.count({where: {id: opens.id}})).toBe(1);
+		expect(unwrap(await markThreadDone(otherChat.id, thread.id, true))).toBe(false);
 	});
 
 	test('a poll goes with its connection', async () => {

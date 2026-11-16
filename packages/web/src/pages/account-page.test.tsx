@@ -15,7 +15,9 @@ import {testHuman} from '@/test-org';
 
 const connectClaudeToken = mock(async () => Ok({account: null}));
 const disconnectClaude = mock(async () => Ok({account: null}));
+const setTimeZone = mock(async () => Ok(undefined));
 mock.module('@/client/me-client', () => ({
+	setTimeZone,
 	getMe: mock(),
 	deleteAccount: mock(),
 	listSessions: mock(),
@@ -287,6 +289,26 @@ describe('AccountPage, the Claude card', () => {
 		expect(screen.queryByRole('button', {name: 'Connect Claude'})).toBeNull();
 		expect(screen.queryByRole('link', {name: 'desktop app'})).toBeNull();
 		expect(screen.getByRole('button', {name: 'Paste a token'})).toBeDefined();
+	});
+});
+
+describe('AccountPage, the time zone', () => {
+	test('shows the one set, and saves another as it is picked', async () => {
+		renderPage(null);
+		const picker = await screen.findByRole('combobox', {name: 'Time zone'});
+		expect(picker.textContent).toContain('Europe/Berlin');
+		expect(screen.getByText(/alerts that repeat keep to it/)).toBeTruthy();
+
+		fireEvent.click(picker);
+		const option = await screen.findByRole('option', {name: 'America/New York'});
+		// As a pointer picks it, pressed and let go: the select takes no click alone.
+		fireEvent.pointerDown(option);
+		fireEvent.mouseDown(option);
+		fireEvent.pointerUp(option);
+		fireEvent.mouseUp(option);
+		fireEvent.click(option);
+
+		await waitFor(() => expect(setTimeZone).toHaveBeenCalledWith('America/New_York'));
 	});
 });
 

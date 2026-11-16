@@ -75,6 +75,8 @@ export type ThreadRow = {
 	// What that harness kept from the thread's last turn, opaque here; null before the first, for a
 	// harness that keeps nothing, and where what the column holds isn't a session.
 	harnessSession: HarnessSession;
+	// Whether an alert opened the thread, rather than the member's message; false for a chat.
+	openedByAlert: boolean;
 	createdAt: Date;
 };
 
@@ -215,6 +217,7 @@ const threadSelect = {
 	taskId: true,
 	harness: true,
 	harnessSession: true,
+	openedByAlert: true,
 	createdAt: true,
 } as const;
 
@@ -353,9 +356,10 @@ export async function listPersonas(
 			where: seenBy(orgId, userId),
 			select: {
 				...personaSelect,
-				// The member's chat and its threads.
+				// The member's chat and its threads, but those an alert opened and its agent dismissed
+				// (or the member archived), which said nothing to them.
 				threads: {
-					where: {userId},
+					where: {userId, NOT: {openedByAlert: true, archived: true}},
 					select: {
 						parentThreadId: true,
 						draft: true,
@@ -436,10 +440,11 @@ export type ChatAnswerRow = {
  * The persona's last answer in each of the member's chats that has one, across the chat and its
  * threads, with each thread whose last answer is past its read marker, and whether its turn is
  * over, a thread at work being one with a turn to run or any job due, as `threadState` reads its
- * jobs. One query, and nothing made, for what is asked every so often. Each thread's last answer
- * is found on its own, from the newest entry back by the `(threadId, seq)` index, so a long one is
- * not read whole for it, and the chat's is the latest of those: the entries' `seq` runs across
- * every thread.
+ * jobs; but for a thread an alert opened that is archived, as its agent dismissed it, which told the
+ * member nothing. One query, and nothing made, for what is asked every so often. Each thread's last
+ * answer is found on its own, from the newest entry back by the `(threadId, seq)` index, so a long
+ * one is not read whole for it, and the chat's is the latest of those: the entries' `seq` runs
+ * across every thread.
  */
 export async function listAnswers(
 	orgId: string,
@@ -481,6 +486,7 @@ export async function listAnswers(
 						LIMIT 1
 					) AS last
 					WHERE t."orgId" = ${orgId} AND t."userId" = ${userId} AND t."parentThreadId" IS NULL
+						AND NOT (c."openedByAlert" AND c."archived")
 				) AS answered
 				WHERE "rank" = 1 OR "unread"
 				ORDER BY "seq" ASC
@@ -736,7 +742,7 @@ export function listDraftAttachments(chatId: string): Promise<Result<DraftAttach
 
 // The member's chat, locked for a change to its input or its threads; null for none, and for a
 // thread, which keeps no input.
-async function lockChat(tx: Tx, chatId: string): Promise<ThreadRow | null> {
+export async function lockChat(tx: Tx, chatId: string): Promise<ThreadRow | null> {
 	const chat = await lockThread(tx, chatId);
 	return chat && chat.parentThreadId === null ? chat : null;
 }
@@ -1072,6 +1078,38 @@ async function endTurn(tx: Tx, thread: ThreadRow, end: ThreadEnd): Promise<void>
 	await finishTask(tx, thread, end.outcome);
 }
 
+/**
+ * Makes a thread in the chat, with its task, as the member's message opens one, or an alert that
+ * opens new threads does (`byAlert`); what opens it is the caller's to land. With the chat locked.
+ */
+export async function openThreadIn(
+	tx: Tx,
+	chat: ThreadRow,
+	opening: ThreadOpening,
+	byAlert: boolean,
+): Promise<ThreadRow> {
+	const now = new Date();
+	const task = await tx.agentTask.create({
+		data: {...opening.task, createdAt: now, lastActiveAt: now},
+		select: {id: true},
+	});
+	return toThread(
+		await tx.agentThread.create({
+			data: {
+				orgId: chat.orgId,
+				agentId: chat.agentId,
+				personaId: chat.personaId,
+				userId: chat.userId,
+				parentThreadId: chat.id,
+				title: opening.title,
+				taskId: task.id,
+				openedByAlert: byAlert,
+			},
+			select: threadSelect,
+		}),
+	);
+}
+
 /** A thread of a chat as the member's message opens it: its title and its task, as the api composes them from what they said. */
 export type ThreadOpening = {title: string; task: NewAgentTask & {parentId: null}};
 
@@ -1096,25 +1134,7 @@ export async function openThread(
 			}
 			await tx.agentThread.update({where: {id: chatId}, data: {draft: null}});
 			await tx.agentEntryAttachment.deleteMany({where: inInput(chatId)});
-			const now = new Date();
-			const task = await tx.agentTask.create({
-				data: {...opening.task, createdAt: now, lastActiveAt: now},
-				select: {id: true},
-			});
-			const thread = toThread(
-				await tx.agentThread.create({
-					data: {
-						orgId: chat.orgId,
-						agentId: chat.agentId,
-						personaId: chat.personaId,
-						userId: chat.userId,
-						parentThreadId: chat.id,
-						title: opening.title,
-						taskId: task.id,
-					},
-					select: threadSelect,
-				}),
-			);
+			const thread = await openThreadIn(tx, chat, opening, false);
 			const entry = await appendEntry(tx, thread, {kind: 'person', text}, wakes);
 			await attach(tx, thread.id, entry.id, attachments);
 			return {thread, entry};
@@ -1192,6 +1212,8 @@ const shownEntrySelect = {
 export type ChatThreadRow = ThreadRow & {
 	state: ThreadState;
 	standing: ThreadStandingRow;
+	// How many of the member's alerts come to the thread.
+	alerts: number;
 	entries: ShownEntryRow[];
 	attachments: AttachmentRow[];
 };
@@ -1234,6 +1256,7 @@ async function readChatThreads(
 				summarySeq: true,
 				archived: true,
 				jobs: openJobsSelect,
+				_count: {select: {alerts: true}},
 				entries: {
 					where: shownInThread(calls),
 					select: shownEntrySelect,
@@ -1248,12 +1271,13 @@ async function readChatThreads(
 			),
 		);
 		return threads.map(
-			({jobs, entries, waitingForMember, summary, summarySeq, archived, ...thread}) => {
+			({jobs, entries, waitingForMember, summary, summarySeq, archived, _count, ...thread}) => {
 				const shown = new Set(entries.map((entry) => entry.id));
 				return {
 					...toThread(thread),
 					state: threadState(jobs, now),
 					standing: {waitingForMember, summary, summarySeq, archived},
+					alerts: _count.alerts,
 					entries: entries.map((entry) => ({...entry, toolCalls: toToolCalls(entry.toolCalls)})),
 					attachments: attachments.filter((attachment) => shown.has(attachment.entryId)),
 				};
@@ -1357,36 +1381,85 @@ export async function writeThreadStanding(
 	);
 }
 
-/** The member says the thread is done: it no longer waits for them. `Ok(false)` for no such thread of the chat. */
+/**
+ * The member says the thread is done: it no longer waits for them; with `cancelAlerts`, the alerts
+ * that come to it are deleted too, in the same transaction. `Ok(false)` for no such thread of the
+ * chat.
+ */
 export async function markThreadDone(
 	chatId: string,
 	threadId: string,
+	cancelAlerts = false,
 ): Promise<Result<boolean, ApiError>> {
-	return wrapDb(async () => {
-		const {count} = await db.agentThread.updateMany({
-			where: {id: threadId, parentThreadId: chatId},
-			data: {waitingForMember: false},
-		});
-		return count > 0;
-	});
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			const {count} = await tx.agentThread.updateMany({
+				where: {id: threadId, parentThreadId: chatId},
+				data: {waitingForMember: false},
+			});
+			if (count === 0) {
+				return false;
+			}
+			if (cancelAlerts) {
+				await tx.agentAlert.deleteMany({where: {threadId}});
+			}
+			return true;
+		}),
+	);
+}
+
+// Archives the thread and deletes the alerts that come to it, which would bring it back.
+async function archive(
+	tx: Tx,
+	where: Prisma.AgentThreadWhereInput & {id: string},
+): Promise<boolean> {
+	const {count} = await tx.agentThread.updateMany({where, data: {archived: true}});
+	if (count === 0) {
+		return false;
+	}
+	await tx.agentAlert.deleteMany({where: {threadId: where.id}});
+	return true;
 }
 
 /**
  * The member archives the thread: their chat's list no longer has it, until they reply in it or an
- * alert takes it up (wakeWith). It can still be opened by its address. \`Ok(false)\` for no such
- * thread of the chat.
+ * alert of another thread's takes it up (wakeWith); the alerts that come to it are deleted with
+ * it. It can still be opened by its address. \`Ok(false)\` for no such thread of the chat.
  */
 export async function archiveThread(
 	chatId: string,
 	threadId: string,
 ): Promise<Result<boolean, ApiError>> {
-	return wrapDb(async () => {
-		const {count} = await db.agentThread.updateMany({
-			where: {id: threadId, parentThreadId: chatId},
-			data: {archived: true},
-		});
-		return count > 0;
-	});
+	return wrapDb(() => db.$transaction((tx) => archive(tx, {id: threadId, parentThreadId: chatId})));
+}
+
+/**
+ * The agent of a thread an alert opened dismisses it, what came being nothing to tell the member
+ * of: archived as the member archives one, from mid-turn, fenced by the turn's job. `Ok(false)`
+ * when the job was no longer the worker's, the thread is gone, or no alert opened it.
+ */
+export function dismissThreadInline(job: InlineJob): Promise<Result<boolean, ApiError>> {
+	return writeInline(job, false, (tx, thread) => archive(tx, {id: thread.id, openedByAlert: true}));
+}
+
+/**
+ * Finishes the tool job of a dismiss call: the thread archived as dismissThreadInline does, where
+ * an alert opened it, and the call answered with what `answer` says of whether it was, in one
+ * transaction. `Ok(false)` when the job was no longer the worker's, and nothing is written.
+ */
+export async function completeDismiss(
+	job: {jobId: string; workerId: string; threadId: string; callId: string},
+	answer: (dismissed: boolean) => {text: string; isError: boolean},
+	wakes: Wakes,
+): Promise<Result<boolean, ApiError>> {
+	return wrapDb(() =>
+		db.$transaction((tx) =>
+			endJob(tx, {...job, status: 'done'}, wakes, async (thread) => {
+				const dismissed = await archive(tx, {id: thread.id, openedByAlert: true});
+				await answerCall(tx, thread, {callId: job.callId, ...answer(dismissed)}, job.jobId, wakes);
+			}),
+		),
+	);
 }
 
 /** Every chat's threads with no summary, by id with their chat, the oldest first: what the one-off script writes summaries for. */

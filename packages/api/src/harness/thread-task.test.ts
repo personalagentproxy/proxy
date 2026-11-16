@@ -21,6 +21,7 @@ const thread: ThreadRow = {
 	taskId: 'task-1',
 	harness: null,
 	harnessSession: null,
+	openedByAlert: false,
 	createdAt: now,
 };
 const task: AgentTaskRow = {

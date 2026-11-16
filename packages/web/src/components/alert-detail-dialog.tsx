@@ -13,6 +13,7 @@ import {IntegrationLogo} from '@/components/brand-logo';
 import {Head} from '@/components/head';
 import {useOrgSlug} from '@/hooks/use-org';
 import {formatDateTime} from '@/lib/format';
+import {threadTo} from '@/lib/alerts';
 import {findIntegration} from '@/lib/integrations';
 
 type Props = {
@@ -42,8 +43,27 @@ function Detail({label, children}: {label: string; children: ReactNode}) {
 	);
 }
 
-// An alert in full: what it is, where it watches and for which words, what the agent noted for
-// it, who set it, with a link to the chat it is told in, and when it last matched.
+// What the dialog says of an alert under its title: when it comes, once or again and again, or what
+// it watches.
+function comes(alert: Alert): string {
+	if (alert.at === null) {
+		return `Watching ${alert.collection ?? ''}`;
+	}
+	if (alert.every !== null) {
+		return `Repeats ${alert.every}`;
+	}
+	return `Once, ${formatMoment(alert.at)}`;
+}
+
+// How a watch that opens new threads splits what it finds, in words.
+function splitText(split: NonNullable<Alert['split']>): string {
+	return split === 'per_record' ? 'A thread for each record' : 'A thread for each check';
+}
+
+// An alert in full: what it is, when it comes again where it repeats, where it watches and for
+// which words, where it comes, into its thread, with a link to it, or as a new thread each time,
+// and the thread it was set in, what the agent noted for it, who set it, with a link to the chat,
+// and when it last matched.
 export function AlertDetailDialog({alert, onClose}: Props) {
 	return (
 		<Dialog
@@ -62,17 +82,17 @@ export function AlertDetailDialog({alert, onClose}: Props) {
 
 function AlertDetailContent({alert}: {alert: Alert}) {
 	const org = useOrgSlug();
-	const collection = alert.collection ?? '';
 	return (
 		<DialogContent className="grid-cols-[minmax(0,1fr)] sm:max-w-lg">
 			<DialogHeader>
 				<DialogTitle className="pr-8 leading-snug break-words">{alert.title}</DialogTitle>
-				<DialogDescription>
-					{alert.at === null ? `Watching ${collection}` : `Once, ${formatMoment(alert.at)}`}
-				</DialogDescription>
+				<DialogDescription>{comes(alert)}</DialogDescription>
 			</DialogHeader>
 			<dl className="divide-y text-sm">
-				{alert.at !== null && <Detail label="Due">{formatMoment(alert.at)}</Detail>}
+				{alert.at !== null && (
+					<Detail label={alert.every === null ? 'Due' : 'Next'}>{formatMoment(alert.at)}</Detail>
+				)}
+				{alert.every !== null && <Detail label="Repeats">{alert.every}</Detail>}
 				{alert.at === null && (
 					<Detail label="Watching">
 						{alert.connections.length === 0 && (
@@ -99,6 +119,30 @@ function AlertDetailContent({alert}: {alert: Alert}) {
 								{term}
 							</Badge>
 						))}
+					</Detail>
+				)}
+				<Detail label="Comes to">
+					{alert.thread === null ? (
+						<span>A new thread each time</span>
+					) : (
+						<Link to={threadTo(org, alert)} className="min-w-0 truncate hover:underline">
+							{alert.thread.title || 'Thread'}
+						</Link>
+					)}
+				</Detail>
+				{alert.split !== null && <Detail label="Threads">{splitText(alert.split)}</Detail>}
+				{alert.thread?.id !== alert.setIn?.id && (
+					<Detail label="Set in">
+						{alert.setIn === null ? (
+							<span className="text-muted-foreground">A thread that is gone</span>
+						) : (
+							<Link
+								to={`/${org}/chat/${alert.persona.id}/threads/${alert.setIn.id}`}
+								className="min-w-0 truncate hover:underline"
+							>
+								{alert.setIn.title || 'Thread'}
+							</Link>
+						)}
 					</Detail>
 				)}
 				<Detail label="Note">

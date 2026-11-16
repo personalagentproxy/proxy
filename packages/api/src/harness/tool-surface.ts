@@ -7,10 +7,10 @@ import type {InlineJob, ThreadRow} from '@proxy/db/harness';
 
 import type {ModelTool} from '../llm/open-router';
 import {SCRIPT_TOOL, scriptToolDescription} from '../mcp/tools';
-import {CANCEL_ALERT_TOOL, SET_ALERT_PARAMETERS, SET_ALERT_TOOL} from './alerts';
+import {CANCEL_ALERT_TOOL, DISMISS_TOOL, SET_ALERT_PARAMETERS, SET_ALERT_TOOL} from './alerts';
 import {BAD_PERSON_MESSAGE_ARGS, jobLost, SENT_TO_PERSON} from './thread-rules';
 import type {HarnessStore} from './store';
-import {alertCall, BAD_SLEEP_ARGS, error, NOT_JSON, noSuchTool, runGateTool, setText, type ToolAnswerStore} from './tool-answers';
+import {alertCall, BAD_SLEEP_ARGS, dismissText, error, NOT_JSON, noSuchTool, runGateTool, setText, type ToolAnswerStore} from './tool-answers';
 
 /**
  * The tools a thread's agent has: the MCP server's script, as any agent gets it, less starting and
@@ -64,7 +64,7 @@ const SLEEP: ModelTool = {
 const SET_ALERT: ModelTool = {
 	name: SET_ALERT_TOOL,
 	description:
-		'Sets an alert, which comes to you as a message and is on the person’s Alerts page: at `at`, once; or, for a watch, for each new record in `collection` containing any of `terms`. Terms match as written, not by meaning: give the ways it may be written, concrete ones such as a sender’s address. To change an alert, cancel it and set a new one.',
+		'Sets an alert, which comes to you as a message and is on the person’s Alerts page: at `at`; or, for a watch, for each new record in `collection` containing any of `terms`. Choose `opens`: this_thread wakes this thread, for a follow-up of its work (check back Friday, remind them after the call); new_thread opens a new thread in the chat each time, for a standing rule or work of its own (whenever X emails, every Monday), whose agent knows only the brief. A new_thread alert may repeat (`every`), and a new_thread watch needs `split`. Terms match as written, not by meaning: give the ways it may be written, concrete ones such as a sender’s address. To change an alert, cancel it and set a new one.',
 	parameters: SET_ALERT_PARAMETERS,
 };
 
@@ -77,6 +77,13 @@ const CANCEL_ALERT: ModelTool = {
 		required: ['id'],
 		additionalProperties: false,
 	},
+};
+
+const DISMISS: ModelTool = {
+	name: DISMISS_TOOL,
+	description:
+		'Dismisses this thread, which an alert opened, where what came is nothing the person needs to know: it is archived without telling them, and your turn ends. Otherwise, answer as usual.',
+	parameters: {type: 'object', properties: {}, additionalProperties: false},
 };
 
 // The script tool without its `task` param, which the loop fills in, and without starting or
@@ -95,6 +102,11 @@ const SCRIPT: ModelTool = {
 /** The tools a thread's agent is given: the MCP server's script, a message to the person, a sleep, and setting an alert and cancelling one. */
 export const THREAD_TOOLS: ModelTool[] = [SCRIPT, SEND_TO_PERSON, SLEEP, SET_ALERT, CANCEL_ALERT];
 
+/** The tools of the thread's agent: a thread's, and, in one an alert opened, dismissing it. */
+export function threadTools(thread: ThreadRow): ModelTool[] {
+	return thread.openedByAlert ? [...THREAD_TOOLS, DISMISS] : THREAD_TOOLS;
+}
+
 // A tool as the harness is given it. None only reads: a script may change something, and the
 // rest tell or set something.
 function toHarnessTool(tool: ModelTool): HarnessTool {
@@ -102,7 +114,7 @@ function toHarnessTool(tool: ModelTool): HarnessTool {
 }
 
 /** What running a call inline needs of the store: what answering one needs, and the fenced writes beside the log. */
-export type ToolSurfaceStore = ToolAnswerStore & Pick<HarnessStore, 'setAlertInline' | 'scheduleWake'>;
+export type ToolSurfaceStore = ToolAnswerStore & Pick<HarnessStore, 'setAlertInline' | 'scheduleWake' | 'dismissThreadInline'>;
 
 // An alert call, at once: one set, in a transaction of its own fenced by the job, or cancelled.
 function alertInline(store: ToolSurfaceStore, thread: ThreadRow, job: InlineJob, call: ToolCall, args: Record<string, unknown>, now: Date): Promise<Result<ToolAnswer, ApiError>> {
@@ -130,6 +142,19 @@ function sleepInline(store: ToolSurfaceStore, job: InlineJob, args: Record<strin
 	});
 }
 
+// A dismissal, at once: the thread archived where an alert opened it, the answer ending the turn.
+function dismissInline(store: ToolSurfaceStore, thread: ThreadRow, job: InlineJob): Promise<Result<ToolAnswer, ApiError>> {
+	return Do(async ($) => {
+		if (!thread.openedByAlert) {
+			return dismissText(false);
+		}
+		if (!$(await store.dismissThreadInline(job))) {
+			return $(Err(jobLost()));
+		}
+		return {...dismissText(true), endTurn: true};
+	});
+}
+
 // What a call does, at once: the person told, which is the call itself, read where the thread is
 // shown, so nothing is written for it; a sleep as a wake job, the answer ending the turn; an alert
 // set or cancelled; or a script run.
@@ -143,6 +168,9 @@ function execute(store: ToolSurfaceStore, thread: ThreadRow, job: InlineJob, cal
 		}
 		if (call.name === SET_ALERT_TOOL || call.name === CANCEL_ALERT_TOOL) {
 			return $(await alertInline(store, thread, job, call, args, now));
+		}
+		if (call.name === DISMISS_TOOL) {
+			return $(await dismissInline(store, thread, job));
 		}
 		if (isGateTool(call.name)) {
 			return $(await runGateTool(store, thread, args));
@@ -160,7 +188,7 @@ function execute(store: ToolSurfaceStore, thread: ThreadRow, job: InlineJob, cal
 export function toolSurfaceFor(store: ToolSurfaceStore, thread: ThreadRow, job: {id: string}, workerId: string, clock: () => Date): ToolSurface {
 	const inlineJob: InlineJob = {jobId: job.id, workerId, threadId: thread.id};
 	return {
-		tools: THREAD_TOOLS.map(toHarnessTool),
+		tools: threadTools(thread).map(toHarnessTool),
 		execute: (call) => {
 			const args = callArguments(call);
 			if (!isRecord(args)) {

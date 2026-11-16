@@ -131,20 +131,25 @@ export const threadsConnector = {
 function alertRecord(alert: MemberAlertRow, url: string): DataRecord {
 	return {
 		id: alert.id,
-		values: {title: alert.title, comes: alertComes(alert), note: alert.brief, thread: alert.threadTitle ?? '', agent: alert.persona.name},
+		values: {title: alert.title, comes: alertComes(alert), note: alert.brief, thread: alert.thread?.title ?? 'A new thread each time', agent: alert.persona.name},
 		updatedAt: alert.createdAt.toISOString(),
 		url,
 	};
 }
 
-// The member's alerts as records, each with its thread's page, where it comes.
+// The member's alerts as records, each with the page of the thread it comes to, or, one that opens
+// a new thread each time, of the thread it was set in, or of the chat once that is gone.
 function alertRecords(target: RecordTarget): Promise<Result<DataRecord[], ApiError>> {
 	return Do(async ($) => {
 		const appUrl = $(requireAppUrl());
 		const {orgId, userId} = memberOf(target);
 		const alerts = $(await listMemberAlerts(orgId, userId));
 		const orgSlug = alerts.length === 0 ? '' : ($(await getOrgSlug(orgId)) ?? '');
-		return alerts.map((alert) => alertRecord(alert, threadUrl(appUrl, orgSlug, alert.persona.id, alert.threadId)));
+		return alerts.map((alert) => {
+			const thread = alert.thread ?? alert.setIn;
+			const url = thread === null ? `${appUrl}/${orgSlug}/chat/${alert.persona.id}` : threadUrl(appUrl, orgSlug, alert.persona.id, thread.id);
+			return alertRecord(alert, url);
+		});
 	});
 }
 

@@ -8,7 +8,10 @@ import {expect, test} from 'bun:test';
 // The bordered button is used sparingly: for a second way forward beside the dark one, and as much
 // a way forward as it. Every place it is is listed here, so another is added on purpose, where it
 // can be seen in review; most other buttons are ghost.
-const OUTLINE_ALLOWED = ['packages/web/src/pages/login-page.tsx'];
+const OUTLINE_ALLOWED = [
+	'packages/web/src/components/confirm-dialog.tsx',
+	'packages/web/src/pages/login-page.tsx',
+];
 
 const ROOT = join(import.meta.dir, '../../../..');
 const PACKAGES = join(ROOT, 'packages');

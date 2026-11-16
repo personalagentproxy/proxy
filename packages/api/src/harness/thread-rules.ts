@@ -66,6 +66,15 @@ export function threadOpening(chat: ThreadRow, said: {text: string; files: strin
 	return {title, task: taskFor(chat, {title, goal: words === '' ? title : cut(withFileNames(said.text, said.files), MAX_TASK_TEXT)})};
 }
 
+/**
+ * A thread as an alert that opens new threads opens one in the chat: titled `title`, cut, the
+ * alert's or the record's that came; its task the alert's work, its brief the goal.
+ */
+export function alertOpening(chat: ThreadRow, alert: {title: string; brief: string}): ThreadOpening {
+	const title = cut(folded(alert.title), MAX_THREAD_TITLE);
+	return {title, task: taskFor(chat, {title, goal: cut(alert.brief, MAX_TASK_TEXT)})};
+}
+
 /** A thread's answer without calls, what it said: the end of its turn, and its task's outcome, cut. */
 export function threadEnd(said: string): ThreadEnd {
 	return {outcome: cut(said, MAX_TASK_TEXT)};

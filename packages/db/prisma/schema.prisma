@@ -30,6 +30,10 @@ model User {
   // When they accepted the terms of service and the privacy policy, by signing up past the notice
   // on the sign-in page. None for an account from before the notice, until it is asked to accept.
   termsAcceptedAt DateTime?
+  // Their time zone, an IANA name such as Europe/Berlin, which the web app sets from the browser
+  // where none is, and they change on the Account page: the agents are told it, and a repeating
+  // alert set for them keeps to it. Null before one was set.
+  timeZone        String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -859,6 +863,9 @@ model AgentThread {
   // Whether the member archived the thread, which hides it from their chat's list; the member's
   // reply or an alert that takes it up brings it back. False for a chat.
   archived         Boolean @default(false)
+  // Whether an alert opened the thread in the chat, rather than the member's message: its agent
+  // may dismiss it, archiving it, where what came is nothing to tell them of.
+  openedByAlert    Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -870,7 +877,9 @@ model AgentThread {
   entries     AgentEntry[]
   jobs        AgentJob[]
   jobEvents   AgentJobEvent[]
-  alerts      AgentAlert[]
+  alerts      AgentAlert[]         @relation("AlertThread")
+  chatAlerts  AgentAlert[]         @relation("AlertChat")
+  setAlerts   AgentAlert[]         @relation("AlertSetIn")
   attachments AgentEntryAttachment[]
 
   @@index([personaId, userId])
@@ -1065,43 +1074,68 @@ model AgentJobEvent {
   @@index([threadId, at])
 }
 
-// An alert the built-in agent set in a thread of a member's chat, to wake the thread from outside
-// it. Both kinds
-// are taken by the alerts' sweep (api harness/alert-sweep.ts), which moves what it takes on as it
-// takes it, so one api instance takes each. A timed alert (`at`) is due at `nextAt`, its time at
-// first, and lands what the agent noted in the thread as an event in the transaction that
-// deletes it. A watch (`collectionId`) is a rule on a collection of some connections, each read
-// through its poll (ConnectionPoll), which every watch on it shares; a record new or changed there
-// that carries any of the watch's words lands in the thread as an event. Set in the
-// transaction that answers the call that set it. The person sees their alerts on the Alerts page
-// and deletes them there; the agent cancels one when asked.
+// How a watch that opens new threads splits what one look found: a thread for the look, or one
+// for each record.
+enum AlertSplit {
+  per_check
+  per_record
+}
+
+// An alert the built-in agent set in a thread of a member's chat, to wake it from outside: it comes
+// either to that thread (`threadId`), or to the chat, where each time it opens a new thread
+// (`threadId` null), as the agent chose. Both kinds are taken by the alerts' sweep (api
+// harness/alert-sweep.ts), which moves what it takes on as it takes it, so one api instance takes
+// each. A timed alert (`at`) is due at `nextAt`, its time at first, and lands what the agent noted
+// as an event in the transaction that deletes it, or, one that repeats, moves it on to its next
+// time. A watch (`collectionId`) is a rule on a collection of some connections, each read through
+// its poll (ConnectionPoll), which every watch on it shares; a record new or changed there that
+// carries any of the watch's words lands as an event. Set in the transaction that answers the call
+// that set it. The person sees their alerts on the Alerts page and deletes them there; the agent
+// cancels one when asked, and archiving a thread cancels those that come to it.
 model AgentAlert {
   id       String @id @default(cuid())
   orgId    String
   // The member whose chat's thread it was set in: the alert is theirs alone to see.
   userId   String
-  threadId String
+  // The member's chat (AgentThread) it was set in a thread of; it goes with the chat.
+  chatId   String
+  // The thread it comes to, the one it was set in; null for one that opens a new thread in the chat
+  // each time.
+  threadId String?
+  // The thread it was set in, where what it comes to can be read up on; null once that is gone.
+  setInThreadId String?
   title    String
-  // What the agent noted: what to tell the person at the time, or what the watch is for.
+  // What the agent noted: what to tell the person at the time, or what the watch is for; all the
+  // agent of a new thread it opens knows of why.
   brief    String
-  // A timed alert's time, and when it is next due: its time, then again a while after a turn that
-  // failed; null for a watch.
+  // A timed alert's time, its next where it repeats, and when it is next due: its time, then again
+  // a while after a turn that failed; null for a watch.
   at       DateTime?
   nextAt   DateTime?
+  // How a timed alert that opens new threads repeats: an RFC 5545 RRULE, read in `timeZone`, the
+  // member's when it was set; null for one that comes once, and for a watch.
+  every    String?
+  timeZone String?
   // A watch: the collection watched (emails, issues or events), the connections watched, as plain
   // ids, and the words any of which a record has to carry to match; none, and every new record does.
   collectionId  String?
   connectionIds String[] @default([])
   terms         String[] @default([])
+  // How a watch that opens new threads splits what a look found; null otherwise.
+  split         AlertSplit?
   // When a watch last matched a record; null for a timed alert, and before the first match.
   lastMatchedAt DateTime?
 
   createdAt DateTime @default(now())
 
   org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  thread AgentThread  @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  chat   AgentThread  @relation("AlertChat", fields: [chatId], references: [id], onDelete: Cascade)
+  thread AgentThread? @relation("AlertThread", fields: [threadId], references: [id], onDelete: Cascade)
+  setIn  AgentThread? @relation("AlertSetIn", fields: [setInThreadId], references: [id], onDelete: SetNull)
 
+  @@index([chatId])
   @@index([threadId])
+  @@index([setInThreadId])
   @@index([orgId, userId])
   @@index([nextAt])
 }

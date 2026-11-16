@@ -3,6 +3,7 @@ import {
 	type claudeTokenBodySchema,
 	meSchema,
 	sessionsSchema,
+	type timeZoneBodySchema,
 } from '@proxy/contracts/me';
 import type {z} from 'zod';
 import {apiRequest, apiSend} from '@/client/request';
@@ -10,6 +11,13 @@ import {apiRequest, apiSend} from '@/client/request';
 /** Who is signed in (`GET /api/me`). A 401 means "redirect to /login". The organizations they are in are `listOrgs`. */
 export function getMe() {
 	return apiRequest('GET', '/api/me', meSchema);
+}
+
+/** Sets the person's time zone, an IANA name such as `Europe/Berlin`, which agents are told and repeating alerts keep to. */
+export function setTimeZone(timeZone: string) {
+	return apiSend('PUT', '/api/me/time-zone', {
+		timeZone,
+	} satisfies z.input<typeof timeZoneBodySchema>);
 }
 
 /**

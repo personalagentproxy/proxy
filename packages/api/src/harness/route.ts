@@ -20,6 +20,7 @@ import {
 	type openedThreadSchema,
 	type postedReplySchema,
 	saveDraftBodySchema,
+	threadDoneBodySchema,
 	type ThreadMessage,
 	type ThreadStanding,
 	type ThreadView,
@@ -74,6 +75,7 @@ export type ChatStore = Pick<
 	| 'hasChatThread'
 	| 'markThreadDone'
 	| 'archiveThread'
+	| 'countChatAlerts'
 >;
 
 /** What the routes need of where a chat's files are kept: putting one there, naming those attached, and showing one; reading a picture for a model is the worker's. */
@@ -416,6 +418,8 @@ function toChatThread(thread: ChatThreadRow, shown: Shown[], now: Date): ChatThr
 		messageCount: messages.length,
 		lastMessageAt: messages.at(-1)?.at ?? thread.createdAt.toISOString(),
 		createdAt: thread.createdAt.toISOString(),
+		alerts: thread.alerts,
+		openedByAlert: thread.openedByAlert,
 	};
 }
 
@@ -442,7 +446,12 @@ function handleListThreadsRoute(store: ChatStore, harnesses: Harnesses, files: R
 		const persona = $(await requirePersona(store, viewer, request));
 		const chat = $(await ensureChat(store, viewer, persona));
 		const now = new Date();
-		const [threads, draft, waiting] = await Promise.all([store.listChatThreads(chat.id, SHOWN_CALLS, now), store.getChatDraft(chat.id), store.listDraftAttachments(chat.id)]);
+		const [threads, draft, waiting, alerts] = await Promise.all([
+			store.listChatThreads(chat.id, SHOWN_CALLS, now),
+			store.getChatDraft(chat.id),
+			store.listDraftAttachments(chat.id),
+			store.countChatAlerts(chat.id),
+		]);
 		const listed = $(threads).map((thread) => toChatThread(thread, threadShown(thread, files), now));
 		return {
 			persona: toPersona(harnesses, viewer, persona),
@@ -450,6 +459,7 @@ function handleListThreadsRoute(store: ChatStore, harnesses: Harnesses, files: R
 			// Put in the input from the person's drive, where a file is kept as long as it waits there.
 			draftAttachments: $(waiting).map((attachment) => files.shown({...attachment, gone: false})),
 			threads: listed.toSorted((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
+			alerts: $(alerts),
 		};
 	});
 }
@@ -517,20 +527,21 @@ function handleUploadThreadAttachmentRoute(store: ChatStore, files: RouteFiles, 
 	});
 }
 
-/** `POST /api/orgs/:org/chat/personas/:personaId/threads/:threadId/done`: the viewer says a thread of their chat with the persona is done: it no longer waits for them, until its agent stops for them again. */
+/** `POST /api/orgs/:org/chat/personas/:personaId/threads/:threadId/done`: the viewer says a thread of their chat with the persona is done: it no longer waits for them, until its agent stops for them again; with `cancelAlerts`, the alerts that come to it are cancelled. */
 function handleMarkThreadDoneRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
 		const threadId = request.params.threadId ?? '';
+		const {cancelAlerts = false} = $(parseSchema(threadDoneBodySchema, request.body ?? {}));
 		const persona = $(await requirePersona(store, viewer, request));
 		const chat = $(await requireChat(store, viewer, persona, threadId));
-		if (!$(await store.markThreadDone(chat.id, threadId))) {
+		if (!$(await store.markThreadDone(chat.id, threadId, cancelAlerts))) {
 			return $(Err(ApiErr.notFound('thread', threadId)));
 		}
 	});
 }
 
-/** `POST /api/orgs/:org/chat/personas/:personaId/threads/:threadId/archive`: the viewer archives a thread of their chat with the persona: the chat's list no longer has it, until they reply in it or an alert takes it up. */
+/** `POST /api/orgs/:org/chat/personas/:personaId/threads/:threadId/archive`: the viewer archives a thread of their chat with the persona: the chat's list no longer has it, until they reply in it or an alert takes it up; the alerts that come to it are cancelled. */
 function handleArchiveThreadRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));

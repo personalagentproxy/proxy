@@ -1,13 +1,14 @@
 import type {Response} from 'express';
 import {Err, type Result} from 'ts-results-es';
 
-import {ApiErr, type ApiError, Do} from '@proxy/utils';
+import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
 import {listLeavingConnectionsWithCredential, listOrgConnectionsWithCredential} from '@proxy/db/connection';
 import {listUserOrgs, removeMembership} from '@proxy/db/organization';
-import {deleteUser, getUserFromId} from '@proxy/db/user';
-import type {Me} from '@proxy/contracts/me';
+import {deleteUser, getUserFromId, setUserTimeZone} from '@proxy/db/user';
+import {type Me, timeZoneBodySchema} from '@proxy/contracts/me';
 
 import {unknownPasswordHash} from '../agents/unknown-password';
+import {isTimeZone} from '../harness/alert-repeat';
 import {clearSessionCookie} from '../auth/session';
 import {beforeDisconnectAll} from '../connections/disconnect';
 import {log} from '../observability/log';
@@ -23,7 +24,18 @@ export function handleMeRoute(request: AuthenticatedRequest): Promise<Result<Me,
 			return $(Err(ApiErr.unauthenticated()));
 		}
 
-		return {user: {id: user.id, email: user.email, name: user.name, image: user.image}};
+		return {user: {id: user.id, email: user.email, name: user.name, image: user.image, timeZone: user.timeZone}};
+	});
+}
+
+/** `PUT /api/me/time-zone`: the signed-in person's time zone, an IANA name the server knows, which the agents are told and repeating alerts keep to. */
+export function handleSetTimeZoneRoute(request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
+	return Do(async ($) => {
+		const {timeZone} = $(parseSchema(timeZoneBodySchema, request.body));
+		if (!isTimeZone(timeZone)) {
+			return $(Err(ApiErr.validationError(`Unknown time zone ${timeZone}`)));
+		}
+		$(await setUserTimeZone(request.user.userId, timeZone));
 	});
 }
 

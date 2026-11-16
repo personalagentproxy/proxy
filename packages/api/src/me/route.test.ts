@@ -5,6 +5,7 @@ import {ApiErr} from '@proxy/utils';
 
 const getUserFromId = mock();
 const deleteUser = mock();
+const setUserTimeZone = mock();
 const listUserOrgs = mock();
 const removeMembership = mock();
 const listOrgConnectionsWithCredential = mock();
@@ -15,6 +16,7 @@ const clearSessionCookie = mock();
 mock.module('@proxy/db/user', () => ({
 	getUserFromId,
 	deleteUser,
+	setUserTimeZone,
 }));
 
 mock.module('@proxy/db/connection', () => ({listOrgConnectionsWithCredential, listLeavingConnectionsWithCredential}));
@@ -38,6 +40,7 @@ const user = {
 	email: 'test@example.com',
 	name: 'Test User',
 	image: 'https://example.com/avatar.png',
+	timeZone: 'Europe/Berlin',
 	emailVerified: new Date('2026-01-01T00:00:00Z'),
 };
 
@@ -71,6 +74,7 @@ describe('handleMeRoute', () => {
 				email: 'test@example.com',
 				name: 'Test User',
 				image: 'https://example.com/avatar.png',
+				timeZone: 'Europe/Berlin',
 			},
 		});
 		expect(getUserFromId).toHaveBeenCalledWith('user-1');
@@ -168,5 +172,19 @@ describe('handleDeleteMeRoute', () => {
 
 		expect(listOrgConnectionsWithCredential).not.toHaveBeenCalled();
 		expect(deleteUser).toHaveBeenCalledWith('user-1');
+	});
+});
+
+describe('handleSetTimeZoneRoute', () => {
+	test('sets a time zone the server knows, and refuses one it doesn’t', async () => {
+		const {handleSetTimeZoneRoute} = await import('./route');
+		setUserTimeZone.mockResolvedValue(Ok(undefined));
+		(await handleSetTimeZoneRoute({...makeRequest(), body: {timeZone: 'America/New_York'}} as never)).unwrap();
+		expect(setUserTimeZone).toHaveBeenCalledWith('user-1', 'America/New_York');
+
+		setUserTimeZone.mockClear();
+		expect((await handleSetTimeZoneRoute({...makeRequest(), body: {timeZone: 'Mars/Olympus'}} as never)).unwrapErr().kind).toBe('validation_error');
+		expect((await handleSetTimeZoneRoute({...makeRequest(), body: {}} as never)).isErr()).toBe(true);
+		expect(setUserTimeZone).not.toHaveBeenCalled();
 	});
 });

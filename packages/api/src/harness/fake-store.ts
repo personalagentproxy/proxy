@@ -1,3 +1,4 @@
+import {Ok} from 'ts-results-es';
 import {type Mock, mock} from 'bun:test';
 
 import type {HarnessStore} from './store';
@@ -54,8 +55,13 @@ export function fakeStore(): FakeStore {
 		removeDraftAttachment: mock<HarnessStore['removeDraftAttachment']>(),
 		completeSetAlert: mock<HarnessStore['completeSetAlert']>(),
 		setAlertInline: mock<HarnessStore['setAlertInline']>(),
+		dismissThreadInline: mock<HarnessStore['dismissThreadInline']>(),
+		completeDismiss: mock<HarnessStore['completeDismiss']>(),
+		// No time zone set, unless a test gives one.
+		getUserTimeZone: mock<HarnessStore['getUserTimeZone']>(async () => Ok(null)),
 		deleteAlert: mock<HarnessStore['deleteAlert']>(),
 		listMemberAlerts: mock<HarnessStore['listMemberAlerts']>(),
+		countChatAlerts: mock<HarnessStore['countChatAlerts']>(async () => Ok(0)),
 		listConnectionsByIds: mock<HarnessStore['listConnectionsByIds']>(),
 		claimDueAlerts: mock<HarnessStore['claimDueAlerts']>(),
 		fireAlert: mock<HarnessStore['fireAlert']>(),

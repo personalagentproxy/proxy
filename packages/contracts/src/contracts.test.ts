@@ -124,6 +124,8 @@ describe('contracts', () => {
 			messageCount: 2,
 			lastMessageAt: '2026-03-02T09:24:00.000Z',
 			createdAt: '2026-03-02T09:24:00.000Z',
+			alerts: 1,
+			openedByAlert: false,
 		};
 		expect(harness.chatThreadSchema.parse(thread)).toEqual(thread);
 		expect(

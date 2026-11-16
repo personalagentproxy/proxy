@@ -16,6 +16,10 @@ type Props = {
 	description: ReactNode;
 	confirmLabel: string;
 	destructive?: boolean;
+	// What the button that closes it without doing anything says.
+	cancelLabel?: string;
+	// A second way through, between closing and confirming, where there is one.
+	secondary?: {label: string; onClick: () => void};
 	onClose: () => void;
 	onConfirm: () => void;
 };
@@ -26,6 +30,8 @@ export function ConfirmDialog({
 	description,
 	confirmLabel,
 	destructive = false,
+	cancelLabel = 'Cancel',
+	secondary,
 	onClose,
 	onConfirm,
 }: Props) {
@@ -41,7 +47,8 @@ export function ConfirmDialog({
 				onClose();
 			}}
 		>
-			<DialogContent>
+			{/* Wider with a second way through, so the three buttons sit on one line. */}
+			<DialogContent className={secondary ? 'sm:max-w-lg' : undefined}>
 				<form
 					ref={form}
 					className="grid gap-4"
@@ -57,8 +64,20 @@ export function ConfirmDialog({
 					</DialogHeader>
 					<DialogFooter>
 						<PillButton type="button" variant="ghost" autoFocus={destructive} onClick={onClose}>
-							Cancel
+							{cancelLabel}
 						</PillButton>
+						{secondary && (
+							<PillButton
+								type="button"
+								variant="outline"
+								onClick={() => {
+									secondary.onClick();
+									onClose();
+								}}
+							>
+								{secondary.label}
+							</PillButton>
+						)}
 						{destructive ? (
 							<PillButton type="submit" variant="destructive">
 								{confirmLabel}

@@ -3,6 +3,7 @@ import type {Org} from '@proxy/contracts/orgs';
 import {createBrowserRouter, redirect, redirectDocument, type RouteObject} from 'react-router';
 import {getSignInMethods} from '@/client/auth-client';
 import {getMe} from '@/client/me-client';
+import {rememberBrowserTimeZone} from '@/lib/person-time-zone';
 import {isNotFoundError} from '@/client/request';
 import {getOrg, listOrgs} from '@/client/orgs-client';
 import {HumanSide} from '@/components/human-side';
@@ -136,7 +137,7 @@ function oldVaultLoader({params, request}: {params: {org?: string}; request: Req
 // one that has not been through the welcome flow goes there first. With who is signed in, the
 // organization and the organizations they are in, for the switcher and every page that says which
 // is open. The account is in none: the sidebar shows the one it was opened from (`?org=`), or
-// their first, with its experiments.
+// their first, with its experiments. A person without a time zone yet is given this browser's.
 async function humanLoader({
 	params,
 	request,
@@ -153,6 +154,7 @@ async function humanLoader({
 		// The list leaves each organization's experiments out: its own page says them, for the
 		// sidebar's and the command bar's Chat.
 		const org = unwrapLoaderResult(await getOrg(picked.slug));
+		rememberBrowserTimeZone(signedIn.user.timeZone);
 		return {...signedIn, org, orgs: all};
 	}
 
@@ -167,6 +169,7 @@ async function humanLoader({
 	if (!named.onboarded) {
 		throw redirect(`/${slug}/welcome/connections`);
 	}
+	rememberBrowserTimeZone(signedIn.user.timeZone);
 	return {...signedIn, org: named, orgs: unwrapLoaderResult(orgs).orgs};
 }
 

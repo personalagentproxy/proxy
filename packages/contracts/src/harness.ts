@@ -222,14 +222,18 @@ export type ChatThreadState = z.infer<typeof chatThreadStateSchema>;
  * or asleep (`chatThreadStateSchema`); waiting for the person, its agent stopped needing them to
  * answer or act before it can go on; or done, needing nothing of them. A small model reads which
  * as the thread's turn ends; without one, or where it can't, the thread is done.
- * `POST chat/personas/:personaId/threads/:threadId/done`, with no body: the person says a thread
- * waiting for them is done.
+ * `POST chat/personas/:personaId/threads/:threadId/done`, with a body as `threadDoneBodySchema`:
+ * the person says a thread waiting for them is done, cancelling the alerts that come to it where
+ * they ask to.
  * `POST chat/personas/:personaId/threads/:threadId/archive`, with no body: the person archives a
- * thread, which the chat's list no longer has until they reply in it or an alert takes it up.
+ * thread, which the chat's list no longer has until they reply in it or an alert takes it up; the
+ * alerts that come to it are cancelled with it.
  */
 export const threadStandingSchema = z.enum(['in_progress', 'waiting', 'done']);
 
 export type ThreadStanding = z.infer<typeof threadStandingSchema>;
+
+export const threadDoneBodySchema = z.object({cancelAlerts: z.boolean().optional()});
 
 /**
  * Something said in a thread, as its page shows it: what the person said, with the files they
@@ -258,7 +262,9 @@ export type ThreadMessage = z.infer<typeof threadMessageSchema>;
  * the next is; the start of the latest
  * thing the persona said in it, cut to a line, null before it said anything, and the entry that
  * came from, an answer or one whose step told the person something as it went; how many messages it holds
- * (`threadMessageSchema`), and when the last came.
+ * (`threadMessageSchema`), and when the last came; how many of the person's alerts come to it,
+ * those set in it to wake it rather than open a thread of their own; and whether an alert opened it
+ * rather than the person.
  */
 export const chatThreadSchema = z.object({
 	id: z.string(),
@@ -282,6 +288,8 @@ export const chatThreadSchema = z.object({
 	messageCount: z.number(),
 	lastMessageAt: z.string(),
 	createdAt: z.string(),
+	alerts: z.number(),
+	openedByAlert: z.boolean(),
 });
 
 export type ChatThread = z.infer<typeof chatThreadSchema>;
@@ -300,6 +308,8 @@ export const chatThreadsSchema = z.object({
 	 */
 	draftAttachments: z.array(chatAttachmentSchema),
 	threads: z.array(chatThreadSchema),
+	/** How many of the person's alerts are the chat's: those that open a new thread in it each time, rather than come to one. */
+	alerts: z.number(),
 });
 
 export type ChatThreads = z.infer<typeof chatThreadsSchema>;
