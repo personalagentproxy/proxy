@@ -133,7 +133,12 @@ test('a reply is sent with the actions sending and reading email, or saved as a 
 	expect(send?.description).toStartWith(
 		'Reply to an email in its thread, and send the reply at once',
 	);
-	expect(Object.keys(send?.inputSchema.properties ?? {})).toEqual(['email', 'body', 'replyAll']);
+	expect(Object.keys(send?.inputSchema.properties ?? {})).toEqual([
+		'email',
+		'body',
+		'replyAll',
+		'quote',
+	]);
 	expect(send?.inputSchema.properties?.replyAll?.enum).toEqual(['Yes', 'No']);
 	expect(findTool(integration('google'), 'replies_send')).toMatchObject({
 		action: 'sendEmails',

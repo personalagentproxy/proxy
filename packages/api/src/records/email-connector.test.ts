@@ -9,7 +9,7 @@ import {findCollection, findIntegration, type Collection} from '@proxy/integrati
 type Folder = {path: string; specialUse?: string};
 type Address = {name?: string; address: string};
 type Stored = {uid: number; date: string; subject: string; from?: Address[]; to?: Address[]};
-type Criteria = {all?: boolean; uid?: string; text?: string; gmraw?: string; from?: string; since?: string; or?: Criteria[]; not?: Criteria; to?: string; cc?: string};
+type Criteria = {all?: boolean; uid?: string; text?: string; gmraw?: string; from?: string; since?: string; or?: Criteria[]; not?: Criteria; to?: string; cc?: string; subject?: string};
 
 const UID_VALIDITY = 7n;
 
@@ -17,6 +17,8 @@ const imap = {
 	folders: [] as Folder[],
 	boxes: {} as Record<string, Stored[]>,
 	gmail: false,
+	// Whether the server refuses a search of the emails' text, or every search, as it may a large folder.
+	refuses: 'nothing' as 'nothing' | 'text' | 'everything',
 	opened: '',
 	logins: 0,
 	logouts: 0,
@@ -62,6 +64,9 @@ class FakeImapFlow {
 	// FROM and TO, the sender's and recipients' addresses, here all lowercase.
 	async search(criteria: Criteria) {
 		imap.searches.push(criteria);
+		if (imap.refuses === 'everything' || (imap.refuses === 'text' && criteria.text !== undefined)) {
+			return false;
+		}
 		const words = criteria.gmraw ?? criteria.text;
 		const below = criteria.uid ? Number(criteria.uid.split(':')[1]) : Infinity;
 		const path = this.mailbox ? this.mailbox.path : '';
@@ -126,6 +131,10 @@ class FakeImapFlow {
 
 mock.module('imapflow', () => ({ImapFlow: FakeImapFlow}));
 
+// The mailbox owner's time zone, which a quoted reply's "On … wrote:" line keeps to.
+const getUserTimeZone = mock(async () => Ok<string | null>(null));
+mock.module('@proxy/db/user', () => ({getUserTimeZone}));
+
 const sendMail = mock();
 
 mock.module('../connections/email/mail-check', () => ({
@@ -187,6 +196,7 @@ beforeEach(() => {
 		Drafts: [{uid: 1, date: '2026-10-03T09:00:00Z', subject: 'In Drafts'}],
 	};
 	imap.gmail = false;
+	imap.refuses = 'nothing';
 	imap.logins = 0;
 	imap.logouts = 0;
 	imap.closes = 0;
@@ -258,6 +268,20 @@ describe('emails', () => {
 
 		expect(imap.searches.slice(0, 3)).toEqual([{text: 'from:sam'}, {text: 'from:sam'}, {text: 'from:sam'}]);
 		expect(imap.searches.slice(3)).toEqual([{gmraw: 'from:sam'}, {gmraw: 'from:sam'}, {gmraw: 'from:sam'}]);
+	});
+
+	test('a search the server refuses of the text looks in the headers, and one it refuses whole fails rather than finding nothing', async () => {
+		imap.boxes.INBOX = [{uid: 1, date: '2026-10-01T09:00:00Z', subject: 'Invoice', from: [{address: 'sam@example.com'}]}];
+		imap.refuses = 'text';
+		const {emailConnector} = await import('./email-connector');
+		const inbox = {...EVERYTHING, search: 'sam', filter: 'Inbox'};
+		const {records} = (await emailConnector.list(target, inbox)).unwrap();
+
+		expect(imap.searches).toEqual([{text: 'sam'}, {or: [{from: 'sam'}, {to: 'sam'}, {cc: 'sam'}, {subject: 'sam'}]}]);
+		expect(records.map((record) => record.values.subject)).toEqual(['Invoice']);
+
+		imap.refuses = 'everything';
+		expect((await emailConnector.list(target, inbox)).unwrapErr().kind).toBe('provider_unreachable');
 	});
 
 	test('a page token from somewhere else is refused', async () => {
@@ -387,6 +411,19 @@ describe('emailConnector.findEmails', () => {
 		expect(found.map((record) => record.values.subject)).toEqual(['Note 6', 'Note 5', 'Note 4']);
 		// With who was copied, which the widgets find people in.
 		expect(found[0]?.values.cc).toBe('Jo Park <jo@example.com>');
+	});
+
+	test('a search the server refuses of the text looks for the words in the headers, and one it refuses whole fails', async () => {
+		imap.boxes.INBOX = [{uid: 1, date: '2026-10-01T09:00:00Z', subject: 'Invoice', from: [{address: 'sam@example.com'}]}];
+		imap.refuses = 'text';
+		const findInboxEmails = (await import('./email-connector')).emailConnector.findEmails;
+		const [found = []] = (await findInboxEmails(target, [{from: null, words: [['sam']], since: null}], 3)).unwrap();
+
+		expect(imap.searches).toEqual([{text: 'sam'}, {or: [{from: 'sam'}, {to: 'sam'}, {cc: 'sam'}, {subject: 'sam'}]}]);
+		expect(found.map((record) => record.values.subject)).toEqual(['Invoice']);
+
+		imap.refuses = 'everything';
+		expect((await findInboxEmails(target, [{from: null, words: [['sam']], since: null}], 3)).unwrapErr().kind).toBe('provider_unreachable');
 	});
 
 	test("searches in Gmail's syntax on Gmail, and everything without a search", async () => {
@@ -589,7 +626,7 @@ describe('emailConnector.reply', () => {
 	test('sends a reply from the connected address, to where the email asks, in its thread, and files it in Sent', async () => {
 		imap.message = {uid: 12, flags: new Set(), source: asked};
 		const replyToMailbox = (await import('./email-connector')).emailConnector.reply;
-		const written = (await replyToMailbox(target, INBOX_EMAIL, {body: 'Thursday works.', send: true, all: false})).unwrap();
+		const written = (await replyToMailbox(target, INBOX_EMAIL, {body: 'Thursday works.', send: true, all: false, quote: true, timeZone: null})).unwrap();
 
 		expect(written).toEqual({
 			to: '"Planning" <planning@example.com>',
@@ -606,7 +643,7 @@ describe('emailConnector.reply', () => {
 			from: 'alex@example.com',
 			to: '"Planning" <planning@example.com>',
 			subject: 'Re: Q3 planning',
-			text: 'Thursday works.',
+			text: 'Thursday works.\n\nSam Lee <sam@example.com> wrote:\n> Can you make Thursday?\n',
 			inReplyTo: '<q3@example.com>',
 			references: '<agenda@example.com> <q3@example.com>',
 		});
@@ -617,7 +654,7 @@ describe('emailConnector.reply', () => {
 	test('saves a reply in Drafts, keeping its thread', async () => {
 		imap.message = {uid: 12, flags: new Set(), source: asked};
 		const replyToMailbox = (await import('./email-connector')).emailConnector.reply;
-		const written = (await replyToMailbox(target, INBOX_EMAIL, {body: 'Thursday works.', send: false, all: false})).unwrap();
+		const written = (await replyToMailbox(target, INBOX_EMAIL, {body: 'Thursday works.', send: false, all: false, quote: true, timeZone: null})).unwrap();
 
 		expect(written.id).toBe(`drafts-${UID_VALIDITY}-99`);
 		expect(sendMail).not.toHaveBeenCalled();
@@ -626,12 +663,44 @@ describe('emailConnector.reply', () => {
 		expect(draft).toContain('Subject: Re: Q3 planning');
 		expect(draft).toContain('In-Reply-To: <q3@example.com>');
 		expect(draft).toContain('References: <agenda@example.com> <q3@example.com>');
+		// Above the email it answers, quoted as a mail app quotes it.
+		expect(draft).toContain('Thursday works.\n\nSam Lee <sam@example.com> wrote:\n> Can you make Thursday?');
+	});
+
+	test('a reply quotes the email in HTML too, in Gmail’s quote, and not at all when asked not to', async () => {
+		imap.message = {uid: 12, flags: new Set(), source: asked};
+		const replyToMailbox = (await import('./email-connector')).emailConnector.reply;
+		await replyToMailbox(target, INBOX_EMAIL, {body: 'Thursday works.', send: true, all: false, quote: true, timeZone: null});
+		await replyToMailbox(target, INBOX_EMAIL, {body: 'Thursday works.', send: true, all: false, quote: false, timeZone: null});
+
+		const [quoted, bare] = sendMail.mock.calls.map((call) => call[0]);
+		expect(quoted.html).toContain('<div dir="ltr">Thursday works.</div><br>');
+		expect(quoted.html).toContain('<div dir="ltr" class="gmail_attr">Sam Lee &lt;sam@example.com&gt; wrote:<br></div>');
+		expect(quoted.html).toContain('<blockquote class="gmail_quote" type="cite"');
+		expect(quoted.html).toContain('Can you make Thursday?</blockquote>');
+		expect(bare).toMatchObject({text: 'Thursday works.'});
+		expect(bare.html).toBeUndefined();
+	});
+
+	test('a reply saved as a draft stays in its thread when edited and when sent', async () => {
+		const drafted = Buffer.from(
+			'From: alex@example.com\r\nTo: sam@example.com\r\nSubject: Re: Q3 planning\r\nIn-Reply-To: <q3@example.com>\r\nReferences: <agenda@example.com> <q3@example.com>\r\n\r\nThursday works.\r\n',
+		);
+		imap.message = {uid: 12, flags: new Set(), source: drafted};
+		const {emailConnector} = await import('./email-connector');
+		await emailConnector.update(target, DRAFT, {to: 'sam@example.com', subject: 'Re: Q3 planning', body: 'Thursday at 10 works.'});
+		await emailConnector.commands?.send?.(target, DRAFT);
+
+		const edited = imap.appended[0]?.replace(/\r\n[ \t]+/g, ' ') ?? '';
+		expect(edited).toContain('In-Reply-To: <q3@example.com>');
+		expect(edited).toContain('References: <agenda@example.com> <q3@example.com>');
+		expect(sendMail.mock.calls[0]?.[0]).toMatchObject({inReplyTo: '<q3@example.com>', references: '<agenda@example.com> <q3@example.com>'});
 	});
 
 	test('a reply to all also goes to whom the email went, and copies whom it copied, never the connected address', async () => {
 		imap.message = {uid: 12, flags: new Set(), source: asked};
 		const replyToMailbox = (await import('./email-connector')).emailConnector.reply;
-		const written = (await replyToMailbox(target, INBOX_EMAIL, {body: 'Thursday works.', send: true, all: true})).unwrap();
+		const written = (await replyToMailbox(target, INBOX_EMAIL, {body: 'Thursday works.', send: true, all: true, quote: true, timeZone: null})).unwrap();
 
 		expect(written).toMatchObject({to: '"Planning" <planning@example.com>, "Dana Cruz" <dana@example.com>', cc: '"Jo Park" <jo@example.com>'});
 		expect(sendMail.mock.calls[0]?.[0]).toMatchObject({to: '"Planning" <planning@example.com>, "Dana Cruz" <dana@example.com>', cc: '"Jo Park" <jo@example.com>'});
@@ -640,7 +709,7 @@ describe('emailConnector.reply', () => {
 	test('an email sent is replied to as well, to whom it went', async () => {
 		imap.message = {uid: 12, flags: new Set(), source};
 		const replyToMailbox = (await import('./email-connector')).emailConnector.reply;
-		const written = (await replyToMailbox(target, `sent-${UID_VALIDITY}-12`, {body: 'Any news?', send: true, all: false})).unwrap();
+		const written = (await replyToMailbox(target, `sent-${UID_VALIDITY}-12`, {body: 'Any news?', send: true, all: false, quote: true, timeZone: null})).unwrap();
 
 		expect(imap.opened).toBe('Sent Items');
 		expect(written).toMatchObject({to: 'sam@example.com', subject: 'Re: Q3 planning'});
@@ -649,8 +718,8 @@ describe('emailConnector.reply', () => {
 	test('replies to no draft, and to no email that isn’t there', async () => {
 		const replyToMailbox = (await import('./email-connector')).emailConnector.reply;
 
-		expect((await replyToMailbox(target, DRAFT, {body: 'x', send: true, all: false})).unwrapErr().kind).toBe('validation_error');
-		expect((await replyToMailbox(target, `inbox-${UID_VALIDITY}-13`, {body: 'x', send: true, all: false})).unwrapErr().kind).toBe('not_found');
+		expect((await replyToMailbox(target, DRAFT, {body: 'x', send: true, all: false, quote: true, timeZone: null})).unwrapErr().kind).toBe('validation_error');
+		expect((await replyToMailbox(target, `inbox-${UID_VALIDITY}-13`, {body: 'x', send: true, all: false, quote: true, timeZone: null})).unwrapErr().kind).toBe('not_found');
 		expect(sendMail).not.toHaveBeenCalled();
 	});
 
@@ -660,7 +729,7 @@ describe('emailConnector.reply', () => {
 		const sent = (await emailRepliesConnector.newCommands.send(repliesTarget(), {email: INBOX_EMAIL, body: 'Thursday works.', replyAll: 'No'})).unwrap();
 		const drafted = (await emailRepliesConnector.newCommands.draft(repliesTarget(), {email: INBOX_EMAIL, body: 'Thursday works.', replyAll: 'Yes'})).unwrap();
 
-		expect(sent?.values).toEqual({email: INBOX_EMAIL, body: 'Thursday works.', replyAll: 'No', to: '"Planning" <planning@example.com>', cc: '', subject: 'Re: Q3 planning'});
+		expect(sent?.values).toEqual({email: INBOX_EMAIL, body: 'Thursday works.', replyAll: 'No', quote: '', to: '"Planning" <planning@example.com>', cc: '', subject: 'Re: Q3 planning'});
 		expect(drafted).toMatchObject({id: `drafts-${UID_VALIDITY}-99`, values: {cc: '"Jo Park" <jo@example.com>'}});
 		expect(imap.appended.at(-1)?.replace(/\r\n[ \t]+/g, ' ')).toContain('Cc: Jo Park <jo@example.com>');
 	});

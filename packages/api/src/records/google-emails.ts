@@ -55,7 +55,7 @@ import {
 } from './connector';
 import {gmailQuery, type EmailSearch, type MailSearch} from './email-search';
 import {labelNames} from './google-labels';
-import {replyCommands, replyHeaders, type MailReply} from './email-reply';
+import {replyCommands, replyContent, replyHeaders, type MailReply} from './email-reply';
 
 /**
  * Gmail as the `emails` collection, fetched live, the same email as any mailbox's: one list, 50 to
@@ -500,7 +500,10 @@ const replyToGmail: MailReply = (target, recordId, reply) =>
 			);
 			$(requireRecipient(headers.to, headers.cc, ''));
 			const thread = {inReplyTo: headers.inReplyTo, references: headers.references};
-			const source = $(await compose(target.connection.account, {to: headers.to, cc: headers.cc, subject: headers.subject, body: reply.body}, thread));
+			const date = headerOf(payload, 'Date');
+			const quoted = {from: headerOf(payload, 'From'), date: date ? new Date(date) : null, text: messageBody(payload), html: messageHtml(payload)};
+			const content = replyContent(reply.body, reply.quote ? quoted : null, reply.timeZone);
+			const source = $(await compose(target.connection.account, {to: headers.to, cc: headers.cc, subject: headers.subject, body: content.text}, thread, content.html));
 			const message = rawMessage(source, threadId ?? null);
 			if (reply.send) {
 				const sent = $(await sendMessage(token, message));

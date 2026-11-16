@@ -9,6 +9,8 @@ import type {RecordStore} from './connector';
 const markCredentialRejected = mock(async () => Ok(true));
 mock.module('@proxy/db/connection', () => ({markCredentialRejected, updateConnectionCredential: mock(), getConnectionCredential: mock(async () => Ok(null))}));
 
+const getUserTimeZone = mock(async () => Ok<string | null>(null));
+mock.module('@proxy/db/user', () => ({getUserTimeZone}));
 mock.module('../observability/log', () => ({
 	log: {debug: mock(), info: mock(), warn: mock(), error: mock()},
 	serializeError: mock(() => ({})),
@@ -606,7 +608,7 @@ describe('gmailConnector.reply', () => {
 
 	test('sends a reply to the sender from the connection’s address, in the email’s thread', async () => {
 		withHeaders('m1', {'Message-ID': '<q3@example.com>', References: '<agenda@example.com>'});
-		const written = (await (await replyToGmail())(target, 'm1', {body: 'Works for me.', send: true, all: false})).unwrap();
+		const written = (await (await replyToGmail())(target, 'm1', {body: 'Works for me.', send: true, all: false, quote: true, timeZone: null})).unwrap();
 
 		expect(written).toEqual({
 			to: '"Sam Lee" <sam@example.com>',
@@ -626,14 +628,38 @@ describe('gmailConnector.reply', () => {
 		expect(raw).toContain('Subject: Re: Q3 planning');
 		expect(raw).toContain('In-Reply-To: <q3@example.com>');
 		expect(raw).toContain('References: <agenda@example.com> <q3@example.com>');
-		expect(raw).toContain('Works for me.');
+		// Above the email it answers, quoted as a mail app quotes it.
+		expect(raw).toContain('Works for me.\n\nOn Thu, Oct 1, 2026 at 9:00 AM Sam Lee <sam@example.com> wrote:\n> Agenda attached.');
+		// And beside it in HTML, the email in Gmail's own quote, which Apple Mail reads as one too.
+		const html = raw.replace(/=\r\n/g, '').replace(/=3D/g, '=');
+		expect(html).toContain('<div class="gmail_quote gmail_quote_container">');
+		expect(html).toContain('<blockquote class="gmail_quote" type="cite"');
+		expect(html).toContain('<p>Agenda attached.</p></blockquote>');
 		expect(raw).not.toContain('Cc:');
 		expect(calls('POST', '/drafts')).toEqual([]);
 	});
 
+	test('quotes the email in the time zone of the mailbox’s owner, or not at all when asked not to', async () => {
+		getUserTimeZone.mockResolvedValueOnce(Ok('Europe/Berlin'));
+		const integration = findIntegration('google');
+		const replies = integration && findCollection(integration, 'replies');
+		if (!replies) {
+			throw new Error('No replies collection');
+		}
+		const {gmailRepliesConnector: c} = await import('./google-emails');
+		await c.newCommands?.send?.({...target, collection: replies}, {email: 'm1', body: 'Works for me.', replyAll: ''});
+		await c.newCommands?.send?.({...target, collection: replies}, {email: 'm1', body: 'Works for me.', replyAll: '', quote: 'No'});
+
+		const [quoted, bare] = calls('POST', '/messages/send').map((call) => rawText(call.body));
+		expect(getUserTimeZone).toHaveBeenCalledWith('user-1');
+		expect(quoted).toContain('On Thu, Oct 1, 2026 at 11:00 AM Sam Lee <sam@example.com> wrote:');
+		expect(bare).not.toContain('wrote:');
+		expect(bare).not.toContain('text/html');
+	});
+
 	test('saves a reply as a draft in the thread, to where the email asks replies to go', async () => {
 		withHeaders('m1', {'Reply-To': 'planning@example.com', 'Message-ID': '<q3@example.com>'});
-		const written = (await (await replyToGmail())(target, 'm1', {body: 'Draft reply', send: false, all: false})).unwrap();
+		const written = (await (await replyToGmail())(target, 'm1', {body: 'Draft reply', send: false, all: false, quote: true, timeZone: null})).unwrap();
 
 		expect(written).toMatchObject({id: 'draft-r2', thread: 'thread-m4'});
 		const message = calls('POST', '/drafts')[0]?.body?.message as Record<string, unknown>;
@@ -643,7 +669,7 @@ describe('gmailConnector.reply', () => {
 	});
 
 	test('a reply to an email sent goes to whom it went, under its subject as it is', async () => {
-		const headers = (await (await replyToGmail())(target, 'm2', {body: 'Running late', send: true, all: false})).unwrap();
+		const headers = (await (await replyToGmail())(target, 'm2', {body: 'Running late', send: true, all: false, quote: true, timeZone: null})).unwrap();
 
 		expect(headers).toMatchObject({to: 'Robin <robin@example.com>', subject: 'Re: dinner'});
 	});
@@ -654,7 +680,7 @@ describe('gmailConnector.reply', () => {
 		if (email?.payload.headers) {
 			email.payload.headers = email.payload.headers.map((header) => (header.name === 'To' ? {...header, value: 'Alex Kim <alex@example.com>, Dana Cruz <dana@example.com>'} : header));
 		}
-		const written = (await (await replyToGmail())(target, 'm1', {body: 'Works for all of us.', send: true, all: true})).unwrap();
+		const written = (await (await replyToGmail())(target, 'm1', {body: 'Works for all of us.', send: true, all: true, quote: true, timeZone: null})).unwrap();
 
 		expect(written).toMatchObject({to: '"Sam Lee" <sam@example.com>, "Dana Cruz" <dana@example.com>', cc: '"Jo Park" <jo@example.com>'});
 		const raw = rawText(calls('POST', '/messages/send')[0]?.body);
@@ -684,8 +710,8 @@ describe('gmailConnector.reply', () => {
 	test('replies to no draft, and to no email Gmail doesn’t have', async () => {
 		const reply = await replyToGmail();
 
-		expect((await reply(target, 'draft-r1', {body: 'x', send: true, all: false})).unwrapErr().kind).toBe('validation_error');
-		expect((await reply(target, 'gone', {body: 'x', send: true, all: false})).unwrapErr().kind).toBe('not_found');
+		expect((await reply(target, 'draft-r1', {body: 'x', send: true, all: false, quote: true, timeZone: null})).unwrapErr().kind).toBe('validation_error');
+		expect((await reply(target, 'gone', {body: 'x', send: true, all: false, quote: true, timeZone: null})).unwrapErr().kind).toBe('not_found');
 		expect(calls('POST', '/messages/send')).toEqual([]);
 	});
 });

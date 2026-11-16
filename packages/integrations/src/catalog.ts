@@ -172,7 +172,7 @@ function emailsCollection(args: {
  */
 function repliesCollection(actions: Pick<EmailActions, 'read' | 'write' | 'send'>): Collection {
 	const what =
-		'Name the email by its id, as a list gives it, and write the reply as body: whom it goes to, its subject and its thread come from the email, as a mail app’s Reply writes them. With replyAll Yes it also goes to everyone else the email went to. Answers whom it went to, its subject and its id among email, with its thread on Gmail.';
+		'Name the email by its id, as a list gives it, and write the reply as body: whom it goes to, its subject and its thread come from the email, as a mail app’s Reply writes them. With replyAll Yes it also goes to everyone else the email went to. The email is quoted below the reply, as Gmail quotes it, unless quote is No. Answers whom it went to, its subject and its id among email, with its thread on Gmail.';
 	return {
 		id: 'replies',
 		name: 'Replies',
@@ -204,6 +204,7 @@ function repliesCollection(actions: Pick<EmailActions, 'read' | 'write' | 'send'
 			{key: 'email', label: 'Email', type: 'text'},
 			{key: 'body', label: 'Body', type: 'longtext'},
 			{key: 'replyAll', label: 'Reply all', type: 'select', options: ['Yes', 'No']},
+			{key: 'quote', label: 'Quote the email', type: 'select', options: ['Yes', 'No']},
 			{key: 'to', label: 'To', type: 'email', system: true},
 			{key: 'cc', label: 'Cc', type: 'email', system: true},
 			{key: 'subject', label: 'Subject', type: 'text', system: true},

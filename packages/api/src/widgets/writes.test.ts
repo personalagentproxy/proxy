@@ -17,6 +17,8 @@ const update = mock();
 mock.module('../utils/env', () => ({env: {NODE_ENV: 'test'}}));
 mock.module('./sources', () => ({requireWritable, requireReadable, findSources: mock(), summarize: mock(), withCapability: mock()}));
 mock.module('./writes', () => ({afterWrite}));
+// The person's time zone, which a quoted reply's "On … wrote:" line keeps to.
+mock.module('@proxy/db/user', () => ({getUserTimeZone: async () => Ok('Europe/Berlin')}));
 mock.module('../utils/user-org', () => ({
 	requireViewer: async () => Ok({orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace', role: 'owner', onboarded: true, experiments: []}),
 }));
@@ -113,7 +115,7 @@ describe('handleReplyEmailRoute', () => {
 		expect((await handleReplyEmailRoute(request({...answer, send: true}))).unwrap()).toEqual({sent: true});
 		expect(requireWritable).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'work', 'emails', 'sendNew', ['to', 'subject', 'body']);
 		expect(requireReadable).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'work', 'emails');
-		expect(reply).toHaveBeenCalledWith(source, 'm1', {body: 'Paid this morning.', send: true, all: false});
+		expect(reply).toHaveBeenCalledWith(source, 'm1', {body: 'Paid this morning.', send: true, all: false, quote: true, timeZone: 'Europe/Berlin'});
 		// The mailbox is the email's, so none is picked for the next new email.
 		expect(afterWrite).toHaveBeenCalledWith({viewer: expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), source, action: 'sendNew', title: 'Re: Invoice', parent: undefined});
 	});
@@ -123,7 +125,7 @@ describe('handleReplyEmailRoute', () => {
 
 		expect((await handleReplyEmailRoute(request({...answer, send: false}))).unwrap()).toEqual({sent: false});
 		expect(requireWritable).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'work', 'emails', 'create', ['to', 'subject', 'body']);
-		expect(reply).toHaveBeenCalledWith(source, 'm1', {body: 'Paid this morning.', send: false, all: false});
+		expect(reply).toHaveBeenCalledWith(source, 'm1', {body: 'Paid this morning.', send: false, all: false, quote: true, timeZone: 'Europe/Berlin'});
 	});
 
 	test('replies through no mailbox it can’t read, nor one that can’t reply, and logs nothing then', async () => {
