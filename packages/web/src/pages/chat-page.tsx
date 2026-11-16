@@ -85,6 +85,7 @@ import {useReload} from '@/hooks/use-reload';
 import {useSending} from '@/hooks/use-sending';
 import {useUnread} from '@/hooks/use-unread';
 import {formatMessageTime} from '@/lib/chat-time';
+import {rowDraftPreview} from '@/lib/chat-sidebar-preview';
 import {formatAgo} from '@/lib/format';
 import {describeApiError, describeFetchError} from '@/lib/loader-utils';
 import type {chatLoader} from '@/loaders';
@@ -113,14 +114,6 @@ function subtitle(last: LastMessage): string {
 		return 'Nothing yet';
 	}
 	return last.kind === 'person' ? `You: ${last.text}` : last.text;
-}
-
-// What the person typed in a chat and hasn't sent, cut to a line; null without any.
-function draftLine(draft: string | null): string | null {
-	if (draft === null || draft.trim() === '') {
-		return null;
-	}
-	return preview(draft);
 }
 
 // The latest of what the page knows was said last, as the list has it and as the page shows it.
@@ -199,7 +192,11 @@ function PersonaList({
 			return {
 				persona,
 				last: open ? latestOf([persona.lastMessage, open.last]) : persona.lastMessage,
-				draft: draftLine(open ? open.draft : (recallDraft(persona.id) ?? persona.draft)),
+				draft: rowDraftPreview(
+					current,
+					persona.id,
+					open ? open.draft : (recallDraft(persona.id) ?? persona.draft),
+				),
 			};
 		})
 		.toSorted((a, b) => lastActive(b.persona, b.last) - lastActive(a.persona, a.last));
