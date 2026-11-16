@@ -18,7 +18,7 @@ import {
 	MessageScrollerViewport,
 } from '@/components/chat/message-scroller';
 import {FileViewer, type ViewedFile} from '@/components/chat/file-viewer';
-import {EventLine, PersonBubble} from '@/components/chat/thread-parts';
+import {AlertsLine, EventLine, PersonBubble} from '@/components/chat/thread-parts';
 import {WorkingLine} from '@/components/chat/working-line';
 import {type ImageOf, Markdown} from '@/components/markdown';
 import type {AttachmentInput} from '@/hooks/use-attachments';
@@ -162,8 +162,9 @@ function personText(message: ThreadMessage): string | null {
 // Nothing to take out on the server: a thread's box is the page's alone.
 function keepNothing() {}
 
-// One of the chat's threads: everything said in it, read again as it works, and a box to reply in,
-// which has the keyboard's focus as it opens; the check that says it is done is in its cell of the
+// One of the chat's threads: everything said in it, read again as it works, at its end the alerts
+// that come to it, as a line to the Alerts page showing them, and a box to reply in, which has the
+// keyboard's focus as it opens; the check that says it is done is in its cell of the
 // title bar (chat-page.tsx). What the person replies shows at once, the persona at work under
 // it, before the server has it.
 function Thread({
@@ -282,6 +283,14 @@ function Thread({
 								<div data-enter="fade">
 									<WorkingLine />
 								</div>
+							</MessageScrollerItem>
+						)}
+						{view.thread.alerts > 0 && (
+							<MessageScrollerItem>
+								<AlertsLine
+									count={view.thread.alerts}
+									to={`/${org}/alerts?thread=${encodeURIComponent(threadId)}`}
+								/>
 							</MessageScrollerItem>
 						)}
 					</MessageScrollerContent>

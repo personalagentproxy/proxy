@@ -1,16 +1,27 @@
 import {z} from 'zod';
 
-/** `GET /api/me`: who is signed in. The organizations they are in are `GET /api/orgs` (`orgs.ts`). */
+/**
+ * `GET /api/me`: who is signed in, with their time zone, an IANA name such as `Europe/Berlin`,
+ * which the agents are told and repeating alerts keep to; null before one was set. The organizations
+ * they are in are `GET /api/orgs` (`orgs.ts`).
+ */
 export const meSchema = z.object({
 	user: z.object({
 		id: z.string(),
 		email: z.string(),
 		name: z.string().nullable(),
 		image: z.string().nullable(),
+		timeZone: z.string().nullable(),
 	}),
 });
 
 export type Me = z.infer<typeof meSchema>;
+
+/**
+ * `PUT /api/me/time-zone`: the person's time zone, an IANA name the server knows; the web app sets
+ * the browser's where none is set, and the Account page changes it.
+ */
+export const timeZoneBodySchema = z.object({timeZone: z.string().trim().min(1).max(100)});
 
 /**
  * One of the person's sessions in `GET /api/me/sessions`: what it is, read from the User-Agent it

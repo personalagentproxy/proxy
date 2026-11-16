@@ -13,6 +13,23 @@ export async function getUserFromId(id: string): Promise<Result<User | null, Api
 	return wrapDb(() => db.user.findUnique({where: {id}}));
 }
 
+/** The user's time zone, an IANA name; `Ok(null)` where they have none set, or there is no such user. */
+export async function getUserTimeZone(id: string): Promise<Result<string | null, ApiError>> {
+	return (await wrapDb(() => db.user.findUnique({where: {id}, select: {timeZone: true}}))).map(
+		(user) => user?.timeZone ?? null,
+	);
+}
+
+/** Sets the user's time zone, an IANA name the caller checked. */
+export async function setUserTimeZone(
+	id: string,
+	timeZone: string,
+): Promise<Result<void, ApiError>> {
+	return (
+		await wrapDb(() => db.user.update({where: {id}, data: {timeZone}, select: {id: true}}))
+	).map(() => undefined);
+}
+
 /** Exact match on the unique email column. */
 export async function getUserByEmail(email: string): Promise<Result<CreatedUser | null, ApiError>> {
 	return wrapDb(() =>

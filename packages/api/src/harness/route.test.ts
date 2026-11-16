@@ -73,6 +73,7 @@ const chat: ThreadRow = {
 	taskId: null,
 	harness: null,
 	harnessSession: null,
+	openedByAlert: false,
 	createdAt: now,
 };
 
@@ -439,6 +440,7 @@ describe('the chat’s threads', () => {
 			taskId: 'task-1',
 			state: {kind: 'stopped'},
 			standing: {waitingForMember: false, summary: null, summarySeq: null, archived: false},
+			alerts: 0,
 			entries: [],
 			attachments: [],
 			...row,
@@ -483,8 +485,12 @@ describe('the chat’s threads', () => {
 		store.getMemberChat.mockResolvedValue(Ok(null));
 		store.getChatDraft.mockResolvedValue(Ok('Move the review'));
 		store.listDraftAttachments.mockResolvedValue(Ok([{connectionId: 'drive-1', fileId: 'file-1', version: 'v1', name: 'pricing.md', type: 'text/markdown', size: 42}]));
+		store.countChatAlerts.mockResolvedValue(Ok(2));
 
 		const listed = (await handleListThreadsRoute(request({personaId: 'persona-1'}))).unwrap();
+		// The chat's own alerts, which open threads of their own, as against those of its threads.
+		expect(store.countChatAlerts).toHaveBeenCalledWith('chat-1');
+		expect(listed.alerts).toBe(2);
 
 		expect(store.ensureMemberChat).toHaveBeenCalledWith({orgId: 'org-1', agentId: 'login-1', personaId: 'persona-1', userId: 'user-1'});
 		expect(store.listChatThreads).toHaveBeenCalledWith('chat-1', ['send_to_person'], expect.any(Date));
@@ -506,6 +512,8 @@ describe('the chat’s threads', () => {
 				messageCount: 1,
 				lastMessageAt: later(30).toISOString(),
 				createdAt: later(-10).toISOString(),
+				alerts: 0,
+				openedByAlert: false,
 			},
 			{
 				id: 'thread-2',
@@ -521,6 +529,8 @@ describe('the chat’s threads', () => {
 				messageCount: 3,
 				lastMessageAt: later(2).toISOString(),
 				createdAt: now.toISOString(),
+				alerts: 0,
+				openedByAlert: false,
 			},
 		]);
 	});
@@ -604,7 +614,10 @@ describe('the chat’s threads', () => {
 		store.markThreadDone.mockResolvedValue(Ok(true));
 
 		expect((await handleMarkThreadDoneRoute(request({personaId: 'persona-1', threadId: 'thread-2'}))).isOk()).toBe(true);
-		expect(store.markThreadDone).toHaveBeenCalledWith('chat-1', 'thread-2');
+		expect(store.markThreadDone).toHaveBeenCalledWith('chat-1', 'thread-2', false);
+		expect((await handleMarkThreadDoneRoute(request({personaId: 'persona-1', threadId: 'thread-2'}, {cancelAlerts: true}))).isOk()).toBe(true);
+		expect(store.markThreadDone).toHaveBeenLastCalledWith('chat-1', 'thread-2', true);
+		expect((await handleMarkThreadDoneRoute(request({personaId: 'persona-1', threadId: 'thread-2'}, {cancelAlerts: 'yes'}))).isErr()).toBe(true);
 
 		store.markThreadDone.mockResolvedValue(Ok(false));
 		expect((await handleMarkThreadDoneRoute(request({personaId: 'persona-1', threadId: 'thread-9'}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'thread'});
@@ -613,7 +626,7 @@ describe('the chat’s threads', () => {
 		expect((await handleMarkThreadDoneRoute(request({personaId: 'persona-1', threadId: 'thread-2'}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'thread'});
 		store.getPersona.mockResolvedValue(Ok(null));
 		expect((await handleMarkThreadDoneRoute(request({personaId: 'persona-9', threadId: 'thread-2'}))).unwrapErr().kind).toBe('not_found');
-		expect(store.markThreadDone).toHaveBeenCalledTimes(2);
+		expect(store.markThreadDone).toHaveBeenCalledTimes(3);
 		expect(store.ensureMemberChat).not.toHaveBeenCalled();
 	});
 

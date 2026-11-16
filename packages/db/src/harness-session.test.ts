@@ -250,6 +250,7 @@ describe.skipIf(!databaseUrl)('a turn written as it goes, against the database',
 		expect(unwrap(await getJobThread(thread.id))).toMatchObject({
 			harness: 'proxy',
 			harnessSession: null,
+			openedByAlert: false,
 		});
 		expect(await openJobs(thread.id)).toEqual([]);
 

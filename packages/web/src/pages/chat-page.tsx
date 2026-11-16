@@ -57,11 +57,12 @@ import {
 	MessageScrollerViewport,
 } from '@/components/chat/message-scroller';
 import {
+	AlertOpenerLine,
+	AlertsLine,
 	ARCHIVE_LABEL,
 	ArchiveButton,
 	DONE_LABEL,
 	DoneButton,
-	EventLine,
 	PersonBubble,
 	ThreadStatus,
 } from '@/components/chat/thread-parts';
@@ -388,6 +389,66 @@ function ThreadHeader({
 	);
 }
 
+// What the person is asked as they say a thread with alerts that come to it is done, or archive
+// it: the alerts would wake it again. Done, its alerts go with it or stay; archived, they go, as the
+// server cancels them with it.
+function AlertsPendingDialog({
+	confirming,
+	onClose,
+	onDone,
+	onArchive,
+}: {
+	confirming: {kind: 'done' | 'archive'; thread: ChatThread} | null;
+	onClose: () => void;
+	onDone: (thread: ChatThread, cancelAlerts: boolean) => void;
+	onArchive: (thread: ChatThread) => void;
+}) {
+	// What it asked last, kept as it closes, so its words don't change as it fades.
+	const [last, setLast] = useState(confirming);
+	if (confirming !== null && confirming !== last) {
+		setLast(confirming);
+	}
+	const asked = confirming ?? last;
+	const count = asked?.thread.alerts ?? 0;
+	const title = `This thread is still watching ${count} ${count === 1 ? 'thing' : 'things'}`;
+	if (asked?.kind === 'archive') {
+		return (
+			<ConfirmDialog
+				open={confirming !== null}
+				title={title}
+				description="Archiving it stops the watching."
+				confirmLabel="Stop watching and archive"
+				cancelLabel="Back"
+				onClose={onClose}
+				onConfirm={() => onArchive(asked.thread)}
+			/>
+		);
+	}
+	return (
+		<ConfirmDialog
+			open={confirming !== null}
+			title={title}
+			description="Its agent comes back to it when something turns up."
+			confirmLabel="Stop watching and mark done"
+			cancelLabel="Back"
+			secondary={{
+				label: 'Mark done, keep watching',
+				onClick: () => {
+					if (asked !== null) {
+						onDone(asked.thread, false);
+					}
+				},
+			}}
+			onClose={onClose}
+			onConfirm={() => {
+				if (asked !== null) {
+					onDone(asked.thread, true);
+				}
+			}}
+		/>
+	);
+}
+
 // The page: the organization's agents in the sidebar, beside the person's chat with the one in its
 // address, a list of its threads, and the thread the address names open beside it (pages/
 // chat-thread.tsx). The list of agents is the frame's, so moving to another chat shows it at once,
@@ -437,14 +498,18 @@ export function ChatPage() {
 				: thread.standing,
 		[markedDone],
 	);
-	// Says a thread waiting for the person is done, on the page at once and then on the server;
-	// where the server can't be told, it waits again, and the chat's box says why.
+	// Says a thread waiting for the person is done, on the page at once and then on the server,
+	// cancelling the alerts that come to it where `cancelAlerts`, which the chat read again then no
+	// longer counts; where the server can't be told, it waits again, and the chat's box says why.
 	const markDone = useCallback(
-		async (thread: ChatThread) => {
+		async (thread: ChatThread, cancelAlerts: boolean) => {
 			setMarkedDone((before) => new Map(before).set(thread.id, thread.lastMessageAt));
-			const marked = await markThreadDone(org, current, thread.id);
+			const marked = await markThreadDone(org, current, thread.id, cancelAlerts);
 			if (marked.isOk()) {
 				setError(null);
+				if (cancelAlerts) {
+					await reload();
+				}
 				return;
 			}
 			setMarkedDone((before) => {
@@ -454,7 +519,7 @@ export function ChatPage() {
 			});
 			setError(describeFetchError(marked.error));
 		},
-		[org, current],
+		[org, current, reload],
 	);
 	// The threads the person archived here, each by its id with when it last had a message then:
 	// until something more comes into it, it is out of the chat's list on the page, as it is out of
@@ -482,6 +547,32 @@ export function ChatPage() {
 			setError(describeFetchError(done.error));
 		},
 		[org, current],
+	);
+	// A thread with alerts that come to it, as the person goes to say it is done or archive it: the
+	// dialog that asks whether its alerts go too, since they would wake it again.
+	const [confirming, setConfirming] = useState<{
+		kind: 'done' | 'archive';
+		thread: ChatThread;
+	} | null>(null);
+	const requestDone = useCallback(
+		(thread: ChatThread) => {
+			if (thread.alerts > 0) {
+				setConfirming({kind: 'done', thread});
+				return;
+			}
+			void markDone(thread, false);
+		},
+		[markDone],
+	);
+	const requestArchive = useCallback(
+		(thread: ChatThread) => {
+			if (thread.alerts > 0) {
+				setConfirming({kind: 'archive', thread});
+				return;
+			}
+			void archive(thread);
+		},
+		[archive],
 	);
 	// A chat picked in the list, or in the command bar, focuses its box once that chat has loaded.
 	// Nothing is requested on an ordinary page load, so it does not steal focus or open a phone's
@@ -600,8 +691,8 @@ export function ChatPage() {
 							missing={threadMissing}
 							expanded={full}
 							onExpand={() => setExpanded(full ? null : threadId)}
-							onDone={markDone}
-							onArchive={archive}
+							onDone={requestDone}
+							onArchive={requestArchive}
 							closeTo={chatTo}
 						/>
 					),
@@ -664,9 +755,9 @@ export function ChatPage() {
 					onShownDraft={setShownDraft}
 					onShownThreads={setShownThreads}
 					standingOf={standingOf}
-					onDone={markDone}
+					onDone={requestDone}
 					isArchived={isArchived}
-					onArchive={archive}
+					onArchive={requestArchive}
 					onCloseThread={closeThread}
 					managing={editing !== null || deleting !== null}
 					listError={error}
@@ -699,6 +790,12 @@ export function ChatPage() {
 					}
 				/>
 			)}
+			<AlertsPendingDialog
+				confirming={confirming}
+				onClose={() => setConfirming(null)}
+				onDone={(thread, cancelAlerts) => void markDone(thread, cancelAlerts)}
+				onArchive={(thread) => void archive(thread)}
+			/>
 			<ConfirmDialog
 				open={deleting !== null}
 				title={deleting ? `Delete ${deleting.name}?` : ''}
@@ -762,13 +859,15 @@ function openerText(thread: ChatThread): string | null {
 	return thread.opener?.kind === 'person' ? thread.opener.text : null;
 }
 
-// What opened a thread: what the person said, or the event that came into it.
-function Opener({opener, open}: {opener: ChatThread['opener']; open: boolean}) {
+// What opened a thread: what the person said, or, the event of an alert, a line with the thread's
+// title by a bell; the event in full, written for the agent, is in the thread.
+function Opener({thread, open}: {thread: ChatThread; open: boolean}) {
+	const {opener} = thread;
 	if (opener === null) {
 		return null;
 	}
 	if (opener.kind === 'event') {
-		return <EventLine text={opener.text} />;
+		return <AlertOpenerLine title={thread.title || opener.text} />;
 	}
 	return <PersonBubble text={opener.text} attachments={opener.attachments} outlined={open} />;
 }
@@ -817,7 +916,7 @@ const ThreadItem = memo(function ThreadItem({
 			)}
 			<div className="page-column pointer-events-none relative mx-auto flex w-full max-w-4xl flex-col items-start gap-2.5 [&_a]:pointer-events-auto [&_button]:pointer-events-auto">
 				<ThreadStatus standing={thread.standing} />
-				<Opener opener={thread.opener} open={open} />
+				<Opener thread={thread} open={open} />
 				{said !== null && (
 					<p className="line-clamp-2 max-w-[44rem] text-sm leading-relaxed">{said}</p>
 				)}
@@ -868,7 +967,8 @@ function inOrder(threads: ChatThread[], fresher: ChatThread | null): ChatThread[
 }
 
 // The person's chat with one of the personas they see: its threads, read again while one of them
-// is in progress, and a box, whose every message opens a thread, which shows at once at the
+// is in progress, at their end the chat's own alerts, those that open a thread of their own each
+// time, as a line to the Alerts page showing them, and a box, whose every message opens a thread, which shows at once at the
 // chat's end, before the server has it. Each thread's agent acts as the person through the
 // organization's built-in login, whose calls go through the same gate as any agent's, so its
 // activity is in the log by the thread's task.
@@ -995,6 +1095,8 @@ const Chat = memo(function Chat({
 			messageCount: 1,
 			lastMessageAt: at,
 			createdAt: at,
+			alerts: 0,
+			openedByAlert: false,
 		});
 		onShownSaid({personaId, last: {kind: 'person', text: preview(message), at}});
 		await settle();
@@ -1052,6 +1154,16 @@ const Chat = memo(function Chat({
 								</MessageScrollerItem>
 							);
 						})}
+						{loaded.alerts > 0 && (
+							<MessageScrollerItem>
+								<div className="page-column mx-auto w-full max-w-4xl">
+									<AlertsLine
+										count={loaded.alerts}
+										to={`/${org}/alerts?chat=${encodeURIComponent(personaId)}`}
+									/>
+								</div>
+							</MessageScrollerItem>
+						)}
 					</MessageScrollerContent>
 				</MessageScrollerViewport>
 				<MessageScrollerButton />

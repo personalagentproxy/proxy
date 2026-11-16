@@ -23,6 +23,7 @@ const row: ThreadRow = {
 	taskId: 'task-1',
 	harness: null,
 	harnessSession: null,
+	openedByAlert: false,
 	createdAt: now,
 };
 
@@ -53,6 +54,7 @@ function chatThread(thread: Partial<ChatThreadRow> = {}): ChatThreadRow {
 		...row,
 		state: {kind: 'stopped'},
 		standing: {waitingForMember: false, summary: null, summarySeq: null, archived: false},
+		alerts: 0,
 		entries: [
 			logEntry({id: 'e1', seq: 1, kind: 'person', text: `Add a date filter to the activity log, plan first ${ATTACHMENT_MARK}`}),
 			logEntry({

@@ -3,13 +3,13 @@ import type {z} from 'zod';
 
 import {type ApiError, ApiErr, Do} from '@proxy/utils';
 import {toAvatarColor} from '@proxy/utils/harness';
-import type {AlertRow} from '@proxy/db/alerts';
+import type {MemberAlertRow} from '@proxy/db/alerts';
 import type {ConnectionRow} from '@proxy/db/connection';
-import type {PersonaRow} from '@proxy/db/harness';
 import type {Alert, alertListSchema} from '@proxy/contracts/alerts';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {requireViewer} from '../utils/user-org';
+import {DEFAULT_TIME_ZONE, everyText} from './alert-repeat';
 import {collectionName, connectionName} from './alerts';
 import type {HarnessStore} from './store';
 
@@ -23,13 +23,23 @@ import type {HarnessStore} from './store';
 /** What the Alerts page's routes need of the store. */
 export type AlertsStore = Pick<HarnessStore, 'listMemberAlerts' | 'listConnectionsByIds' | 'deleteAlert'>;
 
-function toAlert(alert: AlertRow & {persona: PersonaRow}, connections: Map<string, ConnectionRow>): Alert {
+// A timed alert's next time: its time, or, one that repeats, when it is next due.
+function nextAt(alert: MemberAlertRow): Date | null {
+	return alert.every === null ? alert.at : (alert.nextAt ?? alert.at);
+}
+
+function toAlert(alert: MemberAlertRow, connections: Map<string, ConnectionRow>): Alert {
 	return {
 		id: alert.id,
 		title: alert.title,
 		brief: alert.brief,
 		persona: {id: alert.persona.id, name: alert.persona.name, look: alert.persona.look, color: toAvatarColor(alert.persona.color)},
-		at: alert.at?.toISOString() ?? null,
+		opens: alert.threadId === null ? 'new_thread' : 'this_thread',
+		thread: alert.thread,
+		setIn: alert.setIn,
+		at: nextAt(alert)?.toISOString() ?? null,
+		every: alert.every === null ? null : everyText(alert.every, alert.timeZone ?? DEFAULT_TIME_ZONE),
+		split: alert.split,
 		collection: collectionName(alert.collectionId),
 		connections: alert.connectionIds.flatMap((id) => {
 			const connection = connections.get(id);

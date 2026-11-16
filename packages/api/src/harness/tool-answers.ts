@@ -6,6 +6,7 @@ import type {AlertRow, NewAlert} from '@proxy/db/alerts';
 import type {ThreadRow} from '@proxy/db/harness';
 
 import {callMcpTool} from '../mcp/tools';
+import {DEFAULT_TIME_ZONE} from './alert-repeat';
 import {alertArgs, type AlertSpec, CANCEL_ALERT_TOOL, describeAlert, WATCHED_COLLECTIONS} from './alerts';
 import type {HarnessStore} from './store';
 import {ensureThreadTask, type ThreadTaskStore} from './thread-task';
@@ -25,7 +26,7 @@ import {watchableConnections} from './watch-connections';
  */
 
 /** What answering a call needs of the store: the agent as it acts in the thread, the thread's task, and the alerts to cancel. */
-export type ToolAnswerStore = Pick<HarnessStore, 'getThreadAgent' | 'deleteAlert'> & ThreadTaskStore;
+export type ToolAnswerStore = Pick<HarnessStore, 'getThreadAgent' | 'deleteAlert' | 'getUserTimeZone'> & ThreadTaskStore;
 
 export type ToolAnswer = {text: string; isError: boolean};
 
@@ -87,9 +88,18 @@ function alertToSet(store: ToolAnswerStore, thread: ThreadRow, spec: AlertSpec):
 	});
 }
 
-/** How a set_alert call is answered, with the alert it set. */
+/** How a set_alert call is answered, with the alert it set and where it comes. */
 export function setText(alert: AlertRow): string {
-	return `Set the alert ${describeAlert(alert)}.`;
+	const where = alert.threadId === null ? 'It opens a new thread each time it comes.' : 'It comes to this thread.';
+	return `Set the alert ${describeAlert(alert)}. ${where}`;
+}
+
+/** How a dismiss call is answered: archived, the turn over, or, a thread no alert opened, not. */
+export function dismissText(dismissed: boolean): ToolAnswer {
+	if (!dismissed) {
+		return error('Only a thread an alert opened can be dismissed.');
+	}
+	return {text: 'Dismissed: the thread is archived, and the person isn’t told of it. Say nothing more.', isError: false};
 }
 
 /** A thread's alert calls: a cancel answered, of any of the member's alerts, whichever of their threads it was set in; or the alert to set, in this one. */
@@ -102,7 +112,8 @@ export function alertCall(store: ToolAnswerStore, thread: ThreadRow, call: ToolC
 			}
 			return {text: `Cancelled the alert ${id}.`, isError: false};
 		}
-		const spec = alertArgs(args, now);
+		const timeZone = $(await store.getUserTimeZone(thread.userId)) ?? DEFAULT_TIME_ZONE;
+		const spec = alertArgs(args, now, timeZone);
 		if (spec.isErr()) {
 			return error(spec.error);
 		}

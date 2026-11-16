@@ -52,7 +52,7 @@ import {harnessStore} from '../harness/store';
 import {handleFillIntentRoute, handlePickIntentRoute} from '../intent/route';
 import {handleMcpMethodNotAllowedRoute, handleMcpRoute} from '../mcp/route';
 import {handleClaudeTokenRoute, handleDeleteClaudeAccountRoute, handleGetClaudeAccountRoute} from '../me/claude-route';
-import {handleDeleteMeRoute, handleMeRoute} from '../me/route';
+import {handleDeleteMeRoute, handleMeRoute, handleSetTimeZoneRoute} from '../me/route';
 import {handleDeleteOtherSessionsRoute, handleDeleteSessionRoute, handleListSessionsRoute} from '../me/sessions';
 import {handleAcceptInvitationRoute, handleGetInvitationRoute} from '../orgs/invitation-link';
 import {
@@ -146,6 +146,7 @@ export function createApiRouter(): express.Router {
 	router.use('/api/me', requireBrowserOrigin);
 	router.get('/api/me', withAuthResult('Me route', handleMeRoute));
 	router.delete('/api/me', withAuth('Delete account route', handleDeleteMeRoute));
+	router.put('/api/me/time-zone', withAuthResult('Set time zone route', handleSetTimeZoneRoute));
 	// The person's sessions, for the account page: `others` before `:sessionId`, which a cuid never is.
 	router.get('/api/me/sessions', withAuthResult('List sessions route', handleListSessionsRoute));
 	router.delete('/api/me/sessions/others', withAuthResult('Delete other sessions route', handleDeleteOtherSessionsRoute));

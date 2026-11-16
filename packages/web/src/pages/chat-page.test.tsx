@@ -77,6 +77,8 @@ function thread(id: string, over: Partial<ChatThread> = {}): ChatThread {
 		messageCount: 2,
 		lastMessageAt: '2026-10-21T10:01:00Z',
 		createdAt: '2026-10-21T10:01:00Z',
+		alerts: 0,
+		openedByAlert: false,
 		...over,
 	};
 }
@@ -113,6 +115,7 @@ const backup = thread('t2', {
 	state: {kind: 'working'},
 	standing: 'in_progress',
 	opener: {kind: 'event', text: 'Every weekday at 9:00, as you asked'},
+	openedByAlert: true,
 	latest: null,
 	latestEntryId: null,
 	latestAnswerId: null,
@@ -169,6 +172,7 @@ function renderChatPage({
 	open = 'general',
 	draft = null,
 	draftAttachments = [],
+	chatAlerts = 0,
 	experiments = [],
 	answered = () => Promise.resolve(),
 	threadAnswered = () => Promise.resolve(),
@@ -186,6 +190,8 @@ function renderChatPage({
 	draft?: string | null;
 	// The files put in the open chat's box and not sent, as the server keeps them.
 	draftAttachments?: ChatThreads['draftAttachments'];
+	// How many of the open chat's alerts open threads of their own.
+	chatAlerts?: number;
 	// What the organization is trying out: Files where a test attaches.
 	experiments?: Experiment[];
 	// When the api answers for a chat: at once, unless a test holds it back.
@@ -213,6 +219,7 @@ function renderChatPage({
 									draft,
 									draftAttachments,
 									threads: listThreads(),
+									alerts: chatAlerts,
 								},
 								personas: listPersonas(),
 								harnesses,
@@ -779,16 +786,17 @@ describe('ChatPage', () => {
 		expect(within(stopped as HTMLElement).getByText('Done')).toBeTruthy();
 		expect(within(working as HTMLElement).getByText('In progress')).toBeTruthy();
 		expect(within(sleeping as HTMLElement).getByText('In progress')).toBeTruthy();
-		// What the person said, in a bubble; what an alert brought, a line.
+		// What the person said, in a bubble; what an alert brought, a line with the thread's title by a
+		// bell, the event in full being the thread's.
 		expect(
 			within(stopped as HTMLElement)
 				.getByText('Move the pricing review')
 				.closest('[data-slot=bubble-content]'),
 		).toBeTruthy();
+		const opener = within(working as HTMLElement).getByText('Morning check');
+		expect(opener.closest('[data-slot=bubble-content]')).toBeNull();
 		expect(
-			within(working as HTMLElement)
-				.getByText('Every weekday at 9:00, as you asked')
-				.closest('[data-slot=bubble-content]'),
+			within(working as HTMLElement).queryByText('Every weekday at 9:00, as you asked'),
 		).toBeNull();
 		expect(within(stopped as HTMLElement).getByText('Moved it to Thursday.')).toBeTruthy();
 		expect(within(stopped as HTMLElement).getByText(/^2 messages · /)).toBeTruthy();
@@ -981,6 +989,155 @@ describe('ChatPage', () => {
 			expect(within(chat).getByRole('link', {name: 'Quarterly numbers'})).toBeTruthy(),
 		);
 		expect(screen.getByText('Something went wrong. Try again.')).toBeTruthy();
+	});
+
+	describe('alerts that come to a thread', () => {
+		// Whether the page asked the api to say the thread is done, cancelling its alerts or not.
+		function postedDone(threadId: string, cancelAlerts: boolean): boolean {
+			return fetchMock.mock.calls.some(
+				([input, init]) =>
+					input.endsWith(`/threads/${threadId}/done`) &&
+					init?.method === 'POST' &&
+					typeof init.body === 'string' &&
+					(JSON.parse(init.body) as {cancelAlerts?: boolean}).cancelAlerts === cancelAlerts,
+			);
+		}
+
+		function postedTo(path: string): boolean {
+			return fetchMock.mock.calls.some(([input]) => input.endsWith(path));
+		}
+
+		test('show at the end of the open thread as a line to the Alerts page showing them', async () => {
+			const watched = thread('t4', {alerts: 2});
+			renderChatPage({
+				threads: [watched],
+				views: {t4: view(watched, [said('m1', 'person', 'Watch for the contract')])},
+				initial: '/acme/chat/general/threads/t4',
+			});
+
+			const opened = await screen.findByLabelText('Thread');
+			const line = within(opened).getByRole('link', {name: /Watching 2 things in the background/});
+			expect(line.getAttribute('href')).toBe('/acme/alerts?thread=t4');
+		});
+
+		test('say one alert in the singular, and nothing where none comes to the thread', async () => {
+			const one = thread('t4', {title: 'Call the landlord', alerts: 1});
+			renderChatPage({
+				threads: [one, pricing],
+				views: {t4: view(one, [said('m1', 'person', 'Remind me')]), t1: pricingView},
+				initial: '/acme/chat/general/threads/t4',
+			});
+
+			expect(
+				within(await screen.findByLabelText('Thread')).getByText(
+					'Watching 1 thing in the background',
+				),
+			).toBeTruthy();
+			await follow(screen.getByRole('link', {name: 'Pricing review with Dana'}));
+			await waitFor(() =>
+				expect(within(screen.getByLabelText('Thread')).getByText('Thursday')).toBeTruthy(),
+			);
+			expect(screen.queryByText(/in the background/)).toBeNull();
+		});
+
+		test('ask first as a thread with them is marked done, and Back leaves it waiting', async () => {
+			renderChatPage({threads: [thread('t4', {standing: 'waiting', alerts: 2})]});
+
+			const chat = await screen.findByLabelText('Chat');
+			await follow(within(chat).getByRole('button', {name: 'Mark done'}));
+
+			const dialog = await screen.findByRole('dialog');
+			expect(dialog.textContent).toContain('This thread is still watching 2 things');
+			expect(dialog.textContent).toContain('Its agent comes back to it when something turns up.');
+			await follow(within(dialog).getByRole('button', {name: 'Back'}));
+
+			await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+			expect(within(chat).getByText('Waiting for you')).toBeTruthy();
+			expect(postedTo('/threads/t4/done')).toBe(false);
+		});
+
+		test('marked done keeping them, it is done and they stay', async () => {
+			renderChatPage({threads: [thread('t4', {standing: 'waiting', alerts: 2})]});
+
+			const chat = await screen.findByLabelText('Chat');
+			await follow(within(chat).getByRole('button', {name: 'Mark done'}));
+			await follow(
+				within(await screen.findByRole('dialog')).getByRole('button', {
+					name: 'Mark done, keep watching',
+				}),
+			);
+
+			await waitFor(() => expect(within(chat).getByText('Done')).toBeTruthy());
+			await waitFor(() => expect(postedDone('t4', false)).toBe(true));
+			expect(postedDone('t4', true)).toBe(false);
+		});
+
+		test('marked done cancelling them, it is done and the server cancels them', async () => {
+			renderChatPage({threads: [thread('t4', {standing: 'waiting', alerts: 1})]});
+
+			const chat = await screen.findByLabelText('Chat');
+			await follow(within(chat).getByRole('button', {name: 'Mark done'}));
+			const dialog = await screen.findByRole('dialog');
+			expect(dialog.textContent).toContain('This thread is still watching 1 thing');
+			await follow(within(dialog).getByRole('button', {name: 'Stop watching and mark done'}));
+
+			await waitFor(() => expect(within(chat).getByText('Done')).toBeTruthy());
+			await waitFor(() => expect(postedDone('t4', true)).toBe(true));
+		});
+
+		test('ask first as a thread with them is archived, offering only to cancel them or go back', async () => {
+			const done = thread('t5', {title: 'Quarterly numbers', standing: 'done', alerts: 2});
+			renderChatPage({threads: [done]});
+
+			const chat = await screen.findByLabelText('Chat');
+			await follow(within(chat).getByRole('button', {name: 'Archive'}));
+
+			const dialog = await screen.findByRole('dialog');
+			expect(within(dialog).queryByRole('button', {name: /keep watching/})).toBeNull();
+			await follow(within(dialog).getByRole('button', {name: 'Back'}));
+			await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+			expect(within(chat).getByRole('link', {name: 'Quarterly numbers'})).toBeTruthy();
+			expect(postedTo('/threads/t5/archive')).toBe(false);
+
+			await follow(within(chat).getByRole('button', {name: 'Archive'}));
+			await follow(
+				within(await screen.findByRole('dialog')).getByRole('button', {
+					name: 'Stop watching and archive',
+				}),
+			);
+
+			await waitFor(() =>
+				expect(within(chat).queryByRole('link', {name: 'Quarterly numbers'})).toBeNull(),
+			);
+			await waitFor(() => expect(postedTo('/threads/t5/archive')).toBe(true));
+		});
+
+		test('a thread an alert opened has a bell in the list', async () => {
+			renderChatPage({threads: [pricing, backup]});
+
+			const chat = await screen.findByLabelText('Chat');
+			const marks = within(chat).getAllByLabelText('Opened by an alert');
+			expect(marks).toHaveLength(1);
+			expect(marks[0]?.closest('p')?.textContent).toBe('Morning check');
+		});
+
+		test('the chat’s own alerts, which open threads of their own, are a line at its end to the Alerts page showing them', async () => {
+			renderChatPage({threads: [pricing], chatAlerts: 2});
+
+			const chat = await screen.findByLabelText('Chat');
+			const line = await within(chat).findByRole('link', {
+				name: 'Watching 2 things in the background',
+			});
+			expect(line.getAttribute('href')).toBe('/acme/alerts?chat=general');
+		});
+
+		test('a chat without alerts of its own has no line for them', async () => {
+			renderChatPage({threads: [pricing]});
+
+			const chat = await screen.findByLabelText('Chat');
+			await within(chat).findByRole('link', {name: pricing.title});
+			expect(within(chat).queryByText(/in the background/)).toBeNull();
+		});
 	});
 
 	describe('a thread', () => {

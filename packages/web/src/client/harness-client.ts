@@ -3,6 +3,7 @@ import {
 	chatAnswersSchema,
 	chatThreadsSchema,
 	type markReadBodySchema,
+	type threadDoneBodySchema,
 	openedThreadSchema,
 	personaAnswerSchema,
 	personaListSchema,
@@ -167,12 +168,19 @@ export function removeAttachment(org: string, personaId: string, attachment: Cha
 	} satisfies z.input<typeof removeAttachmentBodySchema>);
 }
 
-/** Says a thread waiting for the person is done: it no longer waits for them. */
-export function markThreadDone(org: string, personaId: string, threadId: string) {
-	return apiSend('POST', `${orgApi(org)}/chat/personas/${personaId}/threads/${threadId}/done`);
+/** Says a thread waiting for the person is done: it no longer waits for them; with `cancelAlerts`, the alerts that come to it are cancelled too. */
+export function markThreadDone(
+	org: string,
+	personaId: string,
+	threadId: string,
+	cancelAlerts = false,
+) {
+	return apiSend('POST', `${orgApi(org)}/chat/personas/${personaId}/threads/${threadId}/done`, {
+		cancelAlerts,
+	} satisfies z.input<typeof threadDoneBodySchema>);
 }
 
-/** Archives a thread: the chat's list no longer has it, until something more comes into it. */
+/** Archives a thread: the chat's list no longer has it, until something more comes into it; the alerts that come to it are cancelled with it. */
 export function archiveThread(org: string, personaId: string, threadId: string) {
 	return apiSend('POST', `${orgApi(org)}/chat/personas/${personaId}/threads/${threadId}/archive`);
 }

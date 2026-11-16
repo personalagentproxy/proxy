@@ -55,6 +55,7 @@ const thread: ThreadRow = {
 	taskId: 'task-1',
 	harness: null,
 	harnessSession: null,
+	openedByAlert: false,
 	createdAt: now,
 };
 const signedIn = {agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'proxy', name: 'General', orgSlug: 'acme', experiments: []};
@@ -62,13 +63,19 @@ const watch: AlertRow = {
 	id: 'alert-1',
 	orgId: 'org-1',
 	userId: 'user-1',
+	chatId: 'chat-1',
 	threadId: 'thread-1',
+	setInThreadId: 'thread-1',
 	title: 'Bank',
 	brief: 'Tell me.',
 	at: null,
+	nextAt: null,
+	every: null,
+	timeZone: null,
 	collectionId: 'emails',
 	connectionIds: ['conn-a'],
 	terms: ['loan'],
+	split: null,
 	lastMatchedAt: null,
 	createdAt: now,
 };
@@ -77,7 +84,16 @@ const items = [
 	{id: 'm2', title: 'Lunch?', url: null, summary: 'From sam@example.com'},
 ];
 
-const timed: AlertRow = {...watch, id: 'alert-2', title: 'Call Dana', brief: 'Remind them.', at: now, collectionId: null, connectionIds: [], terms: []};
+const timed: AlertRow = {...watch, id: 'alert-2', title: 'Call Dana', brief: 'Remind them.', at: now, nextAt: now, collectionId: null, connectionIds: [], terms: []};
+const chat: ThreadRow = {...thread, id: 'chat-1', parentThreadId: null, title: null, taskId: null};
+
+// The threads by id: the chat, the thread the alerts were set in, and any other.
+function threadById(id: string): ThreadRow {
+	if (id === 'chat-1') {
+		return chat;
+	}
+	return {...thread, id};
+}
 
 let store: FakeStore;
 
@@ -86,7 +102,7 @@ beforeEach(() => {
 	store = fakeStore();
 	store.listWatches.mockResolvedValue(Ok([watch]));
 	store.getPollConnection.mockResolvedValue(Ok(connection));
-	store.getJobThread.mockResolvedValue(Ok(thread));
+	store.getJobThread.mockImplementation(async (id) => Ok(threadById(id)));
 	store.getThreadAgent.mockResolvedValue(Ok(signedIn));
 	store.recordLook.mockResolvedValue(Ok(true));
 	store.fireAlert.mockResolvedValue(Ok(true));
@@ -105,7 +121,6 @@ describe('runPoll', () => {
 	test('reads the connection once since the cursor, and notes the new cursor with what matched each watch’s words', async () => {
 		const {runPoll} = await import('./alert-sweep');
 		const other: AlertRow = {...watch, id: 'alert-3', threadId: 'thread-2', terms: ['lunch']};
-		store.getJobThread.mockImplementation(async (id) => Ok({...thread, id}));
 		(await runPoll(store, poll, now)).unwrap();
 		expect(changes).toHaveBeenCalledTimes(1);
 		expect(changes).toHaveBeenCalledWith(expect.objectContaining({connection, collection: {id: 'emails', read: 'read'}}), 'h1', now);
@@ -114,17 +129,53 @@ describe('runPoll', () => {
 		expect([looked, cursor, at]).toEqual([poll, 'h2', now]);
 		expect(matched).toHaveLength(1);
 		expect(matched?.[0]?.alert).toBe(watch);
-		expect(matched?.[0]?.text).toContain('Your loan');
-		expect(matched?.[0]?.text).not.toContain('Lunch?');
+		expect(matched?.[0]?.landings).toHaveLength(1);
+		expect(matched?.[0]?.landings[0]?.opening).toBeNull();
+		expect(matched?.[0]?.landings[0]?.text).toContain('Your loan');
+		expect(matched?.[0]?.landings[0]?.text).not.toContain('Lunch?');
 
 		store.listWatches.mockResolvedValue(Ok([watch, other]));
 		(await runPoll(store, poll, now)).unwrap();
 		expect(changes).toHaveBeenCalledTimes(2);
 		const both = store.recordLook.mock.calls[1]?.[2] ?? [];
-		expect(both.map(({alert, text}) => [alert.id, text.includes('Lunch?')])).toEqual([
+		expect(both.map(({alert, landings}) => [alert.id, landings[0]?.text.includes('Lunch?')])).toEqual([
 			['alert-1', false],
 			['alert-3', true],
 		]);
+	});
+
+	test('a watch that opens new threads opens one in its chat for the look, or one for each record, titled with it, telling where it was set', async () => {
+		const {runPoll} = await import('./alert-sweep');
+		const everything = {...watch, threadId: null, terms: [], split: 'per_check' as const};
+		store.listWatches.mockResolvedValue(Ok([everything]));
+		(await runPoll(store, poll, now)).unwrap();
+		const [look] = store.recordLook.mock.calls[0]?.[2] ?? [];
+		expect(look?.landings).toHaveLength(1);
+		expect(look?.landings[0]?.text).toContain('Your loan');
+		expect(look?.landings[0]?.text).toContain('Lunch?');
+		expect(look?.landings[0]?.text).toContain('You set it in the thread “Invoices from the bank” (id thread-1).');
+		expect(look?.landings[0]?.opening).toEqual({
+			title: 'Bank',
+			task: {orgId: 'org-1', agentId: 'agent-1', ownerUserId: 'user-1', personaId: 'persona-1', parentId: null, title: 'Bank', goal: 'Tell me.', via: 'harness'},
+		});
+
+		store.listWatches.mockResolvedValue(Ok([{...everything, split: 'per_record' as const}]));
+		(await runPoll(store, poll, now)).unwrap();
+		const [each] = store.recordLook.mock.calls[1]?.[2] ?? [];
+		expect(each?.landings.map((landing) => landing.opening?.title)).toEqual(['Bank: Your loan', 'Bank: Lunch?']);
+		expect(each?.landings[1]?.text).not.toContain('Your loan');
+	});
+
+	test('a watch that opens a thread for each record opens ten at most for a look, the rest together in the tenth', async () => {
+		const {runPoll} = await import('./alert-sweep');
+		store.listWatches.mockResolvedValue(Ok([{...watch, threadId: null, terms: [], split: 'per_record' as const}]));
+		const many = Array.from({length: 14}, (_, index) => ({id: `m${index}`, title: `Mail ${index}`, url: null, summary: ''}));
+		changes.mockResolvedValue(Ok({items: many, cursor: 'h2'}));
+		(await runPoll(store, poll, now)).unwrap();
+		const [look] = store.recordLook.mock.calls[0]?.[2] ?? [];
+		expect(look?.landings).toHaveLength(10);
+		expect(look?.landings[9]?.opening?.title).toBe('Bank');
+		expect(look?.landings[9]?.text).toContain('5 new emails');
 	});
 
 	test('a read the agent no longer has tells that watch nothing, and the cursor still moves on', async () => {
@@ -182,8 +233,31 @@ describe('sweep', () => {
 		await sweep(store);
 		expect(store.claimDueAlerts).toHaveBeenCalledWith(10 * 60 * 1000, 50);
 		expect(store.claimDuePolls).toHaveBeenCalledWith(10 * 60 * 1000, 50);
-		expect(store.fireAlert).toHaveBeenCalledWith(timed, 'The alert “Call Dana” is due now, which you set for 2026-11-04T10:00:00.000Z. What you noted for it: Remind them.');
+		expect(store.fireAlert).toHaveBeenCalledWith(
+			timed,
+			{text: 'The alert “Call Dana” is due now, which you set for 2026-11-04T10:00:00.000Z. What you noted for it: Remind them.', opening: null},
+			null,
+		);
 		expect(store.recordLook).toHaveBeenCalledTimes(1);
+	});
+
+	test('a timed alert that opens new threads opens one in its chat, and one that repeats is due again at its next time', async () => {
+		const {fireDue} = await import('./alert-sweep');
+		const own = {...timed, threadId: null};
+		(await fireDue(store, own, now)).unwrap();
+		expect(store.fireAlert).toHaveBeenLastCalledWith(
+			own,
+			{
+				text: 'The alert “Call Dana” is due now, which you set for 2026-11-04T10:00:00.000Z. You set it in the thread “Invoices from the bank” (id thread-1). What you noted for it: Remind them.',
+				opening: {title: 'Call Dana', task: expect.objectContaining({title: 'Call Dana', goal: 'Remind them.', parentId: null})},
+			},
+			null,
+		);
+
+		// Weekdays at 11 in Berlin, 10:00 UTC in November: next on Thursday.
+		const weekdays = {...own, every: 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;BYHOUR=11;BYMINUTE=0', timeZone: 'Europe/Berlin'};
+		(await fireDue(store, weekdays, now)).unwrap();
+		expect(store.fireAlert.mock.calls.at(-1)?.[2]).toEqual(new Date('2026-11-05T10:00:00Z'));
 	});
 
 	test('a timed alert that cannot fire leaves the polls to be looked at', async () => {

@@ -50,6 +50,7 @@ const thread: ThreadRow = {
 	taskId: 'task-1',
 	harness: null,
 	harnessSession: null,
+	openedByAlert: false,
 	createdAt: now,
 };
 const job: JobRow = {id: 'job-1', threadId: 'thread-1', kind: 'inference', status: 'running', entryId: null, callId: null, runAt: now, claimedBy: 'w1', attempts: 1};
@@ -120,13 +121,19 @@ describe('runInference', () => {
 			id: 'alert-1',
 			orgId: 'org-1',
 			userId: 'user-1',
+			chatId: 'chat-1',
 			threadId: 'thread-1',
+			setInThreadId: 'thread-1',
 			title: 'Check the review',
 			brief: 'See whether Dana moved it.',
 			at: new Date('2026-10-22T07:30:00Z'),
+			nextAt: new Date('2026-10-22T07:30:00Z'),
+			every: null,
+			timeZone: null,
 			collectionId: null,
 			connectionIds: [],
 			terms: [],
+			split: null,
 			lastMatchedAt: null,
 			createdAt: now,
 			persona: {
@@ -140,10 +147,24 @@ describe('runInference', () => {
 				createdById: null,
 				createdAt: now,
 			},
-			threadTitle: 'Find the invoices',
+			thread: {id: 'thread-1', title: 'Find the invoices'},
+			setIn: {id: 'thread-1', title: 'Find the invoices'},
 		};
 		// One of the person's set in another thread is told of too.
-		store.listMemberAlerts.mockResolvedValue(Ok([alert, {...alert, id: 'alert-2', threadId: 'thread-2', title: 'Morning check', threadTitle: 'Check the review every morning'}]));
+		store.listMemberAlerts.mockResolvedValue(
+			Ok([
+				alert,
+				{
+					...alert,
+					id: 'alert-2',
+					threadId: 'thread-2',
+					setInThreadId: 'thread-2',
+					title: 'Morning check',
+					thread: {id: 'thread-2', title: 'Check the review every morning'},
+					setIn: {id: 'thread-2', title: 'Check the review every morning'},
+				},
+			]),
+		);
 		const log = [
 			entry('person', 'Find my invoices'),
 			entry('assistant', 'Looking.', {toolCalls: [{id: 'c1', name: 'script', arguments: '{"code":"return 1"}'}]}),
@@ -182,9 +203,11 @@ describe('runInference', () => {
 		expect(getPersonaModel).toHaveBeenCalledWith(thread);
 		expect(request.model).toBe('claude');
 		expect(request.messages[0]).toMatchObject({role: 'system'});
-		expect(String(request.messages[0]?.content)).toContain('- alert-1: “Check the review”, due 2026-10-22T07:30:00.000Z; set in this thread');
-		expect(String(request.messages[0]?.content)).toContain('- alert-2: “Morning check”, due 2026-10-22T07:30:00.000Z; set in the thread “Check the review every morning”');
+		expect(String(request.messages[0]?.content)).toContain('- alert-1: “Check the review”, due 2026-10-22T07:30:00.000Z; comes to this thread');
+		expect(String(request.messages[0]?.content)).toContain('- alert-2: “Morning check”, due 2026-10-22T07:30:00.000Z; comes to the thread “Check the review every morning”');
 		expect(String(request.messages[0]?.content)).toContain('The time now is 2026-10-21T10:00:00.000Z');
+		expect(String(request.messages[0]?.content)).toContain('The person’s time zone isn’t known');
+		expect(String(request.messages[0]?.content)).not.toContain('An alert you set opened this thread');
 		expect(request.messages.slice(1)).toEqual([
 			{role: 'user', content: 'Find my invoices'},
 			{role: 'assistant', content: 'Looking.', tool_calls: [{id: 'c1', type: 'function', function: {name: 'script', arguments: '{"code":"return 1"}'}}]},

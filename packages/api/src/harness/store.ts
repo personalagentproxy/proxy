@@ -4,7 +4,7 @@ import type {ApiError} from '@proxy/utils';
 import {readyForInference} from '@proxy/utils/harness';
 import type {EntryAttachment} from '@proxy/utils/harness-context';
 import * as alerts from '@proxy/db/alerts';
-import type {AlertRow, MemberAlertRow, NewAlert, PollRow, WatchMatch} from '@proxy/db/alerts';
+import type {AlertRow, Landing, MemberAlertRow, NewAlert, PollRow, WatchMatch} from '@proxy/db/alerts';
 import {type ConnectionRow, getConnectionWithCredentialById, listConnectionsByIds} from '@proxy/db/connection';
 import * as harness from '@proxy/db/harness';
 import type {
@@ -33,6 +33,7 @@ import * as transcripts from '@proxy/db/harness-transcript';
 import type {TranscriptKey, TranscriptLine} from '@proxy/db/harness-transcript';
 import {type AgentTaskRow, createAgentTask, getAgentTask, type NewAgentTask} from '@proxy/db/task';
 import type {SignedInAgent} from '@proxy/db/agent';
+import {getUserTimeZone} from '@proxy/db/user';
 
 /**
  * What the harness reads and writes: the job queue, each thread's log and its jobs, the Chat
@@ -91,8 +92,9 @@ export type HarnessStore = {
 	hasChatThread: (chatId: string, threadId: string) => Promise<Result<boolean, ApiError>>;
 	/** Where a thread stands as its turn ended, written up to `upToSeq` while nothing came since; whether it waits left as it is where not given. */
 	writeThreadStanding: (threadId: string, standing: {summary: string | null; waitingForMember?: boolean}, upToSeq: number, atWork?: boolean) => Promise<Result<boolean, ApiError>>;
-	markThreadDone: (chatId: string, threadId: string) => Promise<Result<boolean, ApiError>>;
-	/** The member archives a thread of their chat: its list no longer has it until something more comes into it. */
+	/** The member says a thread is done, cancelling the alerts that come to it where they ask to. */
+	markThreadDone: (chatId: string, threadId: string, cancelAlerts?: boolean) => Promise<Result<boolean, ApiError>>;
+	/** The member archives a thread of their chat: its list no longer has it until something more comes into it, and the alerts that come to it are cancelled. */
 	archiveThread: (chatId: string, threadId: string) => Promise<Result<boolean, ApiError>>;
 	listThreadsWithoutSummary: () => Promise<Result<Array<{id: string; chatId: string}>, ApiError>>;
 	markChatRead: (chatId: string, entryId: string) => Promise<Result<boolean, ApiError>>;
@@ -105,11 +107,18 @@ export type HarnessStore = {
 
 	completeSetAlert: (job: {jobId: string; workerId: string; threadId: string; callId: string}, alert: NewAlert, answer: (alert: AlertRow) => string) => Promise<Result<boolean, ApiError>>;
 	setAlertInline: (job: InlineJob, alert: NewAlert) => Promise<Result<AlertRow | null, ApiError>>;
+	/** The agent of a thread an alert opened dismisses it, archived; false where no alert opened it, or the job is no longer the worker's. */
+	dismissThreadInline: (job: InlineJob) => Promise<Result<boolean, ApiError>>;
+	completeDismiss: (job: {jobId: string; workerId: string; threadId: string; callId: string}, answer: (dismissed: boolean) => {text: string; isError: boolean}) => Promise<Result<boolean, ApiError>>;
+	/** The member's time zone, an IANA name; null where they have none set. */
+	getUserTimeZone: (userId: string) => Promise<Result<string | null, ApiError>>;
 	deleteAlert: (alertId: string, owner: {orgId: string; userId: string}) => Promise<Result<boolean, ApiError>>;
 	listMemberAlerts: (orgId: string, userId: string) => Promise<Result<MemberAlertRow[], ApiError>>;
+	/** How many of the chat's alerts open a new thread in it each time. */
+	countChatAlerts: (chatId: string) => Promise<Result<number, ApiError>>;
 	listConnectionsByIds: (orgId: string, ids: string[]) => Promise<Result<ConnectionRow[], ApiError>>;
 	claimDueAlerts: (everyMs: number, limit: number) => Promise<Result<AlertRow[], ApiError>>;
-	fireAlert: (alert: AlertRow, text: string) => Promise<Result<boolean, ApiError>>;
+	fireAlert: (alert: AlertRow, landing: Landing, next: Date | null) => Promise<Result<boolean, ApiError>>;
 	claimDuePolls: (everyMs: number, limit: number) => Promise<Result<PollRow[], ApiError>>;
 	listWatches: (connectionId: string, collectionId: string) => Promise<Result<AlertRow[], ApiError>>;
 	recordLook: (poll: PollRow, cursor: string, matched: WatchMatch[], at: Date) => Promise<Result<boolean, ApiError>>;
@@ -175,11 +184,15 @@ export const harnessStore: HarnessStore = {
 
 	completeSetAlert: (job, alert, answer) => alerts.completeSetAlert(job, alert, answer, readyForInference),
 	setAlertInline: alerts.setAlertInline,
+	dismissThreadInline: harness.dismissThreadInline,
+	completeDismiss: (job, answer) => harness.completeDismiss(job, answer, readyForInference),
+	getUserTimeZone,
 	deleteAlert: alerts.deleteAlert,
 	listMemberAlerts: alerts.listMemberAlerts,
+	countChatAlerts: alerts.countChatAlerts,
 	listConnectionsByIds,
 	claimDueAlerts: alerts.claimDueAlerts,
-	fireAlert: (alert, text) => alerts.fireAlert(alert, text, readyForInference),
+	fireAlert: (alert, landing, next) => alerts.fireAlert(alert, landing, next, readyForInference),
 	claimDuePolls: alerts.claimDuePolls,
 	listWatches: alerts.listWatches,
 	recordLook: (poll, cursor, matched, at) => alerts.recordLook(poll, cursor, matched, at, readyForInference),

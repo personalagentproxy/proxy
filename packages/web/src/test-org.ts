@@ -17,7 +17,13 @@ export const testOrg: Org = {
 /** What the human side's route loads for the person signed in, in `org`. */
 export function testHuman(org: Org = testOrg): Human {
 	return {
-		user: {id: 'user-1', email: 'person@example.com', name: null, image: null},
+		user: {
+			id: 'user-1',
+			email: 'person@example.com',
+			name: null,
+			image: null,
+			timeZone: 'Europe/Berlin',
+		},
 		org,
 		orgs: [org],
 	};

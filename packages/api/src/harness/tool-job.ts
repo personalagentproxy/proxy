@@ -4,10 +4,10 @@ import {type ApiError, Do} from '@proxy/utils';
 import {callArguments, isRecord, OUTCOME_UNKNOWN, SLEEP_TOOL, sleepUntil, type ToolCall} from '@proxy/utils/harness';
 import type {JobRow, ThreadRow} from '@proxy/db/harness';
 
-import {CANCEL_ALERT_TOOL, SET_ALERT_TOOL} from './alerts';
+import {CANCEL_ALERT_TOOL, DISMISS_TOOL, SET_ALERT_TOOL} from './alerts';
 import {failureNote} from './thread-rules';
 import type {HarnessStore} from './store';
-import {type AlertCallOutcome, alertCall, BAD_SLEEP_ARGS, error, NOT_JSON, noSuchTool, runGateTool, setText, type ToolAnswerStore} from './tool-answers';
+import {type AlertCallOutcome, alertCall, BAD_SLEEP_ARGS, dismissText, error, NOT_JSON, noSuchTool, runGateTool, setText, type ToolAnswerStore} from './tool-answers';
 import {isGateTool} from './tool-surface';
 
 /**
@@ -16,7 +16,8 @@ import {isGateTool} from './tool-surface';
  * time or a watch on the connections it may read with the collection (alerts.ts), or cancel one;
  * its message to the person is answered as the answer is written (thread-rules.ts planCall). Its
  * scripts make their calls through the gate as the thread's agent acting as the member, for the
- * thread's task, logged like any agent's call. A sleep answers with the time, since its job was
+ * thread's task, logged like any agent's call. A dismissal, in a thread an alert opened, archives
+ * it in the transaction that answers it. A sleep answers with the time, since its job was
  * due when the sleep ended, or when a reply woke it, which follows the answer. A script, which may change something, is never run twice: a worker
  * that was interrupted mid-script leaves the outcome unknown, and the model is told so rather than
  * the script being run again; a call that sets an alert sets it in the transaction that answers
@@ -25,7 +26,7 @@ import {isGateTool} from './tool-surface';
  */
 
 /** What a tool job needs of the store. */
-export type ToolJobStore = Pick<HarnessStore, 'getJobThread' | 'getEntry' | 'completeToolJob' | 'completeSetAlert' | 'failJob' | 'finishJob'> & ToolAnswerStore;
+export type ToolJobStore = Pick<HarnessStore, 'getJobThread' | 'getEntry' | 'completeToolJob' | 'completeSetAlert' | 'completeDismiss' | 'failJob' | 'finishJob'> & ToolAnswerStore;
 
 function answer(store: ToolJobStore, thread: ThreadRow, job: JobRow, call: ToolCall, now: Date): Promise<Result<AlertCallOutcome, ApiError>> {
 	return Do(async ($) => {
@@ -66,6 +67,10 @@ export function runToolJob(store: ToolJobStore, job: JobRow, workerId: string, n
 		if (!call) {
 			const why = `No call ${job.callId ?? ''} in entry ${entry.id}`;
 			$(await store.failJob(job.id, workerId, why, failureNote(why)));
+			return;
+		}
+		if (call.name === DISMISS_TOOL) {
+			$(await store.completeDismiss({jobId: job.id, workerId, threadId: thread.id, callId: call.id}, dismissText));
 			return;
 		}
 		const outcome = $(await answer(store, thread, job, call, now));

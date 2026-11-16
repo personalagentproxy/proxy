@@ -33,6 +33,7 @@
 		"nodemailer": "^10.0.15",
 		"quickjs-emscripten-core": "0.32.0",
 		"resend": "^6.7.0",
+		"rrule": "^2.8.1",
 		"sharp": "^0.35.5",
 		"sucrase": "3.35.1",
 		"tldts": "^7.4.19",

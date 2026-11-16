@@ -1,10 +1,12 @@
 import type {ChatAttachment, ThreadStanding} from '@proxy/contracts/harness';
 import {attachedParts} from '@proxy/utils/harness';
-import {ArchiveIcon, CheckIcon, ClockIcon} from 'lucide-react';
+import {ArchiveIcon, BellIcon, CheckIcon, ClockIcon, LoaderCircleIcon} from 'lucide-react';
 import {Fragment, type ReactNode, useMemo, useState} from 'react';
+import {Link} from 'react-router';
 import {SentChip} from '@/components/chat/attachments';
 import {Bubble, BubbleContent} from '@/components/chat/bubble';
 import {FileViewer, type ViewedFile} from '@/components/chat/file-viewer';
+import {Trace, TraceLine, TraceTitle} from '@/components/chat/trace';
 import {PillButton} from '@proxy/ui/components/pill-button';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';
 import {cn} from '@proxy/ui/lib/utils';
@@ -148,6 +150,39 @@ export function EventLine({text}: {text: string}) {
 				<ClockIcon className="size-[15px]" aria-hidden />
 			</span>
 			<span className="min-w-0">{text}</span>
+		</p>
+	);
+}
+
+// How many alerts are on, in words: "Watching 1 thing in the background".
+function alertsRunning(count: number): string {
+	return `Watching ${count} ${count === 1 ? 'thing' : 'things'} in the background`;
+}
+
+/**
+ * At the end of a thread, the alerts that come to it, set in it to wake it later, as a quiet line
+ * with a spinner: a link to the Alerts page showing those alone, so the person sees what its agent
+ * waits for.
+ */
+export function AlertsLine({count, to}: {count: number; to: string}) {
+	return (
+		<Trace>
+			<Link to={to}>
+				<TraceLine>
+					<LoaderCircleIcon className="size-3.5 shrink-0 motion-safe:animate-spin" aria-hidden />
+					<TraceTitle>{alertsRunning(count)}</TraceTitle>
+				</TraceLine>
+			</Link>
+		</Trace>
+	);
+}
+
+/** What opened a thread an alert opened, as the chat's list shows it: its title, on one line, by a bell. */
+export function AlertOpenerLine({title}: {title: string}) {
+	return (
+		<p className="flex w-full min-w-0 items-center gap-2 text-sm text-muted-foreground">
+			<BellIcon className="size-[15px] shrink-0" aria-label="Opened by an alert" />
+			<span className="min-w-0 truncate">{title}</span>
 		</p>
 	);
 }

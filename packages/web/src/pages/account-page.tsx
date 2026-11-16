@@ -23,6 +23,7 @@ import {RowList} from '@/components/row-list';
 import {Section} from '@/components/section';
 import {SettingRow} from '@/components/setting-row';
 import {ThemePicker} from '@/components/theme-picker';
+import {TimeZoneSetting} from '@/components/time-zone-setting';
 import {TypeToConfirmDialog} from '@/components/type-to-confirm-dialog';
 import {useApply} from '@/hooks/use-apply';
 import {useHuman} from '@/hooks/use-human';
@@ -34,7 +35,8 @@ import {notificationSupport} from '@/lib/notifications';
 import {hasOtherPeople} from '@/lib/orgs';
 import type {accountLoader} from '@/loaders';
 
-// The person's account, in no organization: who is signed in, how the app looks to them, whether
+// The person's account, in no organization: who is signed in, and their time zone, which agents
+// tell time by, how the app looks to them, whether
 // this device tells them what the agents say while they are elsewhere (where any of their
 // organizations has Chat, and the device can), in a desktop app that can be asked to look for its
 // next version its version and the look (one from before that hears of the update on the Claude
@@ -81,7 +83,13 @@ function Account() {
 					<RowList>
 						<SettingRow label="Email">{human.user.email}</SettingRow>
 						{human.user.name && <SettingRow label="Name">{human.user.name}</SettingRow>}
+						<SettingRow label="Time zone">
+							<TimeZoneSetting timeZone={human.user.timeZone} setError={setError} />
+						</SettingRow>
 					</RowList>
+					<p className="text-sm text-muted-foreground">
+						Agents tell time by it, and alerts that repeat keep to it.
+					</p>
 				</Section>
 				<Section title="Appearance">
 					<RowList>

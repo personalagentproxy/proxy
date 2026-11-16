@@ -18,7 +18,7 @@ mock.module('../mcp/tools', () => ({...mcpTools, callMcpTool}));
 const listAgentConnections = mock();
 mock.module('../agent-side/tools', () => ({listAgentConnections}));
 mock.module('../records/connectors', () => ({connectorFor: () => ({list: mock(), get: mock(), changes: mock()})}));
-const {isGateTool, THREAD_TOOLS, toolSurfaceFor} = await import('./tool-surface');
+const {isGateTool, THREAD_TOOLS, threadTools, toolSurfaceFor} = await import('./tool-surface');
 const EMAILS_READ = findCollection(findIntegration('google') ?? {collections: []}, 'emails')?.read ?? '';
 
 type Params = {properties: Record<string, unknown>; required: string[]};
@@ -36,8 +36,26 @@ describe('a thread’s tools', () => {
 		expect(THREAD_TOOLS.map((candidate) => candidate.name)).toEqual(['script', 'send_to_person', 'sleep_until', 'set_alert', 'cancel_alert']);
 		expect(tool('send_to_person').parameters.required).toEqual(['text']);
 		expect(tool('send_to_person').description).toContain('Tells the person something while you go on');
-		expect(tool('set_alert').parameters.required).toEqual(['title', 'brief']);
+		expect(tool('set_alert').parameters.required).toEqual(['title', 'brief', 'opens']);
 		expect(tool('cancel_alert').parameters.required).toEqual(['id']);
+	});
+
+	test('a thread an alert opened has dismissing it besides', () => {
+		const base = {
+			id: 'thread-1',
+			orgId: 'org-1',
+			agentId: 'agent-1',
+			personaId: 'persona-1',
+			userId: 'user-1',
+			parentThreadId: 'chat-1',
+			title: 'Bank',
+			taskId: 'task-1',
+			harness: null,
+			harnessSession: null,
+			createdAt: new Date(),
+		};
+		expect(threadTools({...base, openedByAlert: false})).toBe(THREAD_TOOLS);
+		expect(threadTools({...base, openedByAlert: true}).map((candidate) => candidate.name)).toEqual(['script', 'send_to_person', 'sleep_until', 'set_alert', 'cancel_alert', 'dismiss']);
 	});
 
 	test('the script takes no task, and starts and finishes none: the loop keeps its task', () => {
@@ -71,6 +89,7 @@ describe('running a call inline', () => {
 		taskId: 'task-1',
 		harness: null,
 		harnessSession: null,
+		openedByAlert: false,
 		createdAt: now,
 	};
 	const job = {jobId: 'job-1', workerId: 'w1', threadId: 'thread-1'};
@@ -78,13 +97,19 @@ describe('running a call inline', () => {
 		id: 'alert-1',
 		orgId: 'org-1',
 		userId: 'user-1',
+		chatId: 'chat-1',
 		threadId: 'thread-1',
+		setInThreadId: 'thread-1',
 		title: 'Call Dana',
 		brief: 'Remind them.',
 		at: new Date('2026-10-22T07:30:00Z'),
+		nextAt: new Date('2026-10-22T07:30:00Z'),
+		every: null,
+		timeZone: null,
 		collectionId: null,
 		connectionIds: [],
 		terms: [],
+		split: null,
 		lastMatchedAt: null,
 		createdAt: now,
 	};
@@ -180,27 +205,35 @@ describe('running a call inline', () => {
 	});
 
 	test('set_alert sets the alert on its own, fenced by the job, a watch on the connections the agent may read with the collection, and answers with it; cancel_alert deletes one', async () => {
-		expect((await run('set_alert', '{"title":"Call Dana","brief":"Remind them.","at":"2026-10-22T07:30:00Z"}')).unwrap()).toEqual({
-			text: 'Set the alert alert-1: “Call Dana”, due 2026-10-22T07:30:00.000Z.',
+		expect((await run('set_alert', '{"title":"Call Dana","brief":"Remind them.","opens":"this_thread","at":"2026-10-22T07:30:00Z"}')).unwrap()).toEqual({
+			text: 'Set the alert alert-1: “Call Dana”, due 2026-10-22T07:30:00.000Z. It comes to this thread.',
 			isError: false,
 		});
-		expect(store.setAlertInline).toHaveBeenCalledWith(job, {kind: 'time', title: 'Call Dana', brief: 'Remind them.', at: new Date('2026-10-22T07:30:00Z')});
+		expect(store.setAlertInline).toHaveBeenCalledWith(job, {kind: 'time', opens: 'this_thread', title: 'Call Dana', brief: 'Remind them.', at: new Date('2026-10-22T07:30:00Z')});
 
-		await run('set_alert', '{"title":"Bank","brief":"Tell me.","collection":"emails","terms":["Loan"]}');
-		expect(store.setAlertInline).toHaveBeenLastCalledWith(job, {kind: 'watch', title: 'Bank', brief: 'Tell me.', collectionId: 'emails', connectionIds: ['conn-a'], terms: ['loan']});
+		await run('set_alert', '{"title":"Bank","brief":"Tell me.","opens":"this_thread","collection":"emails","terms":["Loan"]}');
+		expect(store.setAlertInline).toHaveBeenLastCalledWith(job, {
+			kind: 'watch',
+			opens: 'this_thread',
+			title: 'Bank',
+			brief: 'Tell me.',
+			collectionId: 'emails',
+			connectionIds: ['conn-a'],
+			terms: ['loan'],
+		});
 
-		expect((await run('set_alert', '{"title":"Bank","brief":"Tell me.","collection":"emails","connections":["conn-b"]}')).unwrap()).toEqual({
+		expect((await run('set_alert', '{"title":"Bank","brief":"Tell me.","opens":"this_thread","collection":"emails","connections":["conn-b"]}')).unwrap()).toEqual({
 			text: 'You may not watch conn-b for emails. The connections you may watch for it: conn-a (Google (a@example.com)).',
 			isError: true,
 		});
-		expect((await run('set_alert', '{"title":"Bank","brief":"Tell me."}')).unwrap()).toEqual({
-			text: 'Give at, for one message at that time, or collection, for a watch: one of the two.',
+		expect((await run('set_alert', '{"title":"Bank","brief":"Tell me.","opens":"this_thread"}')).unwrap()).toEqual({
+			text: 'Give at, for a message at that time, or collection, for a watch: one of the two.',
 			isError: true,
 		});
 		expect(store.setAlertInline).toHaveBeenCalledTimes(2);
 
 		store.setAlertInline.mockResolvedValue(Ok(null));
-		expect((await run('set_alert', '{"title":"Call Dana","brief":"Remind them.","at":"2026-10-22T07:30:00Z"}')).unwrapErr().kind).toBe('conflict');
+		expect((await run('set_alert', '{"title":"Call Dana","brief":"Remind them.","opens":"this_thread","at":"2026-10-22T07:30:00Z"}')).unwrapErr().kind).toBe('conflict');
 
 		expect((await run('cancel_alert', '{"id":"alert-1"}')).unwrap()).toEqual({text: 'Cancelled the alert alert-1.', isError: false});
 		expect(store.deleteAlert).toHaveBeenCalledWith('alert-1', {orgId: 'org-1', userId: 'user-1'});
@@ -211,11 +244,29 @@ describe('running a call inline', () => {
 		});
 	});
 
+	test('dismiss archives a thread an alert opened, fenced by the job, ending the turn; one the person opened is not', async () => {
+		expect((await run('dismiss', '{}')).unwrap()).toEqual({text: 'Only a thread an alert opened can be dismissed.', isError: true});
+		expect(store.dismissThreadInline).not.toHaveBeenCalled();
+
+		const opened = () => toolSurfaceFor(store, {...thread, openedByAlert: true}, {id: 'job-1'}, 'w1', () => now);
+		expect(opened().tools.map((candidate) => candidate.name)).toContain('dismiss');
+		store.dismissThreadInline.mockResolvedValue(Ok(true));
+		expect((await opened().execute({id: 'c1', name: 'dismiss', arguments: '{}'})).unwrap()).toEqual({
+			text: 'Dismissed: the thread is archived, and the person isn’t told of it. Say nothing more.',
+			isError: false,
+			endTurn: true,
+		});
+		expect(store.dismissThreadInline).toHaveBeenCalledWith(job);
+
+		store.dismissThreadInline.mockResolvedValue(Ok(false));
+		expect((await opened().execute({id: 'c1', name: 'dismiss', arguments: '{}'})).unwrapErr().kind).toBe('conflict');
+	});
+
 	test('never writes to the log, nor ends the job: the result is the worker’s to write', async () => {
 		await run('script', '{"code":"return 1"}');
 		await run('sleep_until', '{"seconds":60}');
 		await run('send_to_person', '{"text":"Hi"}');
-		await run('set_alert', '{"title":"Call Dana","brief":"Remind them.","at":"2026-10-22T07:30:00Z"}');
+		await run('set_alert', '{"title":"Call Dana","brief":"Remind them.","opens":"this_thread","at":"2026-10-22T07:30:00Z"}');
 		expect(store.appendTurnEntries).not.toHaveBeenCalled();
 		expect(store.completeToolJob).not.toHaveBeenCalled();
 		expect(store.completeSetAlert).not.toHaveBeenCalled();

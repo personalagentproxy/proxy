@@ -35,6 +35,7 @@ const thread: ThreadRow = {
 	taskId: 'task-1',
 	harness: null,
 	harnessSession: null,
+	openedByAlert: false,
 	createdAt: now,
 };
 
@@ -180,13 +181,19 @@ describe('a thread’s alert calls', () => {
 		id: 'alert-1',
 		orgId: 'org-1',
 		userId: 'user-1',
+		chatId: 'chat-1',
 		threadId: 'thread-1',
+		setInThreadId: 'thread-1',
 		title: 'Call Dana',
 		brief: 'Remind them.',
 		at: new Date('2026-10-22T07:30:00Z'),
+		nextAt: new Date('2026-10-22T07:30:00Z'),
+		every: null,
+		timeZone: null,
 		collectionId: null,
 		connectionIds: [],
 		terms: [],
+		split: null,
 		lastMatchedAt: null,
 		createdAt: now,
 	};
@@ -206,26 +213,30 @@ describe('a thread’s alert calls', () => {
 
 	test('set_alert with a time sets a timed alert as the call is answered, saying so with its id', async () => {
 		const {runToolJob} = await import('./tool-job');
-		getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name: 'set_alert', arguments: '{"title":"Call Dana","brief":"Remind them.","at":"2026-10-22T07:30:00Z"}'}])));
+		getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name: 'set_alert', arguments: '{"title":"Call Dana","brief":"Remind them.","opens":"this_thread","at":"2026-10-22T07:30:00Z"}'}])));
 
 		await runToolJob(store, job('c1'), 'w1', now);
 
-		expect(store.completeSetAlert).toHaveBeenCalledWith(set, {kind: 'time', title: 'Call Dana', brief: 'Remind them.', at: new Date('2026-10-22T07:30:00Z')}, expect.any(Function));
-		expect(answered(alert)).toBe('Set the alert alert-1: “Call Dana”, due 2026-10-22T07:30:00.000Z.');
+		expect(store.completeSetAlert).toHaveBeenCalledWith(
+			set,
+			{kind: 'time', opens: 'this_thread', title: 'Call Dana', brief: 'Remind them.', at: new Date('2026-10-22T07:30:00Z')},
+			expect.any(Function),
+		);
+		expect(answered(alert)).toBe('Set the alert alert-1: “Call Dana”, due 2026-10-22T07:30:00.000Z. It comes to this thread.');
 		expect(completeToolJob).not.toHaveBeenCalled();
 	});
 
 	test('set_alert with a collection sets a watch on the connections the agent may read with it, or those named among them', async () => {
 		const {runToolJob} = await import('./tool-job');
-		getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name: 'set_alert', arguments: '{"title":"Bank","brief":"Tell me.","collection":"emails","terms":["Loan"]}'}])));
+		getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name: 'set_alert', arguments: '{"title":"Bank","brief":"Tell me.","opens":"this_thread","collection":"emails","terms":["Loan"]}'}])));
 		await runToolJob(store, job('c1'), 'w1', now);
 		expect(store.completeSetAlert).toHaveBeenLastCalledWith(
 			set,
-			{kind: 'watch', title: 'Bank', brief: 'Tell me.', collectionId: 'emails', connectionIds: ['conn-a'], terms: ['loan']},
+			{kind: 'watch', opens: 'this_thread', title: 'Bank', brief: 'Tell me.', collectionId: 'emails', connectionIds: ['conn-a'], terms: ['loan']},
 			expect.any(Function),
 		);
 
-		getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name: 'set_alert', arguments: '{"title":"Bank","brief":"Tell me.","collection":"emails","connections":["conn-b"]}'}])));
+		getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name: 'set_alert', arguments: '{"title":"Bank","brief":"Tell me.","opens":"this_thread","collection":"emails","connections":["conn-b"]}'}])));
 		await runToolJob(store, job('c1'), 'w1', now);
 		expect(completeToolJob).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-1', {
 			callId: 'c1',
@@ -244,14 +255,26 @@ describe('a thread’s alert calls', () => {
 
 	test('bad arguments are refused, saying what is wrong', async () => {
 		const {runToolJob} = await import('./tool-job');
-		getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name: 'set_alert', arguments: '{"title":"Bank","brief":"Tell me."}'}])));
+		getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name: 'set_alert', arguments: '{"title":"Bank","brief":"Tell me.","opens":"this_thread"}'}])));
 		await runToolJob(store, job('c1'), 'w1', now);
 		expect(completeToolJob).toHaveBeenLastCalledWith('job-1', 'w1', 'thread-1', {
 			callId: 'c1',
-			text: 'Give at, for one message at that time, or collection, for a watch: one of the two.',
+			text: 'Give at, for a message at that time, or collection, for a watch: one of the two.',
 			isError: true,
 		});
 		expect(store.completeSetAlert).not.toHaveBeenCalled();
+	});
+
+	test('dismiss archives the thread as the call is answered, which says whether an alert opened it', async () => {
+		const {runToolJob} = await import('./tool-job');
+		store.completeDismiss.mockResolvedValue(Ok(true));
+		getEntry.mockResolvedValue(Ok(entryWith([{id: 'c1', name: 'dismiss', arguments: '{}'}])));
+		await runToolJob(store, job('c1'), 'w1', now);
+		expect(store.completeDismiss).toHaveBeenCalledWith(set, expect.any(Function));
+		const answer = store.completeDismiss.mock.calls[0]?.[1];
+		expect(answer?.(true)).toEqual({text: 'Dismissed: the thread is archived, and the person isn’t told of it. Say nothing more.', isError: false});
+		expect(answer?.(false)).toEqual({text: 'Only a thread an alert opened can be dismissed.', isError: true});
+		expect(completeToolJob).not.toHaveBeenCalled();
 	});
 
 	test('cancel_alert deletes the alert, any of the member’s, and says when there is none such', async () => {

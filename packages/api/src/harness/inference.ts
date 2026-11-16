@@ -89,6 +89,19 @@ export type InferenceStore = Pick<
 const THREAD_FLOW =
 	'You are talking with the person in a thread on Personal Agent Proxy’s Chat page. Their message opened this thread, and their replies come into it. Each new request of theirs gets a thread of its own, so this one is about one piece of work. Answer in short Markdown: sentences, a list or table where clearer, no headings. To show the person a picture, such as a chart or a screenshot, have it put in a drive and write it as a Markdown image of its Link: ![what it shows](Link); a picture anywhere else is shown as a link only. Work in scripts; check pap.tools before using a tool you haven’t used. Your task is kept for you. For something at a time, or something new in their accounts, set an alert. To ask something you can’t go on without, answer with the question and no tool call. An answer without a tool call ends your turn: say what you did and found, with the names, ids, dates and numbers that matter, and what you couldn’t do. Don’t mention summaries of the conversation.';
 
+// What the agent of a thread an alert opened is told besides: nobody asked in it, and it may be
+// nothing to tell the person of.
+const ALERT_OPENED =
+	'An alert you set opened this thread, not the person: its first message says what came and what you noted for it. Do what the note says. Where what came is nothing the person needs to know, call dismiss, which archives the thread without telling them; otherwise answer them as usual.';
+
+// The person's time zone as the agent is told it, or that it isn't known.
+function timeZoneLine(timeZone: string | null): string {
+	if (timeZone === null) {
+		return 'The person’s time zone isn’t known; a repeating alert keeps to UTC.';
+	}
+	return `The person’s time zone is ${timeZone}.`;
+}
+
 // How often a model that can't be reached is tried, and how long to wait between tries.
 const MAX_MODEL_ATTEMPTS = 3;
 const RETRY_MS = 5_000;
@@ -163,7 +176,9 @@ function systemPrompt(store: InferenceStore, thread: ThreadRow, signedIn: Signed
 		const folder = persona === null ? undefined : chatFolder(persona);
 		const instructions = $(await agentInstructions(signedIn, THREAD_FLOW, folder));
 		const alerts = alertsParagraph($(await store.listMemberAlerts(thread.orgId, thread.userId)), thread.id);
-		return [instructions, alerts, `The time now is ${now.toISOString()}.`].join('\n\n');
+		const timeZone = $(await store.getUserTimeZone(thread.userId));
+		const opened = thread.openedByAlert ? [ALERT_OPENED] : [];
+		return [instructions, ...opened, alerts, `The time now is ${now.toISOString()}. ${timeZoneLine(timeZone)}`].join('\n\n');
 	});
 }
 

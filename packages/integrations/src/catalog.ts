@@ -2128,7 +2128,8 @@ export const CHAT_STANDINGS = {
 // found in one, which alerts are set. Every member has one, theirs alone, as they have a vault,
 // made once the organization has used Chat. A thread is read, never written: whoever reads one
 // points the person to it by its url, its page in Chat, and they go on there. An alert is seen and
-// cancelled; one is set in a thread, by its agent, since it comes back to that thread.
+// cancelled; one is set in a thread, by its agent, since it comes back to that thread or opens new
+// ones in its chat.
 const chat: Integration = {
 	id: CHAT_INTEGRATION_ID,
 	name: 'Chat',
