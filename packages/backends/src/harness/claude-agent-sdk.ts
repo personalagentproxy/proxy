@@ -112,6 +112,12 @@ const WIND_UP_MS = 10_000;
 
 const GO_ON = 'Go on.';
 
+// How long a result of the api's tools the binary gives the model whole: above the 60,000
+// characters the api cuts a result to (tool-answers.ts). Past its own size, about 50,000
+// characters, the binary gives the model a 2,000-character preview and saves the rest to a file,
+// which the model has no tool to read.
+const MAX_RESULT_CHARS = 100_000;
+
 // What leads in the part of the log written out for the model, and what came after it.
 const RECORD =
 	'What follows is the record of this conversation where your own memory of it stops short, written out: you are the agent in it, and it has what was said, the calls you made and what they answered. You may remember some of it. Take it as what happened: don’t make a call again that was answered, and go on from where it ends.';
@@ -282,6 +288,11 @@ function envFor(configDir: string, input: HarnessTurn, auth: HarnessAuth): Recor
 		CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS: '1',
 		CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
 		DISABLE_TELEMETRY: '1',
+		// The binary replaces an MCP result over its cap in tokens, 25,000 or what Anthropic sets
+		// remotely, with an error saying it was saved to a file, which the model has no tool to
+		// read: 60,000 characters of a result were over it. The api cuts a result at 60,000
+		// characters (tool-answers.ts), so the cap is raised above that.
+		MAX_MCP_OUTPUT_TOKENS: '100000',
 		...credentialEnv(auth),
 	};
 }
@@ -299,8 +310,9 @@ function describe(error: ApiError): string {
  * tools listed with their JSON Schema as they are, each marked to be loaded always, since the
  * binary otherwise defers an MCP server's tools behind its tool search, which is among the
  * built-in tools removed; a call run through the surface, under the id the binary gives the call,
- * so the result the api writes answers the call the model made. `answered` is told of each call
- * answered, with the answer, so the turn can end on one that ends it.
+ * so the result the api writes answers the call the model made, each let answer up to
+ * `MAX_RESULT_CHARS`. `answered` is told of each call answered, with the answer, so the turn
+ * can end on one that ends it, and the log keeps the answer as the api gave it.
  */
 export function proxyToolServer(tools: ToolSurface, answered: (callId: string, answer: ToolAnswer) => void): McpServer {
 	const server = new McpServer({name: SERVER, version: '1.0.0'}, {capabilities: {tools: {}}});
@@ -310,7 +322,7 @@ export function proxyToolServer(tools: ToolSurface, answered: (callId: string, a
 			description: tool.description,
 			inputSchema: {...tool.inputSchema, type: 'object' as const},
 			annotations: {readOnlyHint: tool.readOnly},
-			_meta: {'anthropic/alwaysLoad': true},
+			_meta: {'anthropic/alwaysLoad': true, 'anthropic/maxResultSizeChars': MAX_RESULT_CHARS},
 		})),
 	}));
 	server.server.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -520,16 +532,19 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 				yield failed(ApiErr.internalError(made.error), false);
 				return;
 			}
-			// The binary's input, what the turn is asked first; and the calls whose answer ends the
-			// turn, by id, as the server answers them. What came into the thread with an answer goes
-			// on the input as the person's, before the binary has the answer, so the model reads it
-			// at its next step.
+			// The binary's input, what the turn is asked first; the calls whose answer ends the turn,
+			// by id, as the server answers them; and what each answered, as the api gave it: the log
+			// keeps that rather than the binary's echo, which may be its preview of a long answer. What
+			// came into the thread with an answer goes on the input as the person's, before the binary
+			// has the answer, so the model reads it at its next step.
 			const turnInput = turnInputOf(askedWith(input, session, promptFor(input, session, new Date())));
 			const endsTurn = new Set<string>();
+			const answers = new Map<string, string>();
 			const server = proxyToolServer(input.tools, (callId, answer) => {
 				if (answer.endTurn) {
 					endsTurn.add(callId);
 				}
+				answers.set(callId, answer.text);
 				for (const message of answer.meanwhile ?? []) {
 					turnInput.give(said(message));
 				}
@@ -624,7 +639,7 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 							if (!open.delete(result.tool_use_id)) {
 								continue;
 							}
-							yield {kind: 'tool_result', callId: result.tool_use_id, text: textOf(result.content), isError: result.is_error === true};
+							yield {kind: 'tool_result', callId: result.tool_use_id, text: answers.get(result.tool_use_id) ?? textOf(result.content), isError: result.is_error === true};
 							if (endsTurn.has(result.tool_use_id)) {
 								interrupted = true;
 								await Result.wrapAsync(() => run.interrupt());
