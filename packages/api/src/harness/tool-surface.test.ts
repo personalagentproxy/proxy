@@ -1,9 +1,11 @@
 import {beforeEach, describe, expect, mock, test} from 'bun:test';
-import {Ok} from 'ts-results-es';
+import {Err, Ok} from 'ts-results-es';
 
 import type {AlertRow} from '@proxy/db/alerts';
-import type {ThreadRow} from '@proxy/db/harness';
+import type {EntryRow, ThreadRow} from '@proxy/db/harness';
 import {findCollection, findIntegration} from '@proxy/integrations';
+import {ApiErr} from '@proxy/utils';
+import {EVENT_LEAD} from '@proxy/utils/harness-context';
 
 import {type FakeStore, fakeStore} from './fake-store';
 
@@ -122,6 +124,7 @@ describe('running a call inline', () => {
 	beforeEach(() => {
 		mock.clearAllMocks();
 		store = fakeStore();
+		store.listPendingMessages.mockResolvedValue(Ok([]));
 		store.getThreadAgent.mockResolvedValue(Ok(signedIn));
 		store.getAgentTask.mockResolvedValue(
 			Ok({
@@ -272,5 +275,65 @@ describe('running a call inline', () => {
 		expect(store.completeSetAlert).not.toHaveBeenCalled();
 		expect(store.completeInference).not.toHaveBeenCalled();
 		expect(store.finishJob).not.toHaveBeenCalled();
+	});
+
+	// What came into the thread while the turn ran, pending.
+	function landed(id: string, kind: 'person' | 'event', text: string): EntryRow {
+		return {
+			id,
+			seq: 100,
+			threadId: 'thread-1',
+			kind,
+			pending: true,
+			text,
+			toolCalls: null,
+			callId: null,
+			isError: false,
+			inputTokens: null,
+			outputTokens: null,
+			coversSeq: null,
+			system: null,
+			harness: null,
+			model: null,
+			jobId: null,
+			createdAt: now,
+		};
+	}
+
+	test('a call is answered with what came into the thread meanwhile, the person’s words and an alert’s with its lead-in, each once in the turn, its ids kept for the call', async () => {
+		const delivered = new Map<string, string[]>();
+		const steering = toolSurfaceFor(store, thread, {id: 'job-1'}, 'w1', () => now, delivered);
+		store.listPendingMessages.mockResolvedValueOnce(Ok([landed('m1', 'person', 'Use March instead'), landed('m2', 'event', 'Dana replied.')]));
+		store.listPendingMessages.mockResolvedValueOnce(Ok([landed('m1', 'person', 'Use March instead'), landed('m2', 'event', 'Dana replied.'), landed('m3', 'person', 'And April')]));
+		store.listPendingMessages.mockResolvedValueOnce(Ok([landed('m1', 'person', 'Use March instead'), landed('m2', 'event', 'Dana replied.'), landed('m3', 'person', 'And April')]));
+
+		const first = await steering.execute({id: 'c1', name: 'send_to_person', arguments: '{"text":"Looking."}'});
+		const second = await steering.execute({id: 'c2', name: 'send_to_person', arguments: '{"text":"Still looking."}'});
+		const third = await steering.execute({id: 'c3', name: 'send_to_person', arguments: '{"text":"Almost."}'});
+
+		expect(first.unwrap()).toEqual({text: 'Sent.', isError: false, meanwhile: ['Use March instead', `${EVENT_LEAD}\n\nDana replied.`]});
+		expect(second.unwrap()).toEqual({text: 'Sent.', isError: false, meanwhile: ['And April']});
+		expect(third.unwrap()).toEqual({text: 'Sent.', isError: false});
+		expect(store.listPendingMessages).toHaveBeenCalledWith('thread-1');
+		expect([...delivered]).toEqual([
+			['c1', ['m1', 'm2']],
+			['c2', ['m3']],
+		]);
+	});
+
+	test('a call that ends the turn carries nothing, and what came can’t be read is left to wait, the answer going without it', async () => {
+		const delivered = new Map<string, string[]>();
+		const steering = toolSurfaceFor(store, thread, {id: 'job-1'}, 'w1', () => now, delivered);
+		store.scheduleWake.mockResolvedValue(Ok(true));
+		store.listPendingMessages.mockResolvedValue(Ok([landed('m1', 'person', 'Use March instead')]));
+
+		const slept = await steering.execute({id: 'c1', name: 'sleep_until', arguments: '{"seconds":60}'});
+		expect(slept.unwrap()).toMatchObject({endTurn: true});
+		expect(slept.unwrap()).not.toHaveProperty('meanwhile');
+
+		store.listPendingMessages.mockResolvedValue(Err(ApiErr.dbError(new Error('down'))));
+		const told = await steering.execute({id: 'c2', name: 'send_to_person', arguments: '{"text":"Looking."}'});
+		expect(told.unwrap()).toEqual({text: 'Sent.', isError: false});
+		expect(delivered.size).toBe(0);
 	});
 });

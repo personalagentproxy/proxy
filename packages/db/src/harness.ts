@@ -120,7 +120,8 @@ export type EntryRow = LogEntry & {
 	// where the model wasn't run for it.
 	harness: string | null;
 	model: string | null;
-	// The job that wrote the entry; null for what the person wrote.
+	// The job that wrote the entry; for what the person said, or an event, the turn that was given
+	// it as it ran, beside a call's answer (appendTurnEntries); null otherwise.
 	jobId: string | null;
 	createdAt: Date;
 };
@@ -185,7 +186,9 @@ export type NewTurnEntry =
 			ranOn?: RanOn;
 			attachments?: EntryAttachment[];
 	  }
-	| {kind: 'tool_result'; callId: string; text: string; isError: boolean};
+	// `delivered`: what came into the thread while the turn ran, by id, that the model was given
+	// beside this answer (listPendingMessages), which takes its place in the log after it.
+	| {kind: 'tool_result'; callId: string; text: string; isError: boolean; delivered?: string[]};
 
 /** The harness that ran a turn and what it kept, as the turn's job ends, for the thread to keep. */
 export type ThreadSession = {harness: string; session: HarnessSession};
@@ -962,6 +965,23 @@ export async function listEntries(threadId: string): Promise<Result<EntryRow[], 
 		await wrapDb(() =>
 			db.agentEntry.findMany({
 				where: {threadId, pending: false},
+				select: entrySelect,
+				orderBy: {seq: 'asc'},
+			}),
+		)
+	).map((entries) => entries.map(toEntry));
+}
+
+/**
+ * What came into the thread while its turn runs, pending, that the model can be given beside a
+ * call's answer: the person's messages and alerts' events, in the order they landed. One with
+ * files attached waits for the turn's end, where the model is given them with it.
+ */
+export async function listPendingMessages(threadId: string): Promise<Result<EntryRow[], ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.agentEntry.findMany({
+				where: {threadId, pending: true, kind: {in: ['person', 'event']}, attachments: {none: {}}},
 				select: entrySelect,
 				orderBy: {seq: 'asc'},
 			}),
@@ -2028,8 +2048,11 @@ export async function appendSummary(
  * model said at a step, with its calls, and what the calls it ran itself answered, in the order
  * given; the job goes on. The entries are never pending: pending is for what lands from outside
  * while a turn runs, which waits for the turn's output to be in the log first, and this is that
- * output, from the job that holds the thread. `Ok(false)` when the job was no longer the
- * worker's, and nothing is written.
+ * output, from the job that holds the thread. What landed meanwhile that the model was given
+ * beside a call's answer (the result's `delivered`) takes its place in the log after that result,
+ * no longer pending, with the turn's job, which says the turn has it; what was released some
+ * other way since is left where it is. `Ok(false)` when the job was no longer the worker's, and
+ * nothing is written.
  */
 export async function appendTurnEntries(
 	jobId: string,
@@ -2077,6 +2100,9 @@ export async function appendTurnEntries(
 					},
 					select: {id: true},
 				});
+				for (const id of entry.delivered ?? []) {
+					await tx.$executeRaw`UPDATE "AgentEntry" SET "seq" = nextval(pg_get_serial_sequence('"AgentEntry"', 'seq')), "pending" = false, "jobId" = ${jobId} WHERE "id" = ${id} AND "threadId" = ${threadId} AND "pending" = true`;
+				}
 			}
 			return true;
 		}),
