@@ -779,7 +779,7 @@ describe('ChatPage', () => {
 
 	test('renames the open thread from its name in the title bar, at once in the list and on the server; Escape puts the name back', async () => {
 		// The server holds its answer, so the page shows the new name before it has it.
-		let answer = () => undefined;
+		let answer: () => void = () => undefined;
 		const held = new Promise<void>((resolve) => {
 			answer = resolve;
 		});
