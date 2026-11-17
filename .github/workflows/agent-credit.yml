@@ -1,8 +1,8 @@
 name: agent-credit
 
-# Claude and Codex are never credited in a commit or a pull request (AGENTS.md). Apart from ci, so
-# that editing a pull request's description checks it again without typechecking, testing and
-# building once more.
+# Claude, Codex and Devin are never credited in a commit or a pull request (AGENTS.md). Apart
+# from ci, so that editing a pull request's description checks it again without typechecking,
+# testing and building once more.
 on:
   pull_request:
     types: [opened, synchronize, reopened, edited]
@@ -15,14 +15,16 @@ jobs:
         with:
           fetch-depth: 0
       # A squash merge carries every commit's message into main, trailers and all, so each commit
-      # of the pull request is checked, and the description, which people read on GitHub.
+      # of the pull request is checked, and the description, which people read on GitHub. Devin
+      # commits as its own bot, devin-ai-integration[bot], so a commit's author and committer are
+      # read too, and its descriptions link to its session on app.devin.ai.
       - shell: bash
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
           BODY: ${{ github.event.pull_request.body }}
         run: |
-          pattern='co-authored-by:.*(claude|anthropic|codex|openai)|generated (with|by) .*(claude|codex)|@anthropic\.com|@openai\.com'
+          pattern='co-authored-by:.*(claude|anthropic|codex|openai|devin)|generated (with|by) .*(claude|codex|devin)|@anthropic\.com|@openai\.com|devin-ai-integration|devin\.ai'
           found=0
           for sha in $(git rev-list "$BASE..$HEAD"); do
             lines=$(git log -1 --format='Author: %an <%ae>%nCommitter: %cn <%ce>%n%B' "$sha" | grep -iE "$pattern" || true)
@@ -32,7 +34,7 @@ jobs:
             found=1
             echo "::error::$(git log -1 --format='%h %s' "$sha") credits an agent:"
             echo "$lines" | sed 's/^/    /'
-            echo "Reword it without the credit, then force-push."
+            echo "Reword it without the credit, and take its authorship as your own (git commit --amend --reset-author), then force-push."
           done
           lines=$(printf '%s\n' "$BODY" | grep -iE "$pattern" || true)
           if [[ -n "$lines" ]]; then
