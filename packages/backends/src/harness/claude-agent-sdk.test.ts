@@ -372,6 +372,7 @@ describe('claudeAgentSdkHarness', () => {
 			CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS: '1',
 			CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
 			DISABLE_TELEMETRY: '1',
+			MAX_MCP_OUTPUT_TOKENS: '100000',
 			CLAUDE_CODE_OAUTH_TOKEN: 'oat-1',
 			CLAUDE_CODE_OAUTH_SCOPES: 'user:profile user:inference',
 		});
@@ -883,6 +884,23 @@ describe('claudeAgentSdkHarness', () => {
 		expect(fake.interrupts).toBe(1);
 	});
 
+	test('logs a call’s answer as the api gave it, not the binary’s preview of a long one', async () => {
+		const fake = fakeQuery();
+		const surface = fakeToolSurface(TOOLS, {text: 'rows', isError: false});
+		fake.script(async function* (options) {
+			yield init();
+			yield assistant([toolUse({id: 'c1', name: 'read', arguments: '{}'})]);
+			const client = await connect(options);
+			await client.callTool({name: 'read', arguments: {}, _meta: {'claudecode/toolUseId': 'c1'}});
+			yield toolResult('c1', '<persisted-output>\nOutput too large (58.9KB). Full output saved to: /tmp/x.json\n\nPreview (first 2KB):\nro');
+			yield result();
+		});
+
+		const events = await collect(fake, {...turnInput(), tools: surface});
+
+		expect(events).toMatchObject([{kind: 'tool_call', id: 'c1'}, {kind: 'tool_result', callId: 'c1', text: 'rows', isError: false}, {kind: 'done'}]);
+	});
+
 	test('a call the surface can’t run is answered as an error, without interrupting', async () => {
 		const fake = fakeQuery();
 		const surface = {tools: TOOLS, execute: async () => Err(ApiErr.unavailable('The gate is closed'))};
@@ -911,8 +929,20 @@ describe('proxyToolServer', () => {
 		const {tools} = await client.listTools();
 
 		expect(tools).toEqual([
-			{name: 'read', description: 'Reads', inputSchema: {type: 'object', properties: {a: {type: 'number'}}}, annotations: {readOnlyHint: true}, _meta: {'anthropic/alwaysLoad': true}},
-			{name: 'sleep_until', description: 'Sleeps', inputSchema: {type: 'object', properties: {seconds: {type: 'number'}}}, annotations: {readOnlyHint: false}, _meta: {'anthropic/alwaysLoad': true}},
+			{
+				name: 'read',
+				description: 'Reads',
+				inputSchema: {type: 'object', properties: {a: {type: 'number'}}},
+				annotations: {readOnlyHint: true},
+				_meta: {'anthropic/alwaysLoad': true, 'anthropic/maxResultSizeChars': 100_000},
+			},
+			{
+				name: 'sleep_until',
+				description: 'Sleeps',
+				inputSchema: {type: 'object', properties: {seconds: {type: 'number'}}},
+				annotations: {readOnlyHint: false},
+				_meta: {'anthropic/alwaysLoad': true, 'anthropic/maxResultSizeChars': 100_000},
+			},
 		]);
 	});
 
