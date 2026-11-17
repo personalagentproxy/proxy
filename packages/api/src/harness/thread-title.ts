@@ -95,7 +95,7 @@ export function writeTitle(store: TitleStore, model: TitleModel, threadId: strin
 			return 'skipped';
 		}
 		const row = $(await store.getJobThread(threadId));
-		if (row === null || row.parentThreadId === null) {
+		if (row === null || row.parentThreadId === null || row.subAgentOfId !== null) {
 			return 'skipped';
 		}
 		const thread = $(await store.getChatThread(row.parentThreadId, threadId, SHOWN_CALLS, clock()));

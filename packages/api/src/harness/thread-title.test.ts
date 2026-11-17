@@ -19,6 +19,8 @@ const row: ThreadRow = {
 	personaId: 'persona-1',
 	userId: 'user-1',
 	parentThreadId: 'chat-1',
+	subAgentOfId: null,
+	parentCallId: null,
 	title: 'book a table for 4 near the office thursday 7pm, somewhere quiet',
 	taskId: 'task-1',
 	harness: null,

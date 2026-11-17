@@ -166,7 +166,7 @@ export function writeStanding(store: StandingStore, model: StandingModel, thread
 			return 'skipped';
 		}
 		const row = $(await store.getJobThread(threadId));
-		if (row === null || row.parentThreadId === null) {
+		if (row === null || row.parentThreadId === null || row.subAgentOfId !== null) {
 			return 'skipped';
 		}
 		const thread = $(await store.getChatThread(row.parentThreadId, threadId, SHOWN_CALLS, clock()));

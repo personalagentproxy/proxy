@@ -4,7 +4,7 @@ import type {JobRow, ThreadRow} from '@proxy/db/harness';
 
 import {ATTACHMENT_MARK} from '@proxy/utils/harness';
 
-import {afterAnswer, failureNote, planCall, threadOpening} from './thread-rules';
+import {afterAnswer, failureNote, planCall, STOPPED_NOTE, threadOpening} from './thread-rules';
 
 const now = new Date('2026-10-21T10:00:00Z');
 // The member's chat.
@@ -15,6 +15,8 @@ const chat: ThreadRow = {
 	personaId: 'persona-1',
 	userId: 'user-1',
 	parentThreadId: null,
+	subAgentOfId: null,
+	parentCallId: null,
 	title: null,
 	taskId: null,
 	harness: null,
@@ -22,6 +24,9 @@ const chat: ThreadRow = {
 	openedByAlert: false,
 	createdAt: now,
 };
+// A thread of it, and a sub-agent the thread's agent started.
+const thread: ThreadRow = {...chat, id: 'thread-1', parentThreadId: 'chat-1', title: 'Pricing review', taskId: 'task-1'};
+const subAgent: ThreadRow = {...thread, id: 'sub-1', subAgentOfId: 'thread-1', parentCallId: 'c0', title: 'Read the contract', taskId: 'task-2'};
 const turn: JobRow = {id: 'job-1', threadId: 'thread-1', kind: 'inference', status: 'running', entryId: null, callId: null, runAt: now, claimedBy: 'w1', attempts: 1};
 const call: JobRow = {...turn, kind: 'tool', entryId: 'entry-1', callId: 'c1'};
 
@@ -77,24 +82,24 @@ describe('a thread', () => {
 	test('ends its turn on an answer without calls, its task finished with what it said, cut, and tells nobody; any other answer gets its calls as planned', () => {
 		const plans = {c2: {kind: 'job' as const, runAt: now}};
 
-		expect(afterAnswer({text: 'The review moved to Friday.', toolCalls: []}, {})).toEqual({end: {outcome: 'The review moved to Friday.'}});
-		expect(afterAnswer({text: 'z'.repeat(2500), toolCalls: []}, {})).toEqual({end: {outcome: `${'z'.repeat(1999)}…`}});
+		expect(afterAnswer({text: 'The review moved to Friday.', toolCalls: []}, {})).toEqual({end: expect.objectContaining({outcome: 'The review moved to Friday.'})});
+		expect(afterAnswer({text: 'z'.repeat(2500), toolCalls: []}, {})).toEqual({end: expect.objectContaining({outcome: `${'z'.repeat(1999)}…`})});
 		expect(afterAnswer({text: '', toolCalls: [{id: 'c2', name: 'script', arguments: '{}'}]}, plans)).toEqual({plans});
 	});
 });
 
 describe('a call is planned', () => {
 	test('as a message to the person answered at once, the call being what they read, or that it is no good', () => {
-		expect(planCall({id: 'c1', name: 'send_to_person', arguments: '{"text":" Halfway. "}'}, now)).toEqual({kind: 'answer', text: 'Sent.', isError: false});
-		expect(planCall({id: 'c1', name: 'send_to_person', arguments: '{}'}, now)).toEqual({kind: 'answer', text: expect.stringContaining('Give text'), isError: true});
+		expect(planCall(thread, {id: 'c1', name: 'send_to_person', arguments: '{"text":" Halfway. "}'}, now)).toEqual({kind: 'answer', text: 'Sent.', isError: false});
+		expect(planCall(thread, {id: 'c1', name: 'send_to_person', arguments: '{}'}, now)).toEqual({kind: 'answer', text: expect.stringContaining('Give text'), isError: true});
 	});
 
 	test('as a sleep’s job due when it ends, and any other call’s job due now', () => {
-		expect(planCall({id: 'c1', name: 'sleep_until', arguments: '{"seconds":60}'}, now)).toEqual({kind: 'job', runAt: new Date('2026-10-21T10:01:00Z')});
-		expect(planCall({id: 'c1', name: 'sleep_until', arguments: '{}'}, now)).toEqual({kind: 'job', runAt: now});
-		expect(planCall({id: 'c1', name: 'script', arguments: '{}'}, now)).toEqual({kind: 'job', runAt: now});
+		expect(planCall(thread, {id: 'c1', name: 'sleep_until', arguments: '{"seconds":60}'}, now)).toEqual({kind: 'job', runAt: new Date('2026-10-21T10:01:00Z')});
+		expect(planCall(thread, {id: 'c1', name: 'sleep_until', arguments: '{}'}, now)).toEqual({kind: 'job', runAt: now});
+		expect(planCall(thread, {id: 'c1', name: 'script', arguments: '{}'}, now)).toEqual({kind: 'job', runAt: now});
 		// A tool the thread hasn't got: its job answers that there is no such tool.
-		expect(planCall({id: 'c1', name: 'fly', arguments: '{"to":"Lisbon"}'}, now)).toEqual({kind: 'job', runAt: now});
+		expect(planCall(thread, {id: 'c1', name: 'fly', arguments: '{"to":"Lisbon"}'}, now)).toEqual({kind: 'job', runAt: now});
 	});
 });
 
@@ -105,7 +110,7 @@ describe('a failed job', () => {
 
 	test('of a turn answers the person with the failure, so they can go on, and ends the thread’s turn with it', () => {
 		const text = 'Something went wrong on my side, so I could not answer: The model refused the request. Say something to try again.';
-		expect(failureNote('The model refused the request.')(turn)).toEqual({kind: 'end', text, end: {outcome: text}});
+		expect(failureNote('The model refused the request.')(turn)).toEqual({kind: 'end', text, end: expect.objectContaining({outcome: text})});
 	});
 
 	test('of a wake-up’s turn is the turn’s', () => {
@@ -114,5 +119,47 @@ describe('a failed job', () => {
 
 	test('of a tool job without a call leaves nothing', () => {
 		expect(failureNote('boom')({...call, callId: null})).toBeNull();
+	});
+});
+
+describe('a sub-agent', () => {
+	test('is started by a thread’s call, titled as the call says, its brief the first thing said in it and its task’s goal', () => {
+		const plan = planCall(thread, {id: 'c1', name: 'create_subagent', arguments: '{"title":" Read the contract ","brief":"Find the notice period."}'}, now);
+		expect(plan).toMatchObject({
+			kind: 'create_subagent',
+			start: {
+				callId: 'c1',
+				title: 'Read the contract',
+				task: {title: 'Read the contract', goal: 'Find the notice period.', parentId: null, personaId: 'persona-1', ownerUserId: 'user-1'},
+				entries: [{kind: 'person', text: 'Find the notice period.'}],
+			},
+		});
+		expect(plan.kind === 'create_subagent' && plan.started('sub-1')).toContain('id sub-1');
+		expect(planCall(thread, {id: 'c1', name: 'create_subagent', arguments: '{"title":"x"}'}, now)).toEqual({kind: 'answer', text: expect.stringContaining('Give title'), isError: true});
+	});
+
+	test('is messaged by the thread’s agent, answered with what it was up to, or that there is no such sub-agent', () => {
+		const plan = planCall(thread, {id: 'c1', name: 'send_to_subagent', arguments: '{"subagent":"sub-1","text":"Also the renewal date."}'}, now);
+		expect(plan).toMatchObject({kind: 'send_to_subagent', subAgentId: 'sub-1', entry: {kind: 'person', text: 'Also the renewal date.'}});
+		if (plan.kind !== 'send_to_subagent') {
+			throw new Error('not planned as a message');
+		}
+		expect(plan.sent({...subAgent, state: {kind: 'stopped'}})).toEqual({text: expect.stringContaining('had stopped'), isError: false});
+		expect(plan.sent(null)).toEqual({text: 'No sub-agent sub-1.', isError: true});
+	});
+
+	test('tells the thread it works for what it says, and has none of a thread’s calls to the person or to more sub-agents', () => {
+		expect(planCall(subAgent, {id: 'c1', name: 'send_to_parent', arguments: '{"text":"Halfway."}'}, now)).toEqual({kind: 'send_to_parent', message: {text: 'Halfway.', isError: false}, sent: 'Sent.'});
+		expect(planCall(subAgent, {id: 'c1', name: 'send_to_person', arguments: '{"text":"Hi"}'}, now)).toEqual({kind: 'job', runAt: now});
+		expect(planCall(subAgent, {id: 'c1', name: 'create_subagent', arguments: '{"title":"x","brief":"y"}'}, now)).toEqual({kind: 'job', runAt: now});
+		expect(planCall(thread, {id: 'c1', name: 'send_to_parent', arguments: '{"text":"Hi"}'}, now)).toEqual({kind: 'job', runAt: now});
+	});
+
+	test('ends its turn telling the thread what it said, with the note that it stopped, or alone where it goes on', () => {
+		expect(afterAnswer({text: 'Notice is 90 days.', toolCalls: []}, {})).toEqual({
+			end: {outcome: 'Notice is 90 days.', toParent: {stopped: {text: `Notice is 90 days.\n\n${STOPPED_NOTE}`, isError: false}, goingOn: {text: 'Notice is 90 days.', isError: false}}},
+		});
+		const note = failureNote('The model could not be reached.')(turn);
+		expect(note).toMatchObject({kind: 'end', end: {toParent: {stopped: {isError: true}}}});
 	});
 });

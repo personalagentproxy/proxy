@@ -153,6 +153,7 @@ export async function listMemberThreads(
 				orgId,
 				userId,
 				parentThreadId: {not: null},
+				subAgentOfId: null,
 				...standingWhere(standing),
 				...(has === null ? {} : {OR: [{title: has}, {summary: has}]}),
 			},

@@ -2,13 +2,40 @@ import {Err, Ok, type Result} from 'ts-results-es';
 
 import type {HarnessTool, ToolAnswer, ToolSurface} from '@proxy/backends/harness/backend';
 import {type ApiError, Do, requirePresent} from '@proxy/utils';
-import {callArguments, isRecord, personMessageArgs, SEND_TO_PERSON_TOOL, SLEEP_TOOL, sleepUntil, type ToolCall} from '@proxy/utils/harness';
+import {
+	callArguments,
+	CREATE_SUBAGENT_TOOL,
+	isRecord,
+	parentMessageArgs,
+	personMessageArgs,
+	SEND_TO_PARENT_TOOL,
+	SEND_TO_PERSON_TOOL,
+	SEND_TO_SUBAGENT_TOOL,
+	SLEEP_TOOL,
+	sleepUntil,
+	subAgentArgs,
+	subAgentMessageArgs,
+	type ToolCall,
+} from '@proxy/utils/harness';
 import type {InlineJob, ThreadRow} from '@proxy/db/harness';
 
 import type {ModelTool} from '../llm/open-router';
 import {SCRIPT_TOOL, scriptToolDescription} from '../mcp/tools';
 import {CANCEL_ALERT_TOOL, DISMISS_TOOL, SET_ALERT_PARAMETERS, SET_ALERT_TOOL} from './alerts';
-import {BAD_PERSON_MESSAGE_ARGS, jobLost, SENT_TO_PERSON} from './thread-rules';
+import {
+	BAD_PARENT_MESSAGE_ARGS,
+	BAD_PERSON_MESSAGE_ARGS,
+	BAD_SUBAGENT_ARGS,
+	BAD_SUBAGENT_MESSAGE_ARGS,
+	isSubAgent,
+	jobLost,
+	notTheThreads,
+	SENT_TO_PARENT,
+	SENT_TO_PERSON,
+	sentToSubAgent,
+	started,
+	subAgentStart,
+} from './thread-rules';
 import type {HarnessStore} from './store';
 import {alertCall, BAD_SLEEP_ARGS, dismissText, error, NOT_JSON, noSuchTool, runGateTool, setText, type ToolAnswerStore} from './tool-answers';
 
@@ -99,11 +126,60 @@ const SCRIPT: ModelTool = {
 	},
 };
 
-/** The tools a thread's agent is given: the MCP server's script, a message to the person, a sleep, and setting an alert and cancelling one. */
-export const THREAD_TOOLS: ModelTool[] = [SCRIPT, SEND_TO_PERSON, SLEEP, SET_ALERT, CANCEL_ALERT];
+const CREATE_SUBAGENT: ModelTool = {
+	name: CREATE_SUBAGENT_TOOL,
+	description:
+		'Starts a sub-agent with your access on a sizeable piece of this work that can run beside yours, and answers with its id. It knows only its brief and your messages, and can’t reach the person; what it says comes to you as a message, which wakes you.',
+	parameters: {
+		type: 'object',
+		properties: {
+			title: {type: 'string', description: 'A few words'},
+			brief: {type: 'string', description: 'Everything it needs, and what to report back'},
+		},
+		required: ['title', 'brief'],
+		additionalProperties: false,
+	},
+};
+
+const SEND_TO_SUBAGENT: ModelTool = {
+	name: SEND_TO_SUBAGENT_TOOL,
+	description:
+		'Sends one of your sub-agents a message about its work: a follow-up, an answer, an update or a change. It keeps what it did, so say only what is new; a stopped or asleep one is taken up again.',
+	parameters: {
+		type: 'object',
+		properties: {
+			subagent: {type: 'string', description: 'Its id'},
+			text: {type: 'string', description: 'The message'},
+		},
+		required: ['subagent', 'text'],
+		additionalProperties: false,
+	},
+};
+
+const SEND_TO_PARENT: ModelTool = {
+	name: SEND_TO_PARENT_TOOL,
+	description: 'Tells the agent you work for something while you go on: progress on long work, or what it should know now. Not for a question you need answered, nor for what your answer will say.',
+	parameters: {
+		type: 'object',
+		properties: {
+			text: {type: 'string', description: 'The message'},
+		},
+		required: ['text'],
+		additionalProperties: false,
+	},
+};
+
+/** The tools a thread's agent is given: the MCP server's script, a message to the person, a sleep, setting an alert and cancelling one, and starting a sub-agent and messaging one. */
+export const THREAD_TOOLS: ModelTool[] = [SCRIPT, SEND_TO_PERSON, SLEEP, SET_ALERT, CANCEL_ALERT, CREATE_SUBAGENT, SEND_TO_SUBAGENT];
+
+/** The tools a sub-agent is given: the MCP server's script, a message to the thread's agent it works for, and a sleep. It reaches neither the person nor their alerts, and starts no sub-agents of its own. */
+export const SUB_AGENT_TOOLS: ModelTool[] = [SCRIPT, SEND_TO_PARENT, SLEEP];
 
 /** The tools of the thread's agent: a thread's, and, in one an alert opened, dismissing it. */
 export function threadTools(thread: ThreadRow): ModelTool[] {
+	if (isSubAgent(thread)) {
+		return SUB_AGENT_TOOLS;
+	}
 	return thread.openedByAlert ? [...THREAD_TOOLS, DISMISS] : THREAD_TOOLS;
 }
 
@@ -114,7 +190,7 @@ function toHarnessTool(tool: ModelTool): HarnessTool {
 }
 
 /** What running a call inline needs of the store: what answering one needs, and the fenced writes beside the log. */
-export type ToolSurfaceStore = ToolAnswerStore & Pick<HarnessStore, 'setAlertInline' | 'scheduleWake' | 'dismissThreadInline'>;
+export type ToolSurfaceStore = ToolAnswerStore & Pick<HarnessStore, 'setAlertInline' | 'scheduleWake' | 'dismissThreadInline' | 'startSubAgentInline' | 'messageSubAgentInline' | 'tellParentInline'>;
 
 // An alert call, at once: one set, in a transaction of its own fenced by the job, or cancelled.
 function alertInline(store: ToolSurfaceStore, thread: ThreadRow, job: InlineJob, call: ToolCall, args: Record<string, unknown>, now: Date): Promise<Result<ToolAnswer, ApiError>> {
@@ -159,7 +235,36 @@ function dismissInline(store: ToolSurfaceStore, thread: ThreadRow, job: InlineJo
 // shown, so nothing is written for it; a sleep as a wake job, the answer ending the turn; an alert
 // set or cancelled; or a script run.
 function execute(store: ToolSurfaceStore, thread: ThreadRow, job: InlineJob, call: ToolCall, args: Record<string, unknown>, now: Date): Promise<Result<ToolAnswer, ApiError>> {
+	if (notTheThreads(thread, call.name)) {
+		return Promise.resolve(Ok(noSuchTool(call.name)));
+	}
 	return Do(async ($) => {
+		if (call.name === CREATE_SUBAGENT_TOOL) {
+			const parsed = subAgentArgs(args);
+			if (!parsed) {
+				return error(BAD_SUBAGENT_ARGS);
+			}
+			const id = $(requirePresent($(await store.startSubAgentInline(job, subAgentStart(thread, {id: call.id, ...parsed}))), jobLost()));
+			return {text: started(parsed.title)(id), isError: false};
+		}
+		if (call.name === SEND_TO_SUBAGENT_TOOL) {
+			const parsed = subAgentMessageArgs(args);
+			if (!parsed) {
+				return error(BAD_SUBAGENT_MESSAGE_ARGS);
+			}
+			const sent = $(requirePresent($(await store.messageSubAgentInline(job, parsed.subagent, {kind: 'person', text: parsed.text})), jobLost()));
+			return sentToSubAgent(parsed.subagent)(sent.subAgent);
+		}
+		if (call.name === SEND_TO_PARENT_TOOL) {
+			const parsed = parentMessageArgs(args);
+			if (!parsed) {
+				return error(BAD_PARENT_MESSAGE_ARGS);
+			}
+			if (!$(await store.tellParentInline(job, {text: parsed.text, isError: false}))) {
+				return $(Err(jobLost()));
+			}
+			return {text: SENT_TO_PARENT, isError: false};
+		}
 		if (call.name === SEND_TO_PERSON_TOOL) {
 			return personMessageArgs(args) ? {text: SENT_TO_PERSON, isError: false} : error(BAD_PERSON_MESSAGE_ARGS);
 		}

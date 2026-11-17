@@ -5,7 +5,7 @@ import {ApiErr, type ApiError, Do, requirePresent, semaphore, type Semaphore} fr
 import {CALL_INTERRUPTED, type HarnessSession, OUTCOME_UNKNOWN, pendingToolCalls, type ToolCall} from '@proxy/utils/harness';
 import type {EntryAttachment} from '@proxy/utils/harness-context';
 import type {SignedInAgent} from '@proxy/db/agent';
-import type {AssistantTurn, EntryRow, JobRow, NewTurnEntry, RanOn, ThreadRow, ThreadSession} from '@proxy/db/harness';
+import type {AssistantTurn, EntryRow, JobRow, NewTurnEntry, RanOn, SubAgentRow, ThreadRow, ThreadSession} from '@proxy/db/harness';
 
 import {chosenFor, type ClaudeCredentials, type HarnessChoice, type Harnesses, harnessFor, needsCredential, offeredTo, RECONNECT_CLAUDE} from '../backends/harness';
 import {agentInstructions, SCRIPT_TOOL} from '../mcp/tools';
@@ -13,7 +13,7 @@ import {chatFolder} from '../native/files/names';
 import {log, serializeError} from '../observability/log';
 import {alertsParagraph} from './alerts';
 import {picturesOf, withAttached} from './attachments';
-import {afterAnswer, jobLost, planCalls, SHOWN_CALLS} from './thread-rules';
+import {afterAnswer, isSubAgent, jobLost, planCalls, SHOWN_CALLS} from './thread-rules';
 import type {HarnessStore} from './store';
 import {type ToolSurfaceStore, toolSurfaceFor} from './tool-surface';
 
@@ -76,6 +76,7 @@ export type InferenceStore = Pick<
 	| 'listEntries'
 	| 'listAttachments'
 	| 'listMemberAlerts'
+	| 'listSubAgents'
 	| 'finishJob'
 	| 'requeueJob'
 	| 'appendSummary'
@@ -88,6 +89,39 @@ export type InferenceStore = Pick<
 // come into it, and it works on that piece of work itself, answering them there.
 const THREAD_FLOW =
 	'You are talking with the person in a thread on Personal Agent Proxy’s Chat page. Their message opened this thread, and their replies come into it. Each new request of theirs gets a thread of its own, so this one is about one piece of work. Answer in short Markdown: sentences, a list or table where clearer, no headings. To show the person a picture, such as a chart or a screenshot, have it put in a drive and write it as a Markdown image of its Link: ![what it shows](Link); a picture anywhere else is shown as a link only. Work in scripts; check pap.tools before using a tool you haven’t used. Your task is kept for you. For something at a time, or something new in their accounts, set an alert. To ask something you can’t go on without, answer with the question and no tool call. An answer without a tool call ends your turn: say what you did and found, with the names, ids, dates and numbers that matter, and what you couldn’t do. Don’t mention summaries of the conversation.';
+
+// What a thread's agent is told of sub-agents: what they are for, and how to wait for them.
+const SUB_AGENTS =
+	'For sizeable parts of this work that can run side by side, start sub-agents rather than doing each in turn: each works on its brief with your access and answers you with a message, which wakes you. While they work, tell the person in a few words what you are looking into and end your turn, or sleep; never have one ask the person anything. Message a sub-agent only about its own work, and start a new one for anything else. Its messages show to the person as quiet lines: pass on what matters in your own answer.';
+
+// How a sub-agent is to go about it: a brief, its tools, and messages to and from the thread's agent
+// it works for, which alone reads what it says.
+const SUB_AGENT_FLOW =
+	'You are a sub-agent of the agent of a thread on Personal Agent Proxy’s Chat page, working on one part of its work. Your brief and later messages come from that agent; the person doesn’t see what you say. Work in scripts; check pap.tools before using a tool you haven’t used. Your task is kept for you. To ask something you can’t go on without, answer with the question and no tool call. An answer without a tool call goes to the agent and stops you: say what you did and found, with the names, ids, dates and numbers that matter, and what you couldn’t do. A later message takes you up again with this log.';
+
+// A sub-agent as the roster has it: its id, its title, and what it is up to.
+function rosterLine(subAgent: SubAgentRow): string {
+	const doing = subAgent.state.kind === 'working' ? 'at work' : subAgent.state.kind === 'asleep' ? `asleep until ${subAgent.state.until.toISOString()}` : 'stopped';
+	return `- ${subAgent.id}: “${subAgent.title ?? ''}”, ${doing}`;
+}
+
+// How many of the sub-agents that have stopped the roster lists, the latest: a long thread starts
+// more than its prompt should carry, and those at work or asleep are listed whatever their number.
+const MAX_STOPPED_LISTED = 10;
+
+// The thread's sub-agents, for its system prompt: what it has started, by id, and what each is
+// doing now, which a summary of the log might have lost; of those that have stopped, the latest,
+// with how many older ones there are. Nothing where it has started none.
+function roster(subAgents: SubAgentRow[]): string[] {
+	if (subAgents.length === 0) {
+		return [];
+	}
+	const stopped = subAgents.filter((subAgent) => subAgent.state.kind === 'stopped');
+	const unlisted = new Set(stopped.slice(0, -MAX_STOPPED_LISTED).map((subAgent) => subAgent.id));
+	const listed = subAgents.filter((subAgent) => !unlisted.has(subAgent.id)).map(rosterLine);
+	const older = unlisted.size === 0 ? [] : [`- ${unlisted.size} older stopped ones, not listed`];
+	return [`Your sub-agents:\n${[...older, ...listed].join('\n')}`];
+}
 
 // What the agent of a thread an alert opened is told besides: nobody asked in it, and it may be
 // nothing to tell the person of.
@@ -174,11 +208,16 @@ function systemPrompt(store: InferenceStore, thread: ThreadRow, signedIn: Signed
 	return Do(async ($) => {
 		const persona = $(await store.getPersonaName(thread));
 		const folder = persona === null ? undefined : chatFolder(persona);
-		const instructions = $(await agentInstructions(signedIn, THREAD_FLOW, folder));
+		if (isSubAgent(thread)) {
+			const instructions = $(await agentInstructions(signedIn, SUB_AGENT_FLOW, folder));
+			return [instructions, `The time now is ${now.toISOString()}.`].join('\n\n');
+		}
+		const instructions = $(await agentInstructions(signedIn, `${THREAD_FLOW} ${SUB_AGENTS}`, folder));
+		const subAgents = roster($(await store.listSubAgents(thread.id, now)));
 		const alerts = alertsParagraph($(await store.listMemberAlerts(thread.orgId, thread.userId)), thread.id);
 		const timeZone = $(await store.getUserTimeZone(thread.userId));
 		const opened = thread.openedByAlert ? [ALERT_OPENED] : [];
-		return [instructions, ...opened, alerts, `The time now is ${now.toISOString()}. ${timeZoneLine(timeZone)}`].join('\n\n');
+		return [instructions, ...opened, ...subAgents, alerts, `The time now is ${now.toISOString()}. ${timeZoneLine(timeZone)}`].join('\n\n');
 	});
 }
 
@@ -405,7 +444,7 @@ function writeBack(
 	return Do(async ($) => {
 		const {harness} = choice;
 		const session: ThreadSession | undefined = outcome.session !== null || thread.harness !== null ? {harness: harness.id, session: outcome.session} : undefined;
-		const plans = planCalls(outcome.open, now);
+		const plans = planCalls(thread, outcome.open, now);
 		const nothingLeft = outcome.wroteInline && outcome.text.trim() === '' && outcome.toolCalls.length === 0;
 		const turn: AssistantTurn | null = nothingLeft
 			? null
