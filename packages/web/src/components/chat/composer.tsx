@@ -1,7 +1,6 @@
 import type {ChatAttachment, ChatHarness, ChatPersona} from '@proxy/contracts/harness';
 import {PaperclipIcon} from 'lucide-react';
 import {type FormEvent, useEffect, useLayoutEffect, useRef, useState} from 'react';
-import {updatePersona} from '@/client/harness-client';
 import {DropToAttach} from '@/components/chat/attachments';
 import {
 	MessageEditor,
@@ -12,11 +11,8 @@ import {type ModelChoice, ModelSwitcher} from '@/components/model-switcher';
 import {type AttachmentInput, takenFiles, useAttachments} from '@/hooks/use-attachments';
 import type {ChatDraft} from '@/hooks/use-chat-draft';
 import {useExperiments} from '@/hooks/use-experiment';
-import {useOrgSlug} from '@/hooks/use-org';
-import {useReload} from '@/hooks/use-reload';
 import {useReloadWhileHidden} from '@/hooks/use-reload-on-release';
 import {useWindowFileDrop} from '@/hooks/use-window-file-drop';
-import {describeFetchError} from '@/lib/loader-utils';
 import {ATTACHMENT_MARK} from '@proxy/utils/harness';
 import {InputGroup, InputGroupAddon} from '@proxy/ui/components/input-group';
 import {PillButton} from '@proxy/ui/components/pill-button';
@@ -25,9 +21,23 @@ import {cn} from '@proxy/ui/lib/utils';
 // Nothing to wait for before a send, where nothing typed is kept on the server.
 const settled = () => Promise.resolve();
 
+/**
+ * What runs the agent the box writes to, as its switcher shows it: the persona's under the chat,
+ * which the threads opened from it take, and a thread's own under the thread.
+ */
+export type ComposerModel = {
+	chosen: ModelChoice;
+	// Whether the person may switch it: in the chat, where they may change the persona; in a thread
+	// of theirs, always.
+	mayChange: boolean;
+	// Switches it, once picked: what it failed with, or null.
+	onSwitch: (choice: ModelChoice) => Promise<string | null>;
+};
+
 type Props = {
 	persona: ChatPersona;
 	harnesses: ChatHarness[];
+	model: ComposerModel;
 	// What the box is called, and what it says while it is empty.
 	label: string;
 	placeholder: string;
@@ -64,7 +74,7 @@ type Props = {
 
 /**
  * The box a message is written in, under the chat and under a thread, the same in both: the words
- * with the files placed among them, what runs the persona, a paperclip where the organization has
+ * with the files placed among them, what runs the agent, a paperclip where the organization has
  * Files, and Send. What is typed is its own, so typing draws the box, not the chat over it. A
  * message sent leaves the box at once, its files with it, and comes back to it where the send
  * fails.
@@ -72,6 +82,7 @@ type Props = {
 export function Composer({
 	persona,
 	harnesses,
+	model,
 	label,
 	placeholder,
 	input,
@@ -88,9 +99,6 @@ export function Composer({
 	onSend,
 	className,
 }: Props) {
-	const org = useOrgSlug();
-	const reload = useReload();
-	const personaId = persona.id;
 	// What goes with the next message: the files the person put in the box, where the
 	// organization has Files. Sent once none is still on its way up, with words, files, or both.
 	const attaches = useExperiments().includes('files');
@@ -113,10 +121,9 @@ export function Composer({
 	const [error, setError] = useState<string | null>(null);
 	const form = useRef<HTMLFormElement>(null);
 	const editor = useRef<MessageEditorHandle>(null);
-	// What runs the persona, as the switcher shows it: what was just picked, until the persona has
-	// changed since, as the chat's box and a thread's both show it once it is read again; otherwise
-	// the persona's.
-	const ran = {harness: persona.harness, chatModel: persona.chatModel};
+	// What runs the agent, as the switcher shows it: what was just picked, until what the page has
+	// changed since, as it does once it is read again; otherwise the page's.
+	const ran = model.chosen;
 	const [picked, setPicked] = useState<{choice: ModelChoice; over: ModelChoice} | null>(null);
 	const runsOn =
 		picked !== null &&
@@ -165,23 +172,16 @@ export function Composer({
 		kept?.typed(typed.text, typed.files);
 	};
 
-	// Switches what runs the persona, the harness and the model, from the box's switcher: shown at
-	// once, kept with the persona as it is otherwise, and put back where the server refused it.
+	// Switches what runs the agent, the harness and the model, from the box's switcher: shown at
+	// once, and put back where the server refused it.
 	const switchModel = async (choice: ModelChoice) => {
 		setPicked({choice, over: ran});
 		setError(null);
-		const changed = await updatePersona(org, personaId, {
-			name: persona.name,
-			look: persona.look,
-			color: persona.color,
-			...choice,
-		});
-		if (changed.isErr()) {
+		const failed = await model.onSwitch(choice);
+		if (failed !== null) {
 			setPicked(null);
-			setError(describeFetchError(changed.error));
-			return;
+			setError(failed);
 		}
-		await reload();
 	};
 
 	const picker = useRef<HTMLInputElement>(null);
@@ -274,7 +274,7 @@ export function Composer({
 					<ModelSwitcher
 						harnesses={harnesses}
 						chosen={runsOn}
-						mayChange={persona.mayChange}
+						mayChange={model.mayChange}
 						onPick={(choice) => void switchModel(choice)}
 					/>
 					{attaches && (

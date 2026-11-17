@@ -848,6 +848,12 @@ model AgentThread {
   // kept with the session so one harness is never given another's; null for a thread no harness
   // left anything on.
   harness        String?
+  // What runs a thread's turns, the harness by its id and the model by the id the harness lists it
+  // under, as for a persona: its persona's as the thread was opened, and whatever the member picked
+  // in it since. A persona changed afterwards leaves its open threads as they are. Null for a chat,
+  // which runs no turns; a thread with none runs on its persona's.
+  chosenHarness  String?
+  chosenModel    String?
   // What the harness kept from the thread's last turn, as JSON, opaque to the api
   // (@proxy/utils/harness HarnessSession); null before the first turn, or for a harness that
   // keeps nothing between turns.

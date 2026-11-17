@@ -13,12 +13,12 @@ import type {ClaudeCredential} from '../me/claude-credential';
  * Which harness runs a thread's turns (@proxy/backends/harness), of those this server has and
  * offers the organization (`offeredTo`): the Claude Agent SDK's, which runs as the member, on the
  * Claude credential they connected on the Account page, and the api's own loop over OpenRouter, on
- * the server's key, where there is one and the organization has the `openrouter` experiment. The choice is
- * the persona's, made where it is made or changed, with the model it answers with, one of those
- * the harness lists. It is read anew for each turn, so a persona switched to another harness
- * moves every member's chat with it, each of its threads, from the next
- * turn on: the log is the record on either, and a harness whose session the thread hasn't got is
- * given the log in its place. A harness the organization isn't offered, as the SDK harness on a
+ * the server's key, where there is one and the organization has the `openrouter` experiment. The choice,
+ * with the model it answers with, one of those the harness lists, is the persona's, made where it
+ * is made or changed, which a thread takes as it is opened, and the thread's from then on, which
+ * the member can change in it. It is read anew for each turn, so a thread switched to another
+ * harness moves from the next turn on: the log is the record on either, and a harness whose
+ * session the thread hasn't got is given the log in its place. A harness the organization isn't offered, as the SDK harness on a
  * server that turned it off, or OpenRouter without the experiment, is read as the first it is,
  * and a model the harness hasn't got as its
  * first. A persona on the SDK harness needs each member's own credential: a member without one
@@ -95,7 +95,7 @@ export function harnessesOf(registry: HarnessRegistry): HarnessBackend[] {
 }
 
 /**
- * The persona's choice as the registry has it: the harness it chose, or the first the registry has
+ * A persona's or a thread's choice as the registry has it: the harness it chose, or the first the registry has
  * where it hasn't got that one, with the model it chose of that harness's, or the harness's first.
  * Null where the registry has no harness at all.
  */
@@ -115,7 +115,7 @@ export function needsCredential(registry: HarnessRegistry, harness: HarnessBacke
 }
 
 /**
- * The harness for a turn of the member's with the persona, and the model: the persona's choice as
+ * The harness for a turn of the member's with the persona, and the model: the thread's choice as
  * the server has it (`chosenFor`), with the member's credential where the harness runs on it, and
  * what to tell them where they connected none. `credential` is the member's, or null where they
  * connected none, or it wasn't looked for (`needsCredential`).

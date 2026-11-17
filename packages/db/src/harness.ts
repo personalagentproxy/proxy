@@ -867,16 +867,48 @@ export async function getThreadAgent(
 	});
 }
 
-/** The harness and the model chosen for the thread's persona, as kept; `Ok(null)` where the persona is gone. */
-export async function getThreadPersonaModel(
+/**
+ * The harness and the model chosen for the thread, as kept: its own, picked as it was opened or in
+ * it since, or, for one with none, its persona's. `Ok(null)` where the thread or its persona is gone.
+ */
+export async function getThreadModel(
 	thread: ThreadRow,
 ): Promise<Result<PersonaModel | null, ApiError>> {
-	return wrapDb(() =>
-		db.persona.findUnique({
-			where: {id: thread.personaId},
-			select: {harness: true, chatModel: true},
+	const found = await wrapDb(() =>
+		db.agentThread.findUnique({
+			where: {id: thread.id},
+			select: {
+				chosenHarness: true,
+				chosenModel: true,
+				persona: {select: {harness: true, chatModel: true}},
+			},
 		}),
 	);
+	return found.map((row) => {
+		if (!row) {
+			return null;
+		}
+		if (row.chosenHarness === null || row.chosenModel === null) {
+			return row.persona;
+		}
+		return {harness: row.chosenHarness, chatModel: row.chosenModel};
+	});
+}
+
+/** Switches what runs one of the chat's threads from its next turn on, leaving its persona as it is; `Ok(false)` means no such thread of the chat. */
+export async function setThreadModel(
+	chatId: string,
+	threadId: string,
+	model: PersonaModel,
+): Promise<Result<boolean, ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.agentThread.updateMany({
+				where: {id: threadId, parentThreadId: chatId},
+				data: {chosenHarness: model.harness, chosenModel: model.chatModel},
+			}),
+		)
+	).map(({count}) => count > 0);
 }
 
 /** The name of the thread's persona; `Ok(null)` where the persona is gone. */
@@ -1082,6 +1114,7 @@ async function endTurn(tx: Tx, thread: ThreadRow, end: ThreadEnd): Promise<void>
 /**
  * Makes a thread in the chat, with its task, as the member's message opens one, or an alert that
  * opens new threads does (`byAlert`); what opens it is the caller's to land. With the chat locked.
+ * It runs on what its persona does now, and goes on with that until the member picks another in it.
  */
 export async function openThreadIn(
 	tx: Tx,
@@ -1089,6 +1122,10 @@ export async function openThreadIn(
 	opening: ThreadOpening,
 	byAlert: boolean,
 ): Promise<ThreadRow> {
+	const persona = await tx.persona.findUnique({
+		where: {id: chat.personaId},
+		select: {harness: true, chatModel: true},
+	});
 	const now = new Date();
 	const task = await tx.agentTask.create({
 		data: {...opening.task, createdAt: now, lastActiveAt: now},
@@ -1105,6 +1142,8 @@ export async function openThreadIn(
 				title: opening.title,
 				taskId: task.id,
 				openedByAlert: byAlert,
+				chosenHarness: persona?.harness,
+				chosenModel: persona?.chatModel,
 			},
 			select: threadSelect,
 		}),
@@ -1641,7 +1680,7 @@ export async function isAttachedForTask(
 	});
 }
 
-/** A job as a worker claimed it, with whether it is a turn of a persona on the harness the claim was told is capped. */
+/** A job as a worker claimed it, with whether it is a turn of a thread on the harness the claim was told is capped. */
 export type ClaimedJob = JobRow & {capped: boolean};
 
 /** The harness whose turns a worker runs only so many of at once, by its id, and whether the worker has no room for another. */
@@ -1652,7 +1691,7 @@ export type CappedHarness = {harness: string; full: boolean};
  * worker's lease ran out, the earliest due first. A turn queued for a thread that has another
  * running, as a wake-up is that a sleep the turn itself answered asked for (scheduleWake), is not
  * due until that one has ended, whoever holds it: two turns never run on one thread. With
- * `capped`, the claim says whether the job is a turn of a persona on that harness, and, where the
+ * `capped`, the claim says whether the job is a turn of a thread on that harness, and, where the
  * worker is `full`, leaves those turns for later, or for another worker: the api runs only so many
  * of them at once, and a worker that has no room for another claims the other jobs meanwhile.
  * `Ok(null)` when none is due. The claim holds for `leaseMs`, and `renewLease` keeps it.
@@ -1697,7 +1736,8 @@ export async function claimJob(
 							AND EXISTS (
 								SELECT 1 FROM "AgentThread" thread
 								JOIN "Persona" persona ON persona."id" = thread."personaId"
-								WHERE thread."id" = job."threadId" AND persona."harness" = ${capped?.harness ?? ''}
+								WHERE thread."id" = job."threadId"
+									AND COALESCE(thread."chosenHarness", persona."harness") = ${capped?.harness ?? ''}
 							)
 						)
 					ORDER BY job."runAt" ASC
@@ -1716,7 +1756,13 @@ export async function claimJob(
 				return {...job, capped: false};
 			}
 			const turns = await tx.agentThread.count({
-				where: {id: job.threadId, persona: {harness: capped.harness}},
+				where: {
+					id: job.threadId,
+					OR: [
+						{chosenHarness: capped.harness},
+						{chosenHarness: null, persona: {harness: capped.harness}},
+					],
+				},
 			});
 			return {...job, capped: turns > 0};
 		}),

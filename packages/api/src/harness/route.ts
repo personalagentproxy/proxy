@@ -22,6 +22,7 @@ import {
 	saveDraftBodySchema,
 	threadDoneBodySchema,
 	type ThreadMessage,
+	threadModelSchema,
 	type ThreadStanding,
 	type ThreadView,
 	type uploadedAttachmentSchema,
@@ -46,7 +47,8 @@ import type {HarnessStore} from './store';
  * its own, with where it stands, which the member can say is done. The chat keeps what they typed in it and haven't sent, the files in its input, and how
  * far they have read it. A persona says which of the harnesses the server offers the organization
  * runs it and which of that harness's models it answers with (backends/harness.ts), chosen from
- * the chat's input by whoever may change it. Nothing here runs the model: a message queues a job,
+ * the chat's input by whoever may change it; a thread takes it as it is opened, and the member
+ * may switch it from the thread's input without changing the persona. Nothing here runs the model: a message queues a job,
  * and the worker (worker.ts) does the rest; the page reads the threads again as they go.
  */
 
@@ -73,6 +75,8 @@ export type ChatStore = Pick<
 	| 'listChatThreads'
 	| 'getChatThread'
 	| 'hasChatThread'
+	| 'getThreadModel'
+	| 'setThreadModel'
 	| 'markThreadDone'
 	| 'archiveThread'
 	| 'countChatAlerts'
@@ -99,18 +103,21 @@ function draftPreview(persona: {draft?: string | null; draftAttachments?: DraftA
 	return names.length === 0 ? null : preview(names.join(', '));
 }
 
+// What runs a persona or a thread as this server offers the organization, which is what a turn of
+// its gets; as kept where there is no harness at all, where nothing runs.
+function asOffered(harnesses: Harnesses, viewer: OrgViewer, model: PersonaModel): PersonaModel {
+	const chosen = chosenFor(offeredTo(harnesses(), viewer), model);
+	return chosen === null ? {harness: model.harness, chatModel: model.chatModel} : {harness: chosen.harness.id, chatModel: chosen.model};
+}
+
 function toPersona(harnesses: Harnesses, viewer: OrgViewer, persona: PersonaRow & {lastMessage?: LastMessage | null; draft?: string | null; draftAttachments?: DraftAttachment[]}): ChatPersona {
 	const last = persona.lastMessage ?? null;
-	// What runs it as this server offers the organization, which is what a turn of its gets; as
-	// kept where there is no harness at all, where nothing runs.
-	const chosen = chosenFor(offeredTo(harnesses(), viewer), persona);
 	return {
 		id: persona.id,
 		name: persona.name,
 		look: persona.look,
 		color: toAvatarColor(persona.color),
-		harness: chosen?.harness.id ?? persona.harness,
-		chatModel: chosen?.model ?? persona.chatModel,
+		...asOffered(harnesses, viewer, persona),
 		shared: persona.ownerUserId === null,
 		mayChange: managesPersona(viewer, persona),
 		lastMessage: last && {kind: last.kind, text: preview(last.text), at: last.createdAt.toISOString()},
@@ -464,7 +471,7 @@ function handleListThreadsRoute(store: ChatStore, harnesses: Harnesses, files: R
 	});
 }
 
-/** `GET /api/orgs/:org/chat/personas/:personaId/threads/:threadId`: one thread of the viewer's chat with the persona: what it is up to, and what was said in it. */
+/** `GET /api/orgs/:org/chat/personas/:personaId/threads/:threadId`: one thread of the viewer's chat with the persona: what it is up to, what runs it, and what was said in it. */
 function handleGetChatThreadRoute(store: ChatStore, harnesses: Harnesses, files: RouteFiles, request: AuthenticatedRequest): Promise<Result<ThreadView, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
@@ -472,9 +479,11 @@ function handleGetChatThreadRoute(store: ChatStore, harnesses: Harnesses, files:
 		const now = new Date();
 		const thread = $(await requireChatThread(store, viewer, persona, request.params.threadId ?? '', now));
 		const shown = threadShown(thread, files);
+		const model = $(await store.getThreadModel(thread)) ?? persona;
 		return {
 			persona: toPersona(harnesses, viewer, persona),
 			thread: toChatThread(thread, shown, now),
+			model: asOffered(harnesses, viewer, model),
 			busy: thread.state.kind === 'working',
 			messages: shown.map(({message}) => message),
 		};
@@ -554,6 +563,27 @@ function handleArchiveThreadRoute(store: ChatStore, request: AuthenticatedReques
 	});
 }
 
+/** `PUT /api/orgs/:org/chat/personas/:personaId/threads/:threadId/model` with `{harness, chatModel}`: the viewer switches what runs a thread of their chat with the persona, from its next turn on, to one of the harnesses the server offers the organization and one of its models; the persona, and its other threads, are left as they are. The thread is the viewer's alone, so they may, whatever persona it is with. */
+function handleSetThreadModelRoute(store: ChatStore, harnesses: Harnesses, request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
+	return Do(async ($) => {
+		const viewer = $(await requireViewer(request));
+		const threadId = request.params.threadId ?? '';
+		const asked = $(parseSchema(threadModelSchema, request.body));
+		const chosen = chosenFor(offeredTo(harnesses(), viewer), asked);
+		if (chosen === null || chosen.harness.id !== asked.harness) {
+			return $(Err(ApiErr.validationError(`This server has no harness ${asked.harness}.`)));
+		}
+		if (chosen.model !== asked.chatModel) {
+			return $(Err(ApiErr.validationError(`${chosen.harness.label} has no model ${asked.chatModel}.`)));
+		}
+		const persona = $(await requirePersona(store, viewer, request));
+		const chat = $(await requireChat(store, viewer, persona, threadId));
+		if (!$(await store.setThreadModel(chat.id, threadId, asked))) {
+			return $(Err(ApiErr.notFound('thread', threadId)));
+		}
+	});
+}
+
 /** The Chat page's routes, on the store, the harnesses the server has, and where a chat's files are kept. */
 export function chatRoutes(store: ChatStore, harnesses: Harnesses, files: RouteFiles) {
 	return {
@@ -571,6 +601,7 @@ export function chatRoutes(store: ChatStore, harnesses: Harnesses, files: RouteF
 		handleOpenThreadRoute: (request: AuthenticatedRequest) => handleOpenThreadRoute(store, files, request),
 		handleReplyInThreadRoute: (request: AuthenticatedRequest) => handleReplyInThreadRoute(store, files, request),
 		handleUploadThreadAttachmentRoute: (request: AuthenticatedRequest) => handleUploadThreadAttachmentRoute(store, files, request),
+		handleSetThreadModelRoute: (request: AuthenticatedRequest) => handleSetThreadModelRoute(store, harnesses, request),
 		handleMarkThreadDoneRoute: (request: AuthenticatedRequest) => handleMarkThreadDoneRoute(store, request),
 		handleArchiveThreadRoute: (request: AuthenticatedRequest) => handleArchiveThreadRoute(store, request),
 	};

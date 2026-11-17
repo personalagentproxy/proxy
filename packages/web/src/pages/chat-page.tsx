@@ -49,7 +49,7 @@ import {
 	TitleWaiting,
 	Waiting,
 } from '@/components/app-shell';
-import {Composer} from '@/components/chat/composer';
+import {Composer, type ComposerModel} from '@/components/chat/composer';
 import {
 	MessageScroller,
 	MessageScrollerButton,
@@ -1272,7 +1272,27 @@ function ChatComposer({
 	) => Promise<string | null>;
 }) {
 	const org = useOrgSlug();
+	const reload = useReload();
 	const personaId = persona.id;
+	// What runs the persona, which every thread opened from here starts with; switched here by
+	// whoever may change the persona, and kept with it as it is otherwise.
+	const model: ComposerModel = {
+		chosen: {harness: persona.harness, chatModel: persona.chatModel},
+		mayChange: persona.mayChange,
+		onSwitch: async (choice) => {
+			const changed = await updatePersona(org, personaId, {
+				name: persona.name,
+				look: persona.look,
+				color: persona.color,
+				...choice,
+			});
+			if (changed.isErr()) {
+				return describeApiError(changed.error);
+			}
+			await reload();
+			return null;
+		},
+	};
 	const input = useMemo(
 		(): AttachmentInput => ({
 			upload: (file) => uploadAttachment(org, personaId, file),
@@ -1307,6 +1327,7 @@ function ChatComposer({
 		<Composer
 			persona={persona}
 			harnesses={harnesses}
+			model={model}
 			label="Message"
 			placeholder={`Message ${persona.name}`}
 			input={input}

@@ -5,10 +5,15 @@ import type {
 	ThreadView,
 } from '@proxy/contracts/harness';
 import {memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
-import {getChatThread, replyInThread, uploadThreadAttachment} from '@/client/harness-client';
+import {
+	getChatThread,
+	replyInThread,
+	setThreadModel,
+	uploadThreadAttachment,
+} from '@/client/harness-client';
 import {ShownFile} from '@/components/chat/attachments';
 import {Bubble, BubbleContent} from '@/components/chat/bubble';
-import {Composer} from '@/components/chat/composer';
+import {Composer, type ComposerModel} from '@/components/chat/composer';
 import {Message, MessageContent} from '@/components/chat/message';
 import {
 	MessageScroller,
@@ -184,7 +189,7 @@ function Thread({
 	const [focusRequested, setFocusRequested] = useState(true);
 	const focused = useCallback(() => setFocusRequested(false), []);
 
-	// The thread as the page loads it again, as after a change of the persona's model, keeping
+	// The thread as the page loads it again, as after a change of the persona, keeping
 	// what didn't change as it was.
 	const [seen, setSeen] = useState(loaded);
 	if (seen !== loaded) {
@@ -252,6 +257,21 @@ function Thread({
 		return null;
 	};
 
+	// What runs the thread: its persona's as it was opened, switched here by the person, whose
+	// thread it is, from its next turn on, the persona and its other threads left as they are.
+	const model: ComposerModel = {
+		chosen: view.model,
+		mayChange: true,
+		onSwitch: async (choice) => {
+			const switched = await setThreadModel(org, personaId, threadId, choice);
+			if (switched.isErr()) {
+				return describeApiError(switched.error);
+			}
+			await readThread();
+			return null;
+		},
+	};
+
 	// Where a file put in the box goes: up to the person's own drive.
 	const input = useMemo(
 		(): AttachmentInput => ({
@@ -300,6 +320,7 @@ function Thread({
 			<Composer
 				persona={view.persona}
 				harnesses={harnesses}
+				model={model}
 				label="Reply"
 				placeholder="Reply"
 				input={input}

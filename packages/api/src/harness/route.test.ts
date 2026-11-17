@@ -491,6 +491,7 @@ describe('the chat’s threads', () => {
 		store.getChatThread.mockResolvedValue(Ok(review));
 		store.openThread.mockResolvedValue(Ok({thread: review, entry: logEntry({id: 'e1', seq: 1, threadId: 'thread-2', kind: 'person', text: 'Find the pricing review with Dana'})}));
 		store.replyInThread.mockResolvedValue(Ok(logEntry({id: 'e5', seq: 5, threadId: 'thread-2', kind: 'person', text: 'And the old prices?'})));
+		store.getThreadModel.mockResolvedValue(Ok({harness: 'proxy', chatModel: 'glm'}));
 	});
 
 	test('list the chat, begun where there was none, with its draft and its threads in the order they were opened, the newest last, whichever last had a message: what is up with each, what opened it, the start of the latest thing said in it, and how many messages it holds', async () => {
@@ -620,6 +621,43 @@ describe('the chat’s threads', () => {
 		});
 	});
 
+	test('give what runs a thread as the server offers the organization: its persona’s where it has none of its own, and the first harness offered where its own isn’t', async () => {
+		const {handleGetChatThreadRoute} = routes;
+		const get = async () => (await handleGetChatThreadRoute(request({personaId: 'persona-1', threadId: 'thread-2'}))).unwrap().model;
+
+		store.getThreadModel.mockResolvedValue(Ok(null));
+		expect(await get()).toEqual({harness: 'proxy', chatModel: 'claude'});
+
+		store.getThreadModel.mockResolvedValue(Ok({harness: 'gone', chatModel: 'old'}));
+		expect(await get()).toEqual({harness: 'claude-agent-sdk', chatModel: 'sonnet'});
+	});
+
+	test('switch what runs a thread of the viewer’s chat, of any persona they see, without changing the persona; refuse a harness or a model the server hasn’t got, and say where there is no such thread', async () => {
+		const {handleSetThreadModelRoute} = routes;
+		store.setThreadModel.mockResolvedValue(Ok(true));
+		// General, which the viewer may not change, as a member.
+		store.getPersona.mockResolvedValue(Ok({...persona, ownerUserId: null, createdById: 'user-2'}));
+		const asked = (body: unknown, threadId = 'thread-2') => handleSetThreadModelRoute(request({personaId: 'persona-1', threadId}, body));
+
+		expect((await asked({harness: 'claude-agent-sdk', chatModel: 'opus'})).isOk()).toBe(true);
+		expect(store.setThreadModel).toHaveBeenCalledWith('chat-1', 'thread-2', {harness: 'claude-agent-sdk', chatModel: 'opus'});
+		expect(store.updatePersona).not.toHaveBeenCalled();
+
+		expect((await asked({harness: 'claude-agent-sdk', chatModel: 'gpt'})).unwrapErr().kind).toBe('validation_error');
+		expect((await asked({harness: 'gone', chatModel: 'opus'})).unwrapErr().kind).toBe('validation_error');
+		expect((await asked({harness: 'proxy'})).unwrapErr().kind).toBe('parse_error');
+		// OpenRouter is the server's, offered only with the experiment.
+		requireViewer.mockResolvedValueOnce(Ok({...viewer, experiments: []}));
+		expect((await asked({harness: 'proxy', chatModel: 'glm'})).unwrapErr().kind).toBe('validation_error');
+		expect(store.setThreadModel).toHaveBeenCalledTimes(1);
+
+		store.setThreadModel.mockResolvedValue(Ok(false));
+		expect((await asked({harness: 'proxy', chatModel: 'glm'}, 'thread-9')).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'thread'});
+		store.getMemberChat.mockResolvedValue(Ok(null));
+		expect((await asked({harness: 'proxy', chatModel: 'glm'})).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'thread'});
+		expect(store.ensureMemberChat).not.toHaveBeenCalled();
+	});
+
 	test('mark a thread of the viewer’s chat done, and say where there is no such thread', async () => {
 		const {handleMarkThreadDoneRoute} = routes;
 		store.markThreadDone.mockResolvedValue(Ok(true));
@@ -666,6 +704,9 @@ describe('the chat’s threads', () => {
 		expect(store.getChatThread).toHaveBeenCalledWith('chat-1', 'thread-2', ['send_to_person'], expect.any(Date));
 		expect(view.busy).toBe(true);
 		expect(view.thread).toMatchObject({id: 'thread-2', state: {kind: 'working'}, messageCount: 3});
+		// What runs it is its own, not its persona's.
+		expect(view.model).toEqual({harness: 'proxy', chatModel: 'glm'});
+		expect(view.persona).toMatchObject({harness: 'proxy', chatModel: 'claude'});
 		expect(view.messages).toEqual([
 			{id: 'e1', kind: 'person', text: 'Find the pricing review with Dana', isError: false, at: now.toISOString(), attachments: [shownAttachment]},
 			{id: 'e2:c1', kind: 'assistant', text: 'Looking through the shared drive.', isError: false, at: later(1).toISOString(), attachments: []},
