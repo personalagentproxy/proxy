@@ -942,7 +942,7 @@ const ThreadItem = memo(function ThreadItem({
 					/>
 				)}
 				<span className="pointer-events-none flex h-5 items-center">
-					<ThreadStatusIcon standing={thread.standing} state={thread.state} />
+					<ThreadStatusIcon standing={thread.standing} />
 				</span>
 				<div className="pointer-events-none flex min-w-0 flex-1 flex-col gap-0.5">
 					<div className="flex h-5 items-center gap-3">

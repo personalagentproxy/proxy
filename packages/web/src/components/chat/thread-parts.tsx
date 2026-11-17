@@ -1,4 +1,4 @@
-import type {ChatAttachment, ChatThreadState, ThreadStanding} from '@proxy/contracts/harness';
+import type {ChatAttachment, ThreadStanding} from '@proxy/contracts/harness';
 import {attachedParts} from '@proxy/utils/harness';
 import {ArchiveIcon, CheckIcon, ClockIcon, LoaderCircleIcon} from 'lucide-react';
 import {Fragment, type ReactNode, useMemo, useState} from 'react';
@@ -45,21 +45,18 @@ const STATUS_LABELS: Record<ThreadStanding, string> = {
 
 /**
  * Where a thread stands, as an icon at the start of its row in the chat's list: in progress, a ring
- * with an arc turning in it, dashed while it is asleep until something wakes it; waiting for you, an
+ * with an arc turning in it, asleep until it wakes as much as at work; waiting for you, an
  * orange ring around a dot; watching, the dashed ring alone, as it waits for its alerts to wake it;
  * done, a check in a disc of ink. The word is there for whoever can't see
  * the icon.
  */
 export function ThreadStatusIcon({
 	standing,
-	state,
 	className,
 }: {
 	standing: ThreadStanding;
-	state: ChatThreadState;
 	className?: string;
 }) {
-	const asleep = standing === 'in_progress' && state.kind === 'asleep';
 	return (
 		<>
 			<span className="sr-only">{STATUS_LABELS[standing]}</span>
@@ -90,7 +87,7 @@ export function ThreadStatusIcon({
 						<circle cx="8" cy="8" r="3" className="fill-waiting" />
 					</>
 				)}
-				{(asleep || standing === 'watching') && (
+				{standing === 'watching' && (
 					<circle
 						cx="8"
 						cy="8"
@@ -101,7 +98,7 @@ export function ThreadStatusIcon({
 						className="stroke-muted-foreground"
 					/>
 				)}
-				{standing === 'in_progress' && !asleep && (
+				{standing === 'in_progress' && (
 					<>
 						<circle
 							cx="8"

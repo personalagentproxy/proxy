@@ -488,7 +488,8 @@ function handleGetChatThreadRoute(store: ChatStore, harnesses: Harnesses, files:
 			persona: toPersona(harnesses, viewer, persona),
 			thread: toChatThread(thread, shown, now),
 			model: asOffered(harnesses, viewer, model),
-			busy: thread.state.kind === 'working',
+			// At work as long as it hasn't stopped: a thread asleep until it wakes is still at it.
+			busy: thread.state.kind !== 'stopped',
 			messages: shown.map(({message}) => message),
 		};
 	});
