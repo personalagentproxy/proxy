@@ -383,7 +383,7 @@ function ThreadHeader({
 					<CheckIcon className="size-4" />
 				</IconButton>
 			)}
-			{thread !== null && standing === 'done' && (
+			{thread !== null && (standing === 'done' || standing === 'watching') && (
 				<IconButton label={ARCHIVE_LABEL} onClick={() => onArchive(thread)}>
 					<ArchiveIcon className="size-4" />
 				</IconButton>
@@ -500,14 +500,20 @@ export function ChatPage() {
 	const [deleting, setDeleting] = useState<ChatPersona | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	// The threads the person said are done here, each by its id with when it last had a message
-	// then: until something more is said in it, it is done on the page, whatever a read from before
-	// the server had it says.
-	const [markedDone, setMarkedDone] = useState<ReadonlyMap<string, string>>(() => new Map());
+	// then, and whether its alerts stayed: until something more is said in it, it is done on the
+	// page, or watching where alerts still come to it, whatever a read from before the server had it
+	// says.
+	const [markedDone, setMarkedDone] = useState<
+		ReadonlyMap<string, {at: string; keptAlerts: boolean}>
+	>(() => new Map());
 	const standingOf = useCallback(
-		(thread: ChatThread): ThreadStanding =>
-			thread.standing === 'waiting' && markedDone.get(thread.id) === thread.lastMessageAt
-				? 'done'
-				: thread.standing,
+		(thread: ChatThread): ThreadStanding => {
+			const marked = markedDone.get(thread.id);
+			if (thread.standing !== 'waiting' || marked?.at !== thread.lastMessageAt) {
+				return thread.standing;
+			}
+			return marked.keptAlerts && thread.alerts > 0 ? 'watching' : 'done';
+		},
 		[markedDone],
 	);
 	// Says a thread waiting for the person is done, on the page at once and then on the server,
@@ -515,7 +521,9 @@ export function ChatPage() {
 	// longer counts; where the server can't be told, it waits again, and the chat's box says why.
 	const markDone = useCallback(
 		async (thread: ChatThread, cancelAlerts: boolean) => {
-			setMarkedDone((before) => new Map(before).set(thread.id, thread.lastMessageAt));
+			setMarkedDone((before) =>
+				new Map(before).set(thread.id, {at: thread.lastMessageAt, keptAlerts: !cancelAlerts}),
+			);
 			const marked = await markThreadDone(org, current, thread.id, cancelAlerts);
 			if (marked.isOk()) {
 				setError(null);
@@ -904,7 +912,8 @@ const ThreadItem = memo(function ThreadItem({
 	const title = thread.title || (thread.opener?.kind === 'event' ? thread.opener.text : 'Thread');
 	const said = thread.summary ?? thread.latest;
 	const waiting = thread.standing === 'waiting';
-	const done = thread.standing === 'done';
+	// Done, or done with alerts that still come to it: either is archived from its row.
+	const done = thread.standing === 'done' || thread.standing === 'watching';
 	const acts = to !== null && (waiting || done);
 	return (
 		<div data-enter={fresh ? 'rise' : undefined} className="page-column mx-auto w-full max-w-4xl">

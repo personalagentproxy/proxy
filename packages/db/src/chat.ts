@@ -76,8 +76,8 @@ export function createMissingChatConnection(data: {
 	});
 }
 
-/** Where a list of the member's threads is narrowed to: at work or asleep, waiting for them, done, or archived by them. */
-export type ThreadStandingFilter = 'in_progress' | 'waiting' | 'done' | 'archived';
+/** Where a list of the member's threads is narrowed to: at work or asleep, waiting for them, watching with alerts that come to it, done, or archived by them. */
+export type ThreadStandingFilter = 'in_progress' | 'waiting' | 'watching' | 'done' | 'archived';
 
 /**
  * One of the member's threads as a list of them has it: whose it is with, what it is up to, where
@@ -96,6 +96,8 @@ export type MemberThreadRow = {
 		summarySeq: number | null;
 		archived: boolean;
 	};
+	// How many of the member's alerts come to the thread, which wake it again.
+	alerts: number;
 	last: {seq: number; pending: boolean; createdAt: Date} | null;
 };
 
@@ -103,7 +105,8 @@ const OPEN_JOBS = {status: {in: ['queued', 'running']}} satisfies Prisma.AgentJo
 
 // The threads a standing picks: one with a job still to run or running is in progress, whatever
 // its last turn's end said or whether it is archived; one with none is archived where the member
-// archived it, and otherwise waits for the member where that said so, and is done otherwise.
+// archived it, and otherwise waits for the member where that said so, is watching where alerts
+// come to it, and is done otherwise.
 function standingWhere(standing: ThreadStandingFilter | null): Prisma.AgentThreadWhereInput {
 	if (standing === null) {
 		return {};
@@ -114,7 +117,15 @@ function standingWhere(standing: ThreadStandingFilter | null): Prisma.AgentThrea
 	if (standing === 'archived') {
 		return {jobs: {none: OPEN_JOBS}, archived: true};
 	}
-	return {jobs: {none: OPEN_JOBS}, archived: false, waitingForMember: standing === 'waiting'};
+	if (standing === 'waiting') {
+		return {jobs: {none: OPEN_JOBS}, archived: false, waitingForMember: true};
+	}
+	return {
+		jobs: {none: OPEN_JOBS},
+		archived: false,
+		waitingForMember: false,
+		alerts: standing === 'watching' ? {some: {}} : {none: {}},
+	};
 }
 
 /**
@@ -156,6 +167,7 @@ export async function listMemberThreads(
 				archived: true,
 				persona: {select: {name: true}},
 				jobs: {where: OPEN_JOBS, select: {kind: true, runAt: true}},
+				_count: {select: {alerts: true}},
 				// What the member said, an event that came, or what the agent answered in words: the
 				// last of them is the last thing the thread shows.
 				entries: {
@@ -172,11 +184,22 @@ export async function listMemberThreads(
 		return {
 			orgSlug: org.slug,
 			threads: threads.map(
-				({persona, jobs, entries, waitingForMember, summary, summarySeq, archived, ...thread}) => ({
+				({
+					persona,
+					jobs,
+					entries,
+					waitingForMember,
+					summary,
+					summarySeq,
+					archived,
+					_count,
+					...thread
+				}) => ({
 					...thread,
 					personaName: persona.name,
 					state: threadState(jobs, now),
 					standing: {waitingForMember, summary, summarySeq, archived},
+					alerts: _count.alerts,
 					last: entries[0] ?? null,
 				}),
 			),

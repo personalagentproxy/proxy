@@ -371,12 +371,16 @@ function threadShown(thread: ChatThreadRow, files: RouteFiles): Shown[] {
 }
 
 // Where the thread stands: in progress while it is at work or asleep; once stopped, waiting for
-// the person where its turn's end said so and nobody has said otherwise since, or done.
+// the person where its turn's end said so and nobody has said otherwise since, else watching
+// where alerts come to it, which wake it again, or done.
 function standingOf(thread: ChatThreadRow): ThreadStanding {
 	if (thread.state.kind !== 'stopped') {
 		return 'in_progress';
 	}
-	return thread.standing.waitingForMember ? 'waiting' : 'done';
+	if (thread.standing.waitingForMember) {
+		return 'waiting';
+	}
+	return thread.alerts > 0 ? 'watching' : 'done';
 }
 
 // Whether where the thread stands was written from everything said in it, nothing past it.

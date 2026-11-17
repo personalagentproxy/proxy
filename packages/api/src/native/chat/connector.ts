@@ -38,6 +38,7 @@ function threadUrl(appUrl: string, orgSlug: string, personaId: string, threadId:
 const STANDING_FILTERS: Array<{standing: ThreadStandingFilter; label: string}> = [
 	{standing: 'in_progress', label: CHAT_STANDINGS.in_progress},
 	{standing: 'waiting', label: CHAT_STANDINGS.waiting},
+	{standing: 'watching', label: CHAT_STANDINGS.watching},
 	{standing: 'done', label: CHAT_STANDINGS.done},
 	{standing: 'archived', label: CHAT_STANDINGS.archived},
 ];
@@ -68,15 +69,18 @@ function pageStart(page: string | null): Result<number, ApiError> {
 
 // Where the thread stands, in the Chat page's words: in progress while at work or asleep; once
 // stopped, archived where the person archived it, else waiting for them where its turn's end said
-// so, or done.
-function standing(thread: Pick<MemberThreadRow, 'state' | 'standing'>): string {
+// so, watching where alerts come to it, or done.
+function standing(thread: Pick<MemberThreadRow, 'state' | 'standing' | 'alerts'>): string {
 	if (thread.state.kind !== 'stopped') {
 		return CHAT_STANDINGS.in_progress;
 	}
 	if (thread.standing.archived) {
 		return CHAT_STANDINGS.archived;
 	}
-	return thread.standing.waitingForMember ? CHAT_STANDINGS.waiting : CHAT_STANDINGS.done;
+	if (thread.standing.waitingForMember) {
+		return CHAT_STANDINGS.waiting;
+	}
+	return thread.alerts > 0 ? CHAT_STANDINGS.watching : CHAT_STANDINGS.done;
 }
 
 // The thread's summary while it is current, written from everything said in it; nothing otherwise.
