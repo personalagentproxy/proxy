@@ -492,6 +492,7 @@ describe('the chat’s threads', () => {
 		store.openThread.mockResolvedValue(Ok({thread: review, entry: logEntry({id: 'e1', seq: 1, threadId: 'thread-2', kind: 'person', text: 'Find the pricing review with Dana'})}));
 		store.replyInThread.mockResolvedValue(Ok(logEntry({id: 'e5', seq: 5, threadId: 'thread-2', kind: 'person', text: 'And the old prices?'})));
 		store.getThreadModel.mockResolvedValue(Ok({harness: 'proxy', chatModel: 'glm'}));
+		store.getThreadDraft.mockResolvedValue(Ok(null));
 	});
 
 	test('list the chat, begun where there was none, with its draft and its threads in the order they were opened, the newest last, whichever last had a message: what is up with each, what opened it, the start of the latest thing said in it, and how many messages it holds', async () => {
@@ -682,6 +683,33 @@ describe('the chat’s threads', () => {
 		store.getPersona.mockResolvedValue(Ok(null));
 		expect((await handleMarkThreadDoneRoute(request({personaId: 'persona-9', threadId: 'thread-2'}))).unwrapErr().kind).toBe('not_found');
 		expect(store.markThreadDone).toHaveBeenCalledTimes(3);
+		expect(store.ensureMemberChat).not.toHaveBeenCalled();
+	});
+
+	test('give a thread with what the viewer typed in it and has not sent', async () => {
+		const {handleGetChatThreadRoute} = routes;
+		store.getThreadDraft.mockResolvedValue(Ok('Thursday works'));
+
+		expect((await handleGetChatThreadRoute(request({personaId: 'persona-1', threadId: 'thread-2'}))).unwrap().draft).toBe('Thursday works');
+		expect(store.getThreadDraft).toHaveBeenCalledWith('chat-1', 'thread-2');
+	});
+
+	test('keep what the viewer typed in a thread of their chat, forget it where nothing but whitespace is, and say where there is no such thread', async () => {
+		const {handleSaveThreadDraftRoute} = routes;
+		store.saveThreadDraft.mockResolvedValue(Ok(true));
+		const save = (text: string, threadId = 'thread-2') => handleSaveThreadDraftRoute(request({personaId: 'persona-1', threadId}, {text}));
+
+		expect((await save('Thursday works')).isOk()).toBe(true);
+		expect(store.saveThreadDraft).toHaveBeenCalledWith('chat-1', 'thread-2', 'Thursday works');
+		expect((await save('  \n')).isOk()).toBe(true);
+		expect(store.saveThreadDraft).toHaveBeenLastCalledWith('chat-1', 'thread-2', null);
+
+		store.saveThreadDraft.mockResolvedValue(Ok(false));
+		expect((await save('Hello', 'thread-9')).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'thread'});
+
+		store.getMemberChat.mockResolvedValue(Ok(null));
+		expect((await save('Hello')).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'thread'});
+		expect(store.saveThreadDraft).toHaveBeenCalledTimes(3);
 		expect(store.ensureMemberChat).not.toHaveBeenCalled();
 	});
 

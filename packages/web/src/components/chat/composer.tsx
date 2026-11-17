@@ -46,8 +46,8 @@ type Props = {
 	keptFiles: ChatAttachment[];
 	// What it opens holding.
 	openingText: string;
-	// What is typed, kept on the server as the chat's draft; null where nothing typed is kept, as
-	// in a thread's box, whose files the page alone holds too.
+	// What is typed, kept on the server as the chat's or the thread's draft; null where nothing
+	// typed is kept. A thread's keeps the words alone: its files the page alone holds.
 	kept: ChatDraft | null;
 	// What is typed, as it is typed, and what waits in the box, the files' names where nothing is.
 	onTyped?: (text: string) => void;
@@ -134,7 +134,8 @@ export function Composer({
 	// A chat is open all day: a new release is loaded while it is out of view, as long as what is
 	// in the box is kept, or there is nothing in it, and no dialog is open.
 	const keptAll =
-		kept === null ? text === '' && attachments.pending.length === 0 : text === kept.saved;
+		(kept === null ? text === '' : text === kept.saved) &&
+		(kept?.keepsFiles === true || attachments.pending.length === 0);
 	useReloadWhileHidden(keptAll && !sending && !managing && !attachments.uploading);
 
 	// What waits in the box: what is typed, or, with nothing typed, the files' names. Said as it is

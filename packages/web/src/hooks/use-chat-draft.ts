@@ -1,9 +1,9 @@
 import type {ChatAttachment} from '@proxy/contracts/harness';
 import {useCallback, useEffect, useRef, useState} from 'react';
-import {saveDraft} from '@/client/harness-client';
+import {saveDraft, saveThreadDraft} from '@/client/harness-client';
 
-// What the person types to a persona, kept on the server as they type, so it is there when they
-// come back, on any device: a moment after they stop, and at once as the page goes out of view,
+// What the person types to a persona, in its chat or in one of its threads, kept on the server as
+// they type, so it is there when they come back, on any device: a moment after they stop, and at once as the page goes out of view,
 // closes, or opens another conversation. One save at a time, in the order typed. A send forgets
 // the draft on the server itself, so what was typed for it is not saved, and a save still on its
 // way is waited for first, so it can't land after the send and bring the draft back.
@@ -15,6 +15,9 @@ const SAVE_AFTER_MS = 700;
 const KEEPALIVE_MAX_BYTES = 60_000;
 
 export type ChatDraft = {
+	// Whether the files in the box are kept with it on the server, as the chat's are; a thread's
+	// are the page's alone.
+	keepsFiles: boolean;
 	// What the server keeps, as far as the page knows: what is typed is saved when it is this.
 	saved: string;
 	// The person typed `text`, with `files` sitting among the words where its marks are.
@@ -25,7 +28,36 @@ export type ChatDraft = {
 	sent: () => void;
 };
 
+// Keeps what is typed, answering whether it was kept.
+type Store = (
+	text: string,
+	options: {keepalive: boolean; files?: ChatAttachment[]},
+) => Promise<{isOk: () => boolean}>;
+
+/** What is typed in the persona's chat, its files with it. */
 export function useChatDraft(org: string, personaId: string, initial: string): ChatDraft {
+	const store = useCallback<Store>(
+		(text, options) => saveDraft(org, personaId, text, options),
+		[org, personaId],
+	);
+	return useDraft(store, initial, true);
+}
+
+/** What is typed in one of the persona's threads, without its files, which the page holds. */
+export function useThreadDraft(
+	org: string,
+	personaId: string,
+	threadId: string,
+	initial: string,
+): ChatDraft {
+	const store = useCallback<Store>(
+		(text, {keepalive}) => saveThreadDraft(org, personaId, threadId, text, {keepalive}),
+		[org, personaId, threadId],
+	);
+	return useDraft(store, initial, false);
+}
+
+function useDraft(store: Store, initial: string, keepsFiles: boolean): ChatDraft {
 	const [saved, setSaved] = useState(initial);
 	// Typed, and not yet saved, with the files among the words.
 	const pending = useRef<{text: string; files?: ChatAttachment[]} | null>(null);
@@ -40,13 +72,13 @@ export function useChatDraft(org: string, personaId: string, initial: string): C
 			savedSinceSettle.current = true;
 			const keepalive = closing && new TextEncoder().encode(text).length <= KEEPALIVE_MAX_BYTES;
 			queue.current = queue.current.then(async () => {
-				const result = await saveDraft(org, personaId, text, {keepalive, files});
+				const result = await store(text, {keepalive, files});
 				if (result.isOk()) {
 					setSaved(text);
 				}
 			});
 		},
-		[org, personaId],
+		[store],
 	);
 
 	const stopTimer = () => {
@@ -113,5 +145,5 @@ export function useChatDraft(org: string, personaId: string, initial: string): C
 		};
 	}, [flush]);
 
-	return {saved, typed, settle, sent};
+	return {keepsFiles, saved, typed, settle, sent};
 }

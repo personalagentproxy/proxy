@@ -107,6 +107,9 @@ export type HarnessStore = {
 	listThreadsWithoutTitle: () => Promise<Result<Array<{id: string}>, ApiError>>;
 	markThreadRead: (chatId: string, entryId: string) => Promise<Result<boolean, ApiError>>;
 	getChatDraft: (chatId: string) => Promise<Result<string | null, ApiError>>;
+	/** What the member typed in one of their chat's threads and hasn't sent, kept in place of what was; null forgets it. False for no such thread. */
+	getThreadDraft: (chatId: string, threadId: string) => Promise<Result<string | null, ApiError>>;
+	saveThreadDraft: (chatId: string, threadId: string, draft: string | null) => Promise<Result<boolean, ApiError>>;
 	saveChatDraft: (chatId: string, draft: string | null, order?: Array<Pick<DraftAttachment, 'connectionId' | 'fileId' | 'version'>>) => Promise<Result<boolean, ApiError>>;
 	/** The files in a chat's input, not sent yet; put there after those there, at most `max`, and taken out. False for no such chat. */
 	listDraftAttachments: (chatId: string) => Promise<Result<DraftAttachment[], ApiError>>;
@@ -189,6 +192,8 @@ export const harnessStore: HarnessStore = {
 	listThreadsWithoutTitle: harness.listThreadsWithoutTitle,
 	markThreadRead: harness.markThreadRead,
 	getChatDraft: harness.getChatDraft,
+	getThreadDraft: harness.getThreadDraft,
+	saveThreadDraft: harness.saveThreadDraft,
 	saveChatDraft: harness.saveChatDraft,
 	listDraftAttachments: harness.listDraftAttachments,
 	addDraftAttachment: harness.addDraftAttachment,

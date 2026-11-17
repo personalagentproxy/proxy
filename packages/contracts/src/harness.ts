@@ -200,6 +200,13 @@ export const saveDraftBodySchema = z.object({
 });
 
 /**
+ * `PUT chat/personas/:personaId/threads/:threadId/draft`: what the person has typed in a thread and
+ * not sent, in place of what was kept; nothing but whitespace forgets it, and so does their reply
+ * in it. The files put in a thread's box are the page's alone, so it says none.
+ */
+export const saveThreadDraftBodySchema = z.object({text: z.string().max(MAX_MESSAGE)});
+
+/**
  * `POST chat/personas/:personaId/read`: the persona's answer the page showed the person in one of
  * the chat's threads, open, which that thread is read up to.
  */
@@ -335,6 +342,8 @@ export const threadViewSchema = z.object({
 	model: threadModelSchema,
 	busy: z.boolean(),
 	messages: z.array(threadMessageSchema),
+	/** What the person typed in it and hasn't sent (`PUT chat/personas/:personaId/threads/:threadId/draft`); null without one. */
+	draft: z.string().nullable(),
 });
 
 export type ThreadView = z.infer<typeof threadViewSchema>;

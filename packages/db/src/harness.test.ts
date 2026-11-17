@@ -19,6 +19,7 @@ import {
 	failJob,
 	finishJob,
 	getChatDraft,
+	getThreadDraft,
 	getJobThread,
 	getPersona,
 	isAttachedForTask,
@@ -34,6 +35,7 @@ import {
 	replyInThread,
 	requeueJob,
 	saveChatDraft,
+	saveThreadDraft,
 	type ThreadRow,
 } from './harness';
 import {removeMembership} from './organization';
@@ -450,6 +452,29 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		// The job the message woke is done with, so the tests after this claim only their own.
 		const job = await claimFor('worker-dr', sent.id);
 		unwrap(await finishJob(job.id, 'worker-dr'));
+	});
+
+	test('a thread keeps what is typed in it until it is replaced, forgotten or replied', async () => {
+		expect(unwrap(await getThreadDraft(chat.id, thread.id))).toBeNull();
+
+		expect(unwrap(await saveThreadDraft(chat.id, thread.id, 'Only'))).toBe(true);
+		expect(unwrap(await saveThreadDraft(chat.id, thread.id, 'Only mornings'))).toBe(true);
+		expect(unwrap(await getThreadDraft(chat.id, thread.id))).toBe('Only mornings');
+		expect(unwrap(await saveThreadDraft(chat.id, thread.id, null))).toBe(true);
+		expect(unwrap(await getThreadDraft(chat.id, thread.id))).toBeNull();
+
+		// Another chat's thread, or the chat itself, keeps nothing here.
+		expect(unwrap(await saveThreadDraft('no-such-chat', thread.id, 'Hello'))).toBe(false);
+		expect(unwrap(await saveThreadDraft(chat.id, chat.id, 'Hello'))).toBe(false);
+		expect(unwrap(await getThreadDraft('no-such-chat', thread.id))).toBeNull();
+
+		unwrap(await saveThreadDraft(chat.id, thread.id, 'Only mornings'));
+		await reply('Only mornings');
+		expect(unwrap(await getThreadDraft(chat.id, thread.id))).toBeNull();
+
+		// The job the reply woke is done with, so the tests after this claim only their own.
+		const job = await claimFor('worker-td', thread.id);
+		unwrap(await finishJob(job.id, 'worker-td'));
 	});
 
 	test('a finish with nothing written is a done event too', async () => {

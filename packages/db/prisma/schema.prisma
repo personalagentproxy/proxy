@@ -858,8 +858,8 @@ model AgentThread {
   // (@proxy/utils/harness HarnessSession); null before the first turn, or for a harness that
   // keeps nothing between turns.
   harnessSession String?
-  // What the member has typed in the chat and not sent, kept so it is there when they come back,
-  // on any device; the message they send empties it. Null when there is none, and for a thread.
+  // What the member has typed in the chat, or in the thread, and not sent, kept so it is there
+  // when they come back, on any device; the message they send empties it. Null when there is none.
   draft   String?
   // Whether a thread's agent stopped needing the member to answer or act before it can go on,
   // as a small model read the thread when its turn ended. The member's reply, an alert that takes

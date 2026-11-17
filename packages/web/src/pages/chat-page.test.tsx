@@ -122,13 +122,19 @@ const backup = thread('t2', {
 });
 
 // A thread as its page shows it.
-function view(listed: ChatThread, messages: ThreadMessage[], busy = false): ThreadView {
+function view(
+	listed: ChatThread,
+	messages: ThreadMessage[],
+	busy = false,
+	draft: string | null = null,
+): ThreadView {
 	return {
 		persona: general,
 		thread: listed,
 		model: {harness: 'proxy', chatModel: 'claude'},
 		busy,
 		messages,
+		draft,
 	};
 }
 
@@ -1423,7 +1429,7 @@ describe('ChatPage', () => {
 				answeredReply[0]?.(Response.json({message: said('m4', 'person', 'Only mornings')}));
 			});
 			expect(within(opened).getByText('Only mornings')).toBe(sent);
-			// Nothing of it is kept as the chat's draft.
+			// Nothing of it is kept as a draft, the chat's or the thread's.
 			expect(fetchMock.mock.calls.filter(([url]) => url.endsWith('/draft'))).toEqual([]);
 		});
 
@@ -1802,6 +1808,42 @@ describe('ChatPage', () => {
 				timeout: 2000,
 			});
 			await waitFor(() => expect(pageSaysSafeToReload()).toBe(true));
+		});
+
+		describe('in a thread', () => {
+			const threadDraftUrl = '/api/orgs/acme/chat/personas/general/threads/t1/draft';
+			const threadSaves = () =>
+				fetchMock.mock.calls
+					.filter(([url, init]) => url === threadDraftUrl && init?.method === 'PUT')
+					.map(([, init]) => JSON.parse(String(init?.body)) as {text: string});
+
+			test('opens its box with what was typed in it and not sent, safe to reload', async () => {
+				renderChatPage({
+					threads: [pricing],
+					views: {t1: view(pricing, pricingView.messages, false, 'Thursday works')},
+					initial: '/acme/chat/general/threads/t1',
+				});
+
+				const box = await screen.findByLabelText('Reply');
+				expect(box.textContent).toBe('Thursday works');
+				expect(pageSaysSafeToReload()).toBe(true);
+				expect(threadSaves()).toEqual([]);
+			});
+
+			test('saves what is typed in it to the thread a moment after the typing stops, not to the chat', async () => {
+				renderChatPage({threads: [pricing], initial: '/acme/chat/general/threads/t1'});
+				const box = await screen.findByLabelText('Reply');
+
+				typeIn(box, 'Thursday');
+				typeIn(box, 'Thursday works');
+				expect(pageSaysSafeToReload()).toBe(false);
+
+				await waitFor(() => expect(threadSaves()).toEqual([{text: 'Thursday works'}]), {
+					timeout: 2000,
+				});
+				await waitFor(() => expect(pageSaysSafeToReload()).toBe(true));
+				expect(saves()).toEqual([]);
+			});
 		});
 
 		test('saves at once as another conversation opens, and lists it there as a draft', async () => {
