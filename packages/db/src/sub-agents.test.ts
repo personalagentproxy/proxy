@@ -166,6 +166,10 @@ describe.skipIf(!databaseUrl)('sub-agents, against the database', () => {
 			title: 'Read the contract',
 		});
 		expect(sub?.taskId).not.toBe(thread.taskId);
+		// Its task is a sub-task of the thread's, so the activity log draws it under the thread.
+		expect(await db.agentTask.findUniqueOrThrow({where: {id: sub?.taskId ?? ''}})).toMatchObject({
+			parentId: thread.taskId,
+		});
 		expect(unwrap(await listEntries(subAgentId)).map((entry) => [entry.kind, entry.text])).toEqual([
 			['person', 'Find the notice period.'],
 		]);
@@ -197,6 +201,10 @@ describe.skipIf(!databaseUrl)('sub-agents, against the database', () => {
 				),
 			),
 		).toBe(true);
+		// Its sub-agent is still at work, so the thread's task, which the sub-agent's is under, stays under way.
+		expect(
+			(await db.agentTask.findUniqueOrThrow({where: {id: thread.taskId ?? ''}})).finishedAt,
+		).toBeNull();
 		expect(
 			unwrap(
 				await completeInference(
@@ -349,5 +357,10 @@ describe.skipIf(!databaseUrl)('sub-agents, against the database', () => {
 		expect(await db.agentEntry.count({where: {threadId: {not: thread.id}, thread: {orgId}}})).toBe(
 			before,
 		);
+		// No sub-agent has anything left to run, so the turn that ends finishes the thread's task.
+		const after = unwrap(await getJobThread(thread.id));
+		expect(
+			(await db.agentTask.findUniqueOrThrow({where: {id: after?.taskId ?? ''}})).finishedAt,
+		).not.toBeNull();
 	});
 });

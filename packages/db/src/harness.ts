@@ -1151,9 +1151,21 @@ async function messageWaiting(tx: Tx, thread: ThreadRow): Promise<boolean> {
 	return waiting > 0;
 }
 
-// Finishes the thread's task, where it has one under way, with `outcome`. With the thread locked.
+// Whether any of the thread's sub-agents has a turn or a call still to run, now or after a sleep:
+// their tasks are sub-tasks of the thread's, which stays under way meanwhile, so none is drawn as
+// at work under a task that ended. The last one's answer takes the thread up again, and the turn
+// that follows finishes its task. With the thread locked.
+async function subAgentsAtWork(tx: Tx, thread: ThreadRow): Promise<boolean> {
+	const open = await tx.agentJob.count({
+		where: {status: {in: ['queued', 'running']}, thread: {subAgentOfId: thread.id}},
+	});
+	return open > 0;
+}
+
+// Finishes the thread's task, where it has one under way, with `outcome`, unless its sub-agents
+// are still at work (subAgentsAtWork). With the thread locked.
 async function finishTask(tx: Tx, thread: ThreadRow, outcome: string): Promise<void> {
-	if (thread.taskId === null) {
+	if (thread.taskId === null || (await subAgentsAtWork(tx, thread))) {
 		return;
 	}
 	const now = new Date();
@@ -1220,10 +1232,15 @@ async function createSubAgent(
 	wakes: Wakes,
 ): Promise<string> {
 	const now = new Date();
+	// A sub-task of the thread's, which its turn has under way, so the activity log draws the
+	// sub-agent's work under the thread's.
 	const task = await tx.agentTask.create({
-		data: {...start.task, createdAt: now, lastActiveAt: now},
+		data: {...start.task, parentId: parent.taskId, createdAt: now, lastActiveAt: now},
 		select: {id: true},
 	});
+	if (parent.taskId !== null) {
+		await tx.agentTask.updateMany({where: {id: parent.taskId}, data: {lastActiveAt: now}});
+	}
 	const chosen = await tx.agentThread.findUnique({
 		where: {id: parent.id},
 		select: {chosenHarness: true, chosenModel: true},
@@ -2445,8 +2462,13 @@ async function takeUpTask(tx: Tx, thread: ThreadRow & {taskId: string}, now: Dat
 		return;
 	}
 	const {finishedAt: _finishedAt, lastActiveAt: _lastActiveAt, ...work} = task;
+	// A sub-agent's stays under the thread it works for, under the task that thread has now.
+	const parent =
+		thread.subAgentOfId === null
+			? null
+			: await tx.agentThread.findUnique({where: {id: thread.subAgentOfId}, select: {taskId: true}});
 	const fresh = await tx.agentTask.create({
-		data: {...work, parentId: null, createdAt: now, lastActiveAt: now},
+		data: {...work, parentId: parent?.taskId ?? null, createdAt: now, lastActiveAt: now},
 		select: {id: true},
 	});
 	await tx.agentThread.update({
