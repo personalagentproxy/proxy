@@ -23,6 +23,8 @@ export type Unread = {
 	// Which conversation the Chat page shows, and which thread's answer; null elsewhere. The thread
 	// is read up to the answer it shows while the person looks at it.
 	setViewing: (viewing: Viewing | null) => void;
+	// Asks the api again now, as after the person replied in a thread, which reads it.
+	refresh: () => void;
 };
 
 const NOTHING: Unread = {
@@ -30,6 +32,7 @@ const NOTHING: Unread = {
 	unreadIds: new Set(),
 	answers: null,
 	setViewing: () => undefined,
+	refresh: () => undefined,
 };
 
 export const UnreadContext = createContext<Unread>(NOTHING);

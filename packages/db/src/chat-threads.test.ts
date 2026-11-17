@@ -487,6 +487,42 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		expect((await lastAnswer())?.answer.text).toBe('Dana did.');
 	});
 
+	test('the member’s reply reads its thread, which isn’t unread while it works on it; what its agent says after is', async () => {
+		const unreadIn = async (id: string) =>
+			unwrap(await listAnswers(orgId, userId))
+				.find((one) => one.personaId === chat.personaId)
+				?.unread.find((one) => one.threadId === id) ?? null;
+		const thread = await open('Which invoices are overdue?');
+		const first = await claim(thread.id, 'worker-u');
+		unwrap(
+			await completeInference(
+				first.id,
+				'worker-u',
+				thread.id,
+				said('Three are.'),
+				{end: {outcome: 'Three are.'}},
+				readyForInference,
+			),
+		);
+		expect((await unreadIn(thread.id))?.answer.text).toBe('Three are.');
+
+		unwrap(await replyInThread(chat.id, thread.id, 'Which ones?', readyForInference));
+		expect(await unreadIn(thread.id)).toBeNull();
+
+		const next = await claim(thread.id, 'worker-u');
+		unwrap(
+			await completeInference(
+				next.id,
+				'worker-u',
+				thread.id,
+				said('March, April and May.'),
+				{end: {outcome: 'Listed them.'}},
+				readyForInference,
+			),
+		);
+		expect((await unreadIn(thread.id))?.answer.text).toBe('March, April and May.');
+	});
+
 	test('an alert set in a thread is the thread’s: listed with it and with its persona, and when it fires it lands in the thread, taking it up', async () => {
 		const thread = await open('Remind me about the pricing review tomorrow');
 		const job = await claim(thread.id, 'worker-al');
