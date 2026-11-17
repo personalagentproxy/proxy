@@ -9,9 +9,6 @@ export const EXPERIMENTS = {
 	// The built-in agent on the server's OpenRouter key (OPENROUTER_KEY), beside each member's own
 	// Claude account, which every organization has.
 	openrouter: 'OpenRouter models',
-	// Sandboxes: computers of their own that agents ask for, kept while they are away, run by the
-	// sandbox backend the server is set up with.
-	sandboxes: 'Sandboxes',
 	// More sandboxes running at once: 10 rather than the sandbox backend's own limit, which is 2 on
 	// hosted Personal Agent Proxy's.
 	moreSandboxes: 'More sandboxes running',

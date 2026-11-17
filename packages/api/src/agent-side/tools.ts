@@ -86,7 +86,7 @@ export function requireAgent(signedIn: SignedInAgent): Promise<Result<AgentRow, 
 export function listAgentConnections(signedIn: SignedInAgent): Promise<Result<z.infer<typeof agentAccessSchema>, ApiError>> {
 	return Do(async ($) => {
 		const agent = $(await requireAgent(signedIn));
-		$(await ensureSandboxConnection({...agentViewer(signedIn), experiments: signedIn.experiments}));
+		$(await ensureSandboxConnection(agentViewer(signedIn)));
 		$(await ensureFilesConnection({...agentViewer(signedIn), experiments: signedIn.experiments}));
 		$(await ensureChatConnection(agentViewer(signedIn)));
 		const connections = $(await listConnectionsWithCredential(agentViewer(signedIn))).flatMap((connection) => {

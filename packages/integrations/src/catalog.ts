@@ -1669,14 +1669,13 @@ export const SANDBOX_EXEC_DEFAULT_SECONDS = 60;
 // member has a Sandboxes connection, as they have a vault; what an agent may
 // do there is set per action, as on any connection. The sandboxes are the collection, listed
 // and made as records; the console is the one tool of the integration's own, since reading and
-// writing files is done through it. Offered where the organization has the experiment and the
-// server a sandbox backend (SANDBOX_SERVICE_URL).
+// writing files is done through it. Offered where the server has a sandbox backend
+// (SANDBOX_SERVICE_URL).
 const sandbox: Integration = {
 	id: SANDBOX_INTEGRATION_ID,
 	name: 'Sandboxes',
 	description: 'Computers of their own for your agents to work on, kept while they are away',
 	native: true,
-	experiment: 'sandboxes',
 	actions: [
 		{
 			id: 'read',
