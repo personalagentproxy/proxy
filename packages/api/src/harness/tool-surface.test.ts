@@ -34,10 +34,8 @@ function tool(name: string) {
 }
 
 describe('a thread’s tools', () => {
-	test('are the MCP server’s script, a message to the person, a sleep, setting an alert and cancelling one, and starting a sub-agent and messaging one', () => {
-		expect(THREAD_TOOLS.map((candidate) => candidate.name)).toEqual(['script', 'send_to_person', 'sleep_until', 'set_alert', 'cancel_alert', 'create_subagent', 'send_to_subagent']);
-		expect(tool('create_subagent').parameters.required).toEqual(['title', 'brief']);
-		expect(tool('send_to_subagent').parameters.required).toEqual(['subagent', 'text']);
+	test('are the MCP server’s script, a message to the person, a sleep, and setting an alert and cancelling one', () => {
+		expect(THREAD_TOOLS.map((candidate) => candidate.name)).toEqual(['script', 'send_to_person', 'sleep_until', 'set_alert', 'cancel_alert']);
 		expect(tool('send_to_person').parameters.required).toEqual(['text']);
 		expect(tool('send_to_person').description).toContain('Tells the person something while you go on');
 		expect(tool('set_alert').parameters.required).toEqual(['title', 'brief', 'opens']);
@@ -52,8 +50,6 @@ describe('a thread’s tools', () => {
 			personaId: 'persona-1',
 			userId: 'user-1',
 			parentThreadId: 'chat-1',
-			subAgentOfId: null,
-			parentCallId: null,
 			title: 'Bank',
 			taskId: 'task-1',
 			harness: null,
@@ -61,36 +57,7 @@ describe('a thread’s tools', () => {
 			createdAt: new Date(),
 		};
 		expect(threadTools({...base, openedByAlert: false})).toBe(THREAD_TOOLS);
-		expect(threadTools({...base, openedByAlert: true}).map((candidate) => candidate.name)).toEqual([
-			'script',
-			'send_to_person',
-			'sleep_until',
-			'set_alert',
-			'cancel_alert',
-			'create_subagent',
-			'send_to_subagent',
-			'dismiss',
-		]);
-	});
-
-	test('a sub-agent has the script, a message to the thread it works for and a sleep alone', () => {
-		const base = {
-			id: 'sub-1',
-			orgId: 'org-1',
-			agentId: 'agent-1',
-			personaId: 'persona-1',
-			userId: 'user-1',
-			parentThreadId: 'chat-1',
-			subAgentOfId: 'thread-1',
-			parentCallId: 'c0',
-			title: 'Read the contract',
-			taskId: 'task-2',
-			harness: null,
-			harnessSession: null,
-			openedByAlert: false,
-			createdAt: new Date(),
-		};
-		expect(threadTools(base).map((candidate) => candidate.name)).toEqual(['script', 'send_to_parent', 'sleep_until']);
+		expect(threadTools({...base, openedByAlert: true}).map((candidate) => candidate.name)).toEqual(['script', 'send_to_person', 'sleep_until', 'set_alert', 'cancel_alert', 'dismiss']);
 	});
 
 	test('the script takes no task, and starts and finishes none: the loop keeps its task', () => {
@@ -120,8 +87,6 @@ describe('running a call inline', () => {
 		personaId: 'persona-1',
 		userId: 'user-1',
 		parentThreadId: 'chat-1',
-		subAgentOfId: null,
-		parentCallId: null,
 		title: 'Pricing review with Dana',
 		taskId: 'task-1',
 		harness: null,
@@ -184,38 +149,8 @@ describe('running a call inline', () => {
 	});
 
 	test('gives the harness the thread’s tools', () => {
-		expect(surface().tools.map((candidate) => candidate.name)).toEqual(['script', 'send_to_person', 'sleep_until', 'set_alert', 'cancel_alert', 'create_subagent', 'send_to_subagent']);
+		expect(surface().tools.map((candidate) => candidate.name)).toEqual(['script', 'send_to_person', 'sleep_until', 'set_alert', 'cancel_alert']);
 		expect(surface().tools.every((candidate) => !candidate.readOnly)).toBe(true);
-	});
-
-	test('create_subagent starts one on its own, fenced by the job, and answers with its id; send_to_subagent messages one, saying what it was up to', async () => {
-		store.startSubAgentInline.mockResolvedValue(Ok('sub-1'));
-		const started = (await run('create_subagent', JSON.stringify({title: 'Read the contract', brief: 'Find the notice period.'}))).unwrap();
-		expect(started).toEqual({text: expect.stringContaining('id sub-1'), isError: false});
-		expect(store.startSubAgentInline).toHaveBeenCalledWith(
-			{jobId: 'job-1', workerId: 'w1', threadId: thread.id},
-			expect.objectContaining({callId: 'c1', title: 'Read the contract', entries: [{kind: 'person', text: 'Find the notice period.'}]}),
-		);
-		expect((await run('create_subagent', '{}')).unwrap()).toEqual({text: expect.stringContaining('Give title'), isError: true});
-
-		store.messageSubAgentInline.mockResolvedValue(Ok({subAgent: null}));
-		expect((await run('send_to_subagent', JSON.stringify({subagent: 'sub-9', text: 'Also the date.'}))).unwrap()).toEqual({text: 'No sub-agent sub-9.', isError: true});
-		expect(store.messageSubAgentInline).toHaveBeenCalledWith({jobId: 'job-1', workerId: 'w1', threadId: thread.id}, 'sub-9', {kind: 'person', text: 'Also the date.'});
-	});
-
-	test('a thread has no send_to_parent, and a sub-agent none of a thread’s calls but its own', async () => {
-		expect((await run('send_to_parent', JSON.stringify({text: 'Hi'}))).unwrap()).toEqual({text: expect.stringContaining('send_to_parent'), isError: true});
-		const sub = {...thread, id: 'sub-1', subAgentOfId: thread.id, parentCallId: 'c0'};
-		const subSurface = toolSurfaceFor(store, sub, {id: 'job-2'}, 'w1', () => now);
-		expect(subSurface.tools.map((candidate) => candidate.name)).toEqual(['script', 'send_to_parent', 'sleep_until']);
-		for (const name of ['send_to_person', 'set_alert', 'create_subagent', 'dismiss']) {
-			expect((await subSurface.execute({id: 'c1', name, arguments: '{}'})).unwrap()).toEqual({text: expect.stringContaining(name), isError: true});
-		}
-		store.tellParentInline.mockResolvedValue(Ok(true));
-		expect((await subSurface.execute({id: 'c1', name: 'send_to_parent', arguments: JSON.stringify({text: 'Halfway.'})})).unwrap()).toEqual({text: 'Sent.', isError: false});
-		expect(store.tellParentInline).toHaveBeenCalledWith({jobId: 'job-2', workerId: 'w1', threadId: 'sub-1'}, {text: 'Halfway.', isError: false});
-		store.tellParentInline.mockResolvedValue(Ok(false));
-		expect((await subSurface.execute({id: 'c1', name: 'send_to_parent', arguments: JSON.stringify({text: 'Halfway.'})})).isErr()).toBe(true);
 	});
 
 	test('a script goes through the MCP dispatch as the agent acting as the member, for the thread’s task, a refusal answered as an error, and a long result cut', async () => {

@@ -22,7 +22,7 @@ import type {HarnessStore} from './store';
  */
 
 /** What a thread's task needs of the store. */
-export type ThreadTaskStore = Pick<HarnessStore, 'getAgentTask' | 'createAgentTask' | 'setThreadTask' | 'getJobThread'>;
+export type ThreadTaskStore = Pick<HarnessStore, 'getAgentTask' | 'createAgentTask' | 'setThreadTask'>;
 
 /** The thread's task, not finished nor left open long ago: the one it has, or a new one in its place. */
 export function ensureThreadTask(store: ThreadTaskStore, thread: ThreadRow): Promise<Result<string, ApiError>> {
@@ -34,12 +34,7 @@ export function ensureThreadTask(store: ThreadTaskStore, thread: ThreadRow): Pro
 		if (task.finishedAt === null && !taskEndedLongAgo(task, new Date())) {
 			return task.id;
 		}
-		const work = taskFor(thread, {title: task.title, goal: task.goal});
-		// A sub-agent's goes under the task the thread it works for has now, where that can still be
-		// taken up; otherwise it stands on its own.
-		const parentId = thread.subAgentOfId === null ? null : ($(await store.getJobThread(thread.subAgentOfId))?.taskId ?? null);
-		const under = parentId === null ? null : $(await store.createAgentTask({...work, parentId}));
-		const made = under ?? $(await store.createAgentTask(work));
+		const made = $(await store.createAgentTask(taskFor(thread, {title: task.title, goal: task.goal})));
 		const id = $(requirePresent(made, ApiErr.internalError(new Error('A task with no parent was not made')))).id;
 		$(await store.setThreadTask(thread.id, id));
 		return id;
