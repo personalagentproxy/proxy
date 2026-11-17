@@ -15,6 +15,7 @@ import {failureNote} from './thread-rules';
 import {type InferenceStore, runInference} from './inference';
 import type {HarnessStore} from './store';
 import {standAfterTurn, type StandingModel, type StandingStore} from './thread-standing';
+import {titleAtTurn, type TitleModel, type TitleStore} from './thread-title';
 import {runToolJob, type ToolJobStore} from './tool-job';
 
 /**
@@ -34,8 +35,9 @@ import {runToolJob, type ToolJobStore} from './tool-job';
  * instance, rather than taking up room here while it waits. As a thread's turn ends, a small model
  * reads where it stands, after the turn's job and beside the next (thread-standing.ts), and as its
  * agent tells the member something and goes on, the turn's job still running, which the turn says
- * through the harnesses it is run with; stopping, the worker waits for those readings as it does
- * for its jobs.
+ * through the harnesses it is run with. As a thread's first turn starts, the same model names the
+ * thread, beside the turn (thread-title.ts). Stopping, the worker waits for those readings as it
+ * does for its jobs.
  */
 
 const POLL_MS = 500;
@@ -50,11 +52,14 @@ const STOP_MS = 8_000;
 
 export type HarnessWorker = {stop: () => Promise<void>};
 
-/** What the worker needs of the store: the queue, what the jobs it runs need, and where a thread stands. */
-export type WorkerStore = Pick<HarnessStore, 'claimJob' | 'renewLease' | 'failJob'> & InferenceStore & ToolJobStore & StandingStore;
+/** What the worker needs of the store: the queue, what the jobs it runs need, where a thread stands, and its title. */
+export type WorkerStore = Pick<HarnessStore, 'claimJob' | 'renewLease' | 'failJob'> & InferenceStore & ToolJobStore & StandingStore & TitleStore;
 
 // Without the server's OpenRouter key, no thread's standing is read: each is done, with no summary.
 const NO_STANDING: StandingModel = {key: undefined, ask: async () => Err(ApiErr.unavailable('No model reads where a thread stands'))};
+
+// Without it, no thread is named: each keeps the line of the message that opened it.
+const NO_TITLE: TitleModel = {key: undefined, ask: async () => Err(ApiErr.unavailable('No model names a thread'))};
 
 // One name per worker, so a lease says who holds it.
 function workerName(): string {
@@ -116,34 +121,41 @@ async function runOrFail(store: WorkerStore, harnesses: Harnesses, job: JobRow, 
 	await fail(store, job, workerId, message.slice(0, 1000));
 }
 
-/** Starts the worker on the store, its inference jobs run by the harness `harnesses` has for each thread, and where a thread stands as its turn ends read by `standing`; it runs until stopped. */
-export function startHarnessWorker(store: WorkerStore, harnesses: Harnesses, standing: StandingModel = NO_STANDING): HarnessWorker {
+/** Starts the worker on the store, its inference jobs run by the harness `harnesses` has for each thread, where a thread stands as its turn ends read by `standing`, and a thread named as its first turn starts by `title`; it runs until stopped. */
+export function startHarnessWorker(store: WorkerStore, harnesses: Harnesses, standing: StandingModel = NO_STANDING, title: TitleModel = NO_TITLE): HarnessWorker {
 	const workerId = workerName();
 	const cap = cappedHarness(harnesses.registry);
 	let stopping = false;
 	const running = new Set<Promise<void>>();
-	// Where threads stand, being written after their turns' jobs: none takes a job's room.
-	const standings = new Set<Promise<void>>();
+	// Where threads stand and their titles, being written beside and after their turns' jobs: none
+	// takes a job's room.
+	const readings = new Set<Promise<void>>();
 	// How many of the jobs running are turns on the capped harness.
 	let cappedTurns = 0;
 
 	// Has where the thread stands written, in the background, so the worker goes on meanwhile.
-	const stand = (threadId: string): void => {
-		const written: Promise<void> = standAfterTurn(store, standing, threadId).finally(() => {
-			standings.delete(written);
+	const read = (reading: () => Promise<void>): void => {
+		const written: Promise<void> = reading().finally(() => {
+			readings.delete(written);
 		});
-		standings.add(written);
+		readings.add(written);
 	};
+	const stand = (threadId: string): void => read(() => standAfterTurn(store, standing, threadId));
 	// The harnesses a turn is run with, which say when its agent told the member something and
 	// went on: where the thread stands is written then too, the turn still running.
 	const telling: Harnesses = {...harnesses, told: stand};
 
-	// Runs the job, and, a turn's job over, however it went, has where its thread stands written
-	// after: the thread's turn may have ended, or its agent told the member something in a step
-	// whose calls are still to run, and otherwise nothing is written (thread-standing.ts).
+	// Runs the job; a turn's job has its thread named beside it, where it has yet to be
+	// (thread-title.ts), and, over, however it went, where its thread stands written after: the
+	// thread's turn may have ended, or its agent told the member something in a step whose calls
+	// are still to run, and otherwise nothing is written (thread-standing.ts).
 	const runClaimed = async (job: JobRow): Promise<void> => {
+		const turn = job.kind === 'inference' || job.kind === 'wake';
+		if (turn) {
+			read(() => titleAtTurn(store, title, job.threadId));
+		}
 		await runOrFail(store, telling, job, workerId);
-		if (job.kind !== 'inference' && job.kind !== 'wake') {
+		if (!turn) {
 			return;
 		}
 		stand(job.threadId);
@@ -181,11 +193,11 @@ export function startHarnessWorker(store: WorkerStore, harnesses: Harnesses, sta
 	return {
 		stop: async () => {
 			stopping = true;
-			// A job done has begun writing where its thread stands by then, so those are waited for
-			// after the jobs.
+			// A job done has begun writing where its thread stands by then, so those, and the titles,
+			// are waited for after the jobs.
 			const settled = async (): Promise<void> => {
 				await Promise.all(running);
-				await Promise.all(standings);
+				await Promise.all(readings);
 			};
 			await Promise.race([settled(), sleep(STOP_MS)]);
 		},

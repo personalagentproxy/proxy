@@ -1,7 +1,7 @@
 /// <reference types="bun" />
 
 import {describe, expect, test} from 'bun:test';
-import {formatMessageTime} from '@/lib/chat-time';
+import {formatListTime, formatMessageTime} from '@/lib/chat-time';
 
 // A moment in the browser's own time zone, as the page counts days in it.
 function at(month: number, day: number, hour: number, minute = 0, year = 2026): string {
@@ -19,5 +19,18 @@ describe('formatMessageTime', () => {
 	test('gives an earlier day with its weekday, and the year once it is not this one', () => {
 		expect(formatMessageTime(at(9, 26, 3), now)).toBe('Sat, Sep 26 3:00 AM');
 		expect(formatMessageTime(at(12, 31, 18, 0, 2025), now)).toBe('Wed, Dec 31, 2025 6:00 PM');
+	});
+});
+
+describe('formatListTime', () => {
+	test('gives today the time alone, and yesterday its name alone', () => {
+		expect(formatListTime(at(10, 21, 9, 5), now)).toBe('9:05 AM');
+		expect(formatListTime(at(10, 20, 23, 30), now)).toBe('Yesterday');
+	});
+
+	test('gives the week its weekdays, then the date, with the year once it is not this one', () => {
+		expect(formatListTime(at(10, 15, 3), now)).toBe('Thu');
+		expect(formatListTime(at(10, 14, 23), now)).toBe('Oct 14');
+		expect(formatListTime(at(12, 31, 18, 0, 2025), now)).toBe('Dec 31, 2025');
 	});
 });

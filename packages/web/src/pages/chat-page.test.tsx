@@ -783,7 +783,7 @@ describe('ChatPage', () => {
 		).toHaveLength(0);
 	});
 
-	test('lists the threads, the one that last had a message last, each with where it stands, what opened it, the start of the latest answer and how many messages it holds', async () => {
+	test('lists the threads, the one opened last at the end, each a row with where it stands, its title and the start of the latest answer, not what opened it', async () => {
 		const asleep = thread('t3', {
 			title: 'Train tickets',
 			state: {kind: 'asleep', until: '2026-10-21T12:00:00Z'},
@@ -815,21 +815,18 @@ describe('ChatPage', () => {
 		expect(within(stopped as HTMLElement).getByText('Done')).toBeTruthy();
 		expect(within(working as HTMLElement).getByText('In progress')).toBeTruthy();
 		expect(within(sleeping as HTMLElement).getByText('In progress')).toBeTruthy();
-		// What the person said, in a bubble; what an alert brought, a line with the thread's title by a
-		// bell, the event in full being the thread's.
-		expect(
-			within(stopped as HTMLElement)
-				.getByText('Move the pricing review')
-				.closest('[data-slot=bubble-content]'),
-		).toBeTruthy();
-		const opener = within(working as HTMLElement).getByText('Morning check');
-		expect(opener.closest('[data-slot=bubble-content]')).toBeNull();
+		// Named by its title; what opened it, what the person said or what an alert brought, is the
+		// thread's to show.
+		expect(within(stopped as HTMLElement).getByText('Pricing review with Dana')).toBeTruthy();
+		expect(within(stopped as HTMLElement).queryByText('Move the pricing review')).toBeNull();
+		expect(within(working as HTMLElement).getByText('Morning check')).toBeTruthy();
 		expect(
 			within(working as HTMLElement).queryByText('Every weekday at 9:00, as you asked'),
 		).toBeNull();
 		expect(within(stopped as HTMLElement).getByText('Moved it to Thursday.')).toBeTruthy();
-		expect(within(stopped as HTMLElement).getByText(/^2 messages · /)).toBeTruthy();
-		expect(within(working as HTMLElement).getByText(/^1 message · /)).toBeTruthy();
+		expect(
+			within(sleeping as HTMLElement).getByText('Waiting for the fares to drop.'),
+		).toBeTruthy();
 	});
 
 	test('reads the chat again while a thread of it is in progress, so one that stops says so', async () => {
@@ -868,7 +865,7 @@ describe('ChatPage', () => {
 		expect(reads).toBe(read);
 	}, 15000);
 
-	test('says a thread waits for the person in orange, one done in ink, and where each stands in a sentence while it is current, the start of the latest answer otherwise', async () => {
+	test('says where each thread stands in a sentence while it is current, in ink where it waits for the person, the start of the latest answer otherwise', async () => {
 		const waiting = thread('t4', {
 			title: 'Date filter on the activity log',
 			standing: 'waiting',
@@ -889,26 +886,22 @@ describe('ChatPage', () => {
 		const [done, working, asking] = within(chat)
 			.getAllByRole('link')
 			.map((link) => link.parentElement as HTMLElement);
-		expect(within(asking as HTMLElement).getByText('Waiting for you').className).toContain(
-			'text-waiting',
-		);
+		expect(within(asking as HTMLElement).getByText('Waiting for you')).toBeTruthy();
 		expect(
 			within(asking as HTMLElement).getByText(
 				'Has a plan, and asks whether the date range should cover the CSV export too.',
-			),
-		).toBeTruthy();
+			).className,
+		).not.toContain('text-muted-foreground');
 		expect(
 			within(asking as HTMLElement).queryByText('I have a plan, and one question before I build.'),
 		).toBeNull();
 		expect(within(asking as HTMLElement).getByRole('button', {name: 'Mark done'})).toBeTruthy();
-		expect(within(done as HTMLElement).getByText('Done').className).toContain('text-foreground');
-		expect(within(done as HTMLElement).getByText('Moved it to Thursday.')).toBeTruthy();
+		expect(within(done as HTMLElement).getByText('Done')).toBeTruthy();
+		expect(within(done as HTMLElement).getByText('Moved it to Thursday.').className).toContain(
+			'text-muted-foreground',
+		);
 		expect(within(done as HTMLElement).queryByRole('button', {name: 'Mark done'})).toBeNull();
-		expect(
-			within(working as HTMLElement)
-				.getByText('In progress')
-				.closest('.text-muted-foreground'),
-		).toBeTruthy();
+		expect(within(working as HTMLElement).getByText('In progress')).toBeTruthy();
 		expect(within(working as HTMLElement).queryByRole('button', {name: 'Mark done'})).toBeNull();
 	});
 
@@ -1141,13 +1134,13 @@ describe('ChatPage', () => {
 			await waitFor(() => expect(postedTo('/threads/t5/archive')).toBe(true));
 		});
 
-		test('a thread an alert opened has a bell in the list', async () => {
+		test('a thread an alert opened has a bell by its title in the list', async () => {
 			renderChatPage({threads: [pricing, backup]});
 
 			const chat = await screen.findByLabelText('Chat');
 			const marks = within(chat).getAllByLabelText('Opened by an alert');
 			expect(marks).toHaveLength(1);
-			expect(marks[0]?.closest('p')?.textContent).toBe('Morning check');
+			expect(marks[0]?.parentElement?.textContent).toBe('Morning check');
 		});
 
 		test('the chat’s own alerts, which open threads of their own, are a line at its end to the Alerts page showing them', async () => {
@@ -1242,11 +1235,13 @@ describe('ChatPage', () => {
 			expect(
 				screen.getByRole('link', {name: 'Morning check'}).getAttribute('aria-current'),
 			).toBeNull();
-			// Outlined, where it is in the list.
-			const listed = within(screen.getByLabelText('Chat'))
-				.getByText('Move the pricing review')
-				.closest('[data-slot=bubble]');
-			expect(listed?.className).toContain('border-border');
+			// Lit, where it is in the list.
+			expect(link.parentElement?.classList.contains('bg-muted')).toBe(true);
+			expect(
+				screen
+					.getByRole('link', {name: 'Morning check'})
+					.parentElement?.classList.contains('bg-muted'),
+			).toBe(false);
 			expect(within(screen.getByRole('banner')).getByText('Pricing review with Dana')).toBeTruthy();
 			expect(
 				within(opened).getByText('Move the pricing review').closest('[data-slot=bubble-content]'),
@@ -1677,7 +1672,7 @@ describe('ChatPage', () => {
 				within(sent.closest('[data-enter]') as HTMLElement).getByText('In progress'),
 			).toBeTruthy();
 			// What was there as the chat opened is simply there.
-			expect(within(chat).getByText('Move the pricing review').closest('[data-enter]')).toBeNull();
+			expect(within(chat).getByText('Pricing review with Dana').closest('[data-enter]')).toBeNull();
 			// The list has it as the last thing said at once.
 			expect(screen.getByRole('link', {name: /General/}).textContent).toContain(
 				'You: Book the train',
@@ -2042,35 +2037,6 @@ describe('ChatPage', () => {
 					false,
 				),
 			);
-		});
-
-		test('shows the files a thread was opened with where they sat among its words, each opening the viewer and not the thread; one from before files sat among words has them first', async () => {
-			const opener = (text: string) => ({kind: 'person' as const, text, attachments: [kept]});
-			renderChatPage({
-				threads: [
-					thread('t1', {opener: opener(`Compare ${ATTACHMENT_MARK} with last year`)}),
-					thread('t2', {title: 'Reading notes', opener: opener('What does this say?')}),
-				],
-				experiments: withFiles,
-			});
-
-			const [among, first] = await screen.findAllByRole('button', {name: 'pricing.md'});
-			expect(among?.getAttribute('title')).toBe('pricing.md · 2 KB');
-			expect(among?.closest('[data-slot=bubble-content]')?.textContent).toBe(
-				'Compare pricing.md with last year',
-			);
-			expect(first?.closest('[data-slot=bubble-content]')?.textContent).toBe(
-				'pricing.mdWhat does this say?',
-			);
-
-			fireEvent.click(among as HTMLElement);
-			const viewer = await screen.findByRole('dialog');
-			expect(within(viewer).getByText('pricing.md · 2 KB')).toBeTruthy();
-			expect(within(viewer).getByRole('link', {name: 'Open in Files'}).getAttribute('href')).toBe(
-				'/acme/connections/drive-1?file=file-1',
-			);
-			// The thread stays closed.
-			expect(screen.queryByLabelText('Thread')).toBeNull();
 		});
 
 		test('opens a file the person attached in the viewer, and steps through the files of that message there, those deleted since left out', async () => {

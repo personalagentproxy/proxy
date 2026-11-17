@@ -87,7 +87,8 @@ async function startApiServer(): Promise<void> {
 		// After listening, since signing in to a provider to name an account can take a while.
 		void runDataMigrations();
 		// The built-in agent's worker, on the harnesses this server has (backends/registry.ts), with
-		// the small model on the server's OpenRouter key that reads where a thread stands, if any.
+		// the small model on the server's OpenRouter key that reads where a thread stands and names
+		// it, if any.
 		worker = startHarnessWorker(
 			harnessStore,
 			{
@@ -96,6 +97,7 @@ async function startApiServer(): Promise<void> {
 				picture: chatFiles.picture,
 				pinned: chatFiles.pinned,
 			},
+			{key: env.OPENROUTER_KEY, ask: askForJson},
 			{key: env.OPENROUTER_KEY, ask: askForJson},
 		);
 		sweeper = startAlertSweeper(harnessStore);

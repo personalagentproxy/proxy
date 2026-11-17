@@ -10,6 +10,7 @@ import type {
 } from '@proxy/contracts/harness';
 import {
 	ArchiveIcon,
+	BellIcon,
 	CheckIcon,
 	Maximize2Icon,
 	Minimize2Icon,
@@ -57,14 +58,13 @@ import {
 	MessageScrollerViewport,
 } from '@/components/chat/message-scroller';
 import {
-	AlertOpenerLine,
 	AlertsLine,
 	ARCHIVE_LABEL,
 	ArchiveButton,
 	DONE_LABEL,
 	DoneButton,
-	PersonBubble,
 	ThreadStatus,
+	ThreadStatusIcon,
 } from '@/components/chat/thread-parts';
 import {ConfirmDialog} from '@/components/confirm-dialog';
 import {LiveHead} from '@/components/head';
@@ -84,7 +84,7 @@ import {usePoll} from '@/hooks/use-poll';
 import {useReload} from '@/hooks/use-reload';
 import {useSending} from '@/hooks/use-sending';
 import {useUnread} from '@/hooks/use-unread';
-import {formatMessageTime} from '@/lib/chat-time';
+import {formatListTime} from '@/lib/chat-time';
 import {rowDraftPreview} from '@/lib/chat-sidebar-preview';
 import {formatAgo} from '@/lib/format';
 import {describeApiError, describeFetchError} from '@/lib/loader-utils';
@@ -102,9 +102,6 @@ import {
 // reads it again.
 const IN_PROGRESS_POLL_MS = 4000;
 const IN_PROGRESS_VISIBLE_GAP_MS = 2000;
-
-// The band behind the thread open beside the chat, the width of the chat.
-const OPEN_BAND = 'bg-[color-mix(in_srgb,var(--muted)_55%,var(--background))]';
 
 type LastMessage = ChatPersona['lastMessage'];
 
@@ -874,29 +871,17 @@ function openerText(thread: ChatThread): string | null {
 	return thread.opener?.kind === 'person' ? thread.opener.text : null;
 }
 
-// What opened a thread: what the person said, or, the event of an alert, a line with the thread's
-// title by a bell; the event in full, written for the agent, is in the thread.
-function Opener({thread, open}: {thread: ChatThread; open: boolean}) {
-	const {opener} = thread;
-	if (opener === null) {
-		return null;
-	}
-	if (opener.kind === 'event') {
-		return <AlertOpenerLine title={thread.title || opener.text} />;
-	}
-	return <PersonBubble text={opener.text} attachments={opener.attachments} outlined={open} />;
-}
-
-// One thread in the chat, opening it beside the chat: where it stands, what opened it, where it
-// stands in a sentence, or, without a current one, the start of the latest thing the persona said
-// in it, how many messages it holds with when the last came, and, where it waits for the person,
-// the check after that which says it is done, or, once it is done, the button that archives it;
-// a mark beside where it stands where its turn ended with an answer the person hasn't opened it
-// to see. The one open has a band behind it, the width of the chat. The
-// whole of it is a link, under what it shows, so the files in what opened it are still links of
-// their own, and the button is a button, opening nothing; one just sent, which the server has yet
-// to open, has no address to link to (`to` null), and opens nothing until it has. It is drawn
-// again only as it changes; one that came while the chat was open rises into place.
+// One thread in the chat's list, a row opening it beside the chat: where it stands as an icon, its
+// title, by a bell where an alert opened it, when its last message came, and under them, on a line,
+// where it stands in a sentence, or, without a current one, the start of the latest thing the
+// persona said in it, in ink where it waits for the person; in ink too, and heavier, with a mark at
+// its end, where its turn ended with an answer the person hasn't opened it to see. Where it waits, a
+// check that says it is done takes the time's place as the row is hovered or focused, and once it
+// is done the button that archives it does; on a screen without a pointer that hovers, the button
+// is always there. The one open is lit. The whole row is a link, under what it shows, so its button
+// is a button, opening nothing; one just sent, which the server has yet to open, has no address to
+// link to (`to` null), and opens nothing until it has. It is drawn again only as it changes; one
+// that came while the chat was open rises into place.
 const ThreadItem = memo(function ThreadItem({
 	thread,
 	to,
@@ -915,50 +900,79 @@ const ThreadItem = memo(function ThreadItem({
 	onDone: (thread: ChatThread) => void;
 	onArchive: (thread: ChatThread) => void;
 }) {
+	const byAlert = thread.opener?.kind === 'event';
+	const title = thread.title || (thread.opener?.kind === 'event' ? thread.opener.text : 'Thread');
 	const said = thread.summary ?? thread.latest;
-	const count = `${thread.messageCount} ${thread.messageCount === 1 ? 'message' : 'messages'}`;
+	const waiting = thread.standing === 'waiting';
+	const done = thread.standing === 'done';
+	const acts = to !== null && (waiting || done);
 	return (
-		<div
-			data-enter={fresh ? 'rise' : undefined}
-			className={cn('relative py-5.5', open && OPEN_BAND)}
-		>
-			{to !== null && (
-				<Link
-					to={to}
-					aria-label={thread.title || 'Thread'}
-					aria-current={open ? 'page' : undefined}
-					className="absolute inset-0 outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset"
-				/>
-			)}
-			<div className="page-column pointer-events-none relative mx-auto flex w-full max-w-4xl flex-col items-start gap-2.5 [&_a]:pointer-events-auto [&_button]:pointer-events-auto">
-				<span className="flex items-center gap-2">
-					<ThreadStatus standing={thread.standing} />
-					{unread && (
-						<span
-							role="status"
-							aria-label="Unread"
-							className="size-2 shrink-0 rounded-full bg-primary"
-						/>
-					)}
-				</span>
-				<Opener thread={thread} open={open} />
-				{said !== null && (
-					<p
-						className={cn(
-							'line-clamp-2 max-w-[44rem] text-sm leading-relaxed',
-							unread && 'font-medium',
-						)}
-					>
-						{said}
-					</p>
+		<div data-enter={fresh ? 'rise' : undefined} className="page-column mx-auto w-full max-w-4xl">
+			<div
+				className={cn(
+					'group/row bleed relative flex items-start gap-3 rounded-md py-2.5',
+					open ? 'bg-muted' : 'hover:bg-muted/50',
 				)}
-				<div className="flex h-5 items-center gap-1">
-					<p className="text-xs text-muted-foreground">
-						{count} · {formatMessageTime(thread.lastMessageAt)}
-					</p>
-					{thread.standing === 'waiting' && <DoneButton onDone={() => onDone(thread)} />}
-					{thread.standing === 'done' && <ArchiveButton onArchive={() => onArchive(thread)} />}
+			>
+				{to !== null && (
+					<Link
+						to={to}
+						aria-label={title}
+						aria-current={open ? 'page' : undefined}
+						className="absolute inset-0 rounded-md outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+					/>
+				)}
+				<span className="pointer-events-none flex h-5 items-center">
+					<ThreadStatusIcon standing={thread.standing} state={thread.state} />
+				</span>
+				<div className="pointer-events-none flex min-w-0 flex-1 flex-col gap-0.5">
+					<div className="flex h-5 items-center gap-3">
+						<span className="flex min-w-0 flex-1 items-center gap-1.5">
+							{byAlert && (
+								<BellIcon
+									className="size-3.5 shrink-0 text-muted-foreground"
+									aria-label="Opened by an alert"
+								/>
+							)}
+							<span className="min-w-0 truncate text-sm font-medium">{title}</span>
+						</span>
+						<span
+							className={cn(
+								'shrink-0 text-xs text-muted-foreground tabular-nums',
+								acts &&
+									'group-focus-within/row:invisible group-hover/row:invisible pointer-coarse:invisible',
+							)}
+						>
+							{formatListTime(thread.lastMessageAt)}
+						</span>
+					</div>
+					{(said !== null || unread) && (
+						<div className="flex items-center gap-2">
+							<p
+								className={cn(
+									'min-w-0 flex-1 truncate text-sm',
+									!waiting && !unread && 'text-muted-foreground',
+									unread && 'font-medium',
+								)}
+							>
+								{said}
+							</p>
+							{unread && (
+								<span
+									role="status"
+									aria-label="Unread"
+									className="size-2 shrink-0 rounded-full bg-primary"
+								/>
+							)}
+						</div>
+					)}
 				</div>
+				{acts && (
+					<div className="invisible absolute top-2 right-(--bleed) flex group-focus-within/row:visible group-hover/row:visible pointer-coarse:visible">
+						{waiting && <DoneButton onDone={() => onDone(thread)} />}
+						{done && <ArchiveButton onArchive={() => onArchive(thread)} />}
+					</div>
+				)}
 			</div>
 		</div>
 	);
@@ -1153,7 +1167,7 @@ const Chat = memo(function Chat({
 					aria-label="Chat"
 					onClick={threadId === null ? undefined : (event) => closeOnEmpty(event, onCloseThread)}
 				>
-					<MessageScrollerContent className="w-full gap-3.5 pt-2 pb-4">
+					<MessageScrollerContent className="w-full gap-0.5 pt-2 pb-4">
 						{threads.length === 0 && (
 							<div className="page-column flex flex-1 flex-col items-center justify-center gap-2 py-12 text-center">
 								<LiveHead look={current.look} color={current.color} size={64} />

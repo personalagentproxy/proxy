@@ -97,6 +97,11 @@ export type HarnessStore = {
 	/** The member archives a thread of their chat: its list no longer has it until something more comes into it, and the alerts that come to it are cancelled. */
 	archiveThread: (chatId: string, threadId: string) => Promise<Result<boolean, ApiError>>;
 	listThreadsWithoutSummary: () => Promise<Result<Array<{id: string; chatId: string}>, ApiError>>;
+	/** Whether the thread is a chat's whose title the small model has yet to write. */
+	threadNeedsTitle: (threadId: string) => Promise<Result<boolean, ApiError>>;
+	/** The title the small model gave the thread, written once, its task named the same; `Ok(false)` where it was not written. */
+	writeThreadTitle: (threadId: string, title: string) => Promise<Result<boolean, ApiError>>;
+	listThreadsWithoutTitle: () => Promise<Result<Array<{id: string}>, ApiError>>;
 	markThreadRead: (chatId: string, entryId: string) => Promise<Result<boolean, ApiError>>;
 	getChatDraft: (chatId: string) => Promise<Result<string | null, ApiError>>;
 	saveChatDraft: (chatId: string, draft: string | null, order?: Array<Pick<DraftAttachment, 'connectionId' | 'fileId' | 'version'>>) => Promise<Result<boolean, ApiError>>;
@@ -175,6 +180,9 @@ export const harnessStore: HarnessStore = {
 	markThreadDone: harness.markThreadDone,
 	archiveThread: harness.archiveThread,
 	listThreadsWithoutSummary: harness.listThreadsWithoutSummary,
+	threadNeedsTitle: harness.threadNeedsTitle,
+	writeThreadTitle: harness.writeThreadTitle,
+	listThreadsWithoutTitle: harness.listThreadsWithoutTitle,
 	markThreadRead: harness.markThreadRead,
 	getChatDraft: harness.getChatDraft,
 	saveChatDraft: harness.saveChatDraft,

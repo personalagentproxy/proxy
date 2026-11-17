@@ -1463,6 +1463,65 @@ export async function completeDismiss(
 	);
 }
 
+/**
+ * Whether the thread is one of a chat's whose title the small model has yet to write: not one an
+ * alert opened, which is named by the alert and what it found.
+ */
+export async function threadNeedsTitle(threadId: string): Promise<Result<boolean, ApiError>> {
+	return wrapDb(async () => {
+		const count = await db.agentThread.count({
+			where: {id: threadId, parentThreadId: {not: null}, openedByAlert: false, titleWritten: false},
+		});
+		return count > 0;
+	});
+}
+
+/**
+ * Writes the title the small model gave the thread, once: not where one was written already, nor
+ * for one an alert opened. Its
+ * task, which the activity log lists, is named the same. `Ok(false)` where it was not written.
+ */
+export async function writeThreadTitle(
+	threadId: string,
+	title: string,
+): Promise<Result<boolean, ApiError>> {
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			const {count} = await tx.agentThread.updateMany({
+				where: {
+					id: threadId,
+					parentThreadId: {not: null},
+					openedByAlert: false,
+					titleWritten: false,
+				},
+				data: {title, titleWritten: true},
+			});
+			if (count === 0) {
+				return false;
+			}
+			const thread = await tx.agentThread.findUnique({
+				where: {id: threadId},
+				select: {taskId: true},
+			});
+			if (thread?.taskId) {
+				await tx.agentTask.update({where: {id: thread.taskId}, data: {title}});
+			}
+			return true;
+		}),
+	);
+}
+
+/** Every chat's threads whose title the small model has yet to write, by id, the oldest first, those alerts opened left out: what the one-off script titles. */
+export async function listThreadsWithoutTitle(): Promise<Result<Array<{id: string}>, ApiError>> {
+	return wrapDb(() =>
+		db.agentThread.findMany({
+			where: {parentThreadId: {not: null}, openedByAlert: false, titleWritten: false},
+			select: {id: true},
+			orderBy: [{createdAt: 'asc'}, {id: 'asc'}],
+		}),
+	);
+}
+
 /** Every chat's threads with no summary, by id with their chat, the oldest first: what the one-off script writes summaries for. */
 export async function listThreadsWithoutSummary(): Promise<
 	Result<Array<{id: string; chatId: string}>, ApiError>

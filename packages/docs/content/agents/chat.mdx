@@ -47,26 +47,31 @@ A new agent runs on the first harness offered, Claude where the server has it, w
 first model. A harness that isn't offered can't be chosen, and an agent that was set to one runs on
 the first that is.
 
-Whichever harness runs an agent, where each [thread](#threads) stands, the word over it and the
-sentence under what opened it, is written by a small model on the server's OpenRouter key,
+Whichever harness runs an agent, each [thread](#threads)'s title, and where it stands, its icon
+and the sentence under its title, are written by a small model on the server's OpenRouter key,
 gpt-oss-120b, as the command bar's reading of what you type is: it reads what the thread shows,
 what you said, with the names of the files you attached, what the agent answered and the alerts
 that came into it, never the calls the agent made, and only on hosts that keep nothing of what is
-sent. A server without an `OPENROUTER_KEY` writes none: a thread is **Done** once the agent stops,
-with the start of its latest answer in place of the sentence.
+sent. A server without an `OPENROUTER_KEY` writes none: a thread is named by a line of your message,
+and is **Done** once the agent stops, with the start of its latest answer in place of the sentence.
 
 ## Threads
 
 Say what you want done. Every message you send in the chat opens a thread of its own, about that
-one piece of work, and the agent works on it there. The chat lists its threads, the one with
-something said in it last at the bottom: each by what opened it, your message, with a word over it
-saying where it stands, a sentence saying where it is, and how many messages it holds, with when
-the last came. A thread is:
+one piece of work, and the agent works on it there. The chat lists its threads in the order you
+opened them, the newest at the bottom, so none moves as the agent works: each a row with an icon
+saying where it stands, its title, when something was last said in it, and a sentence saying where
+it is. The title, a few words naming the work, such as "Overdue invoices from Acme", is written
+once, as the agent starts on the thread; until it comes, a moment later, the thread is named by a
+line of your message. A thread an alert opened has a bell by its title, and keeps
+the name the alert gives it. A thread is:
 
-- **In progress** while the agent is at work on it, or asleep until it goes on.
+- **In progress** while the agent is at work on it, a turning ring, or asleep until it goes on, a
+  dashed one.
 - **Waiting for you** once the agent has stopped and can't go on until you answer or do something,
-  as when it asks whether its plan should cover one more thing.
-- **Done** once the agent has stopped and needs nothing more of you.
+  as when it asks whether its plan should cover one more thing: an orange ring, its sentence in
+  full ink.
+- **Done** once the agent has stopped and needs nothing more of you: a check.
 
 The sentence is about the thread as a whole, such as "Merged #412 once its checks passed.", and is
 written as the agent's turn ends, with whether the thread waits for you, by a
@@ -74,8 +79,8 @@ written as the agent's turn ends, with whether the thread waits for you, by a
 too, each time the agent tells you something and goes on, saying what it is doing and what it has
 found so far. Once something more is said in the thread, by you, the agent or an alert, the start
 of the latest thing the agent said takes its place until the next is written.
-A thread waiting for you has a **Done** button, in the list and at the foot of the thread when it
-is open: press it when there is nothing more to answer, and the thread is done. A reply, or an alert
+A thread waiting for you has a **Done** button, at the end of its row as you point at it and in the
+title bar when it is open: press it when there is nothing more to answer, and the thread is done. A reply, or an alert
 that comes into the thread, takes it up again, and it no longer waits.
 
 Several threads can be in progress at once, each on its own; everything keeps running after you
@@ -89,7 +94,7 @@ are in the activity log, not on the page.
 
 In a thread, the agent works with your connections as the permissions say, through the same gate
 as any agent: a call it is not allowed is refused and logged as blocked. Each thread's work is one
-task in the activity log, titled with a line of what opened it and with the agent's head
+task in the activity log, under the thread's title and with the agent's head
 beside it, with every call it made under it: finished, with what the agent answered as the
 outcome, each time it answers, and under way again when you reply.
 
@@ -129,8 +134,8 @@ does, are **Done**, and a reply in one goes on from what it shows.
 ## Unread and notifications
 
 Each thread is read on its own: what the agent says in a thread is unread until you open that
-thread. In the chat, each thread whose turn ended with an answer you haven't opened is marked
-beside where it stands, until you open it. The agent's row in the list counts its marked threads,
+thread. In the chat, each thread whose turn ended with an answer you haven't opened has its sentence
+in bold and a dot at the end of its row, until you open it. The agent's row in the list counts its marked threads,
 and **Chat** in the sidebar and the window's title count them across every agent. An agent whose
 only news is from a thread still at work has a plain mark on its row instead.
 

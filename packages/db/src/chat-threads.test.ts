@@ -23,13 +23,16 @@ import {
 	listEntries,
 	listPersonas,
 	listThreadsWithoutSummary,
+	listThreadsWithoutTitle,
 	lockThread,
 	markThreadRead,
 	markThreadDone,
 	openThread,
 	replyInThread,
 	saveChatDraft,
+	threadNeedsTitle,
 	writeThreadStanding,
+	writeThreadTitle,
 	type JobRow,
 	type ThreadOpening,
 	type ThreadRow,
@@ -966,5 +969,40 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		expect(
 			unwrap(await listThreadsWithoutSummary()).find((thread) => thread.id === first.id)?.chatId,
 		).toBe(chat.id);
+	});
+	test('a thread’s title is written once, its task named the same, and only for a chat’s thread a message opened', async () => {
+		const thread = await open('can you book a table for 4 near the office thursday 7pm');
+		expect(unwrap(await threadNeedsTitle(thread.id))).toBe(true);
+		expect(unwrap(await threadNeedsTitle(chat.id))).toBe(false);
+		const mine = async () =>
+			unwrap(await listThreadsWithoutTitle())
+				.map((one) => one.id)
+				.filter((id) => id === thread.id || id === chat.id);
+		expect(await mine()).toEqual([thread.id]);
+
+		expect(unwrap(await writeThreadTitle(thread.id, 'Thursday dinner for four'))).toBe(true);
+		expect(unwrap(await writeThreadTitle(thread.id, 'Dinner on Thursday'))).toBe(false);
+		expect(unwrap(await writeThreadTitle(chat.id, 'A chat'))).toBe(false);
+
+		const written = await db.agentThread.findUniqueOrThrow({
+			where: {id: thread.id},
+			select: {title: true, titleWritten: true, taskId: true},
+		});
+		expect(written.title).toBe('Thursday dinner for four');
+		expect(written.titleWritten).toBe(true);
+		const task = await db.agentTask.findUniqueOrThrow({where: {id: written.taskId ?? ''}});
+		expect(task.title).toBe('Thursday dinner for four');
+		expect(unwrap(await threadNeedsTitle(thread.id))).toBe(false);
+		expect(await mine()).toEqual([]);
+		expect((await db.agentThread.findUniqueOrThrow({where: {id: chat.id}})).title).toBeNull();
+
+		// One an alert opened keeps the name the alert gave it.
+		const alerted = await open('Bank: Your loan');
+		await db.agentThread.update({where: {id: alerted.id}, data: {openedByAlert: true}});
+		expect(unwrap(await threadNeedsTitle(alerted.id))).toBe(false);
+		expect(unwrap(await writeThreadTitle(alerted.id, 'Loan email from the bank'))).toBe(false);
+		expect(unwrap(await listThreadsWithoutTitle()).some((one) => one.id === alerted.id)).toBe(
+			false,
+		);
 	});
 });
