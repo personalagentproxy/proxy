@@ -15,7 +15,7 @@ import {alertsParagraph} from './alerts';
 import {picturesOf, withAttached} from './attachments';
 import {afterAnswer, isSubAgent, jobLost, planCalls, SHOWN_CALLS} from './thread-rules';
 import type {HarnessStore} from './store';
-import {type ToolSurfaceStore, toolSurfaceFor} from './tool-surface';
+import {type Delivered, type ToolSurfaceStore, toolSurfaceFor} from './tool-surface';
 
 /**
  * An inference job: the model, run once on a thread's log, which is ready for it, every call
@@ -255,8 +255,9 @@ function pinFor(harnesses: Harnesses, thread: ThreadRow, signedIn: SignedInAgent
 // when `done` comes is the turn's last step, given back with what the turn cost, the session kept
 // and the calls still open. What the provider said of the plan goes to `onUsage`, and `onTold`
 // hears of each step written that the thread shows, the agent telling the person something as it
-// goes on. A result for a call the turn didn't make, or answered already, and a turn that ends
-// without `done` or `failed`, are failures of the harness.
+// goes on. What came into the thread that the model was given beside a call's answer, by id in
+// `delivered`, goes in the log after that result. A result for a call the turn didn't make, or
+// answered already, and a turn that ends without `done` or `failed`, are failures of the harness.
 function consume(
 	store: InferenceStore,
 	job: JobRow,
@@ -266,6 +267,7 @@ function consume(
 	onUsage: UsageSink,
 	pin: Pin,
 	onTold: () => void,
+	delivered: Delivered,
 ): Promise<Result<TurnOutcome, ApiError>> {
 	return Do(async ($) => {
 		let pieces: string[] = [];
@@ -304,7 +306,8 @@ function consume(
 					pieces.length === 0 && toolCalls.length === 0
 						? []
 						: [{kind: 'assistant', text, toolCalls, ranOn: sent.ranOn, ...(wroteInline ? {} : {system: sent.system}), ...(attachments.length === 0 ? {} : {attachments})}];
-				const result: NewTurnEntry = {kind: 'tool_result', callId: event.callId, text: event.text, isError: event.isError};
+				const given = delivered.get(event.callId);
+				const result: NewTurnEntry = {kind: 'tool_result', callId: event.callId, text: event.text, isError: event.isError, ...(given === undefined ? {} : {delivered: given})};
 				if (!$(await store.appendTurnEntries(job.id, workerId, job.threadId, [...step, result]))) {
 					return $(Err(jobLost()));
 				}
@@ -398,6 +401,8 @@ function askOnLog(
 			// A model that sees pictures is given those of the person's last turns beside their words.
 			const sees = choice.harness.models.some((model) => model.id === choice.model && model.images === true);
 			const pictures = picture !== undefined && sees && attached.length > 0 ? $(await picturesOf(entries, attached, picture)) : [];
+			// What came into the thread that a call's answer carried, for its result to place in the log.
+			const delivered: Delivered = new Map();
 			return $(
 				await consume(
 					store,
@@ -412,13 +417,14 @@ function askOnLog(
 						entries: withAttached(entries, attached, pictures),
 						woken,
 						system,
-						tools: toolSurfaceFor(store, thread, job, workerId, clock),
+						tools: toolSurfaceFor(store, thread, job, workerId, clock, delivered),
 						model: choice.model,
 						signal: new AbortController().signal,
 					}),
 					usageSink(credentials, choice, thread, clock),
 					pinFor(harnesses, thread, signedIn),
 					() => harnesses.told?.(thread.id),
+					delivered,
 				),
 			);
 		}),

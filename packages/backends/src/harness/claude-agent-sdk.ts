@@ -40,7 +40,11 @@ import type {SdkSessionStore} from './session-store';
  * this process, which the SDK connects to the binary over stdio: every call the model makes comes
  * back here, is run through the surface's `execute`, and is answered in place, so the turn goes on
  * to the next step without the api's jobs; a call that ends the turn, a sleep, has the query
- * interrupted once its result is in. Claude Code's built-in tools are all removed, and a call to
+ * interrupted once its result is in. What came into the thread while the turn runs, which the api
+ * gives with a call's answer (`ToolAnswer.meanwhile`), is given the binary as messages of the
+ * person's, on its input, which is kept open for the turn: the binary takes a message that comes
+ * in as it works into the model's next step, as Claude Code does what its user types meanwhile, so
+ * the person steers the turn in their own words, never in a tool's result. Claude Code's built-in tools are all removed, and a call to
  * anything but the api's tools is denied. The subprocess gets an environment of its own, not this
  * process's: the server's keys must never reach a member's subprocess, so only PATH and HOME are
  * inherited, with the credential the turn was given, a config directory of the harness's own,
@@ -58,8 +62,8 @@ import type {SdkSessionStore} from './session-store';
  * window doesn't open for another try.
  */
 
-/** What a turn is asked with: words, or, with pictures, the one message of the person's that carries them. */
-export type SdkPrompt = string | AsyncIterable<SDKUserMessage>;
+/** What a turn is asked with: the binary's input, the messages of the person's it reads, open for the turn. */
+export type SdkPrompt = AsyncIterable<SDKUserMessage>;
 
 /** The SDK's `query`, or a test's: what a turn runs through, read as a stream of SDK messages, with the interrupt that ends a turn early. */
 export type SdkQuery = (params: {prompt: SdkPrompt; options?: Options}) => AsyncIterable<SDKMessage> & {interrupt: () => Promise<unknown>};
@@ -108,6 +112,12 @@ const WIND_UP_MS = 10_000;
 
 const GO_ON = 'Go on.';
 
+// How long a result of the api's tools the binary gives the model whole: above the 60,000
+// characters the api cuts a result to (tool-answers.ts). Past its own size, about 50,000
+// characters, the binary gives the model a 2,000-character preview and saves the rest to a file,
+// which the model has no tool to read.
+const MAX_RESULT_CHARS = 100_000;
+
 // What leads in the part of the log written out for the model, and what came after it.
 const RECORD =
 	'What follows is the record of this conversation where your own memory of it stops short, written out: you are the agent in it, and it has what was said, the calls you made and what they answered. You may remember some of it. Take it as what happened: don’t make a call again that was answered, and go on from where it ends.';
@@ -146,13 +156,14 @@ function sessionOf(input: HarnessTurn): Session | null {
 }
 
 // What the session hasn't got of the log: all of it without a session; with one, what came after
-// the seq it kept, but the steps of the turn that kept it, which the model remembers, and the
-// api's summaries, which stand for what the model compacts itself.
+// the seq it kept, but what the turn that kept it wrote or was given, which the model remembers:
+// its steps, and what came into the thread while it ran that it was given then, which the api
+// gives that turn's job; and the api's summaries, which stand for what the model compacts itself.
 function unseenBy(session: Session | null, entries: HarnessEntry[]): HarnessEntry[] {
 	if (session === null) {
 		return entries;
 	}
-	return entries.filter((entry) => entry.seq > session.lastSeq && entry.kind !== 'summary' && !(STEP_KINDS.has(entry.kind) && entry.jobId === session.job));
+	return entries.filter((entry) => entry.seq > session.lastSeq && entry.kind !== 'summary' && entry.jobId !== session.job);
 }
 
 // An entry that came to the model as the prompt has it: what the person said, or an event with
@@ -184,28 +195,72 @@ function promptFor(input: HarnessTurn, session: Session | null, now: Date): stri
 	return [RECORD, toTranscript(record), ...(news.length === 0 ? [GO_ON] : [SINCE, ...news])].join('\n\n');
 }
 
+// A message of the person's as the binary reads it.
+function said(content: string | ContentBlockParam[]): SDKUserMessage {
+	return {type: 'user', message: {role: 'user', content}, parent_tool_use_id: null};
+}
+
 /**
- * The prompt as the SDK takes it: the words alone where the person attached no pictures the
- * session hasn't got; with pictures, one message of the person's, each picture under its file's
- * name and the words after them. A message given this way is the turn's whole input: the SDK
- * closes the binary's input once the run it starts has ended, as it does after words alone.
+ * What the turn is asked, as one message of the person's: the words alone where the person
+ * attached no pictures the session hasn't got; with pictures, each under its file's name and the
+ * words after them.
  */
-function withPictures(input: HarnessTurn, session: Session | null, words: string): SdkPrompt {
+function askedWith(input: HarnessTurn, session: Session | null, words: string): SDKUserMessage {
 	const pictures: EntryImage[] = unseenBy(session, input.entries).flatMap((entry) => (entry.kind === 'person' ? (entry.images ?? []) : []));
 	if (pictures.length === 0) {
-		return words;
+		return said(words);
 	}
-	const content: ContentBlockParam[] = [
+	return said([
 		...pictures.flatMap((picture): ContentBlockParam[] => [
 			{type: 'text', text: `${picture.name}:`},
 			{type: 'image', source: {type: 'base64', media_type: picture.mediaType, data: picture.data}},
 		]),
 		{type: 'text', text: words},
-	];
-	const message: SDKUserMessage = {type: 'user', message: {role: 'user', content}, parent_tool_use_id: null};
-	return (async function* () {
-		yield message;
-	})();
+	]);
+}
+
+/**
+ * The binary's input for a turn: what the turn is asked, then each message given it as the turn
+ * runs, in order, until it is closed. The binary reads its input for as long as it is open, so it
+ * is closed once the turn's result is in, or the turn is left, for the subprocess to end; what is
+ * given it after that is dropped.
+ */
+function turnInputOf(asked: SDKUserMessage): {messages: SdkPrompt; give: (message: SDKUserMessage) => void; close: () => void} {
+	const queue: SDKUserMessage[] = [asked];
+	let closed = false;
+	let wake: (() => void) | null = null;
+	const ring = (): void => {
+		const woken = wake;
+		wake = null;
+		woken?.();
+	};
+	return {
+		messages: (async function* () {
+			while (true) {
+				const next = queue.shift();
+				if (next !== undefined) {
+					yield next;
+					continue;
+				}
+				if (closed) {
+					return;
+				}
+				await new Promise<void>((resolve) => {
+					wake = resolve;
+				});
+			}
+		})(),
+		give: (message) => {
+			if (!closed) {
+				queue.push(message);
+				ring();
+			}
+		},
+		close: () => {
+			closed = true;
+			ring();
+		},
+	};
 }
 
 // The credential as the binary reads it from its environment.
@@ -233,6 +288,11 @@ function envFor(configDir: string, input: HarnessTurn, auth: HarnessAuth): Recor
 		CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS: '1',
 		CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
 		DISABLE_TELEMETRY: '1',
+		// The binary replaces an MCP result over its cap in tokens, 25,000 or what Anthropic sets
+		// remotely, with an error saying it was saved to a file, which the model has no tool to
+		// read: 60,000 characters of a result were over it. The api cuts a result at 60,000
+		// characters (tool-answers.ts), so the cap is raised above that.
+		MAX_MCP_OUTPUT_TOKENS: '100000',
 		...credentialEnv(auth),
 	};
 }
@@ -250,8 +310,9 @@ function describe(error: ApiError): string {
  * tools listed with their JSON Schema as they are, each marked to be loaded always, since the
  * binary otherwise defers an MCP server's tools behind its tool search, which is among the
  * built-in tools removed; a call run through the surface, under the id the binary gives the call,
- * so the result the api writes answers the call the model made. `answered` is told of each call
- * answered, with the answer, so the turn can end on one that ends it.
+ * so the result the api writes answers the call the model made, each let answer up to
+ * `MAX_RESULT_CHARS`. `answered` is told of each call answered, with the answer, so the turn
+ * can end on one that ends it, and the log keeps the answer as the api gave it.
  */
 export function proxyToolServer(tools: ToolSurface, answered: (callId: string, answer: ToolAnswer) => void): McpServer {
 	const server = new McpServer({name: SERVER, version: '1.0.0'}, {capabilities: {tools: {}}});
@@ -261,7 +322,7 @@ export function proxyToolServer(tools: ToolSurface, answered: (callId: string, a
 			description: tool.description,
 			inputSchema: {...tool.inputSchema, type: 'object' as const},
 			annotations: {readOnlyHint: tool.readOnly},
-			_meta: {'anthropic/alwaysLoad': true},
+			_meta: {'anthropic/alwaysLoad': true, 'anthropic/maxResultSizeChars': MAX_RESULT_CHARS},
 		})),
 	}));
 	server.server.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -471,11 +532,21 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 				yield failed(ApiErr.internalError(made.error), false);
 				return;
 			}
-			// The calls whose answer ends the turn, by id, as the server answers them.
+			// The binary's input, what the turn is asked first; the calls whose answer ends the turn,
+			// by id, as the server answers them; and what each answered, as the api gave it: the log
+			// keeps that rather than the binary's echo, which may be its preview of a long answer. What
+			// came into the thread with an answer goes on the input as the person's, before the binary
+			// has the answer, so the model reads it at its next step.
+			const turnInput = turnInputOf(askedWith(input, session, promptFor(input, session, new Date())));
 			const endsTurn = new Set<string>();
+			const answers = new Map<string, string>();
 			const server = proxyToolServer(input.tools, (callId, answer) => {
 				if (answer.endTurn) {
 					endsTurn.add(callId);
+				}
+				answers.set(callId, answer.text);
+				for (const message of answer.meanwhile ?? []) {
+					turnInput.give(said(message));
 				}
 			});
 			const controller = new AbortController();
@@ -505,8 +576,9 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 			let interrupted = false;
 			let ended = false;
 			let done = false;
-			const started = Result.wrap(() => query({prompt: withPictures(input, session, promptFor(input, session, new Date())), options}));
+			const started = Result.wrap(() => query({prompt: turnInput.messages, options}));
 			if (started.isErr()) {
+				turnInput.close();
 				input.signal.removeEventListener('abort', onAbort);
 				yield failed(ApiErr.providerUnreachable(started.error), true);
 				return;
@@ -567,7 +639,7 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 							if (!open.delete(result.tool_use_id)) {
 								continue;
 							}
-							yield {kind: 'tool_result', callId: result.tool_use_id, text: textOf(result.content), isError: result.is_error === true};
+							yield {kind: 'tool_result', callId: result.tool_use_id, text: answers.get(result.tool_use_id) ?? textOf(result.content), isError: result.is_error === true};
 							if (endsTurn.has(result.tool_use_id)) {
 								interrupted = true;
 								await Result.wrapAsync(() => run.interrupt());
@@ -577,6 +649,7 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 					}
 					if (message.type === 'result') {
 						ended = true;
+						turnInput.close();
 						await windUp(iterator, controller);
 						const end = endOf(message, {sessionId: sessionId ?? message.session_id, lastSeq, job: input.job, system: input.system, interrupted, resetsAt});
 						done = end.kind === 'done';
@@ -584,6 +657,7 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 					}
 				}
 			} finally {
+				turnInput.close();
 				input.signal.removeEventListener('abort', onAbort);
 				// A turn left before its result, on a failure, takes its subprocess down with it, and
 				// waits for the SDK to end, so nothing of the turn is mirrored after what follows.

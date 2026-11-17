@@ -1,7 +1,7 @@
 import {beforeEach, describe, expect, mock, test} from 'bun:test';
 import {Err, Ok} from 'ts-results-es';
 
-import type {HarnessBackend, HarnessEvent} from '@proxy/backends/harness/backend';
+import type {HarnessBackend, HarnessEvent, ToolSurface} from '@proxy/backends/harness/backend';
 import {fakeHarness, fakeToolSurface} from '@proxy/backends/harness/fake';
 import {ApiErr} from '@proxy/utils';
 import type {JobRow, ThreadRow} from '@proxy/db/harness';
@@ -20,9 +20,11 @@ const askForTurn = mock<typeof askForTurnOverRouter>();
 const harness = proxyHarness({askForTurn, key: 'sk-test'});
 
 const script = {name: 'script', description: 'Runs a script', parameters: {}};
-mock.module('./tool-surface', () => ({
-	toolSurfaceFor: () => fakeToolSurface([{name: script.name, description: script.description, inputSchema: script.parameters, readOnly: false}]),
-}));
+// The surface a turn is given, and what it keeps of what its answers carried besides, as the test says.
+const toolSurfaceFor = mock((..._args: [unknown, unknown, unknown, unknown, unknown, Map<string, string[]>]): ToolSurface =>
+	fakeToolSurface([{name: script.name, description: script.description, inputSchema: script.parameters, readOnly: false}]),
+);
+mock.module('./tool-surface', () => ({toolSurfaceFor}));
 
 // How a member's Claude credential is read and what a turn tells their account, and the harnesses
 // the server has: the one under test as the proxy harness, with no Claude Agent SDK harness,
@@ -759,6 +761,48 @@ describe('runInference', () => {
 				{end: expect.objectContaining({outcome: 'Three invoices.'})},
 				{harness: 'claude-agent-sdk', session},
 			);
+		});
+
+		test('what came into the thread that the model was given beside a call’s answer goes in the log after that result, and with no other', async () => {
+			const {runInference} = await import('./inference');
+			// The surface gives the first call's answer a message of the person's besides, and keeps its id for the call.
+			toolSurfaceFor.mockImplementationOnce((...args) => {
+				const delivered = args[5];
+				return {
+					tools: [],
+					execute: async (call) => {
+						if (call.id !== 'c1') {
+							return Ok({text: 'Sent.', isError: false});
+						}
+						delivered.set('c1', ['m1']);
+						return Ok({text: 'Sent.', isError: false, meanwhile: ['Use March instead']});
+					},
+				};
+			});
+			// A harness that runs its calls through the surface, as the SDK's does.
+			const steered: HarnessBackend = {
+				id: 'claude-agent-sdk',
+				label: 'Claude',
+				models: [
+					{id: 'claude', label: 'Claude'},
+					{id: 'other', label: 'Other'},
+				],
+				turn: async function* (input) {
+					for (const id of ['c1', 'c2']) {
+						yield {kind: 'tool_call', id, name: 'send_to_person', arguments: '{"text":"Working."}'};
+						const answer = (await input.tools.execute({id, name: 'send_to_person', arguments: '{"text":"Working."}'})).unwrap();
+						yield {kind: 'tool_result', callId: id, text: answer.text, isError: answer.isError};
+					}
+					yield ended(session);
+				},
+			};
+
+			(await runInference(store, on(null, steered), job, 'w1', false, clock)).unwrap();
+
+			expect(appendTurnEntries.mock.calls.map((call) => call[3]?.at(-1))).toEqual([
+				{kind: 'tool_result', callId: 'c1', text: 'Sent.', isError: false, delivered: ['m1']},
+				{kind: 'tool_result', callId: 'c2', text: 'Sent.', isError: false},
+			]);
 		});
 
 		test('a turn that ends with a call it answered, as a sleep ends one, writes no entry more and stops nothing; the session goes on the thread where the harness kept one, or the thread has a harness already', async () => {

@@ -25,6 +25,7 @@ function unreadOf(count: number, ids: string[]): Unread {
 		unreadIds: new Set(ids),
 		answers: null,
 		setViewing: () => undefined,
+		refresh: () => undefined,
 	};
 }
 

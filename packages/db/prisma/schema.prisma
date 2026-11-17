@@ -833,7 +833,8 @@ model AgentThread {
   // A thread's title: a line of the message that opened it, until a small model names the work in
   // a few words (`titleWritten`), or what the alert that opened it names it; null for a chat.
   title   String?
-  // Whether the small model wrote the thread's title, which it does once, as its first turn starts;
+  // Whether the thread's title is written for good: by the small model, which does it once, as its
+  // first turn starts, or by the member renaming it, after which the model names it no more;
   // false for a chat, for a thread named by its message alone, and for one an alert opened, which
   // is named by the alert.
   titleWritten Boolean @default(false)
@@ -841,7 +842,7 @@ model AgentThread {
   // anew when it is taken up long after; a chat has none: it runs no turns.
   taskId  String?
   // How far the member has read a thread: the `seq` of its last answer the Chat page showed them
-  // with the thread open while they looked at it, never back. What the persona said in it past
+  // with the thread open while they looked at it, or of their last reply in it, never back. What the persona said in it past
   // that is unread. A chat keeps 0: each of its threads is read on its own.
   readSeq Int     @default(0)
   // Which harness last ran a turn on the thread, by the harness's id (@proxy/backends/harness),

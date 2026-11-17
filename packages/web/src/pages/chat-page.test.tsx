@@ -777,6 +777,55 @@ describe('ChatPage', () => {
 		).toBeDefined();
 	});
 
+	test('renames the open thread from its name in the title bar, at once in the list and on the server; Escape puts the name back', async () => {
+		// The server holds its answer, so the page shows the new name before it has it.
+		let answer: () => void = () => undefined;
+		const held = new Promise<void>((resolve) => {
+			answer = resolve;
+		});
+		answering((input) =>
+			input.endsWith('/threads/t1/title')
+				? held.then(() => new Response(null, {status: 204}))
+				: null,
+		);
+		renderChatPage({threads: [pricing], initial: '/acme/chat/general/threads/t1'});
+		const name = (await screen.findByRole('textbox', {name: 'Thread name'})) as HTMLInputElement;
+		expect(name.value).toBe('Pricing review with Dana');
+		const renamedTo = () =>
+			fetchMock.mock.calls.flatMap(([input, init]) =>
+				input.endsWith('/chat/personas/general/threads/t1/title') && init?.method === 'PUT'
+					? [(JSON.parse(String(init.body)) as {title: string}).title]
+					: [],
+			);
+
+		act(() => name.focus());
+		fireEvent.change(name, {target: {value: 'Something else'}});
+		fireEvent.keyDown(name, {key: 'Escape'});
+		expect(name.value).toBe('Pricing review with Dana');
+		expect(renamedTo()).toEqual([]);
+		// Escape went to the name, not to the thread, which is still open.
+		expect(screen.getByRole('textbox', {name: 'Thread name'})).toBe(name);
+
+		act(() => name.focus());
+		fireEvent.change(name, {target: {value: '  Dana’s pricing  '}});
+		fireEvent.keyDown(name, {key: 'Enter'});
+		await waitFor(() => expect(renamedTo()).toEqual(['Dana’s pricing']));
+		const chat = await screen.findByLabelText('Chat');
+		expect(within(chat).getByRole('link', {name: 'Dana’s pricing'})).toBeTruthy();
+		expect(name.value).toBe('Dana’s pricing');
+		await act(async () => answer());
+	});
+
+	test('an empty name renames nothing and the thread keeps its name', async () => {
+		renderChatPage({threads: [pricing], initial: '/acme/chat/general/threads/t1'});
+		const name = (await screen.findByRole('textbox', {name: 'Thread name'})) as HTMLInputElement;
+		act(() => name.focus());
+		fireEvent.change(name, {target: {value: '   '}});
+		act(() => name.blur());
+		expect(name.value).toBe('Pricing review with Dana');
+		expect(fetchMock.mock.calls.some(([input]) => input.endsWith('/threads/t1/title'))).toBe(false);
+	});
+
 	test('reads nothing of an open thread that does not show its unread answer yet', async () => {
 		answers = [
 			{

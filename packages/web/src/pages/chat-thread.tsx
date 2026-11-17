@@ -31,6 +31,7 @@ import {type LoadedBy, useAnswer} from '@/hooks/use-loaded';
 import {useOrgSlug} from '@/hooks/use-org';
 import {useSending} from '@/hooks/use-sending';
 import {useThreadDraft} from '@/hooks/use-chat-draft';
+import {useUnread} from '@/hooks/use-unread';
 import {keepEntries, sameJson} from '@/lib/chat-log';
 import {describeApiError, type Later} from '@/lib/loader-utils';
 import type {chatThreadLoader} from '@/loaders';
@@ -180,6 +181,7 @@ function Thread({
 	onShown,
 }: Omit<ThreadContext, 'onMissing'> & {loaded: ThreadView}) {
 	const org = useOrgSlug();
+	const {refresh: refreshUnread} = useUnread();
 	const [view, setView] = useState<ThreadView>(loaded);
 	const personaId = loaded.persona.id;
 	const threadId = loaded.thread.id;
@@ -264,6 +266,8 @@ function Thread({
 			return describeApiError(posted.error);
 		}
 		sending.posted(key, posted.value.message.id);
+		// The reply read the thread: it is unread no more in the lists.
+		refreshUnread();
 		await readThread();
 		return null;
 	};

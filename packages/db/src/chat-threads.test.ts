@@ -10,6 +10,7 @@ import {createMissingChatConnection, getOrgSlug, getThreadPlace, listMemberThrea
 import {
 	appendEntry,
 	archiveThread,
+	renameThread,
 	appendTurnEntries,
 	completeInference,
 	createPersona,
@@ -485,6 +486,42 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		expect(unwrap(await markThreadRead(chat.id, elsewhereAnswer.id))).toBe(false);
 		await db.agentThread.delete({where: {id: elsewhere.id}});
 		expect((await lastAnswer())?.answer.text).toBe('Dana did.');
+	});
+
+	test('the member’s reply reads its thread, which isn’t unread while it works on it; what its agent says after is', async () => {
+		const unreadIn = async (id: string) =>
+			unwrap(await listAnswers(orgId, userId))
+				.find((one) => one.personaId === chat.personaId)
+				?.unread.find((one) => one.threadId === id) ?? null;
+		const thread = await open('Which invoices are overdue?');
+		const first = await claim(thread.id, 'worker-u');
+		unwrap(
+			await completeInference(
+				first.id,
+				'worker-u',
+				thread.id,
+				said('Three are.'),
+				{end: {outcome: 'Three are.'}},
+				readyForInference,
+			),
+		);
+		expect((await unreadIn(thread.id))?.answer.text).toBe('Three are.');
+
+		unwrap(await replyInThread(chat.id, thread.id, 'Which ones?', readyForInference));
+		expect(await unreadIn(thread.id)).toBeNull();
+
+		const next = await claim(thread.id, 'worker-u');
+		unwrap(
+			await completeInference(
+				next.id,
+				'worker-u',
+				thread.id,
+				said('March, April and May.'),
+				{end: {outcome: 'Listed them.'}},
+				readyForInference,
+			),
+		);
+		expect((await unreadIn(thread.id))?.answer.text).toBe('March, April and May.');
 	});
 
 	test('an alert set in a thread is the thread’s: listed with it and with its persona, and when it fires it lands in the thread, taking it up', async () => {
@@ -1004,5 +1041,24 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		expect(unwrap(await listThreadsWithoutTitle()).some((one) => one.id === alerted.id)).toBe(
 			false,
 		);
+	});
+	test('the member renames a thread of their chat, its task with it, and the small model names it no more', async () => {
+		const thread = await open('can you book a table for 4 near the office thursday 7pm');
+		expect(unwrap(await renameThread(chat.id, thread.id, 'Team dinner'))).toBe(true);
+		const renamed = await db.agentThread.findUniqueOrThrow({
+			where: {id: thread.id},
+			select: {title: true, titleWritten: true, taskId: true},
+		});
+		expect(renamed.title).toBe('Team dinner');
+		expect(unwrap(await threadNeedsTitle(thread.id))).toBe(false);
+		expect(unwrap(await writeThreadTitle(thread.id, 'Thursday dinner for four'))).toBe(false);
+		const task = await db.agentTask.findUniqueOrThrow({where: {id: renamed.taskId ?? ''}});
+		expect(task.title).toBe('Team dinner');
+
+		expect(unwrap(await renameThread(chat.id, thread.id, 'Dinner, again'))).toBe(true);
+		expect(unwrap(await renameThread(chat.id, 'no-such-thread', 'X'))).toBe(false);
+		expect(unwrap(await renameThread('another-chat', thread.id, 'X'))).toBe(false);
+		expect(unwrap(await renameThread(chat.id, chat.id, 'X'))).toBe(false);
+		expect((await db.agentThread.findUniqueOrThrow({where: {id: thread.id}})).title).toBe('Dinner, again');
 	});
 });

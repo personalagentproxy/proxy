@@ -67,6 +67,8 @@ export type HarnessStore = {
 	getThreadModel: (thread: ThreadRow) => Promise<Result<PersonaModel | null, ApiError>>;
 	getPersonaName: (thread: ThreadRow) => Promise<Result<string | null, ApiError>>;
 	listEntries: (threadId: string) => Promise<Result<EntryRow[], ApiError>>;
+	/** What came into the thread while its turn runs that the model can be given beside a call's answer: the person's messages and events without files, pending, in order. */
+	listPendingMessages: (threadId: string) => Promise<Result<EntryRow[], ApiError>>;
 	getEntry: (entryId: string) => Promise<Result<EntryRow, ApiError>>;
 	appendSummary: (jobId: string, workerId: string, threadId: string, summary: {text: string; inputTokens: number; outputTokens: number}, coversSeq: number) => Promise<Result<boolean, ApiError>>;
 	appendTurnEntries: (jobId: string, workerId: string, threadId: string, entries: NewTurnEntry[]) => Promise<Result<boolean, ApiError>>;
@@ -108,6 +110,8 @@ export type HarnessStore = {
 	threadNeedsTitle: (threadId: string) => Promise<Result<boolean, ApiError>>;
 	/** The title the small model gave the thread, written once, its task named the same; `Ok(false)` where it was not written. */
 	writeThreadTitle: (threadId: string, title: string) => Promise<Result<boolean, ApiError>>;
+	/** The member renames a thread of their chat, its task with it; `Ok(false)` for no such thread of the chat. */
+	renameThread: (chatId: string, threadId: string, title: string) => Promise<Result<boolean, ApiError>>;
 	listThreadsWithoutTitle: () => Promise<Result<Array<{id: string}>, ApiError>>;
 	markThreadRead: (chatId: string, entryId: string) => Promise<Result<boolean, ApiError>>;
 	getChatDraft: (chatId: string) => Promise<Result<string | null, ApiError>>;
@@ -169,6 +173,7 @@ export const harnessStore: HarnessStore = {
 	getThreadModel: harness.getThreadModel,
 	getPersonaName: harness.getThreadPersonaName,
 	listEntries: harness.listEntries,
+	listPendingMessages: harness.listPendingMessages,
 	getEntry: harness.getEntry,
 	appendSummary: harness.appendSummary,
 	appendTurnEntries: harness.appendTurnEntries,
@@ -201,6 +206,7 @@ export const harnessStore: HarnessStore = {
 	listThreadsWithoutSummary: harness.listThreadsWithoutSummary,
 	threadNeedsTitle: harness.threadNeedsTitle,
 	writeThreadTitle: harness.writeThreadTitle,
+	renameThread: harness.renameThread,
 	listThreadsWithoutTitle: harness.listThreadsWithoutTitle,
 	markThreadRead: harness.markThreadRead,
 	getChatDraft: harness.getChatDraft,
