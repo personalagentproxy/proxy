@@ -106,6 +106,8 @@ export type HarnessStore = {
 	threadNeedsTitle: (threadId: string) => Promise<Result<boolean, ApiError>>;
 	/** The title the small model gave the thread, written once, its task named the same; `Ok(false)` where it was not written. */
 	writeThreadTitle: (threadId: string, title: string) => Promise<Result<boolean, ApiError>>;
+	/** The member renames a thread of their chat, its task with it; `Ok(false)` for no such thread of the chat. */
+	renameThread: (chatId: string, threadId: string, title: string) => Promise<Result<boolean, ApiError>>;
 	listThreadsWithoutTitle: () => Promise<Result<Array<{id: string}>, ApiError>>;
 	markThreadRead: (chatId: string, entryId: string) => Promise<Result<boolean, ApiError>>;
 	getChatDraft: (chatId: string) => Promise<Result<string | null, ApiError>>;
@@ -192,6 +194,7 @@ export const harnessStore: HarnessStore = {
 	listThreadsWithoutSummary: harness.listThreadsWithoutSummary,
 	threadNeedsTitle: harness.threadNeedsTitle,
 	writeThreadTitle: harness.writeThreadTitle,
+	renameThread: harness.renameThread,
 	listThreadsWithoutTitle: harness.listThreadsWithoutTitle,
 	markThreadRead: harness.markThreadRead,
 	getChatDraft: harness.getChatDraft,

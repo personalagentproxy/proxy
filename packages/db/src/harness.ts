@@ -1600,6 +1600,37 @@ export async function writeThreadTitle(
 	);
 }
 
+/**
+ * The member renames a thread of their chat, an alert's included; its task, which the activity log
+ * lists, is named the same, and the small model, counting it written, names it no more.
+ * `Ok(false)` for no such thread of the chat.
+ */
+export async function renameThread(
+	chatId: string,
+	threadId: string,
+	title: string,
+): Promise<Result<boolean, ApiError>> {
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			const {count} = await tx.agentThread.updateMany({
+				where: {id: threadId, parentThreadId: chatId},
+				data: {title, titleWritten: true},
+			});
+			if (count === 0) {
+				return false;
+			}
+			const thread = await tx.agentThread.findUnique({
+				where: {id: threadId},
+				select: {taskId: true},
+			});
+			if (thread?.taskId) {
+				await tx.agentTask.update({where: {id: thread.taskId}, data: {title}});
+			}
+			return true;
+		}),
+	);
+}
+
 /** Every chat's threads whose title the small model has yet to write, by id, the oldest first, those alerts opened left out: what the one-off script titles. */
 export async function listThreadsWithoutTitle(): Promise<Result<Array<{id: string}>, ApiError>> {
 	return wrapDb(() =>

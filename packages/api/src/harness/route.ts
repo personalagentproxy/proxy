@@ -22,6 +22,7 @@ import {
 	saveDraftBodySchema,
 	saveThreadDraftBodySchema,
 	threadDoneBodySchema,
+	threadTitleBodySchema,
 	type ThreadMessage,
 	threadModelSchema,
 	type ThreadStanding,
@@ -82,6 +83,7 @@ export type ChatStore = Pick<
 	| 'setThreadModel'
 	| 'markThreadDone'
 	| 'archiveThread'
+	| 'renameThread'
 	| 'countChatAlerts'
 >;
 
@@ -587,6 +589,20 @@ function handleArchiveThreadRoute(store: ChatStore, request: AuthenticatedReques
 	});
 }
 
+/** `PUT /api/orgs/:org/chat/personas/:personaId/threads/:threadId/title` with `{title}`: the viewer renames a thread of their chat with the persona, its task in the activity log with it; the small model names it no more. */
+function handleRenameThreadRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
+	return Do(async ($) => {
+		const viewer = $(await requireViewer(request));
+		const threadId = request.params.threadId ?? '';
+		const {title} = $(parseSchema(threadTitleBodySchema, request.body));
+		const persona = $(await requirePersona(store, viewer, request));
+		const chat = $(await requireChat(store, viewer, persona, threadId));
+		if (!$(await store.renameThread(chat.id, threadId, title))) {
+			return $(Err(ApiErr.notFound('thread', threadId)));
+		}
+	});
+}
+
 /** `PUT /api/orgs/:org/chat/personas/:personaId/threads/:threadId/model` with `{harness, chatModel}`: the viewer switches what runs a thread of their chat with the persona, from its next turn on, to one of the harnesses the server offers the organization and one of its models; the persona, and its other threads, are left as they are. The thread is the viewer's alone, so they may, whatever persona it is with. */
 function handleSetThreadModelRoute(store: ChatStore, harnesses: Harnesses, request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
@@ -627,6 +643,7 @@ export function chatRoutes(store: ChatStore, harnesses: Harnesses, files: RouteF
 		handleReplyInThreadRoute: (request: AuthenticatedRequest) => handleReplyInThreadRoute(store, files, request),
 		handleUploadThreadAttachmentRoute: (request: AuthenticatedRequest) => handleUploadThreadAttachmentRoute(store, files, request),
 		handleSetThreadModelRoute: (request: AuthenticatedRequest) => handleSetThreadModelRoute(store, harnesses, request),
+		handleRenameThreadRoute: (request: AuthenticatedRequest) => handleRenameThreadRoute(store, request),
 		handleMarkThreadDoneRoute: (request: AuthenticatedRequest) => handleMarkThreadDoneRoute(store, request),
 		handleArchiveThreadRoute: (request: AuthenticatedRequest) => handleArchiveThreadRoute(store, request),
 	};
