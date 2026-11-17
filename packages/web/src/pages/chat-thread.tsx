@@ -30,6 +30,7 @@ import type {AttachmentInput} from '@/hooks/use-attachments';
 import {type LoadedBy, useAnswer} from '@/hooks/use-loaded';
 import {useOrgSlug} from '@/hooks/use-org';
 import {useSending} from '@/hooks/use-sending';
+import {useThreadDraft} from '@/hooks/use-chat-draft';
 import {keepEntries, sameJson} from '@/lib/chat-log';
 import {describeApiError, type Later} from '@/lib/loader-utils';
 import type {chatThreadLoader} from '@/loaders';
@@ -183,6 +184,8 @@ function Thread({
 	const personaId = loaded.persona.id;
 	const threadId = loaded.thread.id;
 	const sending = useSending(view.messages, personText);
+	// What is typed in its box and not sent, kept on the server as the chat's is, without its files.
+	const draft = useThreadDraft(org, personaId, threadId, loaded.draft ?? '');
 	const busy = view.busy || sending.waiting;
 	// Read often while its agent runs; a thread asleep, at work though it is, is read as one stopped
 	// is, which a sleep of hours would otherwise have read every second.
@@ -239,8 +242,12 @@ function Thread({
 	}, [readThread, running]);
 
 	// Sends what the person replies, with the files placed among it, shown at once and taken away
-	// again where the send fails: what it failed with, or null.
-	const send = async (message: string, files: ChatAttachment[]): Promise<string | null> => {
+	// again where the send fails, once `settle` has: what it failed with, or null.
+	const send = async (
+		message: string,
+		files: ChatAttachment[],
+		settle: () => Promise<void>,
+	): Promise<string | null> => {
 		const key = `sending-${crypto.randomUUID()}`;
 		sending.start({
 			id: key,
@@ -250,6 +257,7 @@ function Thread({
 			at: new Date().toISOString(),
 			attachments: files,
 		});
+		await settle();
 		const posted = await replyInThread(org, personaId, threadId, message, files);
 		if (posted.isErr()) {
 			sending.failed(key);
@@ -328,8 +336,8 @@ function Thread({
 				placeholder="Reply"
 				input={input}
 				keptFiles={[]}
-				openingText=""
-				kept={null}
+				openingText={loaded.draft ?? ''}
+				kept={draft}
 				managing={managing}
 				focusRequested={focusRequested}
 				onFocused={focused}

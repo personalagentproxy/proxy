@@ -911,6 +911,34 @@ export async function setThreadModel(
 	).map(({count}) => count > 0);
 }
 
+/** What the member has typed in a thread of their chat and not sent; null with nothing, and for no such thread. */
+export async function getThreadDraft(
+	chatId: string,
+	threadId: string,
+): Promise<Result<string | null, ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.agentThread.findFirst({
+				where: {id: threadId, parentThreadId: chatId},
+				select: {draft: true},
+			}),
+		)
+	).map((thread) => thread?.draft ?? null);
+}
+
+/** What the member has typed in a thread of their chat and not sent, kept in place of what was; null forgets it. False for no such thread. */
+export async function saveThreadDraft(
+	chatId: string,
+	threadId: string,
+	draft: string | null,
+): Promise<Result<boolean, ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.agentThread.updateMany({where: {id: threadId, parentThreadId: chatId}, data: {draft}}),
+		)
+	).map(({count}) => count > 0);
+}
+
 /** The name of the thread's persona; `Ok(null)` where the persona is gone. */
 export async function getThreadPersonaName(
 	thread: ThreadRow,
@@ -1207,6 +1235,8 @@ export async function replyInThread(
 			if (!found) {
 				return null;
 			}
+			// What was typed for the reply is sent with it.
+			await tx.agentThread.update({where: {id: threadId}, data: {draft: null}});
 			return wakeWith(tx, toThread(found), {kind: 'person', text}, wakes, attachments);
 		}),
 	);

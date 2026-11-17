@@ -12,6 +12,7 @@ import {
 	postedReplySchema,
 	type removeAttachmentBodySchema,
 	type saveDraftBodySchema,
+	type saveThreadDraftBodySchema,
 	type threadModelSchema,
 	threadViewSchema,
 	uploadedAttachmentSchema,
@@ -198,6 +199,22 @@ export function markThreadDone(
 /** Archives a thread: the chat's list no longer has it, until something more comes into it; the alerts that come to it are cancelled with it. */
 export function archiveThread(org: string, personaId: string, threadId: string) {
 	return apiSend('POST', `${orgApi(org)}/chat/personas/${personaId}/threads/${threadId}/archive`);
+}
+
+/** Saves what is typed in a thread and not sent; an empty one forgets it. */
+export function saveThreadDraft(
+	org: string,
+	personaId: string,
+	threadId: string,
+	text: string,
+	options: {keepalive?: boolean} = {},
+) {
+	return apiSend(
+		'PUT',
+		`${orgApi(org)}/chat/personas/${personaId}/threads/${threadId}/draft`,
+		{text} satisfies z.input<typeof saveThreadDraftBodySchema>,
+		options,
+	);
 }
 
 export function markRead(org: string, personaId: string, entryId: string) {

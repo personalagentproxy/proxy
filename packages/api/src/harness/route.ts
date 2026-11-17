@@ -20,6 +20,7 @@ import {
 	type openedThreadSchema,
 	type postedReplySchema,
 	saveDraftBodySchema,
+	saveThreadDraftBodySchema,
 	threadDoneBodySchema,
 	type ThreadMessage,
 	threadModelSchema,
@@ -70,6 +71,8 @@ export type ChatStore = Pick<
 	| 'markThreadRead'
 	| 'getChatDraft'
 	| 'saveChatDraft'
+	| 'getThreadDraft'
+	| 'saveThreadDraft'
 	| 'openThread'
 	| 'replyInThread'
 	| 'listChatThreads'
@@ -483,7 +486,8 @@ function handleGetChatThreadRoute(store: ChatStore, harnesses: Harnesses, files:
 		const now = new Date();
 		const thread = $(await requireChatThread(store, viewer, persona, request.params.threadId ?? '', now));
 		const shown = threadShown(thread, files);
-		const model = $(await store.getThreadModel(thread)) ?? persona;
+		const [found, draft] = await Promise.all([store.getThreadModel(thread), store.getThreadDraft(thread.parentThreadId ?? '', thread.id)]);
+		const model = $(found) ?? persona;
 		return {
 			persona: toPersona(harnesses, viewer, persona),
 			thread: toChatThread(thread, shown, now),
@@ -491,7 +495,22 @@ function handleGetChatThreadRoute(store: ChatStore, harnesses: Harnesses, files:
 			// At work as long as it hasn't stopped: a thread asleep until it wakes is still at it.
 			busy: thread.state.kind !== 'stopped',
 			messages: shown.map(({message}) => message),
+			draft: $(draft),
 		};
+	});
+}
+
+/** `PUT /api/orgs/:org/chat/personas/:personaId/threads/:threadId/draft` with `{text}`: what the viewer has typed in a thread of their chat with the persona and not sent, kept in place of what was; nothing but whitespace forgets it, as their reply in it does. */
+function handleSaveThreadDraftRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
+	return Do(async ($) => {
+		const viewer = $(await requireViewer(request));
+		const threadId = request.params.threadId ?? '';
+		const {text} = $(parseSchema(saveThreadDraftBodySchema, request.body));
+		const persona = $(await requirePersona(store, viewer, request));
+		const chat = $(await requireChat(store, viewer, persona, threadId));
+		if (!$(await store.saveThreadDraft(chat.id, threadId, text.trim() === '' ? null : text))) {
+			return $(Err(ApiErr.notFound('thread', threadId)));
+		}
 	});
 }
 
@@ -601,6 +620,7 @@ export function chatRoutes(store: ChatStore, harnesses: Harnesses, files: RouteF
 		handleRemoveAttachmentRoute: (request: AuthenticatedRequest) => handleRemoveAttachmentRoute(store, request),
 		handleMarkReadRoute: (request: AuthenticatedRequest) => handleMarkReadRoute(store, request),
 		handleSaveDraftRoute: (request: AuthenticatedRequest) => handleSaveDraftRoute(store, request),
+		handleSaveThreadDraftRoute: (request: AuthenticatedRequest) => handleSaveThreadDraftRoute(store, request),
 		handleListThreadsRoute: (request: AuthenticatedRequest) => handleListThreadsRoute(store, harnesses, files, request),
 		handleGetChatThreadRoute: (request: AuthenticatedRequest) => handleGetChatThreadRoute(store, harnesses, files, request),
 		handleOpenThreadRoute: (request: AuthenticatedRequest) => handleOpenThreadRoute(store, files, request),

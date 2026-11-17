@@ -285,6 +285,7 @@ export function createApiRouter(): express.Router {
 	org.get('/chat/personas/:personaId/threads/:threadId', withAuthResult('Get chat thread route', chat.handleGetChatThreadRoute));
 	org.post('/chat/personas/:personaId/threads/:threadId/messages', withAuthResult('Reply in chat thread route', chat.handleReplyInThreadRoute));
 	org.post('/chat/personas/:personaId/threads/:threadId/attachments', withAuthResult('Upload chat thread attachment route', chat.handleUploadThreadAttachmentRoute));
+	org.put('/chat/personas/:personaId/threads/:threadId/draft', withAuthResult('Save chat thread draft route', chat.handleSaveThreadDraftRoute));
 	org.put('/chat/personas/:personaId/threads/:threadId/model', withAuthResult('Switch chat thread model route', chat.handleSetThreadModelRoute));
 	org.post('/chat/personas/:personaId/threads/:threadId/done', withAuthResult('Mark chat thread done route', chat.handleMarkThreadDoneRoute));
 	org.post('/chat/personas/:personaId/threads/:threadId/archive', withAuthResult('Archive chat thread route', chat.handleArchiveThreadRoute));
