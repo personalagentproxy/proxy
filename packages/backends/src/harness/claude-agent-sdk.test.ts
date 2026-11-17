@@ -3,7 +3,7 @@ import {existsSync, mkdirSync, mkdtempSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 
-import type {NonNullableUsage, Options, SDKAssistantMessage, SDKMessage, SDKRateLimitInfo, SDKResultError, SDKResultSuccess} from '@anthropic-ai/claude-agent-sdk';
+import type {NonNullableUsage, Options, SDKAssistantMessage, SDKMessage, SDKRateLimitInfo, SDKResultError, SDKResultSuccess, SDKUserMessage} from '@anthropic-ai/claude-agent-sdk';
 import type {BetaContentBlock} from '@anthropic-ai/sdk/resources/beta/messages';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {InMemoryTransport} from '@modelcontextprotocol/sdk/inMemory.js';
@@ -15,7 +15,7 @@ import {CALL_INTERRUPTED, OUTCOME_UNKNOWN} from '@proxy/utils/harness';
 import {type ContextEntry, EVENT_LEAD} from '@proxy/utils/harness-context';
 
 import type {HarnessEntry, HarnessEvent, HarnessTurn} from './backend';
-import {claudeAgentSdkHarness, type ClaudeAgentSdkDeps, MEANWHILE, proxyToolServer, type SdkPrompt, type SdkQuery, STEERING} from './claude-agent-sdk';
+import {claudeAgentSdkHarness, type ClaudeAgentSdkDeps, proxyToolServer, type SdkPrompt, type SdkQuery} from './claude-agent-sdk';
 import {harnessConformance, type ScriptedModel} from './conformance';
 import {fakeToolSurface} from './fake';
 import {memorySessionStore} from './session-store';
@@ -291,6 +291,24 @@ function turnInput(extra: Partial<HarnessTurn> = {}): HarnessTurn {
 	};
 }
 
+// Everything the harness put on the binary's input, read once the turn is over and the input closed.
+async function given(prompt: SdkPrompt | undefined): Promise<SDKUserMessage[]> {
+	if (prompt === undefined) {
+		throw new Error('the SDK was asked nothing');
+	}
+	return Array.fromAsync(prompt);
+}
+
+// What the turn was asked, where it was words alone, the one message on the input.
+async function words(prompt: SdkPrompt | undefined): Promise<string> {
+	const messages = await given(prompt);
+	const content = messages[0]?.message.content;
+	if (messages.length !== 1 || typeof content !== 'string') {
+		throw new Error(`expected words alone, got ${JSON.stringify(messages)}`);
+	}
+	return content;
+}
+
 async function collect(fake: FakeQuery, input: HarnessTurn, extra: Partial<ClaudeAgentSdkDeps> = {}): Promise<HarnessEvent[]> {
 	return Array.fromAsync(claudeAgentSdkHarness(deps(fake, extra)).turn(input));
 }
@@ -354,7 +372,6 @@ describe('claudeAgentSdkHarness', () => {
 			CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS: '1',
 			CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
 			DISABLE_TELEMETRY: '1',
-			MAX_MCP_OUTPUT_TOKENS: '100000',
 			CLAUDE_CODE_OAUTH_TOKEN: 'oat-1',
 			CLAUDE_CODE_OAUTH_SCOPES: 'user:profile user:inference',
 		});
@@ -377,14 +394,7 @@ describe('claudeAgentSdkHarness', () => {
 
 		await collect(fake, {...turnInput(), session: {id: 'sdk-session-9', state: {lastSeq: seen.seq, job: 'job-0'}}, entries: [seen, again]});
 
-		const prompt = fake.calls[0]?.prompt;
-		if (prompt === undefined || typeof prompt === 'string') {
-			throw new Error('expected a message with pictures');
-		}
-		const sent = [];
-		for await (const message of prompt) {
-			sent.push(message);
-		}
+		const sent = await given(fake.calls[0]?.prompt);
 		// The picture the session saw with an earlier turn is not sent again.
 		expect(sent).toEqual([
 			{
@@ -404,7 +414,7 @@ describe('claudeAgentSdkHarness', () => {
 
 		// With no picture among what is new, the prompt is the words alone, as ever.
 		await collect(fake, {...turnInput(), session: {id: 'sdk-session-9', state: {lastSeq: again.seq, job: 'job-0'}}, entries: [seen, again, entry('person', 'Thanks')]});
-		expect(fake.calls[1]?.prompt).toBe('Thanks');
+		expect(await words(fake.calls[1]?.prompt)).toBe('Thanks');
 	});
 
 	test('prompts with what came since the session last saw the log, less the steps of the turn that kept it, resumes the session, and keeps the last seq and the turn’s job', async () => {
@@ -430,12 +440,12 @@ describe('claudeAgentSdkHarness', () => {
 			entries: [seen, step, started, refused, said, summary, again],
 		});
 
-		expect(fake.calls[0]?.prompt).toBe([`${EVENT_LEAD}\n\nFound it.`, 'And then?'].join('\n\n'));
+		expect(await words(fake.calls[0]?.prompt)).toBe([`${EVENT_LEAD}\n\nFound it.`, 'And then?'].join('\n\n'));
 		expect(fake.calls[0]?.options?.resume).toBe('sdk-session-9');
 		expect(events.at(-1)).toMatchObject({kind: 'done', session: {id: SESSION, state: {lastSeq: again.seq, job: 'job-1'}}});
 	});
 
-	test('what the turn that kept the session was given as it ran, beside a call’s answer, is not given again', async () => {
+	test('what the turn that kept the session was given as it ran is not given again', async () => {
 		const fake = fakeQuery();
 		fake.script(messages([init(), result()]));
 		const seen = entry('person', 'Hi');
@@ -447,44 +457,55 @@ describe('claudeAgentSdkHarness', () => {
 
 		await collect(fake, {...turnInput(), session: {id: 'sdk-session-9', state: {lastSeq: seen.seq, job: 'job-0'}}, entries: [seen, step, answered, steer, last, next]});
 
-		expect(fake.calls[0]?.prompt).toBe('Thanks');
+		expect(await words(fake.calls[0]?.prompt)).toBe('Thanks');
 	});
 
-	test('gives the model what came into the thread while a call ran before the call’s answer, and yields the result as the api answered it, however the binary echoes it', async () => {
+	test('what came into the thread while a call ran goes on the binary’s input as the person’s, before the binary has the answer, which is the tool’s alone; the input closes with the turn', async () => {
 		const fake = fakeQuery();
 		const surface = fakeToolSurface(TOOLS, {text: 'rows', isError: false, meanwhile: ['Use March instead', `${EVENT_LEAD}\n\nDana replied.`]});
-		const given: unknown[] = [];
+		// What the binary would have read of its input by the time it had each answer.
+		const readBy: number[] = [];
+		const answers: unknown[] = [];
 		fake.script(async function* (options) {
+			const input = fake.calls[0]?.prompt?.[Symbol.asyncIterator]();
+			const read: SDKUserMessage[] = [];
+			const first = await input?.next();
+			if (first?.value) {
+				read.push(first.value);
+			}
 			yield init();
-			yield assistant([toolUse({id: 'c1', name: 'read', arguments: '{}'}), toolUse({id: 'c2', name: 'read', arguments: '{}'})]);
+			yield assistant([toolUse({id: 'c1', name: 'read', arguments: '{}'})]);
 			const client = await connect(options);
-			const first = await client.callTool({name: 'read', arguments: {}, _meta: {'claudecode/toolUseId': 'c1'}});
-			const second = await client.callTool({name: 'read', arguments: {}, _meta: {'claudecode/toolUseId': 'c2'}});
-			given.push(first.content, second.content);
-			const blocks = Array.isArray(first.content) ? first.content : [];
-			// One echoed as the server's blocks, one as their words joined.
-			yield {
-				type: 'user',
-				message: {role: 'user', content: [{type: 'tool_result', tool_use_id: 'c1', content: blocks, is_error: false}]},
-				parent_tool_use_id: null,
-				session_id: SESSION,
-			};
-			// The other as the binary echoes an answer it saved to a file, with a preview.
-			yield toolResult('c2', '<persisted-output>\nOutput too large (58.9KB). Full output saved to: /tmp/x.json\n\nPreview (first 2KB):\n' + JSON.stringify(blocks).slice(0, 100));
+			const called = await client.callTool({name: 'read', arguments: {}, _meta: {'claudecode/toolUseId': 'c1'}});
+			answers.push(called.content);
+			for (let i = 0; i < 2; i += 1) {
+				const next = await input?.next();
+				if (next?.value) {
+					read.push(next.value);
+				}
+			}
+			readBy.push(read.length);
+			yield toolResult('c1', 'rows');
 			yield result();
+			// The input closes once the result is in.
+			const after = await input?.next();
+			readBy.push(after?.done === true ? -1 : read.length);
 		});
 
 		const events = await collect(fake, {...turnInput(), tools: surface});
 
-		const meanwhile = [MEANWHILE, 'Use March instead', `${EVENT_LEAD}\n\nDana replied.`].join('\n\n');
-		expect(given[0]).toEqual([
-			{type: 'text', text: meanwhile},
-			{type: 'text', text: 'rows'},
-		]);
-		expect(events.filter((event) => event.kind === 'tool_result')).toEqual([
-			{kind: 'tool_result', callId: 'c1', text: 'rows', isError: false},
-			{kind: 'tool_result', callId: 'c2', text: 'rows', isError: false},
-		]);
+		expect(answers).toEqual([[{type: 'text', text: 'rows'}]]);
+		expect(readBy).toEqual([3, -1]);
+		expect(events).toMatchObject([{kind: 'tool_call', id: 'c1'}, {kind: 'tool_result', callId: 'c1', text: 'rows', isError: false}, {kind: 'done'}]);
+	});
+
+	test('the binary’s input is closed when the turn is left before its result', async () => {
+		const fake = fakeQuery();
+		fake.script(failing([init()], new Error('died')));
+
+		await collect(fake, turnInput());
+
+		expect(await given(fake.calls[0]?.prompt)).toEqual([{type: 'user', message: {role: 'user', content: 'Hi'}, parent_tool_use_id: null}]);
 	});
 
 	test('a turn tried again is given what the attempt before did, as the record, with the calls the api closed as interrupted, so it goes on rather than doing it again', async () => {
@@ -512,7 +533,7 @@ describe('claudeAgentSdkHarness', () => {
 			entries: [seen, answer, asked, step, answered, unknown, unanswered],
 		});
 
-		expect(fake.calls[0]?.prompt).toBe(
+		expect(await words(fake.calls[0]?.prompt)).toBe(
 			[
 				RECORD,
 				'Person:\nSend the invoice to Dana',
@@ -536,7 +557,7 @@ describe('claudeAgentSdkHarness', () => {
 
 		await collect(fake, {...turnInput(), session: null, entries: [brief, step, sent]});
 
-		expect(fake.calls[0]?.prompt).toBe([RECORD, 'Person:\nEmail the invoice to Dana', 'Agent called run with {"to":"dana"}', 'run answered:\nSent.', 'Go on.'].join('\n\n'));
+		expect(await words(fake.calls[0]?.prompt)).toBe([RECORD, 'Person:\nEmail the invoice to Dana', 'Agent called run with {"to":"dana"}', 'run answered:\nSent.', 'Go on.'].join('\n\n'));
 		expect(fake.calls[0]?.options).not.toHaveProperty('resume');
 	});
 
@@ -559,7 +580,7 @@ describe('claudeAgentSdkHarness', () => {
 			entries: [old, found, next, summary, step, started, said, again],
 		});
 
-		expect(fake.calls[0]?.prompt).toBe(
+		expect(await words(fake.calls[0]?.prompt)).toBe(
 			[
 				RECORD,
 				'A summary of what came before; not from the person.\nThe person asked for their invoices; three from Dana were found.',
@@ -585,7 +606,7 @@ describe('claudeAgentSdkHarness', () => {
 
 		await collect(fake, {...turnInput(), session: {id: 's', state: {lastSeq: seen.seq, job: 'job-0'}}, entries: [seen, own, asked, gaveUp, again]});
 
-		expect(fake.calls[0]?.prompt).toBe([RECORD, 'Person:\nAnd the invoices?', 'Agent:\nThe model could not be reached. Say something to try again.', SINCE, 'Try again'].join('\n\n'));
+		expect(await words(fake.calls[0]?.prompt)).toBe([RECORD, 'Person:\nAnd the invoices?', 'Agent:\nThe model could not be reached. Say something to try again.', SINCE, 'Try again'].join('\n\n'));
 	});
 
 	test('says so when woken, says to go on when nothing is new, and gives a new thread what the person said as it is', async () => {
@@ -601,9 +622,9 @@ describe('claudeAgentSdkHarness', () => {
 		await collect(fake, {...turnInput(), session, entries: [hi, answered]});
 		await collect(fake, {...turnInput(), session: null, entries: [hi]});
 
-		expect(fake.calls[0]?.prompt).toMatch(/^You were woken, and it is now \d{4}-\d{2}-\d{2}T[\d:.]+Z\.$/);
-		expect(fake.calls[1]?.prompt).toBe('Go on.');
-		expect(fake.calls[2]?.prompt).toBe('Hi');
+		expect(await words(fake.calls[0]?.prompt)).toMatch(/^You were woken, and it is now \d{4}-\d{2}-\d{2}T[\d:.]+Z\.$/);
+		expect(await words(fake.calls[1]?.prompt)).toBe('Go on.');
+		expect(await words(fake.calls[2]?.prompt)).toBe('Hi');
 		expect(fake.calls[2]?.options).not.toHaveProperty('resume');
 	});
 
@@ -618,7 +639,7 @@ describe('claudeAgentSdkHarness', () => {
 
 		const options = fake.calls[0]?.options;
 		expect(options).toMatchObject({
-			systemPrompt: `You are a test.\n\n${STEERING}`,
+			systemPrompt: 'You are a test.',
 			tools: [],
 			permissionMode: 'default',
 			settingSources: [],
@@ -737,13 +758,7 @@ describe('claudeAgentSdkHarness', () => {
 			{kind: 'tool_call', id: 'c1', name: 'read', arguments: '{"a":1}'},
 			{kind: 'tool_result', callId: 'c1', text: 'rows', isError: false},
 			{kind: 'text', text: 'Done.'},
-			{
-				kind: 'done',
-				session: {id: SESSION, state: {lastSeq: input.entries[0]?.seq ?? 0, job: 'job-1'}},
-				system: `You are a test.\n\n${STEERING}`,
-				inputTokens: 17,
-				outputTokens: 3,
-			},
+			{kind: 'done', session: {id: SESSION, state: {lastSeq: input.entries[0]?.seq ?? 0, job: 'job-1'}}, system: 'You are a test.', inputTokens: 17, outputTokens: 3},
 		]);
 	});
 
@@ -896,20 +911,8 @@ describe('proxyToolServer', () => {
 		const {tools} = await client.listTools();
 
 		expect(tools).toEqual([
-			{
-				name: 'read',
-				description: 'Reads',
-				inputSchema: {type: 'object', properties: {a: {type: 'number'}}},
-				annotations: {readOnlyHint: true},
-				_meta: {'anthropic/alwaysLoad': true, 'anthropic/maxResultSizeChars': 100_000},
-			},
-			{
-				name: 'sleep_until',
-				description: 'Sleeps',
-				inputSchema: {type: 'object', properties: {seconds: {type: 'number'}}},
-				annotations: {readOnlyHint: false},
-				_meta: {'anthropic/alwaysLoad': true, 'anthropic/maxResultSizeChars': 100_000},
-			},
+			{name: 'read', description: 'Reads', inputSchema: {type: 'object', properties: {a: {type: 'number'}}}, annotations: {readOnlyHint: true}, _meta: {'anthropic/alwaysLoad': true}},
+			{name: 'sleep_until', description: 'Sleeps', inputSchema: {type: 'object', properties: {seconds: {type: 'number'}}}, annotations: {readOnlyHint: false}, _meta: {'anthropic/alwaysLoad': true}},
 		]);
 	});
 

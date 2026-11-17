@@ -58,9 +58,10 @@ export type HarnessModel = {id: string; label: string; images?: true};
 /**
  * What a call answered; `endTurn` where the call ends the turn, as a sleep does. `meanwhile` is
  * what came into the thread while the turn ran, the person's messages and alerts, each as the
- * model reads it, for a harness that runs its calls inline to give the model beside the answer, so
- * that the person can steer a turn under way rather than wait for it to end; the result the
- * harness yields for the call is the answer alone, and the api puts what came after it in the log.
+ * model reads it, for a harness that runs its calls inline to give the model as the person's
+ * messages, before it goes on, so that the person can steer a turn under way rather than wait for
+ * it to end; never as part of the answer, which is the tool's. The api puts it in the log after
+ * the call's result.
  */
 export type ToolAnswer = {text: string; isError: boolean; endTurn?: boolean; meanwhile?: string[]};
 
