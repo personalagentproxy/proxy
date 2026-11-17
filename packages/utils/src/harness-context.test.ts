@@ -6,7 +6,6 @@ import {
 	type ContextEntry,
 	type AttachedFile,
 	EVENT_LEAD,
-	SUB_AGENT_LEAD,
 	toMessages,
 	toTranscript,
 	withAttachments,
@@ -389,23 +388,5 @@ describe('toMessages with pictures', () => {
 			{role: 'assistant', content: 'A chart.'},
 			{role: 'user', content: 'Thanks'},
 		]);
-	});
-});
-
-describe('a sub-agent’s message', () => {
-	test('is led in as one, not as an alert: it carries the call that started the sub-agent', () => {
-		const started = entry(1, 'assistant', '', {
-			toolCalls: [{id: 's1', name: 'create_subagent', arguments: '{}'}],
-			inputTokens: 10,
-		});
-		const answered = entry(2, 'tool_result', 'Started.', {callId: 's1'});
-		const told = entry(3, 'event', '“Read the contract” (sub-1):\n\nNotice is 90 days.', {
-			callId: 's1',
-		});
-		expect(toMessages([started, answered, told], {clearOld: false}).at(-1)).toEqual({
-			role: 'user',
-			content: `${SUB_AGENT_LEAD}\n\n“Read the contract” (sub-1):\n\nNotice is 90 days.`,
-		});
-		expect(toTranscript([started, answered, told])).toContain(SUB_AGENT_LEAD);
 	});
 });

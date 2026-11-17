@@ -64,10 +64,6 @@ export function fakeStore(): FakeStore {
 		completeSetAlert: mock<HarnessStore['completeSetAlert']>(),
 		setAlertInline: mock<HarnessStore['setAlertInline']>(),
 		dismissThreadInline: mock<HarnessStore['dismissThreadInline']>(),
-		listSubAgents: mock<HarnessStore['listSubAgents']>(async () => Ok([])),
-		startSubAgentInline: mock<HarnessStore['startSubAgentInline']>(),
-		messageSubAgentInline: mock<HarnessStore['messageSubAgentInline']>(),
-		tellParentInline: mock<HarnessStore['tellParentInline']>(),
 		completeDismiss: mock<HarnessStore['completeDismiss']>(),
 		// No time zone set, unless a test gives one.
 		getUserTimeZone: mock<HarnessStore['getUserTimeZone']>(async () => Ok(null)),

@@ -75,16 +75,6 @@ export function readyForInference(entries: LogEntry[]): boolean {
 export const SLEEP_TOOL = 'sleep_until';
 export const SEND_TO_PERSON_TOOL = 'send_to_person';
 
-/** The names of a thread's two tools for sub-agents: one started on a brief, and a message to one. */
-export const CREATE_SUBAGENT_TOOL = 'create_subagent';
-export const SEND_TO_SUBAGENT_TOOL = 'send_to_subagent';
-
-/** The name of a sub-agent's tool beyond its connections and a sleep: a message to the thread's agent it works for. */
-export const SEND_TO_PARENT_TOOL = 'send_to_parent';
-
-// How long a sub-agent's title may be: a task's.
-const MAX_SUBAGENT_TITLE = 120;
-
 /** Whether a call's arguments are a JSON object, as a tool takes them. */
 export function isRecord(args: unknown): args is Record<string, unknown> {
 	return typeof args === 'object' && args !== null && !Array.isArray(args);
@@ -96,30 +86,6 @@ function isText(value: unknown): value is string {
 
 /** A send_to_person call's arguments: the message. Null when there is none. */
 export function personMessageArgs(args: unknown): {text: string} | null {
-	if (!isRecord(args) || !isText(args.text)) {
-		return null;
-	}
-	return {text: args.text.trim()};
-}
-
-/** A create_subagent call's arguments: the sub-agent's title, cut to a task's, and its brief. Null when they are not that. */
-export function subAgentArgs(args: unknown): {title: string; brief: string} | null {
-	if (!isRecord(args) || !isText(args.title) || !isText(args.brief)) {
-		return null;
-	}
-	return {title: cut(args.title.trim(), MAX_SUBAGENT_TITLE), brief: args.brief.trim()};
-}
-
-/** A send_to_subagent call's arguments: which sub-agent, by id, and the message. Null when they are not that. */
-export function subAgentMessageArgs(args: unknown): {subagent: string; text: string} | null {
-	if (!isRecord(args) || !isText(args.subagent) || !isText(args.text)) {
-		return null;
-	}
-	return {subagent: args.subagent.trim(), text: args.text.trim()};
-}
-
-/** A send_to_parent call's arguments: the message. Null when there is none. */
-export function parentMessageArgs(args: unknown): {text: string} | null {
 	if (!isRecord(args) || !isText(args.text)) {
 		return null;
 	}

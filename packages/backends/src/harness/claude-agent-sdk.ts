@@ -10,7 +10,7 @@ import {Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError} from '@proxy/utils';
-import {type ContextEntry, type EntryImage, eventLead, toTranscript} from '@proxy/utils/harness-context';
+import {type ContextEntry, type EntryImage, EVENT_LEAD, toTranscript} from '@proxy/utils/harness-context';
 
 import type {HarnessAuth, HarnessBackend, HarnessEntry, HarnessEvent, HarnessTurn, ToolAnswer, ToolSurface} from './backend';
 import type {SdkSessionStore} from './session-store';
@@ -173,7 +173,7 @@ function pieceOf(entry: HarnessEntry): string[] {
 		return [entry.text];
 	}
 	if (entry.kind === 'event') {
-		return [`${eventLead(entry)}\n\n${entry.text}`];
+		return [`${EVENT_LEAD}\n\n${entry.text}`];
 	}
 	return [];
 }

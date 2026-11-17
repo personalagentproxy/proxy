@@ -76,14 +76,6 @@ const CLEARED = '(This was cleared from the conversation to save room. Ask again
  */
 export const EVENT_LEAD = 'An alert you set; not from the person.';
 
-/** How what a sub-agent said to the thread's agent, an event answering the call that started it, is led in for the model. */
-export const SUB_AGENT_LEAD = 'A message from a sub-agent you started; not from the person.';
-
-/** The lead of an event, as the model reads it: a sub-agent's message, which carries the call that started the sub-agent, or an alert that came. */
-export function eventLead(entry: {callId: string | null}): string {
-	return entry.callId === null ? EVENT_LEAD : SUB_AGENT_LEAD;
-}
-
 // The call an entry answers, by the id the model gave it, found in the log.
 function callOf(entries: ContextEntry[], callId: string | null): ToolCall | undefined {
 	return entries
@@ -114,7 +106,7 @@ function toMessage(entry: ContextEntry): ModelMessage {
 		return {role: 'tool', tool_call_id: entry.callId ?? '', content: entry.text};
 	}
 	if (entry.kind === 'event') {
-		return {role: 'user', content: `${eventLead(entry)}\n\n${entry.text}`};
+		return {role: 'user', content: `${EVENT_LEAD}\n\n${entry.text}`};
 	}
 	if (entry.kind === 'summary') {
 		return {role: 'user', content: `${SUMMARY_LEAD}\n\n${entry.text}`};
@@ -188,7 +180,7 @@ function toLine(entries: ContextEntry[], entry: ContextEntry): string {
 		return `${callOf(entries, entry.callId)?.name ?? 'The call'} answered${entry.isError ? ' with an error' : ''}:\n${entry.text}`;
 	}
 	if (entry.kind === 'event') {
-		return `${eventLead(entry)}\n${entry.text}`;
+		return `${EVENT_LEAD}\n${entry.text}`;
 	}
 	if (entry.kind === 'summary') {
 		return `${SUMMARY_LEAD}\n${entry.text}`;

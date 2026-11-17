@@ -31,8 +31,6 @@ const thread: ThreadRow = {
 	personaId: 'persona-1',
 	userId: 'user-1',
 	parentThreadId: 'chat-1',
-	subAgentOfId: null,
-	parentCallId: null,
 	title: 'Find the invoices',
 	taskId: 'task-1',
 	harness: null,
