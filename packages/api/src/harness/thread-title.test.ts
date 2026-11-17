@@ -57,6 +57,7 @@ function chatThread(thread: Partial<ChatThreadRow> = {}): ChatThreadRow {
 		standing: {waitingForMember: false, summary: null, summarySeq: null, archived: false},
 		alerts: 0,
 		entries: [logEntry({id: 'e1', seq: 1, kind: 'person', text: `book a table for 4 near the office thursday 7pm, somewhere quiet ${ATTACHMENT_MARK}`})],
+		subAgents: [],
 		attachments: [{entryId: 'e1', connectionId: 'drive-1', fileId: 'file-1', version: 'v1', name: 'places.md', type: 'text/markdown', size: 12, text: '', cut: false, gone: false}],
 		...thread,
 	};

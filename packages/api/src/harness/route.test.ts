@@ -460,6 +460,7 @@ describe('the chat’s threads', () => {
 			alerts: 0,
 			entries: [],
 			attachments: [],
+			subAgents: [],
 			...row,
 		};
 	}
@@ -512,7 +513,7 @@ describe('the chat’s threads', () => {
 		expect(listed.alerts).toBe(2);
 
 		expect(store.ensureMemberChat).toHaveBeenCalledWith({orgId: 'org-1', agentId: 'login-1', personaId: 'persona-1', userId: 'user-1'});
-		expect(store.listChatThreads).toHaveBeenCalledWith('chat-1', ['send_to_person'], expect.any(Date));
+		expect(store.listChatThreads).toHaveBeenCalledWith('chat-1', ['send_to_person', 'create_subagent'], expect.any(Date));
 		expect(listed.persona).toEqual(personaResponse);
 		expect(listed.draft).toBe('Move the review');
 		expect(listed.draftAttachments).toEqual([shownAttachment]);
@@ -753,7 +754,7 @@ describe('the chat’s threads', () => {
 
 		const view = (await handleGetChatThreadRoute(request({personaId: 'persona-1', threadId: 'thread-2'}))).unwrap();
 
-		expect(store.getChatThread).toHaveBeenCalledWith('chat-1', 'thread-2', ['send_to_person'], expect.any(Date));
+		expect(store.getChatThread).toHaveBeenCalledWith('chat-1', 'thread-2', ['send_to_person', 'create_subagent'], expect.any(Date));
 		expect(view.busy).toBe(true);
 		expect(view.thread).toMatchObject({id: 'thread-2', state: {kind: 'working'}, messageCount: 3});
 		// Asleep until it wakes, it is still at work; stopped, it is not.
@@ -796,6 +797,35 @@ describe('the chat’s threads', () => {
 		expect(store.ensureMemberChat).not.toHaveBeenCalled();
 	});
 
+	test('show each sub-agent the persona started as a line where it started it, at work while it is or asleep, in place of what it said, which the persona passes on', async () => {
+		const {handleGetChatThreadRoute} = routes;
+		const started = logEntry({
+			id: 'e7',
+			seq: 7,
+			threadId: 'thread-2',
+			kind: 'assistant',
+			text: '',
+			toolCalls: [call('c5', 'create_subagent', {title: 'Read the contract', brief: 'Find the notice period.'})],
+			createdAt: later(3),
+		});
+		const said = logEntry({id: 'e8', seq: 8, threadId: 'thread-2', kind: 'event', text: 'Notice is 90 days.', callId: 'c5', createdAt: later(4)});
+		const sub = {id: 'sub-1', title: 'Read the contract', parentCallId: 'c5'};
+		const withSub = (state: ChatThreadRow['state']) => Ok({...review, entries: [...review.entries, started, said], subAgents: [{...sub, state}]});
+		store.getChatThread.mockResolvedValue(withSub({kind: 'working'}));
+
+		const view = (await handleGetChatThreadRoute(request({personaId: 'persona-1', threadId: 'thread-2'}))).unwrap();
+		expect(view.messages.slice(3)).toEqual([
+			{id: 'e7:c5', kind: 'event', text: 'Read the contract', isError: false, at: later(3).toISOString(), attachments: [], subAgent: {id: 'sub-1', title: 'Read the contract', working: true}},
+		]);
+		// Its latest line is still what the persona said, not a sub-agent's title.
+		expect(view.thread).toMatchObject({latestEntryId: 'e3'});
+
+		store.getChatThread.mockResolvedValue(withSub({kind: 'asleep', until: later(60)}));
+		expect((await handleGetChatThreadRoute(request({personaId: 'persona-1', threadId: 'thread-2'}))).unwrap().messages[3]?.subAgent?.working).toBe(true);
+		store.getChatThread.mockResolvedValue(withSub({kind: 'stopped'}));
+		expect((await handleGetChatThreadRoute(request({personaId: 'persona-1', threadId: 'thread-2'}))).unwrap().messages[3]?.subAgent?.working).toBe(false);
+	});
+
 	test('open a thread with what the viewer says, trimmed, and the files they attach, titled with a line of it, and answer with the thread', async () => {
 		const {handleOpenThreadRoute} = routes;
 		const ref = {connectionId: 'drive-1', fileId: 'file-1', version: 'v1'};
@@ -820,7 +850,7 @@ describe('the chat’s threads', () => {
 			},
 			[attached],
 		);
-		expect(store.getChatThread).toHaveBeenCalledWith('chat-1', 'thread-2', ['send_to_person'], expect.any(Date));
+		expect(store.getChatThread).toHaveBeenCalledWith('chat-1', 'thread-2', ['send_to_person', 'create_subagent'], expect.any(Date));
 		expect(opened.thread).toMatchObject({id: 'thread-2', title: 'Pricing review with Dana'});
 
 		// With files alone, titled by their names.

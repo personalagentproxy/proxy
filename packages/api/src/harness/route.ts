@@ -2,7 +2,7 @@ import {Err, Ok, type Result} from 'ts-results-es';
 import type {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
-import {callArguments, keepMarks, personMessageArgs, preview, SEND_TO_PERSON_TOOL, toAvatarColor} from '@proxy/utils/harness';
+import {callArguments, CREATE_SUBAGENT_TOOL, keepMarks, personMessageArgs, preview, SEND_TO_PERSON_TOOL, toAvatarColor} from '@proxy/utils/harness';
 import type {ChatThreadRow, DraftAttachment, LastMessage, Persona, PersonaModel, PersonaRow, ThreadRow} from '@proxy/db/harness';
 import {
 	type chatAnswersSchema,
@@ -349,17 +349,26 @@ function handleMarkReadRoute(store: ChatStore, request: AuthenticatedRequest): P
 	});
 }
 
+// The calls a thread shows: its messages to the person, and the sub-agents it started.
+const THREAD_CALLS = [...SHOWN_CALLS, CREATE_SUBAGENT_TOOL];
+
 // Something a thread shows, with the entry it comes from.
 type Shown = {entryId: string; message: ThreadMessage};
 
 // What a thread shows (db/harness listChatThreads), each message with the files it went with: what
-// the person said; the events that came into it; what the persona answered in words, then what it
-// told the person as it went in the same step; not the calls it worked through.
+// the person said; the events that came into it, but for what its sub-agents said, which the
+// persona reads and passes on; what the persona answered in words, then what it told the person
+// and the sub-agents it started as it went in the same step, each sub-agent as a line that opens
+// it; not the calls it worked through.
 function threadShown(thread: ChatThreadRow, files: RouteFiles): Shown[] {
 	const attachmentsOf = (entryId: string) => thread.attachments.filter((attachment) => attachment.entryId === entryId).map(files.shown);
+	const subAgentOf = new Map(thread.subAgents.flatMap((subAgent) => (subAgent.parentCallId === null ? [] : [[subAgent.parentCallId, subAgent] as const])));
 	return thread.entries.flatMap((entry): Shown[] => {
 		const at = entry.createdAt.toISOString();
 		const from = (message: ThreadMessage): Shown => ({entryId: entry.id, message});
+		if (entry.kind === 'event' && entry.callId !== null && subAgentOf.has(entry.callId)) {
+			return [];
+		}
 		if (entry.kind === 'person' || entry.kind === 'event') {
 			return [from({id: entry.id, kind: entry.kind, text: entry.text, isError: entry.isError, at, attachments: attachmentsOf(entry.id)})];
 		}
@@ -368,6 +377,11 @@ function threadShown(thread: ChatThreadRow, files: RouteFiles): Shown[] {
 		}
 		const said: Shown[] = entry.text === '' ? [] : [from({id: entry.id, kind: 'assistant', text: entry.text, isError: entry.isError, at, attachments: attachmentsOf(entry.id)})];
 		const told = (entry.toolCalls ?? []).flatMap((call): Shown[] => {
+			const subAgent = call.name === CREATE_SUBAGENT_TOOL ? subAgentOf.get(call.id) : undefined;
+			if (subAgent) {
+				const title = subAgent.title ?? 'Sub-agent';
+				return [from({id: `${entry.id}:${call.id}`, kind: 'event', text: title, isError: false, at, attachments: [], subAgent: {id: subAgent.id, title, working: subAgent.state.kind !== 'stopped'}})];
+			}
 			const message = call.name === SEND_TO_PERSON_TOOL ? personMessageArgs(callArguments(call)) : null;
 			return message ? [from({id: `${entry.id}:${call.id}`, kind: 'assistant', text: message.text, isError: false, at, attachments: []})] : [];
 		});
@@ -451,7 +465,7 @@ function requireChat(store: ChatStore, viewer: OrgViewer, persona: PersonaRow, t
 function requireChatThread(store: ChatStore, viewer: OrgViewer, persona: PersonaRow, threadId: string, now: Date): Promise<Result<ChatThreadRow, ApiError>> {
 	return Do(async ($) => {
 		const chat = $(await requireChat(store, viewer, persona, threadId));
-		return $(requirePresent($(await store.getChatThread(chat.id, threadId, SHOWN_CALLS, now)), ApiErr.notFound('thread', threadId)));
+		return $(requirePresent($(await store.getChatThread(chat.id, threadId, THREAD_CALLS, now)), ApiErr.notFound('thread', threadId)));
 	});
 }
 
@@ -463,7 +477,7 @@ function handleListThreadsRoute(store: ChatStore, harnesses: Harnesses, files: R
 		const chat = $(await ensureChat(store, viewer, persona));
 		const now = new Date();
 		const [threads, draft, waiting, alerts] = await Promise.all([
-			store.listChatThreads(chat.id, SHOWN_CALLS, now),
+			store.listChatThreads(chat.id, THREAD_CALLS, now),
 			store.getChatDraft(chat.id),
 			store.listDraftAttachments(chat.id),
 			store.countChatAlerts(chat.id),
@@ -527,7 +541,7 @@ function handleOpenThreadRoute(store: ChatStore, files: RouteFiles, request: Aut
 		const opening = threadOpening(chat, {text, files: attachments.map((attachment) => attachment.name)});
 		const opened = $(requirePresent($(await store.openThread(chat.id, text, opening, attachments)), ApiErr.notFound('thread', chat.id)));
 		const now = new Date();
-		const thread = $(requirePresent($(await store.getChatThread(chat.id, opened.thread.id, SHOWN_CALLS, now)), ApiErr.notFound('thread', opened.thread.id)));
+		const thread = $(requirePresent($(await store.getChatThread(chat.id, opened.thread.id, THREAD_CALLS, now)), ApiErr.notFound('thread', opened.thread.id)));
 		return {thread: toChatThread(thread, threadShown(thread, files), now)};
 	});
 }

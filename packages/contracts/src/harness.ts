@@ -263,6 +263,10 @@ export const threadMessageSchema = z.object({
 	isError: z.boolean(),
 	at: z.string(),
 	attachments: z.array(chatAttachmentSchema),
+	// A sub-agent the persona started there, an event, by its thread, its title and whether it is at
+	// work, or asleep until it wakes: shown as a line that opens it, in place of what it said, which
+	// the persona reads.
+	subAgent: z.object({id: z.string(), title: z.string(), working: z.boolean()}).optional(),
 });
 
 export type ThreadMessage = z.infer<typeof threadMessageSchema>;

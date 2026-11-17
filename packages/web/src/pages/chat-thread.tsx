@@ -5,6 +5,7 @@ import type {
 	ThreadView,
 } from '@proxy/contracts/harness';
 import {memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
+import {useParams} from 'react-router';
 import {
 	getChatThread,
 	replyInThread,
@@ -23,7 +24,7 @@ import {
 	MessageScrollerViewport,
 } from '@/components/chat/message-scroller';
 import {FileViewer, type ViewedFile} from '@/components/chat/file-viewer';
-import {AlertsLine, EventLine, PersonBubble} from '@/components/chat/thread-parts';
+import {AlertsLine, EventLine, PersonBubble, SubAgentLine} from '@/components/chat/thread-parts';
 import {WorkingLine} from '@/components/chat/working-line';
 import {type ImageOf, Markdown} from '@/components/markdown';
 import type {AttachmentInput} from '@/hooks/use-attachments';
@@ -115,6 +116,15 @@ function saidPart(message: ThreadMessage) {
 	if (message.kind === 'person') {
 		return <PersonBubble text={message.text} attachments={message.attachments} />;
 	}
+	if (message.subAgent) {
+		return (
+			<SubAgentOpener
+				id={message.subAgent.id}
+				title={message.subAgent.title}
+				working={message.subAgent.working}
+			/>
+		);
+	}
 	if (message.kind === 'event') {
 		return <EventLine text={message.text} />;
 	}
@@ -128,6 +138,18 @@ function saidPart(message: ThreadMessage) {
 				</Bubble>
 			</MessageContent>
 		</Message>
+	);
+}
+
+// A sub-agent's line, opening its thread beside the chat as any thread of it opens.
+function SubAgentOpener({id, title, working}: {id: string; title: string; working: boolean}) {
+	const {org = '', id: personaId = ''} = useParams();
+	return (
+		<SubAgentLine
+			title={title}
+			working={working}
+			to={`/${org}/chat/${personaId}/threads/${encodeURIComponent(id)}`}
+		/>
 	);
 }
 

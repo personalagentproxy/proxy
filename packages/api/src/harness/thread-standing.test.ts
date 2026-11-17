@@ -57,6 +57,7 @@ function chatThread(thread: Partial<ChatThreadRow> = {}): ChatThreadRow {
 		state: {kind: 'stopped'},
 		standing: {waitingForMember: false, summary: null, summarySeq: null, archived: false},
 		alerts: 0,
+		subAgents: [],
 		entries: [
 			logEntry({id: 'e1', seq: 1, kind: 'person', text: `Add a date filter to the activity log, plan first ${ATTACHMENT_MARK}`}),
 			logEntry({

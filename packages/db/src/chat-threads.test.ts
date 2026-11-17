@@ -215,7 +215,17 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		expect(listed?.attachments).toEqual([{...file, entryId: entry.id, gone: true}]);
 		// Each entry as a thread shows it, without what the model was sent for it.
 		expect(Object.keys(listed?.entries[0] ?? {}).toSorted()).toEqual(
-			['createdAt', 'id', 'isError', 'kind', 'pending', 'seq', 'text', 'toolCalls'].toSorted(),
+			[
+				'callId',
+				'createdAt',
+				'id',
+				'isError',
+				'kind',
+				'pending',
+				'seq',
+				'text',
+				'toolCalls',
+			].toSorted(),
 		);
 
 		// The chat's list has the files of what opened each thread, not of what was said after.
@@ -1059,6 +1069,8 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		expect(unwrap(await renameThread(chat.id, 'no-such-thread', 'X'))).toBe(false);
 		expect(unwrap(await renameThread('another-chat', thread.id, 'X'))).toBe(false);
 		expect(unwrap(await renameThread(chat.id, chat.id, 'X'))).toBe(false);
-		expect((await db.agentThread.findUniqueOrThrow({where: {id: thread.id}})).title).toBe('Dinner, again');
+		expect((await db.agentThread.findUniqueOrThrow({where: {id: thread.id}})).title).toBe(
+			'Dinner, again',
+		);
 	});
 });

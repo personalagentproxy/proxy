@@ -165,7 +165,7 @@ describe('the Chat connection’s threads', () => {
 
 	test('open with what was said in one, as the member sees it, and say where there is none such of theirs', async () => {
 		const {threadsConnector} = await import('./connector');
-		const entry = (id: string, seq: number, kind: 'person' | 'assistant', text: string) => ({id, seq, kind, text, pending: false, toolCalls: null, isError: false, createdAt: at(seq)});
+		const entry = (id: string, seq: number, kind: 'person' | 'assistant', text: string) => ({id, seq, kind, text, pending: false, toolCalls: null, callId: null, isError: false, createdAt: at(seq)});
 		const thread: ChatThreadRow = {
 			id: 'thread-1',
 			orgId: 'org-1',
@@ -186,6 +186,7 @@ describe('the Chat connection’s threads', () => {
 			alerts: 0,
 			entries: [entry('e1', 1, 'person', 'Move the pricing review'), entry('e2', 2, 'assistant', 'Which day suits Dana?')],
 			attachments: [],
+			subAgents: [],
 		};
 		getMemberThread.mockResolvedValue(Ok(thread));
 

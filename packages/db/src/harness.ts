@@ -1528,7 +1528,7 @@ export type ThreadStandingRow = {
 /** An entry as a thread shows it: what was said, by whom and when, without what the model was sent or how it ran. */
 export type ShownEntryRow = Pick<
 	EntryRow,
-	'id' | 'seq' | 'kind' | 'pending' | 'text' | 'toolCalls' | 'isError' | 'createdAt'
+	'id' | 'seq' | 'kind' | 'pending' | 'text' | 'toolCalls' | 'callId' | 'isError' | 'createdAt'
 >;
 
 // The columns of an entry a thread shows it by, as `ShownEntryRow` has them: not the system prompt
@@ -1540,6 +1540,7 @@ const shownEntrySelect = {
 	pending: true,
 	text: true,
 	toolCalls: true,
+	callId: true,
 	isError: true,
 	createdAt: true,
 } as const;
@@ -1556,6 +1557,16 @@ export type ChatThreadRow = ThreadRow & {
 	alerts: number;
 	entries: ShownEntryRow[];
 	attachments: AttachmentRow[];
+	// The sub-agents its agent started, each by its thread, its title and the call that started it.
+	subAgents: ShownSubAgentRow[];
+};
+
+/** A sub-agent as the thread that started it shows it: its thread, its title, and the call that started it. */
+export type ShownSubAgentRow = {
+	id: string;
+	title: string | null;
+	parentCallId: string | null;
+	state: ThreadState;
 };
 
 // An assistant entry with a call of the tool among its calls, as they are kept: as JSON, each
@@ -1610,10 +1621,18 @@ async function readChatThreads(
 				(files === 'opener' ? entries.slice(0, 1) : entries).map((entry) => entry.id),
 			),
 		);
+		const subAgents = await db.agentThread.findMany({
+			where: {subAgentOfId: {in: threads.map((thread) => thread.id)}},
+			select: {id: true, title: true, parentCallId: true, subAgentOfId: true, jobs: openJobsSelect},
+			orderBy: {createdAt: 'asc'},
+		});
 		return threads.map(
 			({jobs, entries, waitingForMember, summary, summarySeq, archived, _count, ...thread}) => {
 				const shown = new Set(entries.map((entry) => entry.id));
 				return {
+					subAgents: subAgents.flatMap(({subAgentOfId, jobs: subJobs, ...subAgent}) =>
+						subAgentOfId === thread.id ? [{...subAgent, state: threadState(subJobs, now)}] : [],
+					),
 					...toThread(thread),
 					state: threadState(jobs, now),
 					standing: {waitingForMember, summary, summarySeq, archived},
