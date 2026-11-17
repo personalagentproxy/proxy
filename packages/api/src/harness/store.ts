@@ -26,6 +26,10 @@ import type {
 	PersonaModel,
 	PersonaRow,
 	ThreadOpening,
+	SaidToParent,
+	SubAgentRow,
+	SubAgentStart,
+	NewEntry,
 	ThreadRow,
 	ThreadSession,
 } from '@proxy/db/harness';
@@ -124,6 +128,14 @@ export type HarnessStore = {
 	setAlertInline: (job: InlineJob, alert: NewAlert) => Promise<Result<AlertRow | null, ApiError>>;
 	/** The agent of a thread an alert opened dismisses it, archived; false where no alert opened it, or the job is no longer the worker's. */
 	dismissThreadInline: (job: InlineJob) => Promise<Result<boolean, ApiError>>;
+	/** The sub-agents the thread's agent started, each with what it is up to. */
+	listSubAgents: (threadId: string, now: Date) => Promise<Result<SubAgentRow[], ApiError>>;
+	/** A sub-agent started mid-turn, its id; null where the job is no longer the worker's. */
+	startSubAgentInline: (job: InlineJob, start: SubAgentStart) => Promise<Result<string | null, ApiError>>;
+	/** A message to one of the thread's sub-agents mid-turn, with the sub-agent as it was, null for no such sub-agent; null where the job is no longer the worker's. */
+	messageSubAgentInline: (job: InlineJob, subAgentId: string, entry: NewEntry) => Promise<Result<{subAgent: SubAgentRow | null} | null, ApiError>>;
+	/** What a sub-agent says mid-turn to the thread it works for; false where the job is no longer the worker's. */
+	tellParentInline: (job: InlineJob, said: SaidToParent) => Promise<Result<boolean, ApiError>>;
 	completeDismiss: (job: {jobId: string; workerId: string; threadId: string; callId: string}, answer: (dismissed: boolean) => {text: string; isError: boolean}) => Promise<Result<boolean, ApiError>>;
 	/** The member's time zone, an IANA name; null where they have none set. */
 	getUserTimeZone: (userId: string) => Promise<Result<string | null, ApiError>>;
@@ -208,6 +220,10 @@ export const harnessStore: HarnessStore = {
 	completeSetAlert: (job, alert, answer) => alerts.completeSetAlert(job, alert, answer, readyForInference),
 	setAlertInline: alerts.setAlertInline,
 	dismissThreadInline: harness.dismissThreadInline,
+	listSubAgents: harness.listSubAgents,
+	startSubAgentInline: (job, start) => harness.startSubAgentInline(job, start, readyForInference),
+	messageSubAgentInline: (job, subAgentId, entry) => harness.messageSubAgentInline(job, subAgentId, entry, readyForInference),
+	tellParentInline: (job, said) => harness.tellParentInline(job, said, readyForInference),
 	completeDismiss: (job, answer) => harness.completeDismiss(job, answer, readyForInference),
 	getUserTimeZone,
 	deleteAlert: alerts.deleteAlert,

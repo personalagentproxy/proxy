@@ -1,6 +1,22 @@
-import {ATTACHMENT_MARK, callArguments, cut, personMessageArgs, preview, SEND_TO_PERSON_TOOL, SLEEP_TOOL, sleepUntil, type ToolCall} from '@proxy/utils/harness';
+import {
+	ATTACHMENT_MARK,
+	callArguments,
+	CREATE_SUBAGENT_TOOL,
+	cut,
+	parentMessageArgs,
+	personMessageArgs,
+	preview,
+	SEND_TO_PARENT_TOOL,
+	SEND_TO_PERSON_TOOL,
+	SEND_TO_SUBAGENT_TOOL,
+	SLEEP_TOOL,
+	sleepUntil,
+	subAgentArgs,
+	subAgentMessageArgs,
+	type ToolCall,
+} from '@proxy/utils/harness';
 import {ApiErr, type ApiError} from '@proxy/utils';
-import type {AfterAnswer, CallPlan, FailureNote, JobRow, ThreadEnd, ThreadOpening, ThreadRow} from '@proxy/db/harness';
+import type {AfterAnswer, CallPlan, FailureNote, JobRow, SubAgentRow, SubAgentStart, ThreadEnd, ThreadOpening, ThreadRow} from '@proxy/db/harness';
 import type {NewAgentTask} from '@proxy/db/task';
 
 /**
@@ -75,9 +91,74 @@ export function alertOpening(chat: ThreadRow, alert: {title: string; brief: stri
 	return {title, task: taskFor(chat, {title, goal: cut(alert.brief, MAX_TASK_TEXT)})};
 }
 
-/** A thread's answer without calls, what it said: the end of its turn, and its task's outcome, cut. */
-export function threadEnd(said: string): ThreadEnd {
-	return {outcome: cut(said, MAX_TASK_TEXT)};
+/** What a sub-agent's answer is followed by when it stops, so the thread's agent knows it did and how to go on. */
+export const STOPPED_NOTE = '(It has stopped; a message takes it up again.)';
+
+/**
+ * A thread's answer without calls, what it said: the end of its turn, and its task's outcome, cut;
+ * and, where the thread is a sub-agent's, what the thread it works for is told: what it said, with
+ * the note that it stopped, or, where a message came meanwhile, which it goes on to read, alone.
+ */
+export function threadEnd(said: string, isError = false): ThreadEnd {
+	return {
+		outcome: cut(said, MAX_TASK_TEXT),
+		toParent: {stopped: {text: `${said}\n\n${STOPPED_NOTE}`, isError}, goingOn: {text: said, isError}},
+	};
+}
+
+/** The sub-agent a create_subagent call starts: titled as the call says, its task the brief, and the brief the first thing said in its thread. */
+export function subAgentStart(parent: ThreadRow, call: {id: string; title: string; brief: string}): SubAgentStart {
+	return {
+		callId: call.id,
+		title: call.title,
+		task: taskFor(parent, {title: call.title, goal: cut(call.brief, MAX_TASK_TEXT)}),
+		entries: [{kind: 'person', text: call.brief}],
+	};
+}
+
+/** What a create_subagent call is answered with at once, the sub-agent's id in it, since every message to it takes the id. */
+export function started(title: string): (id: string) => string {
+	return (id) => `Started “${title}”, id ${id}. What it says comes to you as a message.`;
+}
+
+export const SENT_TO_PARENT = 'Sent.';
+
+/** What the three calls are answered with where their arguments are no good. */
+export const BAD_SUBAGENT_ARGS = 'Give title, a few words, and brief, what to do.';
+export const BAD_SUBAGENT_MESSAGE_ARGS = 'Give subagent, the sub-agent’s id, and text, the message.';
+export const BAD_PARENT_MESSAGE_ARGS = 'Give text, the message.';
+
+/** What a send_to_subagent call is answered with at once: what the sub-agent was up to as the message came, or that the thread has no such sub-agent. */
+export function sentToSubAgent(id: string): (subAgent: SubAgentRow | null) => {text: string; isError: boolean} {
+	return (subAgent) => {
+		if (!subAgent) {
+			return {text: `No sub-agent ${id}.`, isError: true};
+		}
+		const was =
+			subAgent.state.kind === 'stopped'
+				? 'had stopped, and takes it up'
+				: subAgent.state.kind === 'asleep'
+					? 'was asleep, and is woken by it'
+					: 'is at work, and reads it when its current call is answered';
+		return {text: `Sent to “${subAgent.title ?? ''}”, which ${was}.`, isError: false};
+	};
+}
+
+/** Whether the thread is a sub-agent's, which works for another thread's agent rather than the person. */
+export function isSubAgent(thread: ThreadRow): boolean {
+	return thread.subAgentOfId !== null;
+}
+
+// The calls a sub-agent has (tool-surface.ts SUB_AGENT_TOOLS): the MCP server's script, a message to
+// the thread it works for, and a sleep.
+const SUB_AGENT_CALLS = ['script', SEND_TO_PARENT_TOOL, SLEEP_TOOL];
+
+/** Whether the thread hasn't got the tool, which its call is answered there is no such tool for: a sub-agent has its own few, and only a sub-agent has a message to the thread it works for. */
+export function notTheThreads(thread: ThreadRow, name: string): boolean {
+	if (isSubAgent(thread)) {
+		return !SUB_AGENT_CALLS.includes(name);
+	}
+	return name === SEND_TO_PARENT_TOOL;
 }
 
 /** A task for a thread's work, the member's, as the chat it is of is, run as the persona. */
@@ -104,23 +185,47 @@ export const BAD_PERSON_MESSAGE_ARGS = 'Give text, the message.';
 
 /**
  * What is to happen with one call: a sleep's job is due when it ends; a message to the person is
- * answered at once, the call being what the person reads, or where its arguments are no good;
- * every other call's job is due now.
+ * answered at once, the call being what the person reads, or where its arguments are no good; a
+ * thread's call to start a sub-agent starts it as the answer is written, and its message to one,
+ * and a sub-agent's message to the thread it works for, are sent then, each answered at once,
+ * where its arguments are no good too; every other call's job is due now, the tool job answering
+ * one the thread hasn't got (tool-job.ts).
  */
-export function planCall(call: ToolCall, now: Date): CallPlan {
+export function planCall(thread: ThreadRow, call: ToolCall, now: Date): CallPlan {
 	const args = callArguments(call);
 	if (call.name === SLEEP_TOOL) {
 		return {kind: 'job', runAt: sleepUntil(args, now) ?? now};
 	}
-	if (call.name === SEND_TO_PERSON_TOOL) {
+	if (call.name === SEND_TO_PERSON_TOOL && !isSubAgent(thread)) {
 		return personMessageArgs(args) ? {kind: 'answer', text: SENT_TO_PERSON, isError: false} : {kind: 'answer', text: BAD_PERSON_MESSAGE_ARGS, isError: true};
+	}
+	if (call.name === CREATE_SUBAGENT_TOOL && !isSubAgent(thread)) {
+		const parsed = subAgentArgs(args);
+		if (!parsed) {
+			return {kind: 'answer', text: BAD_SUBAGENT_ARGS, isError: true};
+		}
+		return {kind: 'create_subagent', start: subAgentStart(thread, {id: call.id, ...parsed}), started: started(parsed.title)};
+	}
+	if (call.name === SEND_TO_SUBAGENT_TOOL && !isSubAgent(thread)) {
+		const parsed = subAgentMessageArgs(args);
+		if (!parsed) {
+			return {kind: 'answer', text: BAD_SUBAGENT_MESSAGE_ARGS, isError: true};
+		}
+		return {kind: 'send_to_subagent', subAgentId: parsed.subagent, entry: {kind: 'person', text: parsed.text}, sent: sentToSubAgent(parsed.subagent)};
+	}
+	if (call.name === SEND_TO_PARENT_TOOL && isSubAgent(thread)) {
+		const parsed = parentMessageArgs(args);
+		if (!parsed) {
+			return {kind: 'answer', text: BAD_PARENT_MESSAGE_ARGS, isError: true};
+		}
+		return {kind: 'send_to_parent', message: {text: parsed.text, isError: false}, sent: SENT_TO_PARENT};
 	}
 	return {kind: 'job', runAt: now};
 }
 
 /** What is to happen with each of the model's calls, by the id it gave the call. */
-export function planCalls(calls: ToolCall[], now: Date): Record<string, CallPlan> {
-	return Object.fromEntries(calls.map((call) => [call.id, planCall(call, now)]));
+export function planCalls(thread: ThreadRow, calls: ToolCall[], now: Date): Record<string, CallPlan> {
+	return Object.fromEntries(calls.map((call) => [call.id, planCall(thread, call, now)]));
 }
 
 /** What follows the model's answer: an answer without calls ends the thread's turn; any other, its calls as planned. */
@@ -142,6 +247,6 @@ export function failureNote(error: string): (job: JobRow) => FailureNote | null 
 			return job.callId === null ? null : {kind: 'answer', callId: job.callId, text: `This call could not be run: ${error}`};
 		}
 		const text = `Something went wrong on my side, so I could not answer: ${error.replace(/\.$/, '')}. Say something to try again.`;
-		return {kind: 'end', text, end: threadEnd(text)};
+		return {kind: 'end', text, end: threadEnd(text, true)};
 	};
 }

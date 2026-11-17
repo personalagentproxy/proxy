@@ -173,6 +173,8 @@ describe('the Chat connection’s threads', () => {
 			personaId: 'persona-1',
 			userId: 'user-1',
 			parentThreadId: 'chat-1',
+			subAgentOfId: null,
+			parentCallId: null,
 			title: 'Pricing review with Dana',
 			taskId: 'task-1',
 			harness: null,

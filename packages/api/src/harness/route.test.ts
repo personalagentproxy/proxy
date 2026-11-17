@@ -69,6 +69,8 @@ const chat: ThreadRow = {
 	personaId: 'persona-1',
 	userId: 'user-1',
 	parentThreadId: null,
+	subAgentOfId: null,
+	parentCallId: null,
 	title: null,
 	taskId: null,
 	harness: null,
@@ -449,6 +451,8 @@ describe('the chat’s threads', () => {
 		return {
 			...chat,
 			parentThreadId: 'chat-1',
+			subAgentOfId: null,
+			parentCallId: null,
 			title: 'Pricing review with Dana',
 			taskId: 'task-1',
 			state: {kind: 'stopped'},

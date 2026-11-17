@@ -878,6 +878,13 @@ model AgentThread {
   // Whether an alert opened the thread in the chat, rather than the member's message: its agent
   // may dismiss it, archiving it, where what came is nothing to tell them of.
   openedByAlert    Boolean @default(false)
+  // A sub-agent's thread: the thread whose agent started it (AgentThread; as a column, as the
+  // chat is, since both live and die with the persona and the member), and the call that started
+  // it; null for every other thread and for a chat. It is a thread of the same chat
+  // (parentThreadId), so the chat's lock covers it with the thread it works for, but the chat
+  // doesn't list it: what it says goes to that thread's agent, as an event, and it is read there.
+  subAgentOfId String?
+  parentCallId String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
@@ -897,6 +904,7 @@ model AgentThread {
   @@index([personaId, userId])
   @@index([agentId])
   @@index([parentThreadId])
+  @@index([subAgentOfId])
   @@index([orgId, createdAt])
 }
 

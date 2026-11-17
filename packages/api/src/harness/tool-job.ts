@@ -5,7 +5,7 @@ import {callArguments, isRecord, OUTCOME_UNKNOWN, SLEEP_TOOL, sleepUntil, type T
 import type {JobRow, ThreadRow} from '@proxy/db/harness';
 
 import {CANCEL_ALERT_TOOL, DISMISS_TOOL, SET_ALERT_TOOL} from './alerts';
-import {failureNote} from './thread-rules';
+import {failureNote, notTheThreads} from './thread-rules';
 import type {HarnessStore} from './store';
 import {type AlertCallOutcome, alertCall, BAD_SLEEP_ARGS, dismissText, error, NOT_JSON, noSuchTool, runGateTool, setText, type ToolAnswerStore} from './tool-answers';
 import {isGateTool} from './tool-surface';
@@ -33,6 +33,9 @@ function answer(store: ToolJobStore, thread: ThreadRow, job: JobRow, call: ToolC
 		const args = callArguments(call);
 		if (!isRecord(args)) {
 			return error(NOT_JSON);
+		}
+		if (notTheThreads(thread, call.name)) {
+			return noSuchTool(call.name);
 		}
 		if (call.name === SET_ALERT_TOOL || call.name === CANCEL_ALERT_TOOL) {
 			return $(await alertCall(store, thread, call, args, now));
@@ -69,7 +72,7 @@ export function runToolJob(store: ToolJobStore, job: JobRow, workerId: string, n
 			$(await store.failJob(job.id, workerId, why, failureNote(why)));
 			return;
 		}
-		if (call.name === DISMISS_TOOL) {
+		if (call.name === DISMISS_TOOL && !notTheThreads(thread, call.name)) {
 			$(await store.completeDismiss({jobId: job.id, workerId, threadId: thread.id, callId: call.id}, dismissText));
 			return;
 		}
