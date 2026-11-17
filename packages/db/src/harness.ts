@@ -1232,8 +1232,9 @@ export async function openThread(
 
 /**
  * Lands what the member replied in one of their chat's threads, with the files they attached, and
- * wakes the thread's agent as wakeWith does, its task under way again. `Ok(null)` means no such
- * thread of the chat.
+ * wakes the thread's agent as wakeWith does, its task under way again. Replying, the member has
+ * read the thread: it is read up to their reply, so it isn't unread while it works on it; what its
+ * agent says after is unread again. `Ok(null)` means no such thread of the chat.
  */
 export async function replyInThread(
 	chatId: string,
@@ -1257,7 +1258,11 @@ export async function replyInThread(
 			}
 			// What was typed for the reply is sent with it.
 			await tx.agentThread.update({where: {id: threadId}, data: {draft: null}});
-			return wakeWith(tx, toThread(found), {kind: 'person', text}, wakes, attachments);
+			const entry = await wakeWith(tx, toThread(found), {kind: 'person', text}, wakes, attachments);
+			// Every answer in the thread came before the reply, whose seq is past theirs even where
+			// it waits pending, to be numbered again as it is released after them.
+			await tx.$executeRaw`UPDATE "AgentThread" SET "readSeq" = GREATEST("readSeq", ${entry.seq}) WHERE "id" = ${threadId}`;
+			return entry;
 		}),
 	);
 }
