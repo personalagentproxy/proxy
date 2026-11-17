@@ -28,6 +28,10 @@ import type {SandboxBackend} from './backend';
 // How long a request may take beyond what the command itself may.
 const REQUEST_MS = 30_000;
 
+// How long a wake may take: a service may bring a sandbox long asleep back from storage, a new
+// machine with its home downloaded into it, which takes longer than resuming one.
+const WAKE_MS = 3 * 60_000;
+
 export type RemoteSandboxOptions = {
 	url: string;
 	token: string;
@@ -100,7 +104,8 @@ export function remoteSandboxBackend({url, token, headers}: RemoteSandboxOptions
 		exec: (ref, command) => call('POST', at(ref, '/exec'), execSandboxBodySchema.parse(command), sandboxOutputSchema, command.timeoutMs + REQUEST_MS),
 		sleep: async (ref) => (await call('POST', at(ref, '/sleep'), null, sandboxRefSchema)).map((answer) => answer.ref),
 		// No body where the api leaves the service's limit as it is, as before there was one.
-		wake: async (ref, limit) => (await call('POST', at(ref, '/wake'), limit?.maxRunning === undefined ? null : wakeSandboxBodySchema.parse(limit), sandboxRefSchema)).map((answer) => answer.ref),
+		wake: async (ref, limit) =>
+			(await call('POST', at(ref, '/wake'), limit?.maxRunning === undefined ? null : wakeSandboxBodySchema.parse(limit), sandboxRefSchema, WAKE_MS)).map((answer) => answer.ref),
 		destroy: async (ref) => (await call('DELETE', at(ref), null, sandboxDestroyedSchema)).map(() => undefined),
 	};
 }

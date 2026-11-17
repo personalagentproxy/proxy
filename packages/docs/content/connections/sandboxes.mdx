@@ -6,9 +6,11 @@ description: Computers of their own for your agents to work on, kept while they 
 Sandboxes are built in, like the [Vault](/connections/vault): computers an agent asks for when
 its work needs one, such as changing code in a repository or running a script, rather than an
 outside service you connect. Each is a Linux shell with git, curl, node and python and the
-internet, and nothing of yours on it but what the agent puts there. A sandbox keeps its disk
-while the agent is away: idle for a while, it goes to sleep, and the next command wakes it with
-everything as it was, so an agent comes back to the work it started.
+internet, and nothing of yours on it but what the agent puts there. A sandbox keeps its home
+directory while the agent is away: idle for a while, it goes to sleep, and the next command wakes
+it with everything in its home as it was, so an agent comes back to the work it started. After a
+long sleep, what was installed outside the home, such as a package added with `sudo apt`, may be
+gone, and the sandbox has the tools it started with there again.
 
 You have a Sandboxes connection of your own in every organization that is offered them, as you
 have a vault: nobody else in the organization sees it or the sandboxes on it, and it can't be
