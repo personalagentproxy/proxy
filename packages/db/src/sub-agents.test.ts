@@ -73,6 +73,7 @@ describe.skipIf(!databaseUrl)('sub-agents, against the database', () => {
 		return {
 			callId,
 			title: 'Read the contract',
+			model: 'fable',
 			task: {
 				orgId,
 				agentId,
@@ -166,6 +167,13 @@ describe.skipIf(!databaseUrl)('sub-agents, against the database', () => {
 			title: 'Read the contract',
 		});
 		expect(sub?.taskId).not.toBe(thread.taskId);
+		// It runs on the model the call named, the thread's harness kept.
+		expect(
+			await db.agentThread.findUniqueOrThrow({
+				where: {id: subAgentId},
+				select: {chosenModel: true},
+			}),
+		).toEqual({chosenModel: 'fable'});
 		// Its task is a sub-task of the thread's, so the activity log draws it under the thread.
 		expect(await db.agentTask.findUniqueOrThrow({where: {id: sub?.taskId ?? ''}})).toMatchObject({
 			parentId: thread.taskId,

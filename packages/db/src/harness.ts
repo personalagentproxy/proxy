@@ -177,6 +177,8 @@ export type SaidToParent = {text: string; isError: boolean};
 export type SubAgentStart = {
 	callId: string;
 	title: string;
+	// The model it runs on, by the id the thread's harness lists it under; the thread's where none.
+	model?: string;
 	task: NewAgentTask & {parentId: null};
 	entries: NewEntry[];
 };
@@ -1279,7 +1281,7 @@ async function createSubAgent(
 				titleWritten: true,
 				taskId: task.id,
 				chosenHarness: chosen?.chosenHarness,
-				chosenModel: chosen?.chosenModel,
+				chosenModel: start.model ?? chosen?.chosenModel,
 			},
 			select: threadSelect,
 		}),

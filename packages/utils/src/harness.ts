@@ -102,12 +102,16 @@ export function personMessageArgs(args: unknown): {text: string} | null {
 	return {text: args.text.trim()};
 }
 
-/** A create_subagent call's arguments: the sub-agent's title, cut to a task's, and its brief. Null when they are not that. */
-export function subAgentArgs(args: unknown): {title: string; brief: string} | null {
+/** A create_subagent call's arguments: the sub-agent's title, cut to a task's, its brief, and the model it runs on where one is named. Null when they are not that. */
+export function subAgentArgs(args: unknown): {title: string; brief: string; model?: string} | null {
 	if (!isRecord(args) || !isText(args.title) || !isText(args.brief)) {
 		return null;
 	}
-	return {title: cut(args.title.trim(), MAX_SUBAGENT_TITLE), brief: args.brief.trim()};
+	if (args.model !== undefined && !isText(args.model)) {
+		return null;
+	}
+	const named = args.model === undefined ? {} : {model: args.model.trim()};
+	return {title: cut(args.title.trim(), MAX_SUBAGENT_TITLE), brief: args.brief.trim(), ...named};
 }
 
 /** A send_to_subagent call's arguments: which sub-agent, by id, and the message. Null when they are not that. */

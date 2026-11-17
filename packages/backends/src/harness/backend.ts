@@ -53,7 +53,13 @@ export type HarnessEntry = ContextEntry & {jobId: string | null};
  * reads, and whether it sees pictures: a turn on one that does is given the pictures the person
  * attached with what they said (`HarnessEntry.images`), and a turn on one that doesn't never is.
  */
-export type HarnessModel = {id: string; label: string; images?: true};
+/**
+ * A model a harness answers with: its id, what the person reads it as, whether it sees pictures,
+ * and how strong it is among the harness's models, higher the stronger, where the harness ranks
+ * them: a thread's agent may start a sub-agent on its own model or a weaker one. A harness that
+ * ranks none keeps every sub-agent on its thread's model.
+ */
+export type HarnessModel = {id: string; label: string; images?: true; strength?: number};
 
 /**
  * What a call answered; `endTurn` where the call ends the turn, as a sleep does. `meanwhile` is

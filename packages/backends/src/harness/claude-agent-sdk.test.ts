@@ -328,11 +328,12 @@ describe('claudeAgentSdkHarness', () => {
 		const fake = fakeQuery();
 		const harness = claudeAgentSdkHarness(deps(fake));
 
-		// Each sees pictures, so a turn on any of them is given those the person attached.
+		// Each sees pictures, so a turn on any of them is given those the person attached; ranked
+		// Fable, Opus, Sonnet, so a thread's sub-agents run on its model or a weaker one.
 		expect(harness.models).toEqual([
-			{id: 'sonnet', label: 'Claude Sonnet 5.5', images: true},
-			{id: 'opus', label: 'Claude Opus 5.5', images: true},
-			{id: 'fable', label: 'Claude Fable 5.2', images: true},
+			{id: 'sonnet', label: 'Claude Sonnet 5.5', images: true, strength: 1},
+			{id: 'opus', label: 'Claude Opus 5.5', images: true, strength: 2},
+			{id: 'fable', label: 'Claude Fable 5.2', images: true, strength: 3},
 		]);
 		for (const model of harness.models) {
 			fake.script(messages([init(), result()]));

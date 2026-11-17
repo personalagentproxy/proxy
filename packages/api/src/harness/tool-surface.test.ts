@@ -203,6 +203,19 @@ describe('running a call inline', () => {
 		expect(store.messageSubAgentInline).toHaveBeenCalledWith({jobId: 'job-1', workerId: 'w1', threadId: thread.id}, 'sub-9', {kind: 'person', text: 'Also the date.'});
 	});
 
+	test('create_subagent names a model where the thread may use more than one, and a model it may not use is refused', async () => {
+		const surface2 = toolSurfaceFor(store, thread, {id: 'job-1'}, 'w1', () => now, new Map(), ['opus', 'sonnet']);
+		const create = surface2.tools.find((candidate) => candidate.name === 'create_subagent');
+		expect((create?.inputSchema as {properties: Record<string, {enum?: string[]}>}).properties.model?.enum).toEqual(['opus', 'sonnet']);
+		expect((surface().tools.find((candidate) => candidate.name === 'create_subagent')?.inputSchema as {properties: Record<string, unknown>}).properties.model).toBeUndefined();
+		const refused = (await surface2.execute({id: 'c1', name: 'create_subagent', arguments: JSON.stringify({title: 'Read it', brief: 'Read it.', model: 'fable'})})).unwrap();
+		expect(refused).toEqual({text: expect.stringContaining('opus, sonnet'), isError: true});
+		expect(store.startSubAgentInline).not.toHaveBeenCalled();
+		store.startSubAgentInline.mockResolvedValue(Ok('sub-2'));
+		await surface2.execute({id: 'c2', name: 'create_subagent', arguments: JSON.stringify({title: 'Read it', brief: 'Read it.', model: 'sonnet'})});
+		expect(store.startSubAgentInline).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({model: 'sonnet'}));
+	});
+
 	test('a thread has no send_to_parent, and a sub-agent none of a thread’s calls but its own', async () => {
 		expect((await run('send_to_parent', JSON.stringify({text: 'Hi'}))).unwrap()).toEqual({text: expect.stringContaining('send_to_parent'), isError: true});
 		const sub = {...thread, id: 'sub-1', subAgentOfId: thread.id, parentCallId: 'c0'};
