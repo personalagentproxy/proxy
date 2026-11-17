@@ -438,7 +438,8 @@ export type ChatAnswerRow = {
 
 /**
  * The persona's last answer in each of the member's chats that has one, across the chat and its
- * threads, with each thread whose last answer is past its read marker, and whether its turn is
+ * threads, with each thread whose last answer is past its read marker but for one archived, which
+ * the member put away and its list no longer has to open it by, and whether its turn is
  * over, a thread at work being one with a turn to run or any job due, as `threadState` reads its
  * jobs; but for a thread an alert opened that is archived, as its agent dismissed it, which told the
  * member nothing. One query, and nothing made, for what is asked every so often. Each thread's last
@@ -468,7 +469,7 @@ export async function listAnswers(
 					"rank" = 1 AS "latest"
 				FROM (
 					SELECT t."personaId", p."name" AS "personaName", c."id" AS "threadId", last."id",
-						last."seq", last."text", last."seq" > c."readSeq" AS "unread",
+						last."seq", last."text", last."seq" > c."readSeq" AND NOT c."archived" AS "unread",
 						EXISTS (
 							SELECT 1 FROM "AgentJob" AS job
 							WHERE job."threadId" = c."id" AND job."status" IN ('queued', 'running')
