@@ -106,7 +106,7 @@ describe('contracts', () => {
 		expect(intent.pickedSchema.safeParse({widget: 'nope', ms: 1}).success).toBe(false);
 	});
 
-	test('a chat thread says where it stands, one of the three words, and its summary, or null', () => {
+	test('a chat thread says where it stands, one of the four words, and its summary, or null', () => {
 		const thread: harness.ChatThread = {
 			id: 't1',
 			title: 'Add a date filter to the activity log',
@@ -131,7 +131,12 @@ describe('contracts', () => {
 		expect(
 			harness.chatThreadSchema.parse({...thread, standing: 'done', summary: null}).summary,
 		).toBeNull();
-		expect([...harness.threadStandingSchema.options]).toEqual(['in_progress', 'waiting', 'done']);
+		expect([...harness.threadStandingSchema.options]).toEqual([
+			'in_progress',
+			'waiting',
+			'watching',
+			'done',
+		]);
 		expect(harness.chatThreadSchema.safeParse({...thread, standing: 'stopped'}).success).toBe(
 			false,
 		);

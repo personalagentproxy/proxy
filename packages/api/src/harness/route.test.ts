@@ -547,7 +547,7 @@ describe('the chat’s threads', () => {
 		]);
 	});
 
-	test('say where each thread stands: in progress while at work or asleep, waiting for the viewer where its turn’s end said so, done otherwise; and its summary only while nothing was said past it', async () => {
+	test('say where each thread stands: in progress while at work or asleep, waiting for the viewer where its turn’s end said so, watching where alerts come to it, done otherwise; and its summary only while nothing was said past it', async () => {
 		const {handleListThreadsRoute, handleGetChatThreadRoute} = routes;
 		store.getChatDraft.mockResolvedValue(Ok(null));
 		store.listDraftAttachments.mockResolvedValue(Ok([]));
@@ -563,7 +563,11 @@ describe('the chat’s threads', () => {
 		});
 		// Asleep, a summary written before it slept is still current: nothing was said since.
 		const sleeping = {...watch, standing: {waitingForMember: false, summary: 'Watches for an email from Dana.', summarySeq: 3, archived: false}};
-		store.listChatThreads.mockResolvedValue(Ok([waiting, stale, sleeping]));
+		// Stopped needing nothing of the viewer, with an alert that comes to it: watching. Waiting, it
+		// still waits, alerts or not.
+		const watching = chatThread({id: 'thread-5', alerts: 1, standing: {waitingForMember: false, summary: null, summarySeq: null, archived: false}});
+		const asking = chatThread({id: 'thread-6', alerts: 2, standing: {waitingForMember: true, summary: null, summarySeq: null, archived: false}});
+		store.listChatThreads.mockResolvedValue(Ok([waiting, stale, sleeping, watching, asking]));
 
 		const listed = (await handleListThreadsRoute(request({personaId: 'persona-1'}))).unwrap().threads;
 
@@ -571,6 +575,8 @@ describe('the chat’s threads', () => {
 			{id: 'thread-3', standing: 'in_progress', summary: 'Watches for an email from Dana.', latest: null},
 			{id: 'thread-2', standing: 'waiting', summary: 'Found it, and asks whether to send the new prices to Dana.', latest: 'It moved to Friday, with the new prices attached.'},
 			{id: 'thread-4', standing: 'done', summary: null, latest: 'Booked the Lindens room for Friday.'},
+			{id: 'thread-5', standing: 'watching', summary: null, latest: null},
+			{id: 'thread-6', standing: 'waiting', summary: null, latest: null},
 		]);
 
 		// At work again, it is in progress whatever its last turn's end said; what the viewer said,

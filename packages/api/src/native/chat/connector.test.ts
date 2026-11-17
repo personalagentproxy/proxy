@@ -60,6 +60,7 @@ function listed(over: Partial<MemberThreadRow> = {}): MemberThreadRow {
 		createdAt: at(0),
 		state: {kind: 'stopped'},
 		standing: {waitingForMember: true, summary: 'Asks which day suits Dana.', summarySeq: 2, archived: false},
+		alerts: 0,
 		last: {seq: 2, pending: false, createdAt: at(2)},
 		...over,
 	};
@@ -99,7 +100,7 @@ describe('the Chat connection’s threads', () => {
 		});
 	});
 
-	test('say a thread at work or asleep is in progress, one that stopped archived where the person archived it, else done unless it waits, and give a summary only while nothing was said past it', async () => {
+	test('say a thread at work or asleep is in progress, one that stopped archived where the person archived it, else waiting where it waits, watching where alerts come to it, and done otherwise, and give a summary only while nothing was said past it', async () => {
 		const {threadsConnector} = await import('./connector');
 		listMemberThreads.mockResolvedValue(
 			Ok({
@@ -108,6 +109,8 @@ describe('the Chat connection’s threads', () => {
 					listed({id: 'working', state: {kind: 'working'}, last: {seq: 3, pending: false, createdAt: at(3)}}),
 					listed({id: 'asleep', state: {kind: 'asleep', until: at(30)}}),
 					listed({id: 'done', standing: {waitingForMember: false, summary: 'Moved it to Friday.', summarySeq: 2, archived: false}}),
+					listed({id: 'watching', alerts: 2, standing: {waitingForMember: false, summary: 'Watches for the contract.', summarySeq: 2, archived: false}}),
+					listed({id: 'waiting-with-alerts', alerts: 1}),
 					listed({id: 'pending', last: {seq: 2, pending: true, createdAt: at(4)}}),
 					listed({id: 'unread', standing: {waitingForMember: false, summary: null, summarySeq: null, archived: false}}),
 					listed({id: 'empty', title: null, standing: {waitingForMember: false, summary: null, summarySeq: null, archived: false}, last: null}),
@@ -123,6 +126,8 @@ describe('the Chat connection’s threads', () => {
 			['working', 'In progress', ''],
 			['asleep', 'In progress', 'Asks which day suits Dana.'],
 			['done', 'Done', 'Moved it to Friday.'],
+			['watching', 'Watching', 'Watches for the contract.'],
+			['waiting-with-alerts', 'Waiting for you', 'Asks which day suits Dana.'],
 			['pending', 'Waiting for you', ''],
 			['unread', 'Done', ''],
 			['empty', 'Done', ''],

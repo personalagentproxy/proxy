@@ -1084,7 +1084,7 @@ describe('ChatPage', () => {
 			expect(postedTo('/threads/t4/done')).toBe(false);
 		});
 
-		test('marked done keeping them, it is done and they stay', async () => {
+		test('marked done keeping them, it is watching and they stay', async () => {
 			renderChatPage({threads: [thread('t4', {standing: 'waiting', alerts: 2})]});
 
 			const chat = await screen.findByLabelText('Chat');
@@ -1095,7 +1095,8 @@ describe('ChatPage', () => {
 				}),
 			);
 
-			await waitFor(() => expect(within(chat).getByText('Done')).toBeTruthy());
+			await waitFor(() => expect(within(chat).getByText('Watching')).toBeTruthy());
+			expect(within(chat).queryByText('Done')).toBeNull();
 			await waitFor(() => expect(postedDone('t4', false)).toBe(true));
 			expect(postedDone('t4', true)).toBe(false);
 		});
@@ -1111,6 +1112,23 @@ describe('ChatPage', () => {
 
 			await waitFor(() => expect(within(chat).getByText('Done')).toBeTruthy());
 			await waitFor(() => expect(postedDone('t4', true)).toBe(true));
+		});
+
+		test('say a thread done with them is watching, and archive it from its row and its title bar', async () => {
+			const watching = thread('t4', {title: 'Contract from Dana', standing: 'watching', alerts: 1});
+			renderChatPage({
+				threads: [watching],
+				views: {t4: view(watching, [said('m1', 'person', 'Watch for the contract')])},
+				initial: '/acme/chat/general/threads/t4',
+			});
+
+			const chat = await screen.findByLabelText('Chat');
+			expect(within(chat).getByText('Watching')).toBeTruthy();
+			expect(within(chat).getByRole('button', {name: 'Archive'})).toBeTruthy();
+			expect(within(chat).queryByRole('button', {name: 'Mark done'})).toBeNull();
+			const banner = await screen.findByRole('banner');
+			await waitFor(() => expect(within(banner).getByText('Watching')).toBeTruthy());
+			expect(within(banner).getByRole('button', {name: 'Archive'})).toBeTruthy();
 		});
 
 		test('ask first as a thread with them is archived, offering only to cancel them or go back', async () => {

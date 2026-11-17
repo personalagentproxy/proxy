@@ -220,7 +220,8 @@ export type ChatThreadState = z.infer<typeof chatThreadStateSchema>;
 /**
  * Where one of the chat's threads stands, the word over it: in progress while its agent is at work
  * or asleep (`chatThreadStateSchema`); waiting for the person, its agent stopped needing them to
- * answer or act before it can go on; or done, needing nothing of them. A small model reads which
+ * answer or act before it can go on; watching, needing nothing of them now but with alerts that
+ * come to it, which wake it again; or done, needing nothing of them and with none. A small model reads which
  * as the thread's turn ends; without one, or where it can't, the thread is done.
  * `POST chat/personas/:personaId/threads/:threadId/done`, with a body as `threadDoneBodySchema`:
  * the person says a thread waiting for them is done, cancelling the alerts that come to it where
@@ -229,7 +230,7 @@ export type ChatThreadState = z.infer<typeof chatThreadStateSchema>;
  * thread, which the chat's list no longer has until they reply in it or an alert takes it up; the
  * alerts that come to it are cancelled with it.
  */
-export const threadStandingSchema = z.enum(['in_progress', 'waiting', 'done']);
+export const threadStandingSchema = z.enum(['in_progress', 'waiting', 'watching', 'done']);
 
 export type ThreadStanding = z.infer<typeof threadStandingSchema>;
 

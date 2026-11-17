@@ -29,6 +29,9 @@ export function ThreadStatus({standing}: {standing: ThreadStanding}) {
 	if (standing === 'waiting') {
 		return <span className="shrink-0 text-xs font-medium text-waiting">Waiting for you</span>;
 	}
+	if (standing === 'watching') {
+		return <span className="shrink-0 text-xs font-medium text-muted-foreground">Watching</span>;
+	}
 	return <span className="shrink-0 text-xs font-medium text-foreground">Done</span>;
 }
 
@@ -36,13 +39,15 @@ export function ThreadStatus({standing}: {standing: ThreadStanding}) {
 const STATUS_LABELS: Record<ThreadStanding, string> = {
 	in_progress: 'In progress',
 	waiting: 'Waiting for you',
+	watching: 'Watching',
 	done: 'Done',
 };
 
 /**
  * Where a thread stands, as an icon at the start of its row in the chat's list: in progress, a ring
  * with an arc turning in it, dashed while it is asleep until something wakes it; waiting for you, an
- * orange ring around a dot; done, a check in a disc of ink. The word is there for whoever can't see
+ * orange ring around a dot; watching, the dashed ring alone, as it waits for its alerts to wake it;
+ * done, a check in a disc of ink. The word is there for whoever can't see
  * the icon.
  */
 export function ThreadStatusIcon({
@@ -85,7 +90,7 @@ export function ThreadStatusIcon({
 						<circle cx="8" cy="8" r="3" className="fill-waiting" />
 					</>
 				)}
-				{asleep && (
+				{(asleep || standing === 'watching') && (
 					<circle
 						cx="8"
 						cy="8"
