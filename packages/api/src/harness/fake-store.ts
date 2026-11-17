@@ -19,6 +19,7 @@ export function fakeStore(): FakeStore {
 		getThreadModel: mock<HarnessStore['getThreadModel']>(),
 		getPersonaName: mock<HarnessStore['getPersonaName']>(),
 		listEntries: mock<HarnessStore['listEntries']>(),
+		listPendingMessages: mock<HarnessStore['listPendingMessages']>(),
 		getEntry: mock<HarnessStore['getEntry']>(),
 		appendSummary: mock<HarnessStore['appendSummary']>(),
 		appendTurnEntries: mock<HarnessStore['appendTurnEntries']>(),

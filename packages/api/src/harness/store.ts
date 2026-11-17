@@ -63,6 +63,8 @@ export type HarnessStore = {
 	getThreadModel: (thread: ThreadRow) => Promise<Result<PersonaModel | null, ApiError>>;
 	getPersonaName: (thread: ThreadRow) => Promise<Result<string | null, ApiError>>;
 	listEntries: (threadId: string) => Promise<Result<EntryRow[], ApiError>>;
+	/** What came into the thread while its turn runs that the model can be given beside a call's answer: the person's messages and events without files, pending, in order. */
+	listPendingMessages: (threadId: string) => Promise<Result<EntryRow[], ApiError>>;
 	getEntry: (entryId: string) => Promise<Result<EntryRow, ApiError>>;
 	appendSummary: (jobId: string, workerId: string, threadId: string, summary: {text: string; inputTokens: number; outputTokens: number}, coversSeq: number) => Promise<Result<boolean, ApiError>>;
 	appendTurnEntries: (jobId: string, workerId: string, threadId: string, entries: NewTurnEntry[]) => Promise<Result<boolean, ApiError>>;
@@ -154,6 +156,7 @@ export const harnessStore: HarnessStore = {
 	getThreadModel: harness.getThreadModel,
 	getPersonaName: harness.getThreadPersonaName,
 	listEntries: harness.listEntries,
+	listPendingMessages: harness.listPendingMessages,
 	getEntry: harness.getEntry,
 	appendSummary: harness.appendSummary,
 	appendTurnEntries: harness.appendTurnEntries,

@@ -17,6 +17,7 @@ import {
 	getJobThread,
 	getThreadModel,
 	listEntries,
+	listPendingMessages,
 	openThread,
 	replyInThread,
 	scheduleWake,
@@ -499,5 +500,114 @@ describe.skipIf(!databaseUrl)('a turn written as it goes, against the database',
 		const uncapped = unwrap(await claimJob('worker-k', 60_000));
 		expect([uncapped?.kind, uncapped?.capped]).toEqual(['inference', false]);
 		unwrap(await finishJob(uncapped?.id ?? '', 'worker-k'));
+	});
+
+	test('what came while the turn ran that the model was given beside a call’s answer lands after that result with the turn’s job; the rest, and a message with files, wait for the turn’s end', async () => {
+		const steered = await open(thread.personaId ?? '', 'Book the trip');
+		const job = await claimFor('worker-s', steered.id);
+		expect(
+			unwrap(
+				await appendTurnEntries(job.id, 'worker-s', steered.id, [
+					{kind: 'assistant', text: '', toolCalls: [{id: 'c1', name: 'script', arguments: '{}'}]},
+				]),
+			),
+		).toBe(true);
+		await reply(steered, 'Make it Tuesday');
+		await reply(steered, 'And a window seat');
+		const map = {
+			connectionId: 'drive-1',
+			fileId: 'file-1',
+			version: 'v1',
+			name: 'map.png',
+			type: 'image/png',
+			size: 42,
+			text: null,
+			cut: false,
+		};
+		unwrap(
+			await replyInThread(
+				steered.parentThreadId ?? '',
+				steered.id,
+				'See the map',
+				readyForInference,
+				[map],
+			),
+		);
+		const pending = unwrap(await listPendingMessages(steered.id));
+		expect(pending.map((entry) => [entry.kind, entry.text, entry.pending])).toEqual([
+			['person', 'Make it Tuesday', true],
+			['person', 'And a window seat', true],
+		]);
+		const [tuesday] = pending;
+
+		// Another worker's result goes nowhere, and releases nothing.
+		expect(
+			unwrap(
+				await appendTurnEntries(job.id, 'worker-z', steered.id, [
+					{
+						kind: 'tool_result',
+						callId: 'c1',
+						text: 'Booked.',
+						isError: false,
+						delivered: [tuesday?.id ?? ''],
+					},
+				]),
+			),
+		).toBe(false);
+		expect(
+			unwrap(
+				await appendTurnEntries(job.id, 'worker-s', steered.id, [
+					{
+						kind: 'tool_result',
+						callId: 'c1',
+						text: 'Booked.',
+						isError: false,
+						delivered: [tuesday?.id ?? ''],
+					},
+				]),
+			),
+		).toBe(true);
+
+		const during = unwrap(await listEntries(steered.id));
+		expect(during.map((entry) => [entry.kind, entry.text, entry.jobId])).toEqual([
+			['person', 'Book the trip', null],
+			['assistant', '', job.id],
+			['tool_result', 'Booked.', job.id],
+			['person', 'Make it Tuesday', job.id],
+		]);
+		expect(unwrap(await listPendingMessages(steered.id)).map((entry) => entry.text)).toEqual([
+			'And a window seat',
+		]);
+
+		expect(
+			unwrap(
+				await completeInference(
+					job.id,
+					'worker-s',
+					steered.id,
+					{
+						text: 'Booked for Tuesday.',
+						toolCalls: [],
+						inputTokens: 1,
+						outputTokens: 1,
+						system: null,
+					},
+					{end: {outcome: 'Booked for Tuesday.'}},
+					readyForInference,
+				),
+			),
+		).toBe(true);
+		// What wasn't given lands after the answer, as ever, and wakes the agent.
+		expect(
+			unwrap(await listEntries(steered.id)).map((entry) => [entry.kind, entry.text, entry.jobId]),
+		).toEqual([
+			...during.map((entry) => [entry.kind, entry.text, entry.jobId]),
+			['assistant', 'Booked for Tuesday.', job.id],
+			['person', 'And a window seat', null],
+			['person', 'See the map', null],
+		]);
+		expect(
+			(await openJobs(steered.id)).map((candidate) => [candidate.kind, candidate.status]),
+		).toEqual([['inference', 'queued']]);
 	});
 });

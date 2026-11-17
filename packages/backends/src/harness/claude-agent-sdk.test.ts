@@ -15,7 +15,7 @@ import {CALL_INTERRUPTED, OUTCOME_UNKNOWN} from '@proxy/utils/harness';
 import {type ContextEntry, EVENT_LEAD} from '@proxy/utils/harness-context';
 
 import type {HarnessEntry, HarnessEvent, HarnessTurn} from './backend';
-import {claudeAgentSdkHarness, type ClaudeAgentSdkDeps, proxyToolServer, type SdkPrompt, type SdkQuery} from './claude-agent-sdk';
+import {claudeAgentSdkHarness, type ClaudeAgentSdkDeps, MEANWHILE, proxyToolServer, type SdkPrompt, type SdkQuery} from './claude-agent-sdk';
 import {harnessConformance, type ScriptedModel} from './conformance';
 import {fakeToolSurface} from './fake';
 import {memorySessionStore} from './session-store';
@@ -432,6 +432,57 @@ describe('claudeAgentSdkHarness', () => {
 		expect(fake.calls[0]?.prompt).toBe([`${EVENT_LEAD}\n\nFound it.`, 'And then?'].join('\n\n'));
 		expect(fake.calls[0]?.options?.resume).toBe('sdk-session-9');
 		expect(events.at(-1)).toMatchObject({kind: 'done', session: {id: SESSION, state: {lastSeq: again.seq, job: 'job-1'}}});
+	});
+
+	test('what the turn that kept the session was given as it ran, beside a call’s answer, is not given again', async () => {
+		const fake = fakeQuery();
+		fake.script(messages([init(), result()]));
+		const seen = entry('person', 'Hi');
+		const step = entry('assistant', '', {toolCalls: [{id: 'c1', name: 'read', arguments: '{}'}], jobId: 'job-0'});
+		const answered = entry('tool_result', 'rows', {callId: 'c1', jobId: 'job-0'});
+		const steer = entry('person', 'Use March instead', {jobId: 'job-0'});
+		const last = entry('assistant', 'Done, for March.', {jobId: 'job-0'});
+		const next = entry('person', 'Thanks');
+
+		await collect(fake, {...turnInput(), session: {id: 'sdk-session-9', state: {lastSeq: seen.seq, job: 'job-0'}}, entries: [seen, step, answered, steer, last, next]});
+
+		expect(fake.calls[0]?.prompt).toBe('Thanks');
+	});
+
+	test('gives the model what came into the thread while a call ran before the call’s answer, and yields the result without it, however the binary echoes it', async () => {
+		const fake = fakeQuery();
+		const surface = fakeToolSurface(TOOLS, {text: 'rows', isError: false, meanwhile: ['Use March instead', `${EVENT_LEAD}\n\nDana replied.`]});
+		const given: unknown[] = [];
+		fake.script(async function* (options) {
+			yield init();
+			yield assistant([toolUse({id: 'c1', name: 'read', arguments: '{}'}), toolUse({id: 'c2', name: 'read', arguments: '{}'})]);
+			const client = await connect(options);
+			const first = await client.callTool({name: 'read', arguments: {}, _meta: {'claudecode/toolUseId': 'c1'}});
+			const second = await client.callTool({name: 'read', arguments: {}, _meta: {'claudecode/toolUseId': 'c2'}});
+			given.push(first.content, second.content);
+			const blocks = Array.isArray(first.content) ? first.content : [];
+			// One echoed as the server's blocks, one as their words joined.
+			yield {
+				type: 'user',
+				message: {role: 'user', content: [{type: 'tool_result', tool_use_id: 'c1', content: blocks, is_error: false}]},
+				parent_tool_use_id: null,
+				session_id: SESSION,
+			};
+			yield toolResult('c2', blocks.map((block) => block.text).join('\n'));
+			yield result();
+		});
+
+		const events = await collect(fake, {...turnInput(), tools: surface});
+
+		const meanwhile = [MEANWHILE, 'Use March instead', `${EVENT_LEAD}\n\nDana replied.`].join('\n\n');
+		expect(given[0]).toEqual([
+			{type: 'text', text: meanwhile},
+			{type: 'text', text: 'rows'},
+		]);
+		expect(events.filter((event) => event.kind === 'tool_result')).toEqual([
+			{kind: 'tool_result', callId: 'c1', text: 'rows', isError: false},
+			{kind: 'tool_result', callId: 'c2', text: 'rows', isError: false},
+		]);
 	});
 
 	test('a turn tried again is given what the attempt before did, as the record, with the calls the api closed as interrupted, so it goes on rather than doing it again', async () => {

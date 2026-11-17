@@ -3,7 +3,8 @@ import {Err, Ok, type Result} from 'ts-results-es';
 import type {HarnessTool, ToolAnswer, ToolSurface} from '@proxy/backends/harness/backend';
 import {type ApiError, Do, requirePresent} from '@proxy/utils';
 import {callArguments, isRecord, personMessageArgs, SEND_TO_PERSON_TOOL, SLEEP_TOOL, sleepUntil, type ToolCall} from '@proxy/utils/harness';
-import type {InlineJob, ThreadRow} from '@proxy/db/harness';
+import {EVENT_LEAD} from '@proxy/utils/harness-context';
+import type {EntryRow, InlineJob, ThreadRow} from '@proxy/db/harness';
 
 import type {ModelTool} from '../llm/open-router';
 import {SCRIPT_TOOL, scriptToolDescription} from '../mcp/tools';
@@ -33,6 +34,15 @@ import {alertCall, BAD_SLEEP_ARGS, dismissText, error, NOT_JSON, noSuchTool, run
  * tried again after the worker died is given what the log has of the attempt before, the call and
  * its answer among it, or its closing as interrupted (inference.ts), so the call is not run again
  * unless the model calls again, and nothing is set twice.
+ *
+ * What came into the thread while the turn runs, the person's messages and alerts' events, waits
+ * pending for the turn's end (db/harness). A call run inline is answered with it besides
+ * (`ToolAnswer.meanwhile`), each once in the turn, so the person can steer a turn under way: the
+ * ids of what each call's answer carried are kept in `delivered`, by the call's id, for the worker
+ * to put it in the log after the call's result as it writes that (inference.ts). A call that ends
+ * the turn carries nothing, since the model won't go on to read it, and a message with files waits
+ * for the turn's end, where the model is given them with it. Where what came can't be read, the
+ * answer goes without it, and it waits too.
  */
 
 const SEND_TO_PERSON: ModelTool = {
@@ -113,8 +123,17 @@ function toHarnessTool(tool: ModelTool): HarnessTool {
 	return {name: tool.name, description: tool.description, inputSchema: tool.parameters, readOnly: false};
 }
 
-/** What running a call inline needs of the store: what answering one needs, and the fenced writes beside the log. */
-export type ToolSurfaceStore = ToolAnswerStore & Pick<HarnessStore, 'setAlertInline' | 'scheduleWake' | 'dismissThreadInline'>;
+/** What running a call inline needs of the store: what answering one needs, the fenced writes beside the log, and what came into the thread meanwhile. */
+export type ToolSurfaceStore = ToolAnswerStore & Pick<HarnessStore, 'setAlertInline' | 'scheduleWake' | 'dismissThreadInline' | 'listPendingMessages'>;
+
+/** What each call run inline was answered with besides, by the call's id: the ids of what came into the thread meanwhile, in order. */
+export type Delivered = Map<string, string[]>;
+
+// What came into the thread as the model reads it: what the person said, or an event with its
+// lead-in.
+function asRead(entry: EntryRow): string {
+	return entry.kind === 'event' ? `${EVENT_LEAD}\n\n${entry.text}` : entry.text;
+}
 
 // An alert call, at once: one set, in a transaction of its own fenced by the job, or cancelled.
 function alertInline(store: ToolSurfaceStore, thread: ThreadRow, job: InlineJob, call: ToolCall, args: Record<string, unknown>, now: Date): Promise<Result<ToolAnswer, ApiError>> {
@@ -179,22 +198,50 @@ function execute(store: ToolSurfaceStore, thread: ThreadRow, job: InlineJob, cal
 	});
 }
 
+// The answer with what came into the thread meanwhile that no answer of the turn carried yet,
+// those ids kept for the call; the answer as it is where nothing came, the call ends the turn, or
+// what came can't be read.
+async function withMeanwhile(store: ToolSurfaceStore, thread: ThreadRow, callId: string, answer: ToolAnswer, delivered: Delivered): Promise<ToolAnswer> {
+	if (answer.endTurn) {
+		return answer;
+	}
+	const pending = await store.listPendingMessages(thread.id);
+	if (pending.isErr()) {
+		return answer;
+	}
+	const given = new Set([...delivered.values()].flat());
+	const fresh = pending.value.filter((entry) => !given.has(entry.id));
+	if (fresh.length === 0) {
+		return answer;
+	}
+	delivered.set(
+		callId,
+		fresh.map((entry) => entry.id),
+	);
+	return {...answer, meanwhile: fresh.map(asRead)};
+}
+
 /**
  * The thread's tools as a surface for the harness running `job`, the thread's inference job
  * leased to `workerId`: the model's tools, and `execute`, which runs one inline as the module
  * comment says, at the time `clock` tells as the call is made: a turn goes on for minutes, and a
- * sleep or an alert counted from when it began would be due before it was asked for.
+ * sleep or an alert counted from when it began would be due before it was asked for. What came
+ * into the thread meanwhile goes with an answer, its ids kept in `delivered`.
  */
-export function toolSurfaceFor(store: ToolSurfaceStore, thread: ThreadRow, job: {id: string}, workerId: string, clock: () => Date): ToolSurface {
+export function toolSurfaceFor(store: ToolSurfaceStore, thread: ThreadRow, job: {id: string}, workerId: string, clock: () => Date, delivered: Delivered = new Map()): ToolSurface {
 	const inlineJob: InlineJob = {jobId: job.id, workerId, threadId: thread.id};
 	return {
 		tools: threadTools(thread).map(toHarnessTool),
-		execute: (call) => {
+		execute: async (call) => {
 			const args = callArguments(call);
 			if (!isRecord(args)) {
-				return Promise.resolve(Ok(error(NOT_JSON)));
+				return Ok(error(NOT_JSON));
 			}
-			return execute(store, thread, inlineJob, call, args, clock());
+			const answer = await execute(store, thread, inlineJob, call, args, clock());
+			if (answer.isErr()) {
+				return answer;
+			}
+			return Ok(await withMeanwhile(store, thread, call.id, answer.value, delivered));
 		},
 	};
 }

@@ -108,6 +108,10 @@ const WIND_UP_MS = 10_000;
 
 const GO_ON = 'Go on.';
 
+// What leads in what came into the thread while a call ran, given the model beside the call's
+// answer (`ToolAnswer.meanwhile`).
+export const MEANWHILE = 'While this call ran, this came into the thread. It is not the tool’s answer: it is what the person wrote, or an alert where it says so. Take it into account as you go on.';
+
 // What leads in the part of the log written out for the model, and what came after it.
 const RECORD =
 	'What follows is the record of this conversation where your own memory of it stops short, written out: you are the agent in it, and it has what was said, the calls you made and what they answered. You may remember some of it. Take it as what happened: don’t make a call again that was answered, and go on from where it ends.';
@@ -146,13 +150,15 @@ function sessionOf(input: HarnessTurn): Session | null {
 }
 
 // What the session hasn't got of the log: all of it without a session; with one, what came after
-// the seq it kept, but the steps of the turn that kept it, which the model remembers, and the
-// api's summaries, which stand for what the model compacts itself.
+// the seq it kept, but what the turn that kept it wrote or was given, which the model remembers:
+// its steps, and what came into the thread while it ran that it was given beside a call's answer,
+// which the api gives that turn's job; and the api's summaries, which stand for what the model
+// compacts itself.
 function unseenBy(session: Session | null, entries: HarnessEntry[]): HarnessEntry[] {
 	if (session === null) {
 		return entries;
 	}
-	return entries.filter((entry) => entry.seq > session.lastSeq && entry.kind !== 'summary' && !(STEP_KINDS.has(entry.kind) && entry.jobId === session.job));
+	return entries.filter((entry) => entry.seq > session.lastSeq && entry.kind !== 'summary' && entry.jobId !== session.job);
 }
 
 // An entry that came to the model as the prompt has it: what the person said, or an event with
@@ -250,10 +256,13 @@ function describe(error: ApiError): string {
  * tools listed with their JSON Schema as they are, each marked to be loaded always, since the
  * binary otherwise defers an MCP server's tools behind its tool search, which is among the
  * built-in tools removed; a call run through the surface, under the id the binary gives the call,
- * so the result the api writes answers the call the model made. `answered` is told of each call
- * answered, with the answer, so the turn can end on one that ends it.
+ * so the result the api writes answers the call the model made. What came into the thread while
+ * the call ran goes before the answer, as a block of its own led in as not the tool's
+ * (`MEANWHILE`), first so that a long answer the binary cuts short doesn't take it along.
+ * `answered` is told of each call answered, with the answer, so the turn can end on one that ends
+ * it, and with that block, which isn't the call's to keep.
  */
-export function proxyToolServer(tools: ToolSurface, answered: (callId: string, answer: ToolAnswer) => void): McpServer {
+export function proxyToolServer(tools: ToolSurface, answered: (callId: string, answer: ToolAnswer, meanwhile: string | null) => void): McpServer {
 	const server = new McpServer({name: SERVER, version: '1.0.0'}, {capabilities: {tools: {}}});
 	server.server.setRequestHandler(ListToolsRequestSchema, async () => ({
 		tools: tools.tools.map((tool) => ({
@@ -271,8 +280,12 @@ export function proxyToolServer(tools: ToolSurface, answered: (callId: string, a
 		if (answer.isErr()) {
 			return {content: [{type: 'text', text: describe(answer.error)}], isError: true};
 		}
-		answered(id, answer.value);
-		return {content: [{type: 'text', text: answer.value.text}], isError: answer.value.isError};
+		const meanwhile = answer.value.meanwhile === undefined || answer.value.meanwhile.length === 0 ? null : [MEANWHILE, ...answer.value.meanwhile].join('\n\n');
+		answered(id, answer.value, meanwhile);
+		return {
+			content: [...(meanwhile === null ? [] : [{type: 'text' as const, text: meanwhile}]), {type: 'text' as const, text: answer.value.text}],
+			isError: answer.value.isError,
+		};
 	});
 	return server;
 }
@@ -302,15 +315,18 @@ function toolResultsOf(content: MessageParam['content']): ToolResultBlockParam[]
 	return content.flatMap((block) => (block.type === 'tool_result' ? [block] : []));
 }
 
-// A result's text: its text blocks, joined.
-function textOf(content: ToolResultBlockParam['content']): string {
+// A result's text: its text blocks, joined, less what came into the thread meanwhile, which the
+// server put before the answer and the log keeps as what it is, whether the binary echoes it as a
+// block of its own or as words before the answer's.
+function textOf(content: ToolResultBlockParam['content'], meanwhile: string | undefined): string {
 	if (content === undefined) {
 		return '';
 	}
-	if (typeof content === 'string') {
-		return content;
+	const text = typeof content === 'string' ? content : content.flatMap((block) => (block.type === 'text' && block.text !== meanwhile ? [block.text] : [])).join('\n');
+	if (meanwhile === undefined || !text.startsWith(meanwhile)) {
+		return text;
 	}
-	return content.flatMap((block) => (block.type === 'text' ? [block.text] : [])).join('\n');
+	return text.slice(meanwhile.length).replace(/^\n+/, '');
 }
 
 function failed(error: ApiError, retry: boolean): HarnessEvent {
@@ -471,11 +487,16 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 				yield failed(ApiErr.internalError(made.error), false);
 				return;
 			}
-			// The calls whose answer ends the turn, by id, as the server answers them.
+			// The calls whose answer ends the turn, by id, as the server answers them, and what
+			// came into the thread that the server gave beside an answer, by the call's id.
 			const endsTurn = new Set<string>();
-			const server = proxyToolServer(input.tools, (callId, answer) => {
+			const besides = new Map<string, string>();
+			const server = proxyToolServer(input.tools, (callId, answer, meanwhile) => {
 				if (answer.endTurn) {
 					endsTurn.add(callId);
+				}
+				if (meanwhile !== null) {
+					besides.set(callId, meanwhile);
 				}
 			});
 			const controller = new AbortController();
@@ -567,7 +588,7 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 							if (!open.delete(result.tool_use_id)) {
 								continue;
 							}
-							yield {kind: 'tool_result', callId: result.tool_use_id, text: textOf(result.content), isError: result.is_error === true};
+							yield {kind: 'tool_result', callId: result.tool_use_id, text: textOf(result.content, besides.get(result.tool_use_id)), isError: result.is_error === true};
 							if (endsTurn.has(result.tool_use_id)) {
 								interrupted = true;
 								await Result.wrapAsync(() => run.interrupt());
