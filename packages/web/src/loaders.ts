@@ -28,6 +28,7 @@ import {desktopAuthLink} from '@/lib/desktop';
 import {drivePlace} from '@/lib/files';
 import {LOADED_MINUTES, windowStart} from '@/lib/timeline-window';
 import {describeApiError, later, unwrapLoaderResult, unwrapOrNull} from '@/lib/loader-utils';
+import {personaChatPath} from '@/lib/last-thread';
 import {pendingAgent} from '@/lib/pending-agent';
 import {redirect, type ShouldRevalidateFunctionArgs} from 'react-router';
 
@@ -163,7 +164,7 @@ export const connectionLoader = later(
 );
 
 // Chat opens on the persona the person was last active with, the first the api lists, which makes
-// one where the organization has none yet.
+// one where the organization has none yet, on the thread it last had open in this browser.
 export const chatIndexLoader = later(async (args: OrgParams) => {
 	const org = orgOf(args);
 	const {personas} = unwrapLoaderResult(await listPersonas(org));
@@ -171,7 +172,7 @@ export const chatIndexLoader = later(async (args: OrgParams) => {
 	if (!first) {
 		throw redirect(`/${org}/connections`);
 	}
-	throw redirect(`/${org}/chat/${first.id}`);
+	throw redirect(personaChatPath(org, first.id));
 });
 
 // The person's chat with an agent, its threads, the agents to switch between, and the harnesses

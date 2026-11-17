@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import {connectionLabel} from '@/lib/access';
 import {integrationOf} from '@/lib/integrations';
+import {personaChatPath} from '@/lib/last-thread';
 import {accountPath} from '@/lib/orgs';
 
 /**
@@ -182,7 +183,7 @@ export function destinationsOf(lists: {
 			kind: 'chat',
 			label: persona.name,
 			detail: null,
-			to: `/${org}/chat/${persona.id}`,
+			to: personaChatPath(org, persona.id),
 			keywords: ['agent', 'chat'],
 			mark: {kind: 'persona', persona},
 		})),
