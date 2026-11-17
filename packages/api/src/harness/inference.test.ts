@@ -89,7 +89,7 @@ let store: FakeStore;
 let getJobThread: FakeStore['getJobThread'];
 let listEntries: FakeStore['listEntries'];
 let getThreadAgent: FakeStore['getThreadAgent'];
-let getPersonaModel: FakeStore['getPersonaModel'];
+let getThreadModel: FakeStore['getThreadModel'];
 let finishJob: FakeStore['finishJob'];
 let completeInference: FakeStore['completeInference'];
 let requeueJob: FakeStore['requeueJob'];
@@ -99,13 +99,13 @@ let appendTurnEntries: FakeStore['appendTurnEntries'];
 beforeEach(() => {
 	mock.clearAllMocks();
 	store = fakeStore();
-	({getJobThread, listEntries, getThreadAgent, getPersonaModel, finishJob, completeInference, requeueJob, appendSummary, appendTurnEntries} = store);
+	({getJobThread, listEntries, getThreadAgent, getThreadModel, finishJob, completeInference, requeueJob, appendSummary, appendTurnEntries} = store);
 	getJobThread.mockResolvedValue(Ok(thread));
 	listEntries.mockResolvedValue(Ok([entry('person', 'Hi')]));
 	store.listMemberAlerts.mockResolvedValue(Ok([]));
 	store.listAttachments.mockResolvedValue(Ok([]));
 	getThreadAgent.mockResolvedValue(Ok({agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'proxy', name: 'Finance', orgSlug: 'acme', experiments: ['openrouter']}));
-	getPersonaModel.mockResolvedValue(Ok({harness: 'proxy', chatModel: 'claude'}));
+	getThreadModel.mockResolvedValue(Ok({harness: 'proxy', chatModel: 'claude'}));
 	store.getPersonaName.mockResolvedValue(Ok('Coding Agent'));
 	for (const write of [finishJob, completeInference, requeueJob, appendSummary, appendTurnEntries, store.failJob]) {
 		write.mockResolvedValue(Ok(true));
@@ -200,7 +200,7 @@ describe('runInference', () => {
 		);
 		const request = askForTurn.mock.calls[0]?.[0] as {model: string; messages: Array<Record<string, unknown>>; tools: unknown[]};
 		// With the harness and the model of the persona the thread is with.
-		expect(getPersonaModel).toHaveBeenCalledWith(thread);
+		expect(getThreadModel).toHaveBeenCalledWith(thread);
 		expect(request.model).toBe('claude');
 		expect(request.messages[0]).toMatchObject({role: 'system'});
 		expect(String(request.messages[0]?.content)).toContain('- alert-1: “Check the review”, due 2026-10-22T07:30:00.000Z; comes to this thread');
@@ -350,7 +350,7 @@ describe('runInference', () => {
 		];
 		listEntries.mockResolvedValue(Ok(long));
 		// A persona switched to GLM: it summarizes, too.
-		getPersonaModel.mockResolvedValue(Ok({harness: 'proxy', chatModel: 'glm'}));
+		getThreadModel.mockResolvedValue(Ok({harness: 'proxy', chatModel: 'glm'}));
 		askForTurn
 			.mockResolvedValueOnce(Ok({text: 'The person asked for one; it was done.', toolCalls: [], inputTokens: 90_000, outputTokens: 300}))
 			.mockResolvedValueOnce(Ok({text: 'Three is done too.', toolCalls: [], inputTokens: 2000, outputTokens: 20}));
@@ -669,7 +669,7 @@ describe('runInference', () => {
 		// The persona is set to the harness, with the second of its models, and the member connected
 		// a Claude token, which a turn on it runs under.
 		beforeEach(() => {
-			getPersonaModel.mockResolvedValue(Ok({harness: 'claude-agent-sdk', chatModel: 'other'}));
+			getThreadModel.mockResolvedValue(Ok({harness: 'claude-agent-sdk', chatModel: 'other'}));
 			claudeCredentialFor.mockResolvedValue(Ok({kind: 'setup_token', token: 'tok'}));
 		});
 
@@ -847,7 +847,7 @@ describe('runInference', () => {
 		test('a turn on the server’s key keeps nothing of a usage event', async () => {
 			const {runInference} = await import('./inference');
 			const proxy = fakeHarness('proxy');
-			getPersonaModel.mockResolvedValue(Ok({harness: 'proxy', chatModel: 'claude'}));
+			getThreadModel.mockResolvedValue(Ok({harness: 'proxy', chatModel: 'claude'}));
 			proxy.script([
 				{kind: 'usage', fiveHour: {utilization: 0.5, resetsAt: null}},
 				{kind: 'done', session: null, system: 'Sent.', inputTokens: 1, outputTokens: 1},
@@ -881,7 +881,7 @@ describe('runInference', () => {
 		test('a persona on the proxy harness runs on the server’s key whatever the member connected, and the credential is not looked for', async () => {
 			const {runInference} = await import('./inference');
 			const proxy = fakeHarness('proxy');
-			getPersonaModel.mockResolvedValue(Ok({harness: 'proxy', chatModel: 'other'}));
+			getThreadModel.mockResolvedValue(Ok({harness: 'proxy', chatModel: 'other'}));
 			claudeCredentialFor.mockClear();
 
 			await runInference(store, on(proxy, fake), job, 'w1', false, clock);
@@ -900,11 +900,11 @@ describe('runInference', () => {
 			const proxy = fakeHarness('proxy');
 			const before = fake.turns.length;
 
-			getPersonaModel.mockResolvedValue(Ok({harness: 'proxy', chatModel: 'claude'}));
+			getThreadModel.mockResolvedValue(Ok({harness: 'proxy', chatModel: 'claude'}));
 			await runInference(store, on(proxy, fake), job, 'w1', false, clock);
 			// Still set to the SDK harness, on a server that hasn't got it: the first it has, and
 			// that harness's first model, the one chosen being none of its.
-			getPersonaModel.mockResolvedValue(Ok({harness: 'claude-agent-sdk', chatModel: 'opus'}));
+			getThreadModel.mockResolvedValue(Ok({harness: 'claude-agent-sdk', chatModel: 'opus'}));
 			await runInference(store, on(proxy, null), job, 'w1', false, clock);
 
 			expect(proxy.turns.map((turn) => [turn.session, turn.model])).toEqual([
@@ -940,7 +940,7 @@ describe('runInference', () => {
 		test('a thread whose persona is gone runs as a new persona would, on the server’s first harness', async () => {
 			const {runInference} = await import('./inference');
 			const proxy = fakeHarness('proxy');
-			getPersonaModel.mockResolvedValue(Ok(null));
+			getThreadModel.mockResolvedValue(Ok(null));
 			fake.script([ended(session)]);
 
 			await runInference(store, on(proxy, fake), job, 'w1', false, clock);
@@ -953,7 +953,7 @@ describe('runInference', () => {
 			const {runInference} = await import('./inference');
 			const proxy = fakeHarness('proxy');
 			getThreadAgent.mockResolvedValue(Ok({agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'proxy', name: 'Finance', orgSlug: 'acme', experiments: []}));
-			getPersonaModel.mockResolvedValue(Ok({harness: 'proxy', chatModel: 'other'}));
+			getThreadModel.mockResolvedValue(Ok({harness: 'proxy', chatModel: 'other'}));
 			fake.script([ended(session)]);
 
 			await runInference(store, on(proxy, fake), job, 'w1', false, clock);
@@ -1001,7 +1001,7 @@ describe('a thread on a harness that runs its tools itself', () => {
 	test('writes each step as it goes, and ends its turn on its last answer, showing the person the files it links', async () => {
 		const {runInference} = await import('./inference');
 		const fake = fakeHarness('claude-agent-sdk');
-		getPersonaModel.mockResolvedValue(Ok({harness: 'claude-agent-sdk', chatModel: 'claude'}));
+		getThreadModel.mockResolvedValue(Ok({harness: 'claude-agent-sdk', chatModel: 'claude'}));
 		claudeCredentialFor.mockResolvedValue(Ok({kind: 'setup_token', token: 'tok'}));
 		const chart = {connectionId: 'drive-1', fileId: 'file-1', version: 'v1', name: 'chart.png', type: 'image/png', size: 42, text: null, cut: false};
 		const pinned = mock(async (_agent: unknown, text: string) => Ok(text.includes('![') ? [chart] : []));

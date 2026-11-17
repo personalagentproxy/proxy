@@ -15,11 +15,12 @@ import {
 	finishJob,
 	getChatThread,
 	getJobThread,
-	getThreadPersonaModel,
+	getThreadModel,
 	listEntries,
 	openThread,
 	replyInThread,
 	scheduleWake,
+	setThreadModel,
 	type ClaimedJob,
 	type ThreadRow,
 } from './harness';
@@ -420,7 +421,7 @@ describe.skipIf(!databaseUrl)('a turn written as it goes, against the database',
 		unwrap(await finishJob(wake.id, 'worker-j'));
 	});
 
-	test('a claim told which harness is capped says whether the job is a turn of a persona on it, and one from a worker with no room for another leaves such a turn queued, taking the other jobs', async () => {
+	test('a claim told which harness is capped says whether the job is a turn of a thread on it, and one from a worker with no room for another leaves such a turn queued, taking the other jobs', async () => {
 		const capped = (full: boolean) => ({harness: 'claude-agent-sdk', full});
 		const quiet = await quietThread('Capped', 'Hi');
 		const before = await claimFor('worker-k', quiet.id);
@@ -450,13 +451,28 @@ describe.skipIf(!databaseUrl)('a turn written as it goes, against the database',
 				.map((entry) => [entry.harness, entry.model]),
 		).toEqual([['proxy', 'claude']]);
 
-		// The persona is switched to the capped harness while the call is still to run: its job is
-		// no turn, and is claimed by a worker with no room for one.
+		// Its persona switched to another harness leaves the thread on what it was opened with, the
+		// database's default for a persona.
 		await db.persona.update({
 			where: {id: quiet.personaId},
-			data: {harness: 'claude-agent-sdk', chatModel: 'opus'},
+			data: {harness: 'proxy', chatModel: 'claude'},
 		});
-		expect(unwrap(await getThreadPersonaModel(quiet))).toEqual({
+		expect(unwrap(await getThreadModel(quiet))).toEqual({
+			harness: 'claude-agent-sdk',
+			chatModel: 'sonnet',
+		});
+
+		// The thread, its persona still off it, is switched to the capped harness while the call is
+		// still to run: its job is no turn, and is claimed by a worker with no room for one.
+		expect(
+			unwrap(
+				await setThreadModel(quiet.parentThreadId ?? '', quiet.id, {
+					harness: 'claude-agent-sdk',
+					chatModel: 'opus',
+				}),
+			),
+		).toBe(true);
+		expect(unwrap(await getThreadModel(quiet))).toEqual({
 			harness: 'claude-agent-sdk',
 			chatModel: 'opus',
 		});

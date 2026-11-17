@@ -33,7 +33,7 @@ import {type ToolSurfaceStore, toolSurfaceFor} from './tool-surface';
  * call with arguments that are no good. An answer with no calls ends the thread's turn, its task
  * finished, and tells nobody else: the member reads it in the thread. A harness that keeps a
  * session between turns leaves it on the thread then, with its id, and is given it back only while
- * the thread's turns are its: a thread that moved to another harness, its persona switched to it,
+ * the thread's turns are its: a thread that moved to another harness, switched to it in the thread,
  * starts there without one, on the log. A turn that failed and is worth trying again, the model
  * out of reach, is tried again a few times, then the person is told; a credential the model turned
  * down is noted on the member's account, for the Account page to say so, and the person is told to
@@ -46,7 +46,7 @@ import {type ToolSurfaceStore, toolSurfaceFor} from './tool-surface';
  * the turn goes on. An answer of nothing, no words and no calls, is written as that said: the
  * person would otherwise see nothing, and the model refuses a log with an empty turn in it; but
  * one to an alert that came, rather than to the person, may pass in silence. The
- * harness and the model are the thread's persona's, read at each turn, and each answer is written
+ * harness and the model are the thread's own, picked in it or its persona's as it was opened, read at each turn, and each answer is written
  * with the two it ran on, and with the files it shows the person, pictures among its words that
  * link to files the agent may read, each at the version it holds then (native/files/chat.ts), as
  * best they can be read: one that can't is left a link, and the answer is written all the same.
@@ -71,7 +71,7 @@ export type InferenceStore = Pick<
 	HarnessStore,
 	| 'getJobThread'
 	| 'getThreadAgent'
-	| 'getPersonaModel'
+	| 'getThreadModel'
 	| 'getPersonaName'
 	| 'listEntries'
 	| 'listAttachments'
@@ -451,11 +451,11 @@ function readyLog(store: InferenceStore, job: JobRow, workerId: string, thread: 
 	});
 }
 
-// What a thread's persona runs on where it is gone, the thread about to go with it: the database's
-// defaults for a persona.
+// What a thread runs on where it or its persona is gone, the thread about to go with it: the
+// database's defaults for a persona.
 const NO_PERSONA = {harness: 'claude-agent-sdk', chatModel: 'sonnet'};
 
-// The harness for a turn on the thread, and the model: its persona's choice as the server offers
+// The harness for a turn on the thread, and the model: the thread's choice as the server offers
 // the thread's organization, as its login says what that has on, with the member's credential
 // where the harness runs on it (backends/harness.ts). A credential that ran out or was refused is
 // what the person is told, with where to connect it again; one that couldn't be read for another
@@ -464,16 +464,16 @@ function chooseHarness(store: InferenceStore, harnesses: Harnesses, thread: Thre
 	return Do(async ($) => {
 		const signedIn = $(requirePresent($(await store.getThreadAgent(thread)), ApiErr.notFound('agent', thread.agentId)));
 		const registry = offeredTo(harnesses.registry, signedIn);
-		const persona = $(await store.getPersonaModel(thread)) ?? NO_PERSONA;
-		const chosen = chosenFor(registry, persona);
+		const model = $(await store.getThreadModel(thread)) ?? NO_PERSONA;
+		const chosen = chosenFor(registry, model);
 		if (chosen === null || !needsCredential(registry, chosen.harness)) {
-			return harnessFor(registry, persona, null);
+			return harnessFor(registry, model, null);
 		}
 		const credential = await harnesses.credentials.claudeCredentialFor(thread.userId);
 		if (credential.isErr() && credential.error.kind === 'unavailable') {
 			return {harness: null, auth: null, why: RECONNECT_CLAUDE};
 		}
-		return harnessFor(registry, persona, $(credential));
+		return harnessFor(registry, model, $(credential));
 	});
 }
 

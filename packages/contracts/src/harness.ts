@@ -315,13 +315,23 @@ export const chatThreadsSchema = z.object({
 export type ChatThreads = z.infer<typeof chatThreadsSchema>;
 
 /**
+ * What runs a thread: the harness, by its id, and the model it answers with, one of that harness's,
+ * by its id (`chatHarnessSchema`). Its persona's as it was opened, then whatever the person picked
+ * in it: `PUT chat/personas/:personaId/threads/:threadId/model`, with this as its body, switches
+ * it from the thread's next turn on, its persona left as it is; any member may switch their own
+ * thread's. One the server hasn't got is refused.
+ */
+export const threadModelSchema = z.object({harness: z.string(), chatModel: z.string()});
+
+/**
  * `GET chat/personas/:personaId/threads/:threadId`: one of the chat's threads: the persona, the
- * thread, whether it is at work, as against asleep or done for now, and what was said in it, in
- * order.
+ * thread, what runs it, as this server has it, whether it is at work, as against asleep or done
+ * for now, and what was said in it, in order.
  */
 export const threadViewSchema = z.object({
 	persona: chatPersonaSchema,
 	thread: chatThreadSchema,
+	model: threadModelSchema,
 	busy: z.boolean(),
 	messages: z.array(threadMessageSchema),
 });

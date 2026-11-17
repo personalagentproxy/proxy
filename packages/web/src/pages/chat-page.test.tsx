@@ -123,7 +123,13 @@ const backup = thread('t2', {
 
 // A thread as its page shows it.
 function view(listed: ChatThread, messages: ThreadMessage[], busy = false): ThreadView {
-	return {persona: general, thread: listed, busy, messages};
+	return {
+		persona: general,
+		thread: listed,
+		model: {harness: 'proxy', chatModel: 'claude'},
+		busy,
+		messages,
+	};
 }
 
 const pricingView = view(pricing, [
@@ -1163,6 +1169,42 @@ describe('ChatPage', () => {
 	});
 
 	describe('a thread', () => {
+		test('switches what runs it from under its own input, even of an agent the person may not change, leaving the agent as it is', async () => {
+			fetchMock.mockImplementation((input) =>
+				Promise.resolve(
+					input.endsWith('/chat/answers')
+						? Response.json({answers: []})
+						: new Response(null, {status: 204}),
+				),
+			);
+			renderChatPage({threads: [pricing], initial: '/acme/chat/general/threads/t1'});
+
+			const thread = await screen.findByLabelText('Thread');
+			// General's own is only said, under the chat's input; the thread's can be switched.
+			fireEvent.click(
+				await screen.findByRole('button', {name: 'Model: Claude Sonnet 5.5 on OpenRouter'}),
+			);
+			fireEvent.click(await screen.findByRole('menuitemradio', {name: 'GLM 5.3'}));
+
+			await waitFor(() => {
+				expect(fetchMock).toHaveBeenCalledWith(
+					'/api/orgs/acme/chat/personas/general/threads/t1/model',
+					expect.objectContaining({
+						method: 'PUT',
+						body: JSON.stringify({harness: 'proxy', chatModel: 'glm'}),
+					}),
+				);
+			});
+			expect(thread).toBeDefined();
+			expect(screen.getByRole('button', {name: 'Model: GLM 5.3 on OpenRouter'})).toBeDefined();
+			expect(
+				fetchMock.mock.calls.some(
+					([input, init]) =>
+						input === '/api/orgs/acme/chat/personas/general' && init?.method === 'PUT',
+				),
+			).toBe(false);
+		});
+
 		test('done, has an archive button in the title bar, which archives it and closes it', async () => {
 			const done = thread('t5', {title: 'Quarterly numbers', standing: 'done'});
 			renderChatPage({

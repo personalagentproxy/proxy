@@ -59,7 +59,8 @@ export type HarnessStore = {
 
 	getJobThread: (threadId: string) => Promise<Result<ThreadRow | null, ApiError>>;
 	getThreadAgent: (thread: ThreadRow) => Promise<Result<SignedInAgent | null, ApiError>>;
-	getPersonaModel: (thread: ThreadRow) => Promise<Result<PersonaModel | null, ApiError>>;
+	/** What runs the thread's turns: its own choice, or its persona's where it has none. */
+	getThreadModel: (thread: ThreadRow) => Promise<Result<PersonaModel | null, ApiError>>;
 	getPersonaName: (thread: ThreadRow) => Promise<Result<string | null, ApiError>>;
 	listEntries: (threadId: string) => Promise<Result<EntryRow[], ApiError>>;
 	getEntry: (entryId: string) => Promise<Result<EntryRow, ApiError>>;
@@ -90,6 +91,8 @@ export type HarnessStore = {
 	listChatThreads: (chatId: string, calls: string[], now: Date) => Promise<Result<ChatThreadRow[], ApiError>>;
 	getChatThread: (chatId: string, threadId: string, calls: string[], now: Date) => Promise<Result<ChatThreadRow | null, ApiError>>;
 	hasChatThread: (chatId: string, threadId: string) => Promise<Result<boolean, ApiError>>;
+	/** The member switches what runs one of their chat's threads, leaving its persona as it is. */
+	setThreadModel: (chatId: string, threadId: string, model: PersonaModel) => Promise<Result<boolean, ApiError>>;
 	/** Where a thread stands as its turn ended, written up to `upToSeq` while nothing came since; whether it waits left as it is where not given. */
 	writeThreadStanding: (threadId: string, standing: {summary: string | null; waitingForMember?: boolean}, upToSeq: number, atWork?: boolean) => Promise<Result<boolean, ApiError>>;
 	/** The member says a thread is done, cancelling the alerts that come to it where they ask to. */
@@ -148,7 +151,7 @@ export const harnessStore: HarnessStore = {
 
 	getJobThread: harness.getJobThread,
 	getThreadAgent: harness.getThreadAgent,
-	getPersonaModel: harness.getThreadPersonaModel,
+	getThreadModel: harness.getThreadModel,
 	getPersonaName: harness.getThreadPersonaName,
 	listEntries: harness.listEntries,
 	getEntry: harness.getEntry,
@@ -176,6 +179,7 @@ export const harnessStore: HarnessStore = {
 	listChatThreads: harness.listChatThreads,
 	getChatThread: harness.getChatThread,
 	hasChatThread: harness.hasChatThread,
+	setThreadModel: harness.setThreadModel,
 	writeThreadStanding: harness.writeThreadStanding,
 	markThreadDone: harness.markThreadDone,
 	archiveThread: harness.archiveThread,

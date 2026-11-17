@@ -12,6 +12,7 @@ import {
 	postedReplySchema,
 	type removeAttachmentBodySchema,
 	type saveDraftBodySchema,
+	type threadModelSchema,
 	threadViewSchema,
 	uploadedAttachmentSchema,
 } from '@proxy/contracts/harness';
@@ -166,6 +167,20 @@ export function removeAttachment(org: string, personaId: string, attachment: Cha
 		fileId,
 		version,
 	} satisfies z.input<typeof removeAttachmentBodySchema>);
+}
+
+/** Switches what runs one of the person's threads from its next turn on, its persona left as it is. */
+export function setThreadModel(
+	org: string,
+	personaId: string,
+	threadId: string,
+	model: z.input<typeof threadModelSchema>,
+) {
+	return apiSend(
+		'PUT',
+		`${orgApi(org)}/chat/personas/${personaId}/threads/${threadId}/model`,
+		model,
+	);
 }
 
 /** Says a thread waiting for the person is done: it no longer waits for them; with `cancelAlerts`, the alerts that come to it are cancelled too. */
