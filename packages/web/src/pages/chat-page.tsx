@@ -77,6 +77,7 @@ import type {AttachmentInput} from '@/hooks/use-attachments';
 import {useChatDraft} from '@/hooks/use-chat-draft';
 import {FROM_COMMAND_BAR} from '@/lib/command-bar';
 import {useLastLoaded, useLoaded} from '@/hooks/use-loaded';
+import {personaChatPath, rememberLastThread} from '@/lib/last-thread';
 import {rememberedPersonaList} from '@/lib/persona-list';
 import {useListMotion} from '@/hooks/use-list-motion';
 import {useOrgSlug} from '@/hooks/use-org';
@@ -220,7 +221,9 @@ function PersonaList({
 						const lit = persona.id === current;
 						const row = (
 							<Link
-								to={`/${org}/chat/${persona.id}`}
+								// Another chat opens on the thread it last had open; this one's row closes
+								// the thread open beside it.
+								to={lit ? `/${org}/chat/${persona.id}` : personaChatPath(org, persona.id)}
 								aria-current={lit ? 'page' : undefined}
 								onClick={(event) => {
 									if (
@@ -495,6 +498,13 @@ export function ChatPage() {
 	}
 	// Whether the address names a thread the chat doesn't have, as the thread's place says.
 	const [threadMissing, setThreadMissing] = useState(false);
+	// The thread open in this chat, kept so opening the chat again goes back to it; none where it
+	// is closed, or where the chat has no such thread.
+	useEffect(() => {
+		if (current !== '') {
+			rememberLastThread(org, current, threadMissing ? null : (threadId ?? null));
+		}
+	}, [org, current, threadId, threadMissing]);
 	// The agent dialog: making a new one, or changing the selected one; closed as null.
 	const [editing, setEditing] = useState<'new' | ChatPersona | null>(null);
 	const [deleting, setDeleting] = useState<ChatPersona | null>(null);
