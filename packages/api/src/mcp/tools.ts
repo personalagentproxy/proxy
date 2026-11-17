@@ -87,10 +87,10 @@ export const MCP_TOOLS: McpToolDefinition[] = [
 ];
 
 // "Email, Granola, Notion, Linear, any custom MCP server": the services the agent's organization
-// can connect, the vault, the Files and Chat being built in and one behind an experiment it doesn't
-// have left out.
+// can connect, the vault, the Sandboxes, the Files and Chat being built in and one behind an
+// experiment it doesn't have left out.
 function connectableServices(signedIn: SignedInAgent): string {
-	const builtIn = [VAULT_INTEGRATION_ID, FILES_INTEGRATION_ID, CHAT_INTEGRATION_ID];
+	const builtIn = [VAULT_INTEGRATION_ID, SANDBOX_INTEGRATION_ID, FILES_INTEGRATION_ID, CHAT_INTEGRATION_ID];
 	const offered = INTEGRATIONS.filter((integration) => !builtIn.includes(integration.id) && isOffered(integration, signedIn));
 	return offered.map((integration) => (integration.custom ? `any ${integration.name.charAt(0).toLowerCase()}${integration.name.slice(1)}` : integration.name)).join(', ');
 }
