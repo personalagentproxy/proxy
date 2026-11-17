@@ -244,6 +244,13 @@ export type ThreadStanding = z.infer<typeof threadStandingSchema>;
 export const threadDoneBodySchema = z.object({cancelAlerts: z.boolean().optional()});
 
 /**
+ * `PUT chat/personas/:personaId/threads/:threadId/title`, with this as its body: the person renames
+ * one of their threads, in the chat's list, the title bar of the thread open beside it and its task
+ * in the activity log; the small model no longer names it after. Trimmed, and not empty.
+ */
+export const threadTitleBodySchema = z.object({title: z.string().trim().min(1).max(200)});
+
+/**
  * Something said in a thread, as its page shows it: what the person said, with the files they
  * attached to it; what the persona answered, or told them as it went, with the files its words
  * show, which is what went wrong where its turn failed; or an event, an alert set in the thread

@@ -4,6 +4,7 @@ import {
 	chatThreadsSchema,
 	type markReadBodySchema,
 	type threadDoneBodySchema,
+	type threadTitleBodySchema,
 	openedThreadSchema,
 	personaAnswerSchema,
 	personaListSchema,
@@ -194,6 +195,13 @@ export function markThreadDone(
 	return apiSend('POST', `${orgApi(org)}/chat/personas/${personaId}/threads/${threadId}/done`, {
 		cancelAlerts,
 	} satisfies z.input<typeof threadDoneBodySchema>);
+}
+
+/** Renames one of the person's threads; the small model names it no more. */
+export function renameThread(org: string, personaId: string, threadId: string, title: string) {
+	return apiSend('PUT', `${orgApi(org)}/chat/personas/${personaId}/threads/${threadId}/title`, {
+		title,
+	} satisfies z.input<typeof threadTitleBodySchema>);
 }
 
 /** Archives a thread: the chat's list no longer has it, until something more comes into it; the alerts that come to it are cancelled with it. */

@@ -10,6 +10,7 @@ import {createMissingChatConnection, getOrgSlug, getThreadPlace, listMemberThrea
 import {
 	appendEntry,
 	archiveThread,
+	renameThread,
 	appendTurnEntries,
 	completeInference,
 	createPersona,
@@ -1040,5 +1041,24 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		expect(unwrap(await listThreadsWithoutTitle()).some((one) => one.id === alerted.id)).toBe(
 			false,
 		);
+	});
+	test('the member renames a thread of their chat, its task with it, and the small model names it no more', async () => {
+		const thread = await open('can you book a table for 4 near the office thursday 7pm');
+		expect(unwrap(await renameThread(chat.id, thread.id, 'Team dinner'))).toBe(true);
+		const renamed = await db.agentThread.findUniqueOrThrow({
+			where: {id: thread.id},
+			select: {title: true, titleWritten: true, taskId: true},
+		});
+		expect(renamed.title).toBe('Team dinner');
+		expect(unwrap(await threadNeedsTitle(thread.id))).toBe(false);
+		expect(unwrap(await writeThreadTitle(thread.id, 'Thursday dinner for four'))).toBe(false);
+		const task = await db.agentTask.findUniqueOrThrow({where: {id: renamed.taskId ?? ''}});
+		expect(task.title).toBe('Team dinner');
+
+		expect(unwrap(await renameThread(chat.id, thread.id, 'Dinner, again'))).toBe(true);
+		expect(unwrap(await renameThread(chat.id, 'no-such-thread', 'X'))).toBe(false);
+		expect(unwrap(await renameThread('another-chat', thread.id, 'X'))).toBe(false);
+		expect(unwrap(await renameThread(chat.id, chat.id, 'X'))).toBe(false);
+		expect((await db.agentThread.findUniqueOrThrow({where: {id: thread.id}})).title).toBe('Dinner, again');
 	});
 });

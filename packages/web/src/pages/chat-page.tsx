@@ -36,6 +36,7 @@ import {
 	deletePersona,
 	markThreadDone,
 	openThread,
+	renameThread,
 	removeAttachment,
 	updatePersona,
 	uploadAttachment,
@@ -333,24 +334,88 @@ function PersonaList({
 
 // The open thread's name in the title bar, with where it stands while in progress or waiting for
 // the person (once done, its name alone): what stands for it while it loads, and a plain word for
-// one the chat doesn't have, whose name will not come.
+// one the chat doesn't have, whose name will not come. The name is a field that looks like the
+// words it holds (`ThreadTitle`), which renames the thread.
 function ThreadName({
 	thread,
 	standing,
 	missing,
+	onRename,
 }: {
 	thread: ChatThread | null;
 	standing: ThreadStanding | null;
 	missing: boolean;
+	onRename: (thread: ChatThread, title: string) => void;
 }) {
 	if (thread === null) {
 		return missing ? <span className="text-sm font-medium">Thread</span> : <TitleWaiting />;
 	}
 	return (
 		<>
-			<span className="min-w-0 truncate text-sm font-medium">{thread.title || 'Thread'}</span>
+			<ThreadTitle
+				key={thread.id}
+				title={thread.title || 'Thread'}
+				onRename={(title) => onRename(thread, title)}
+			/>
 			{standing !== null && standing !== 'done' && <ThreadStatus standing={standing} />}
 		</>
+	);
+}
+
+// A thread's name as a field with no box, as a page's title in Notion: it reads as the name until
+// clicked, then is edited where it stands, only as wide as what it holds. Enter, or leaving it,
+// renames the thread where the name changed and isn't empty; Escape puts back what it was, and is
+// taken by the field rather than closing the thread. While not edited it follows the name as it
+// comes.
+function ThreadTitle({title, onRename}: {title: string; onRename: (title: string) => void}) {
+	const [value, setValue] = useState(title);
+	const [editing, setEditing] = useState(false);
+	if (!editing && value !== title) {
+		setValue(title);
+	}
+	const kept = useRef(true);
+	const finish = () => {
+		setEditing(false);
+		const next = value.trim();
+		if (!kept.current || next === '' || next === title) {
+			kept.current = true;
+			setValue(title);
+			return;
+		}
+		onRename(next);
+	};
+	return (
+		<span className="inline-grid min-w-0 text-sm font-medium">
+			{/* Sizes the field to the words in it, as a span would be. */}
+			<span aria-hidden className="invisible col-start-1 row-start-1 truncate whitespace-pre pr-px">
+				{value || ' '}
+			</span>
+			<input
+				aria-label="Thread name"
+				value={value}
+				maxLength={200}
+				spellCheck={false}
+				onFocus={() => setEditing(true)}
+				onChange={(event) => setValue(event.target.value)}
+				onBlur={finish}
+				onKeyDown={(event) => {
+					if (event.nativeEvent.isComposing) {
+						return;
+					}
+					if (event.key === 'Enter') {
+						event.preventDefault();
+						event.currentTarget.blur();
+						return;
+					}
+					if (event.key === 'Escape') {
+						event.preventDefault();
+						kept.current = false;
+						event.currentTarget.blur();
+					}
+				}}
+				className="col-start-1 row-start-1 w-full min-w-0 truncate rounded-sm bg-transparent p-0 outline-none hover:bg-accent/60 focus:bg-transparent focus:text-clip"
+			/>
+		</span>
 	);
 }
 
@@ -365,6 +430,7 @@ function ThreadHeader({
 	onExpand,
 	onDone,
 	onArchive,
+	onRename,
 	closeTo,
 }: {
 	thread: ChatThread | null;
@@ -375,11 +441,12 @@ function ThreadHeader({
 	onExpand: () => void;
 	onDone: (thread: ChatThread) => void;
 	onArchive: (thread: ChatThread) => void;
+	onRename: (thread: ChatThread, title: string) => void;
 	closeTo: string;
 }) {
 	return (
 		<>
-			<ThreadName thread={thread} standing={standing} missing={missing} />
+			<ThreadName thread={thread} standing={standing} missing={missing} onRename={onRename} />
 			<span className="flex-1" />
 			{thread !== null && standing === 'waiting' && (
 				<IconButton label={DONE_LABEL} onClick={() => onDone(thread)}>
@@ -578,6 +645,36 @@ export function ChatPage() {
 		},
 		[org, current],
 	);
+	// The threads the person renamed here, each by its id with its new name: so named on the page at
+	// once, in the list and the title bar, until the chat read again has it from the server; where
+	// the server can't be told, the old name is back, and the chat's box says why.
+	const [renamed, setRenamed] = useState<ReadonlyMap<string, string>>(() => new Map());
+	const titleOf = useCallback(
+		(thread: ChatThread): string => renamed.get(thread.id) ?? thread.title,
+		[renamed],
+	);
+	const rename = useCallback(
+		async (thread: ChatThread, title: string) => {
+			setRenamed((before) => new Map(before).set(thread.id, title));
+			const done = await renameThread(org, current, thread.id, title);
+			if (done.isOk()) {
+				setError(null);
+				await reload();
+			}
+			if (done.isErr()) {
+				setError(describeFetchError(done.error));
+			}
+			setRenamed((before) => {
+				if (before.get(thread.id) !== title) {
+					return before;
+				}
+				const after = new Map(before);
+				after.delete(thread.id);
+				return after;
+			});
+		},
+		[org, current, reload],
+	);
 	// A thread with alerts that come to it, as the person goes to say it is done or archive it: the
 	// dialog that asks whether its alerts go too, since they would wake it again.
 	const [confirming, setConfirming] = useState<{
@@ -683,12 +780,16 @@ export function ChatPage() {
 
 	// The thread open beside the chat as the title bar names it: as it shows itself, or, while it
 	// loads, as the chat lists it, so its name is there as it is opened.
-	const openThread =
+	const listedThread =
 		threadId === undefined
 			? null
 			: shownThread?.thread.id === threadId
 				? shownThread.thread
 				: (shownThreads.find((thread) => thread.id === threadId) ?? null);
+	const openThread =
+		listedThread === null || titleOf(listedThread) === listedThread.title
+			? listedThread
+			: {...listedThread, title: titleOf(listedThread)};
 	const chatTo = `/${org}/chat/${current}`;
 	const closeThread = useCallback(() => void navigate(chatTo), [navigate, chatTo]);
 	const giveChatBack = useCallback(() => setExpanded(null), []);
@@ -723,6 +824,7 @@ export function ChatPage() {
 							onExpand={() => setExpanded(full ? null : threadId)}
 							onDone={requestDone}
 							onArchive={requestArchive}
+							onRename={(thread, title) => void rename(thread, title)}
 							closeTo={chatTo}
 						/>
 					),
@@ -785,6 +887,7 @@ export function ChatPage() {
 					onShownDraft={setShownDraft}
 					onShownThreads={setShownThreads}
 					standingOf={standingOf}
+					titleOf={titleOf}
 					onDone={requestDone}
 					isArchived={isArchived}
 					onArchive={requestArchive}
@@ -863,6 +966,8 @@ type Opened = {
 	onShownThreads: (threads: ChatThread[]) => void;
 	// Where a thread stands on the page, the person's Done taken in, and saying it is done.
 	standingOf: (thread: ChatThread) => ThreadStanding;
+	// What a thread is named on the page, the person's renaming taken in.
+	titleOf: (thread: ChatThread) => string;
 	onDone: (thread: ChatThread) => void;
 	// Whether the person archived a thread on the page, which the list leaves out, and archiving one.
 	isArchived: (thread: ChatThread) => boolean;
@@ -1048,6 +1153,7 @@ const Chat = memo(function Chat({
 	onShownDraft,
 	onShownThreads,
 	standingOf,
+	titleOf,
 	onDone,
 	isArchived,
 	onArchive,
@@ -1069,9 +1175,13 @@ const Chat = memo(function Chat({
 					return [];
 				}
 				const standing = standingOf(thread);
-				return [standing === thread.standing ? thread : {...thread, standing}];
+				const title = titleOf(thread);
+				if (standing === thread.standing && title === thread.title) {
+					return [thread];
+				}
+				return [{...thread, standing, title}];
 			}),
-		[sending.entries, fresher, standingOf, isArchived],
+		[sending.entries, fresher, standingOf, titleOf, isArchived],
 	);
 	// What the chat had as it opened: what comes after it rises into place.
 	const [opened] = useState(() => new Set(loaded.threads.map((thread) => thread.id)));
