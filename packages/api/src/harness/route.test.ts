@@ -710,6 +710,11 @@ describe('the chat’s threads', () => {
 		expect(store.getChatThread).toHaveBeenCalledWith('chat-1', 'thread-2', ['send_to_person'], expect.any(Date));
 		expect(view.busy).toBe(true);
 		expect(view.thread).toMatchObject({id: 'thread-2', state: {kind: 'working'}, messageCount: 3});
+		// Asleep until it wakes, it is still at work; stopped, it is not.
+		store.getChatThread.mockResolvedValueOnce(Ok({...review, state: {kind: 'asleep', until: later(60)}}));
+		expect((await handleGetChatThreadRoute(request({personaId: 'persona-1', threadId: 'thread-2'}))).unwrap().busy).toBe(true);
+		store.getChatThread.mockResolvedValueOnce(Ok({...review, state: {kind: 'stopped'}}));
+		expect((await handleGetChatThreadRoute(request({personaId: 'persona-1', threadId: 'thread-2'}))).unwrap().busy).toBe(false);
 		// What runs it is its own, not its persona's.
 		expect(view.model).toEqual({harness: 'proxy', chatModel: 'glm'});
 		expect(view.persona).toMatchObject({harness: 'proxy', chatModel: 'claude'});

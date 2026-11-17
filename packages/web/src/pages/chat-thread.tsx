@@ -184,6 +184,9 @@ function Thread({
 	const threadId = loaded.thread.id;
 	const sending = useSending(view.messages, personText);
 	const busy = view.busy || sending.waiting;
+	// Read often while its agent runs; a thread asleep, at work though it is, is read as one stopped
+	// is, which a sleep of hours would otherwise have read every second.
+	const running = sending.waiting || (view.busy && view.thread.state.kind !== 'asleep');
 	// What the thread had as it opened: what comes after it rises into place.
 	const [opened] = useState(() => new Set(loaded.messages.map((message) => message.id)));
 	const [focusRequested, setFocusRequested] = useState(true);
@@ -229,11 +232,11 @@ function Thread({
 	}, [org, personaId, threadId]);
 
 	useEffect(() => {
-		const timer = setInterval(() => void readThread(), busy ? BUSY_POLL_MS : IDLE_POLL_MS);
+		const timer = setInterval(() => void readThread(), running ? BUSY_POLL_MS : IDLE_POLL_MS);
 		return () => {
 			clearInterval(timer);
 		};
-	}, [readThread, busy]);
+	}, [readThread, running]);
 
 	// Sends what the person replies, with the files placed among it, shown at once and taken away
 	// again where the send fails: what it failed with, or null.

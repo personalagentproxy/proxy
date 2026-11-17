@@ -326,8 +326,8 @@ export const threadModelSchema = z.object({harness: z.string(), chatModel: z.str
 
 /**
  * `GET chat/personas/:personaId/threads/:threadId`: one of the chat's threads: the persona, the
- * thread, what runs it, as this server has it, whether it is at work, as against asleep or done
- * for now, and what was said in it, in order.
+ * thread, what runs it, as this server has it, whether it is at work, asleep until it wakes
+ * counting as at work, as against done for now, and what was said in it, in order.
  */
 export const threadViewSchema = z.object({
 	persona: chatPersonaSchema,
