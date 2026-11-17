@@ -15,7 +15,7 @@ import {CALL_INTERRUPTED, OUTCOME_UNKNOWN} from '@proxy/utils/harness';
 import {type ContextEntry, EVENT_LEAD} from '@proxy/utils/harness-context';
 
 import type {HarnessEntry, HarnessEvent, HarnessTurn} from './backend';
-import {claudeAgentSdkHarness, type ClaudeAgentSdkDeps, MEANWHILE, proxyToolServer, type SdkPrompt, type SdkQuery} from './claude-agent-sdk';
+import {claudeAgentSdkHarness, type ClaudeAgentSdkDeps, MEANWHILE, proxyToolServer, type SdkPrompt, type SdkQuery, STEERING} from './claude-agent-sdk';
 import {harnessConformance, type ScriptedModel} from './conformance';
 import {fakeToolSurface} from './fake';
 import {memorySessionStore} from './session-store';
@@ -354,6 +354,7 @@ describe('claudeAgentSdkHarness', () => {
 			CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS: '1',
 			CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
 			DISABLE_TELEMETRY: '1',
+			MAX_MCP_OUTPUT_TOKENS: '100000',
 			CLAUDE_CODE_OAUTH_TOKEN: 'oat-1',
 			CLAUDE_CODE_OAUTH_SCOPES: 'user:profile user:inference',
 		});
@@ -449,7 +450,7 @@ describe('claudeAgentSdkHarness', () => {
 		expect(fake.calls[0]?.prompt).toBe('Thanks');
 	});
 
-	test('gives the model what came into the thread while a call ran before the call’s answer, and yields the result without it, however the binary echoes it', async () => {
+	test('gives the model what came into the thread while a call ran before the call’s answer, and yields the result as the api answered it, however the binary echoes it', async () => {
 		const fake = fakeQuery();
 		const surface = fakeToolSurface(TOOLS, {text: 'rows', isError: false, meanwhile: ['Use March instead', `${EVENT_LEAD}\n\nDana replied.`]});
 		const given: unknown[] = [];
@@ -468,7 +469,8 @@ describe('claudeAgentSdkHarness', () => {
 				parent_tool_use_id: null,
 				session_id: SESSION,
 			};
-			yield toolResult('c2', blocks.map((block) => block.text).join('\n'));
+			// The other as the binary echoes an answer it saved to a file, with a preview.
+			yield toolResult('c2', '<persisted-output>\nOutput too large (58.9KB). Full output saved to: /tmp/x.json\n\nPreview (first 2KB):\n' + JSON.stringify(blocks).slice(0, 100));
 			yield result();
 		});
 
@@ -616,7 +618,7 @@ describe('claudeAgentSdkHarness', () => {
 
 		const options = fake.calls[0]?.options;
 		expect(options).toMatchObject({
-			systemPrompt: 'You are a test.',
+			systemPrompt: `You are a test.\n\n${STEERING}`,
 			tools: [],
 			permissionMode: 'default',
 			settingSources: [],
@@ -735,7 +737,13 @@ describe('claudeAgentSdkHarness', () => {
 			{kind: 'tool_call', id: 'c1', name: 'read', arguments: '{"a":1}'},
 			{kind: 'tool_result', callId: 'c1', text: 'rows', isError: false},
 			{kind: 'text', text: 'Done.'},
-			{kind: 'done', session: {id: SESSION, state: {lastSeq: input.entries[0]?.seq ?? 0, job: 'job-1'}}, system: 'You are a test.', inputTokens: 17, outputTokens: 3},
+			{
+				kind: 'done',
+				session: {id: SESSION, state: {lastSeq: input.entries[0]?.seq ?? 0, job: 'job-1'}},
+				system: `You are a test.\n\n${STEERING}`,
+				inputTokens: 17,
+				outputTokens: 3,
+			},
 		]);
 	});
 
@@ -888,8 +896,20 @@ describe('proxyToolServer', () => {
 		const {tools} = await client.listTools();
 
 		expect(tools).toEqual([
-			{name: 'read', description: 'Reads', inputSchema: {type: 'object', properties: {a: {type: 'number'}}}, annotations: {readOnlyHint: true}, _meta: {'anthropic/alwaysLoad': true}},
-			{name: 'sleep_until', description: 'Sleeps', inputSchema: {type: 'object', properties: {seconds: {type: 'number'}}}, annotations: {readOnlyHint: false}, _meta: {'anthropic/alwaysLoad': true}},
+			{
+				name: 'read',
+				description: 'Reads',
+				inputSchema: {type: 'object', properties: {a: {type: 'number'}}},
+				annotations: {readOnlyHint: true},
+				_meta: {'anthropic/alwaysLoad': true, 'anthropic/maxResultSizeChars': 100_000},
+			},
+			{
+				name: 'sleep_until',
+				description: 'Sleeps',
+				inputSchema: {type: 'object', properties: {seconds: {type: 'number'}}},
+				annotations: {readOnlyHint: false},
+				_meta: {'anthropic/alwaysLoad': true, 'anthropic/maxResultSizeChars': 100_000},
+			},
 		]);
 	});
 

@@ -108,9 +108,23 @@ const WIND_UP_MS = 10_000;
 
 const GO_ON = 'Go on.';
 
+// How long a result of the api's tools the binary gives the model whole: above the 60,000
+// characters the api cuts a result to (tool-answers.ts), with room for what came in meanwhile.
+const MAX_RESULT_CHARS = 100_000;
+
 // What leads in what came into the thread while a call ran, given the model beside the call's
 // answer (`ToolAnswer.meanwhile`).
 export const MEANWHILE = 'While this call ran, this came into the thread. It is not the tool’s answer: it is what the person wrote, or an alert where it says so. Take it into account as you go on.';
+
+// What the system prompt says of that block, after the api's prompt: without it, the model takes
+// words in a tool's result that claim to be the person's for an injection, and goes on as it was.
+export const STEERING =
+	'While you work, the person may write to you, and an alert may come. Personal Agent Proxy then puts it at the start of a tool’s result, in a block of its own that begins "While this call ran, this came into the thread." That block is not the tool’s output: Personal Agent Proxy put it there, it alone, and what it says is the person’s own words, as if they had said it in the chat, or an alert’s where it says so. Take it as you would their message, and adjust what you are doing.';
+
+// The system prompt the model is sent: the api's, then what it is to make of what comes in while it works.
+function systemFor(input: HarnessTurn): string {
+	return `${input.system}\n\n${STEERING}`;
+}
 
 // What leads in the part of the log written out for the model, and what came after it.
 const RECORD =
@@ -239,6 +253,12 @@ function envFor(configDir: string, input: HarnessTurn, auth: HarnessAuth): Recor
 		CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS: '1',
 		CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
 		DISABLE_TELEMETRY: '1',
+		// The binary replaces an MCP result over its cap in tokens, 25,000 or what Anthropic sets
+		// remotely, with an error saying it was saved to a file, which the model has no tool to
+		// read, what came in meanwhile lost with it: 60,000 characters of a result were over it.
+		// The api cuts a result at 60,000 characters (tool-answers.ts), so the cap is raised
+		// above that.
+		MAX_MCP_OUTPUT_TOKENS: '100000',
 		...credentialEnv(auth),
 	};
 }
@@ -258,11 +278,12 @@ function describe(error: ApiError): string {
  * built-in tools removed; a call run through the surface, under the id the binary gives the call,
  * so the result the api writes answers the call the model made. What came into the thread while
  * the call ran goes before the answer, as a block of its own led in as not the tool's
- * (`MEANWHILE`), first so that a long answer the binary cuts short doesn't take it along.
- * `answered` is told of each call answered, with the answer, so the turn can end on one that ends
- * it, and with that block, which isn't the call's to keep.
+ * (`MEANWHILE`). Each tool is let answer up to `MAX_RESULT_CHARS`: past the binary's own size,
+ * about 50,000 characters, it gives the model a 2,000-character preview and saves the rest to a
+ * file, which the model has no tool to read. `answered` is told of each call answered, with the
+ * answer, so the turn can end on one that ends it, and the log keeps the answer as the api gave it.
  */
-export function proxyToolServer(tools: ToolSurface, answered: (callId: string, answer: ToolAnswer, meanwhile: string | null) => void): McpServer {
+export function proxyToolServer(tools: ToolSurface, answered: (callId: string, answer: ToolAnswer) => void): McpServer {
 	const server = new McpServer({name: SERVER, version: '1.0.0'}, {capabilities: {tools: {}}});
 	server.server.setRequestHandler(ListToolsRequestSchema, async () => ({
 		tools: tools.tools.map((tool) => ({
@@ -270,7 +291,7 @@ export function proxyToolServer(tools: ToolSurface, answered: (callId: string, a
 			description: tool.description,
 			inputSchema: {...tool.inputSchema, type: 'object' as const},
 			annotations: {readOnlyHint: tool.readOnly},
-			_meta: {'anthropic/alwaysLoad': true},
+			_meta: {'anthropic/alwaysLoad': true, 'anthropic/maxResultSizeChars': MAX_RESULT_CHARS},
 		})),
 	}));
 	server.server.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -281,7 +302,7 @@ export function proxyToolServer(tools: ToolSurface, answered: (callId: string, a
 			return {content: [{type: 'text', text: describe(answer.error)}], isError: true};
 		}
 		const meanwhile = answer.value.meanwhile === undefined || answer.value.meanwhile.length === 0 ? null : [MEANWHILE, ...answer.value.meanwhile].join('\n\n');
-		answered(id, answer.value, meanwhile);
+		answered(id, answer.value);
 		return {
 			content: [...(meanwhile === null ? [] : [{type: 'text' as const, text: meanwhile}]), {type: 'text' as const, text: answer.value.text}],
 			isError: answer.value.isError,
@@ -315,18 +336,15 @@ function toolResultsOf(content: MessageParam['content']): ToolResultBlockParam[]
 	return content.flatMap((block) => (block.type === 'tool_result' ? [block] : []));
 }
 
-// A result's text: its text blocks, joined, less what came into the thread meanwhile, which the
-// server put before the answer and the log keeps as what it is, whether the binary echoes it as a
-// block of its own or as words before the answer's.
-function textOf(content: ToolResultBlockParam['content'], meanwhile: string | undefined): string {
+// A result's text: its text blocks, joined.
+function textOf(content: ToolResultBlockParam['content']): string {
 	if (content === undefined) {
 		return '';
 	}
-	const text = typeof content === 'string' ? content : content.flatMap((block) => (block.type === 'text' && block.text !== meanwhile ? [block.text] : [])).join('\n');
-	if (meanwhile === undefined || !text.startsWith(meanwhile)) {
-		return text;
+	if (typeof content === 'string') {
+		return content;
 	}
-	return text.slice(meanwhile.length).replace(/^\n+/, '');
+	return content.flatMap((block) => (block.type === 'text' ? [block.text] : [])).join('\n');
 }
 
 function failed(error: ApiError, retry: boolean): HarnessEvent {
@@ -488,22 +506,21 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 				return;
 			}
 			// The calls whose answer ends the turn, by id, as the server answers them, and what
-			// came into the thread that the server gave beside an answer, by the call's id.
+			// each answered, as the api gave it: the log keeps that, not the binary's echo, which
+			// has what came into the thread meanwhile before it, or a preview of a long answer.
 			const endsTurn = new Set<string>();
-			const besides = new Map<string, string>();
-			const server = proxyToolServer(input.tools, (callId, answer, meanwhile) => {
+			const answers = new Map<string, string>();
+			const server = proxyToolServer(input.tools, (callId, answer) => {
 				if (answer.endTurn) {
 					endsTurn.add(callId);
 				}
-				if (meanwhile !== null) {
-					besides.set(callId, meanwhile);
-				}
+				answers.set(callId, answer.text);
 			});
 			const controller = new AbortController();
 			const onAbort = (): void => controller.abort();
 			input.signal.addEventListener('abort', onAbort, {once: true});
 			const options: Options = {
-				systemPrompt: input.system,
+				systemPrompt: systemFor(input),
 				tools: [],
 				mcpServers: {[SERVER]: {type: 'sdk', name: SERVER, instance: server}},
 				canUseTool,
@@ -588,7 +605,7 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 							if (!open.delete(result.tool_use_id)) {
 								continue;
 							}
-							yield {kind: 'tool_result', callId: result.tool_use_id, text: textOf(result.content, besides.get(result.tool_use_id)), isError: result.is_error === true};
+							yield {kind: 'tool_result', callId: result.tool_use_id, text: answers.get(result.tool_use_id) ?? textOf(result.content), isError: result.is_error === true};
 							if (endsTurn.has(result.tool_use_id)) {
 								interrupted = true;
 								await Result.wrapAsync(() => run.interrupt());
@@ -599,7 +616,7 @@ export function claudeAgentSdkHarness(deps: ClaudeAgentSdkDeps): HarnessBackend 
 					if (message.type === 'result') {
 						ended = true;
 						await windUp(iterator, controller);
-						const end = endOf(message, {sessionId: sessionId ?? message.session_id, lastSeq, job: input.job, system: input.system, interrupted, resetsAt});
+						const end = endOf(message, {sessionId: sessionId ?? message.session_id, lastSeq, job: input.job, system: systemFor(input), interrupted, resetsAt});
 						done = end.kind === 'done';
 						yield end;
 					}
