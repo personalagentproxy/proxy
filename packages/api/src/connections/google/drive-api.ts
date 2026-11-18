@@ -9,8 +9,9 @@ import {googleRequest, googleText, googleUpload, googleWrite} from './google-cli
 
 /**
  * The Drive v3 calls the `files` collection makes, and the reading of their answers. Every call
- * takes shared drives too. A file is uploaded as Markdown or CSV with the Google type it is to
- * become, and Drive converts it.
+ * takes shared drives too. A document or a spreadsheet is uploaded as Markdown or CSV with the
+ * Google type it is to become, and Drive converts it; any other file is uploaded as its bytes, with
+ * its own type, and kept as it is.
  */
 
 const DRIVE = 'https://www.googleapis.com/drive/v3';
@@ -21,6 +22,23 @@ export const PAGE_SIZE = 50;
 
 /** Drive's ids, as every id an agent sends is checked against before it reaches an address or a query. */
 export const DRIVE_ID = /^[A-Za-z0-9_-]+$/;
+
+/**
+ * A file's id, given as it is or in a link to it: `…/d/<id>/edit`, as Docs, Sheets, Slides and
+ * Drive's own file links have it, or Drive's `?id=` links; null for anything else.
+ */
+export function fileIdOf(text: string): string | null {
+	const trimmed = text.trim();
+	if (DRIVE_ID.test(trimmed)) {
+		return trimmed;
+	}
+	const url = URL.parse(trimmed);
+	if (!url || url.protocol !== 'https:' || !/(^|\.)google\.com$/.test(url.hostname)) {
+		return null;
+	}
+	const id = /\/d\/([^/]+)/.exec(url.pathname)?.[1] ?? url.searchParams.get('id');
+	return id && DRIVE_ID.test(id) ? id : null;
+}
 
 export const MIME_TYPES = {
 	folder: 'application/vnd.google-apps.folder',
@@ -123,7 +141,7 @@ export function getSharedDrive(accessToken: string, driveId: string): Promise<Re
 	return googleRequest(accessToken, driveUrl(`/drives/${driveId}`, {fields: 'id,name'}), sharedDriveSchema);
 }
 
-/** A new file's name, the Google type it is to be, and the folder it goes in. */
+/** A new file's name, the type it is to be, and the folder it goes in. */
 export type NewFile = {name: string; mimeType: string; parent: string};
 
 /** What a file is uploaded as: its type, such as `text/markdown`, and its text. */
@@ -134,31 +152,36 @@ function textType(type: string): string {
 	return `${type}; charset=UTF-8`;
 }
 
-// A file's metadata and its content in one request, as Drive's multipart upload takes them.
-function multipart(metadata: object, upload: Upload): Upload {
+// A file's metadata and its content, text or bytes, in one request, as Drive's multipart upload
+// takes them.
+function multipart(metadata: object, type: string, content: string | Uint8Array<ArrayBuffer>): {type: string; body: Blob} {
 	const boundary = `proxy-${randomUUID()}`;
-	const body = [
-		`--${boundary}`,
-		'Content-Type: application/json; charset=UTF-8',
-		'',
-		JSON.stringify(metadata),
-		`--${boundary}`,
-		`Content-Type: ${textType(upload.type)}`,
-		'',
-		upload.body,
-		`--${boundary}--`,
-	].join('\r\n');
-	return {type: `multipart/related; boundary=${boundary}`, body};
+	const head = [`--${boundary}`, 'Content-Type: application/json; charset=UTF-8', '', JSON.stringify(metadata), `--${boundary}`, `Content-Type: ${type}`, '', ''].join('\r\n');
+	return {type: `multipart/related; boundary=${boundary}`, body: new Blob([head, content, `\r\n--${boundary}--`])};
 }
+
+function metadataOf(file: NewFile): object {
+	return {name: file.name, mimeType: file.mimeType, parents: [file.parent]};
+}
+
+const WRITE_PARAMS = {fields: FILE_FIELDS, supportsAllDrives: 'true'};
 
 /** Makes a file in a folder: empty, or from what is uploaded, which Drive converts to the file's type. */
 export function createFile(accessToken: string, file: NewFile, upload: Upload | null): Promise<Result<DriveFile, ApiError>> {
-	const metadata = {name: file.name, mimeType: file.mimeType, parents: [file.parent]};
-	const params = {fields: FILE_FIELDS, supportsAllDrives: 'true'};
 	if (upload === null) {
-		return googleWrite(accessToken, 'POST', driveUrl('/files', params), metadata, driveFileSchema);
+		return googleWrite(accessToken, 'POST', driveUrl('/files', WRITE_PARAMS), metadataOf(file), driveFileSchema);
 	}
-	return googleUpload(accessToken, 'POST', driveUrl('/files', {...params, uploadType: 'multipart'}, UPLOAD), multipart(metadata, upload), driveFileSchema);
+	return googleUpload(accessToken, 'POST', driveUrl('/files', {...WRITE_PARAMS, uploadType: 'multipart'}, UPLOAD), multipart(metadataOf(file), textType(upload.type), upload.body), driveFileSchema);
+}
+
+/** Uploads a file's bytes as they are, of the type it is made as, which is never one of Google's own, so nothing is converted. */
+export function uploadFile(accessToken: string, file: NewFile, bytes: Uint8Array<ArrayBuffer>): Promise<Result<DriveFile, ApiError>> {
+	return googleUpload(accessToken, 'POST', driveUrl('/files', {...WRITE_PARAMS, uploadType: 'multipart'}, UPLOAD), multipart(metadataOf(file), file.mimeType, bytes), driveFileSchema);
+}
+
+/** A copy of a file, made by Drive itself, in the folder given under the name given. */
+export function copyFile(accessToken: string, fileId: string, copy: {name: string; parent: string}): Promise<Result<DriveFile, ApiError>> {
+	return googleWrite(accessToken, 'POST', driveUrl(`/files/${fileId}/copy`, WRITE_PARAMS), {name: copy.name, parents: [copy.parent]}, driveFileSchema);
 }
 
 /** Changes a file's metadata, such as its name, or puts it in Trash. */

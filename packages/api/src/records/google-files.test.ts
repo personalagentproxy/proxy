@@ -80,6 +80,7 @@ function fresh(): State {
 			'1Plan': file('1Plan', 'Launch plan', MIME.document, '# Launch plan\n\n- Ship it'),
 			'1Budget': file('1Budget', 'Budget 2026', MIME.spreadsheet),
 			'1Deck': file('1Deck', 'Board deck', MIME.presentation, 'Slide one'),
+			'1Paper': file('1Paper', 'Paper.pdf', 'application/pdf'),
 		},
 		grid: [
 			['Item', 'Amount', 'Status'],
@@ -92,7 +93,8 @@ function fresh(): State {
 
 let state = fresh();
 
-type Request = {method: string; url: URL; type: string; body: string};
+// A body as text, and as the bytes it is, for a file uploaded as it is.
+type Request = {method: string; url: URL; type: string; body: string; bytes: Buffer};
 
 // Where Sheets puts an appended row: after the last rows holding anything, from the first column of
 // the block they are in.
@@ -126,13 +128,19 @@ function cellOf(range: string): {row: number; column: number} {
 	return {row: Number(row), column: letter.charCodeAt(0) - 65};
 }
 
-// The metadata and the content of a multipart upload.
-function multipartOf(request: Request): {metadata: {name: string; mimeType: string; parents: string[]}; type: string; content: string} {
+// The metadata and the bytes of a multipart upload of a file as it is.
+function uploadOf(request: Request): {metadata: {name: string; mimeType: string; parents: string[]}; type: string; bytes: Buffer} {
 	const boundary = /boundary=(.+)$/.exec(request.type)?.[1] ?? '';
-	const [, first = '', second = ''] = request.body.split(`--${boundary}`);
+	const [, first = '', second = ''] = request.bytes.toString('latin1').split(`--${boundary}`);
 	const [, json = '{}'] = first.split('\r\n\r\n');
-	const [head = '', ...content] = second.split('\r\n\r\n');
-	return {metadata: JSON.parse(json.trim()), type: head.replace('\r\nContent-Type: ', ''), content: content.join('\r\n\r\n').replace(/\r\n$/, '')};
+	const at = second.indexOf('\r\n\r\n');
+	return {metadata: JSON.parse(json.trim()), type: second.slice(0, at).replace('\r\nContent-Type: ', ''), bytes: Buffer.from(second.slice(at + 4).replace(/\r\n$/, ''), 'latin1')};
+}
+
+// The metadata and the content of a multipart upload of text.
+function multipartOf(request: Request): {metadata: {name: string; mimeType: string; parents: string[]}; type: string; content: string} {
+	const {metadata, type, bytes} = uploadOf(request);
+	return {metadata, type, content: bytes.toString('utf8')};
 }
 
 function make(name: string, mimeType: string, parents: string[], content: string): Response {
@@ -158,6 +166,15 @@ function answer(request: Request): Response {
 	if (method === 'POST' && path === '/upload/drive/v3/files') {
 		const {metadata, content} = multipartOf(request);
 		return make(metadata.name, metadata.mimeType, metadata.parents, content);
+	}
+	const copied = /^\/drive\/v3\/files\/([^/]+)\/copy$/.exec(path)?.[1];
+	const original = copied ? state.files[copied] : undefined;
+	if (method === 'POST' && copied && !original) {
+		return notFound();
+	}
+	if (method === 'POST' && original) {
+		const {name, parents} = JSON.parse(request.body);
+		return make(name, original.mimeType, parents, original.content);
 	}
 	const exported = /^\/drive\/v3\/files\/([^/]+)\/export$/.exec(path)?.[1];
 	if (exported) {
@@ -217,7 +234,8 @@ function answer(request: Request): Response {
 spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Request, init?: RequestInit) => {
 	const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
 	const headers = new Headers(init?.headers);
-	const request = {method: init?.method ?? 'GET', url, type: headers.get('content-type') ?? '', body: typeof init?.body === 'string' ? init.body : ''};
+	const body = init?.body instanceof Blob ? Buffer.from(await init.body.arrayBuffer()) : Buffer.from(typeof init?.body === 'string' ? init.body : '');
+	const request = {method: init?.method ?? 'GET', url, type: headers.get('content-type') ?? '', body: body.toString('utf8'), bytes: body};
 	google.requests.push(request);
 	return answer(request);
 }) as typeof fetch);
@@ -363,9 +381,155 @@ describe('creating files', () => {
 			'Nothing can be made in Shared drives: make it in a folder, My Drive or a shared drive',
 			'Rows go in one of the spreadsheet’s tabs: open it and pick one as parent',
 			'A document holds nothing: make it in a folder',
-			'Say what to make as kind: Folder, Document or Spreadsheet',
+			'Say what to make as kind: Folder, Document, Spreadsheet or File',
 			'A new document needs a name',
 			'A folder has no content',
+		]);
+		expect(writes()).toEqual([]);
+	});
+});
+
+// Bytes no text is: a PDF's start, a NUL, bytes past ASCII and a line break Drive must keep as they are.
+const BYTES = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0x00, 0xff, 0x80, 0x0d, 0x0a, 0xe2]);
+
+describe('uploading files', () => {
+	test('a file is uploaded as its bytes are, of the type its name says, never converted, and opens as a file', async () => {
+		const {filesConnector} = await import('./google-files');
+		const base64 = BYTES.toString('base64');
+		// Line breaks, as some encoders wrap base64, are left out.
+		const record = (await filesConnector.create(target, {name: 'Results.pdf', kind: 'File', content: `${base64.slice(0, 8)}\n${base64.slice(8)}`}, 'drive-0ATeamDrive')).unwrap();
+
+		const [upload] = writes();
+		expect([upload?.method, upload?.url.pathname]).toEqual(['POST', '/upload/drive/v3/files']);
+		expect(Object.fromEntries(upload?.url.searchParams ?? [])).toMatchObject({uploadType: 'multipart', supportsAllDrives: 'true'});
+		expect(upload?.type).toMatch(/^multipart\/related; boundary=/);
+		expect(uploadOf(upload as Request)).toEqual({metadata: {name: 'Results.pdf', mimeType: 'application/pdf', parents: ['0ATeamDrive']}, type: 'application/pdf', bytes: BYTES});
+		expect(writes()).toHaveLength(1);
+		expect(record).toMatchObject({id: '1New1', values: {name: 'Results.pdf', kind: 'File', content: ''}});
+		expect(record.hasChildren).toBeUndefined();
+	});
+
+	test('a data URL says the type of a file whose name doesn’t, a name’s extension winning; with neither, it is bytes', async () => {
+		const {filesConnector} = await import('./google-files');
+		const base64 = BYTES.toString('base64');
+		await filesConnector.create(target, {name: 'Scan 12', kind: 'File', content: `data:Image/PNG;base64,${base64}`}, '1Projects');
+		await filesConnector.create(target, {name: 'chart.png', kind: 'File', content: `data:application/pdf;name=x.pdf;base64,${base64}`}, 'root');
+		await filesConnector.create(target, {name: 'export', kind: 'File', content: base64}, '1Projects');
+
+		const uploads = writes().map((request) => uploadOf(request));
+		expect(uploads.map(({metadata}) => metadata)).toEqual([
+			{name: 'Scan 12', mimeType: 'image/png', parents: ['1Projects']},
+			{name: 'chart.png', mimeType: 'image/png', parents: ['root']},
+			{name: 'export', mimeType: 'application/octet-stream', parents: ['1Projects']},
+		]);
+		expect(uploads.every(({bytes}) => bytes.equals(BYTES))).toBe(true);
+	});
+
+	test('content that isn’t base64, none, too much, a name, type or place a file can’t have are turned down before anything is written', async () => {
+		const {filesConnector} = await import('./google-files');
+		const content = BYTES.toString('base64');
+		const refusals = await Promise.all([
+			filesConnector.create(target, {name: 'notes.txt', kind: 'File', content: 'Just some text.'}, '1Projects'),
+			filesConnector.create(target, {name: 'notes.txt', kind: 'File', content: 'abc'}, '1Projects'),
+			filesConnector.create(target, {name: 'notes.txt', kind: 'File', content: 'Zm9v-_8='}, '1Projects'),
+			filesConnector.create(target, {name: 'notes.txt', kind: 'File', content: ' \n'}, '1Projects'),
+			filesConnector.create(target, {name: 'notes.txt', kind: 'File', content: 'data:text/plain;base64,'}, '1Projects'),
+			filesConnector.create(target, {name: 'big.bin', kind: 'File', content: Buffer.alloc(6 * 1024 * 1024).toString('base64')}, '1Projects'),
+			filesConnector.create(target, {name: ' ', kind: 'File', content}, '1Projects'),
+			filesConnector.create(target, {name: 'Plan', kind: 'File', content: `data:application/vnd.google-apps.document;base64,${content}`}, '1Projects'),
+			filesConnector.create(target, {name: 'Paper', kind: 'File', content: `data:pdf;base64,${content}`}, '1Projects'),
+			filesConnector.create(target, {name: 'paper.pdf', kind: 'File', content}, 'recent'),
+			filesConnector.create(target, {name: 'paper.pdf', kind: 'File', content}, '1Plan'),
+			filesConnector.create(target, {name: 'paper.pdf', kind: 'File', content}, 'sheet-1Budget-0'),
+		]);
+
+		expect(refusals.map((result) => messageOf(result))).toEqual([
+			'A file’s content is its bytes as base64, padded with =, as btoa writes it, or a data URL of them',
+			'A file’s content is its bytes as base64, padded with =, as btoa writes it, or a data URL of them',
+			'A file’s content is its bytes as base64, padded with =, as btoa writes it, or a data URL of them',
+			'A new file needs its bytes in content, as base64',
+			'A new file needs its bytes in content, as base64',
+			'“big.bin” is too large to upload, at 6.0 MB: at most 5.0 MB',
+			'A new file needs a name, with its extension, such as report.pdf',
+			'A file uploaded keeps its own type: make a Document or a Spreadsheet to have Google’s',
+			'A data URL’s type is a media type, such as application/pdf, not “pdf”',
+			'Nothing can be made in Recent: make it in a folder, My Drive or a shared drive',
+			'A document holds nothing: make it in a folder',
+			'A tab holds rows: leave kind out, or make it Row',
+		]);
+		expect(writes()).toEqual([]);
+	});
+
+	test('a file uploaded is renamed as any file is, and its bytes aren’t written over', async () => {
+		const {filesConnector} = await import('./google-files');
+		const before = (await filesConnector.get(target, '1Paper')).unwrap();
+		expect(before.values).toMatchObject({name: 'Paper.pdf', kind: 'File', content: ''});
+		await filesConnector.update(target, '1Paper', {...before.values, name: 'Paper v2.pdf'}, before);
+		expect(writes().map((request) => [request.method, request.url.pathname, JSON.parse(request.body)])).toEqual([['PATCH', '/drive/v3/files/1Paper', {name: 'Paper v2.pdf'}]]);
+
+		google.requests = [];
+		const refused = await filesConnector.update(target, '1Paper', {content: BYTES.toString('base64')});
+		expect(messageOf(refused)).toBe('Only a document’s content can be written here; this file’s name can be changed');
+		expect(writes()).toEqual([]);
+	});
+});
+
+describe('copying files', () => {
+	const agent = {agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'claude', name: 'Claude', orgSlug: 'acme', experiments: []};
+
+	function run(params: Record<string, unknown>) {
+		return {caller: {agent, via: 'mcp' as const, taskId: 'task-1'}, connection: target.connection, params};
+	}
+
+	test('Drive copies a file into the folder given, under its own name where none is written, and the answer says the copy’s id and link', async () => {
+		const {runFilesCopy} = await import('./google-files');
+		const answer = (await runFilesCopy(run({id: '1Paper', parent: 'drive-0ATeamDrive'}))).unwrap();
+
+		const [copy] = writes();
+		expect([copy?.method, copy?.url.pathname, copy?.url.searchParams.get('supportsAllDrives'), JSON.parse(copy?.body ?? '')]).toEqual([
+			'POST',
+			'/drive/v3/files/1Paper/copy',
+			'true',
+			{name: 'Paper.pdf', parents: ['0ATeamDrive']},
+		]);
+		expect(writes()).toHaveLength(1);
+		expect(answer).toBe(['Made “Paper.pdf”, a copy of “Paper.pdf”.', 'Id: 1New1', 'Kind: File', 'Link: https://drive.google.com/open?id=1New1'].join('\n'));
+	});
+
+	test('a file named by its link is copied under the name written, into My Drive where no folder is given', async () => {
+		const {runFilesCopy} = await import('./google-files');
+		const answer = (await runFilesCopy(run({id: 'https://docs.google.com/document/d/1Plan/edit', name: 'Plan for the board'}))).unwrap();
+
+		expect(JSON.parse(writes()[0]?.body ?? '')).toEqual({name: 'Plan for the board', parents: ['root']});
+		expect(answer).toStartWith('Made “Plan for the board”, a copy of “Launch plan”.\nId: 1New1\nKind: Document');
+	});
+
+	test('a folder, a file that isn’t there, a place, file or tab that holds no files, and params that aren’t text are turned down before anything is written', async () => {
+		const {runFilesCopy} = await import('./google-files');
+		const refusals = await Promise.all([
+			runFilesCopy(run({id: '1Projects', parent: 'root'})),
+			runFilesCopy(run({id: '1Gone'})),
+			runFilesCopy(run({id: 'https://example.com/d/1Plan'})),
+			runFilesCopy(run({id: '1Paper', parent: 'shared-with-me'})),
+			runFilesCopy(run({id: '1Paper', parent: '1Plan'})),
+			runFilesCopy(run({id: '1Paper', parent: '1Budget'})),
+			runFilesCopy(run({id: '1Paper', parent: 'sheet-1Budget-0'})),
+			runFilesCopy(run({id: '1Paper', parent: '1Missing'})),
+			runFilesCopy(run({id: ['1Paper']})),
+			runFilesCopy(run({id: '1Paper', folder: '1Projects'})),
+		]);
+
+		expect(refusals.map((result) => messageOf(result))).toEqual([
+			'A folder can’t be copied: make a folder, and copy its files into it',
+			'There is no file 1Gone to copy, or this account can’t open it',
+			'Say which file to copy as id: its id, as files_list gives it, or its link',
+			'Nothing can be made in Shared with me: make it in a folder, My Drive or a shared drive',
+			'A document holds nothing: make it in a folder',
+			'A spreadsheet holds tabs: copy the file into a folder',
+			'A tab holds rows: make files in a folder',
+			'not_found',
+			'files_copy takes id, and parent and name where wanted, each as text',
+			'files_copy takes id, and parent and name where wanted, each as text',
 		]);
 		expect(writes()).toEqual([]);
 	});

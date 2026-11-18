@@ -209,10 +209,17 @@ For Drive, Docs, Sheets and Slides:
   header used twice, or a column without one, goes by its column's letter, `Status (E)`. Other
   files, shortcuts included, open as their name, kind, owner, last change and link.
 - **Create files** makes folders, documents and spreadsheets in My Drive, a folder or a shared
-  drive, and adds rows to a spreadsheet's tabs, and requires Read files. A document is written as
-  Markdown and a spreadsheet as CSV, and Google converts them as they are uploaded. A row is written
-  as `Header: value` lines, under the headers of the tab's first row, and goes after the last row
-  holding anything, from column A.
+  drive, uploads other files, such as PDFs and pictures, copies files into them, and adds rows to a
+  spreadsheet's tabs, and requires Read files. A document is written as Markdown and a spreadsheet
+  as CSV, and Google converts them as they are uploaded. Any other file is made with the kind File
+  and its bytes in base64, up to 5 MB, and kept as it is, never converted: its type is the one its
+  name's extension says, such as `report.pdf`, or, for a name without one, the type of a data URL
+  given instead, `data:image/png;base64,…`. The bytes travel in the request itself, so in practice
+  a request over MCP or from a sandbox carries at most 1 MB, about 750 KB of a file, and a script
+  writes at most 2 MB. Copying is done by Google, so a file of any size already in Drive is copied
+  into a folder, a shared drive or My Drive, under its own name or a new one; folders aren't
+  copied. A row is written as `Header: value` lines, under the headers of the tab's first row, and
+  goes after the last row holding anything, from column A.
 - **Edit files** renames files and a spreadsheet's tabs, replaces a document's content, and changes
   rows, and requires Read files. A document's content is replaced whole with the Markdown written,
   which drops its comments and suggestions, and only when it is written differently from how it
