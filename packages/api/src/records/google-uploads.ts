@@ -59,9 +59,9 @@ const CSV = 'text/csv';
 
 // The kinds of Google's own file that take bytes, each only from the Office file Drive converts into it.
 const GOOGLE_KINDS: Partial<Record<string, {name: string; from: string; instead: string}>> = {
-	[MIME_TYPES.document]: {name: 'Doc', from: 'docx', instead: 'upload a docx over it, or the Markdown as a new Doc, with name, parent and convert'},
+	[MIME_TYPES.document]: {name: 'Doc', from: 'docx', instead: 'edit its text in place with docs_edit, upload a docx over it, or the Markdown as a new Doc, with name, parent and convert'},
 	[MIME_TYPES.spreadsheet]: {name: 'Sheet', from: 'xlsx', instead: 'write its cells with ranges_write, or upload an xlsx over it'},
-	[MIME_TYPES.presentation]: {name: 'Slides file', from: 'pptx', instead: 'upload a pptx over it'},
+	[MIME_TYPES.presentation]: {name: 'Slides file', from: 'pptx', instead: 'replace its text in place with slides_edit, or upload a pptx over it'},
 };
 
 // What a new file's bytes become with convert, by their type.

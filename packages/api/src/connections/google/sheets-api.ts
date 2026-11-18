@@ -7,9 +7,10 @@ import type {SheetCell} from '@proxy/db/file-undo';
 import {googleRequest, googleWrite} from './google-client';
 
 /**
- * The Sheets v4 calls the `files` and `ranges` collections make, and the reading of their answers:
- * a spreadsheet's tabs, and the values in ranges of one, read as Sheets shows them and written as
- * if typed in, so a number stays a number and `=SUM(B2:B9)` is a formula.
+ * The Sheets v4 calls the `files` and `ranges` collections and the `sheets_` tools make, and the
+ * reading of their answers: a spreadsheet's tabs, added, deleted and their rows and columns
+ * inserted and deleted, and the values in ranges of one, read as Sheets shows them or as formulas
+ * and written as if typed in, so a number stays a number and `=SUM(B2:B9)` is a formula.
  */
 
 const SHEETS = 'https://sheets.googleapis.com/v4/spreadsheets';
@@ -44,14 +45,11 @@ export async function getSheets(accessToken: string, spreadsheetId: string): Pro
 	const url = new URL(`${SHEETS}/${spreadsheetId}`);
 	url.searchParams.set('fields', 'sheets.properties(sheetId,title,gridProperties(rowCount,columnCount))');
 	const spreadsheet = await googleRequest(accessToken, url, spreadsheetSchema);
-	return spreadsheet.map(({sheets = []}) =>
-		sheets.map(({properties}) => ({
-			sheetId: properties.sheetId,
-			title: properties.title,
-			rowCount: properties.gridProperties?.rowCount ?? 0,
-			columnCount: properties.gridProperties?.columnCount ?? 0,
-		})),
-	);
+	return spreadsheet.map(({sheets = []}) => sheets.map(sheetOf));
+}
+
+function sheetOf({properties}: z.infer<typeof sheetSchema>): Sheet {
+	return {sheetId: properties.sheetId, title: properties.title, rowCount: properties.gridProperties?.rowCount ?? 0, columnCount: properties.gridProperties?.columnCount ?? 0};
 }
 
 // A tab's title as A1 notation quotes it: `'Alex''s notes'`.
@@ -83,15 +81,30 @@ const updatedSchema = z.object({updatedRange: z.string().optional(), updatedRows
 
 const appendSchema = z.object({updates: z.object({updatedRange: z.string()})});
 
-/** The values in a range, as Sheets shows them, and the range itself as Sheets writes it. */
-export async function getValues(accessToken: string, spreadsheetId: string, range: string): Promise<Result<{range: string; values: string[][]}, ApiError>> {
-	const answer = await googleRequest(accessToken, valuesUrl(spreadsheetId, range), valueRangeSchema.extend({range: z.string()}));
+/**
+ * How values are read: as Sheets shows them, formatted, or each cell's formula as it was typed in,
+ * `=SUM(B2:B9)`, a value that is no formula then unformatted.
+ */
+export type Render = 'shown' | 'formulas';
+
+const RENDER_OPTIONS: Record<Render, string> = {shown: 'FORMATTED_VALUE', formulas: 'FORMULA'};
+
+/** The values in a range, as `render` says, and the range itself as Sheets writes it. */
+export async function getValues(accessToken: string, spreadsheetId: string, range: string, render: Render = 'shown'): Promise<Result<{range: string; values: string[][]}, ApiError>> {
+	const params: Record<string, string> = render === 'shown' ? {} : {valueRenderOption: RENDER_OPTIONS[render]};
+	const answer = await googleRequest(accessToken, valuesUrl(spreadsheetId, range, params), valueRangeSchema.extend({range: z.string()}));
 	return answer.map((read) => ({range: read.range, values: read.values ?? []}));
 }
 
-/** Writes values into a range, as if typed in, and answers the range written and the values there now. */
-export async function putValues(accessToken: string, spreadsheetId: string, range: string, values: string[][]): Promise<Result<{range: string; values: string[][]}, ApiError>> {
-	const url = valuesUrl(spreadsheetId, range, {valueInputOption: 'USER_ENTERED', includeValuesInResponse: 'true', responseValueRenderOption: 'FORMATTED_VALUE'});
+/** Writes values into a range, as if typed in, and answers the range written and the values there now, as `render` says. */
+export async function putValues(
+	accessToken: string,
+	spreadsheetId: string,
+	range: string,
+	values: string[][],
+	render: Render = 'shown',
+): Promise<Result<{range: string; values: string[][]}, ApiError>> {
+	const url = valuesUrl(spreadsheetId, range, {valueInputOption: 'USER_ENTERED', includeValuesInResponse: 'true', responseValueRenderOption: RENDER_OPTIONS[render]});
 	const answer = await googleWrite(accessToken, 'PUT', url, {range, majorDimension: 'ROWS', values}, updatedSchema);
 	return answer.map((written) => ({range: written.updatedRange ?? range, values: written.updatedData?.values ?? []}));
 }
@@ -139,10 +152,56 @@ export async function updateCells(accessToken: string, spreadsheetId: string, ce
 	return answer.map(() => undefined);
 }
 
+// Makes one change to a spreadsheet's structure, as `spreadsheets.batchUpdate` takes them, and answers its reply.
+function updateSpreadsheet<S extends z.ZodType>(accessToken: string, spreadsheetId: string, request: object, reply: S): Promise<Result<z.infer<S>, ApiError>> {
+	return googleWrite(accessToken, 'POST', new URL(`${SHEETS}/${spreadsheetId}:batchUpdate`), {requests: [request]}, reply);
+}
+
 /** Renames a tab. */
 export async function renameSheet(accessToken: string, spreadsheetId: string, sheetId: number, title: string): Promise<Result<void, ApiError>> {
-	const request = {updateSheetProperties: {properties: {sheetId, title}, fields: 'title'}};
-	const answer = await googleWrite(accessToken, 'POST', new URL(`${SHEETS}/${spreadsheetId}:batchUpdate`), {requests: [request]}, z.object({}));
+	const answer = await updateSpreadsheet(accessToken, spreadsheetId, {updateSheetProperties: {properties: {sheetId, title}, fields: 'title'}}, z.object({}));
+	return answer.map(() => undefined);
+}
+
+/** Rows or columns of a tab, `count` of them from `start`, counting from 0. */
+export type Dimension = {sheetId: number; dimension: 'ROWS' | 'COLUMNS'; start: number; count: number};
+
+function dimensionRange({sheetId, dimension, start, count}: Dimension): object {
+	return {sheetId, dimension, startIndex: start, endIndex: start + count};
+}
+
+/**
+ * Inserts empty rows or columns at `start`, moving those from there on down or right; they take
+ * the format of the row or column before them, or after them at the top or the left edge.
+ */
+export async function insertDimension(accessToken: string, spreadsheetId: string, dimension: Dimension): Promise<Result<void, ApiError>> {
+	const answer = await updateSpreadsheet(accessToken, spreadsheetId, {insertDimension: {range: dimensionRange(dimension), inheritFromBefore: dimension.start > 0}}, z.object({}));
+	return answer.map(() => undefined);
+}
+
+/** Adds empty rows or columns after a tab's last, `count` of them; `start` is left out, as they go at the end. */
+export async function appendDimension(accessToken: string, spreadsheetId: string, {sheetId, dimension, count}: Omit<Dimension, 'start'>): Promise<Result<void, ApiError>> {
+	const answer = await updateSpreadsheet(accessToken, spreadsheetId, {appendDimension: {sheetId, dimension, length: count}}, z.object({}));
+	return answer.map(() => undefined);
+}
+
+/** Deletes rows or columns, with what they hold, moving those after them up or left. */
+export async function deleteDimension(accessToken: string, spreadsheetId: string, dimension: Dimension): Promise<Result<void, ApiError>> {
+	const answer = await updateSpreadsheet(accessToken, spreadsheetId, {deleteDimension: {range: dimensionRange(dimension)}}, z.object({}));
+	return answer.map(() => undefined);
+}
+
+const addSheetSchema = z.object({replies: z.tuple([z.object({addSheet: sheetSchema})])});
+
+/** Adds an empty tab after the others, and answers it. */
+export async function addSheet(accessToken: string, spreadsheetId: string, title: string): Promise<Result<Sheet, ApiError>> {
+	const answer = await updateSpreadsheet(accessToken, spreadsheetId, {addSheet: {properties: {title}}}, addSheetSchema);
+	return answer.map(({replies: [{addSheet}]}) => sheetOf(addSheet));
+}
+
+/** Deletes a tab, with everything on it. */
+export async function deleteSheet(accessToken: string, spreadsheetId: string, sheetId: number): Promise<Result<void, ApiError>> {
+	const answer = await updateSpreadsheet(accessToken, spreadsheetId, {deleteSheet: {sheetId}}, z.object({}));
 	return answer.map(() => undefined);
 }
 

@@ -38,10 +38,12 @@ address, such as `http://192.168.1.20` or `http://nas.lan`, won't register.
 
 ### Enable the APIs
 
-Enable the Gmail API, Google Calendar API, Google Drive API, Google Sheets API, People API and
-Google Tasks API in the client's project. [This link](https://console.cloud.google.com/flows/enableapi?apiid=gmail.googleapis.com,calendar-json.googleapis.com,drive.googleapis.com,sheets.googleapis.com,people.googleapis.com,tasks.googleapis.com)
-asks for the project and enables all six. Documents and presentations are read and written through
-Drive, so the Docs and Slides APIs aren't needed.
+Enable the Gmail API, Google Calendar API, Google Drive API, Google Sheets API, Google Docs API,
+Google Slides API, People API and Google Tasks API in the client's project. [This link](https://console.cloud.google.com/flows/enableapi?apiid=gmail.googleapis.com,calendar-json.googleapis.com,drive.googleapis.com,sheets.googleapis.com,docs.googleapis.com,slides.googleapis.com,people.googleapis.com,tasks.googleapis.com)
+asks for the project and enables all eight. The Docs and Slides APIs are only used to edit a
+document's or a presentation's text in place, as under [Editing in place](#editing-in-place); a
+project without them has everything else, and those tools answer with the link enabling them. They
+take the same `drive` scope as the rest of Drive, so no scope is added for them.
 
 ### Add the scopes
 
@@ -222,9 +224,10 @@ For Drive, Docs, Sheets and Slides:
   rows, and requires Read files. A document's content is replaced whole with the Markdown written,
   which drops its comments and suggestions, and only when it is written differently from how it
   read, so renaming a document leaves its content alone. Shared drives aren't renamed or trashed. A row changes only in the values written differently,
-  so a formula in another of its cells stays. A presentation's and a spreadsheet's content are only
-  read. It also uploads a file's bytes over a file that is there, gives a file an earlier version
-  back, and undoes a change to a spreadsheet's cells, as under
+  so a formula in another of its cells stays. It also edits a document's and a presentation's
+  text in place and inserts and deletes a spreadsheet's rows, columns and tabs, as under
+  [Editing in place](#editing-in-place); uploads a file's bytes over a file that is there; gives a
+  file an earlier version back; and undoes a change to a spreadsheet's cells, as under
   [Uploading through a URL](#uploading-through-a-url) and [Version history](#version-history).
 - **Move files to Trash** moves files and folders to Drive's Trash, where Drive keeps them 30 days
   before deleting them, and requires Read files. Nothing is deleted for good.
@@ -232,9 +235,45 @@ For Drive, Docs, Sheets and Slides:
 Agents can also read and write a range of a spreadsheet, in A1 notation with its tab, such as
 `'Q1 Sales'!A1:F20`, given the spreadsheet's link or id, which covers tabs without a header row.
 A range without a tab is in the first one. Reading needs Read files and answers the values as
-Sheets shows them, as CSV, one row a line, 1000 rows at most.
+Sheets shows them, as CSV, one row a line, 1000 rows at most, or, with Formulas, each cell's
+formula as it was typed in, `=SUM(B2:B9)`, and a cell without one as its value unformatted.
 Writing needs Edit files and takes CSV the same way, each value as if typed into its cell, so
-`=SUM(B2:B9)` is a formula, and `""` empties a cell; it answers what the range holds afterwards.
+`=SUM(B2:B9)` is a formula, and `""` empties a cell; it answers what the range holds afterwards,
+as formulas with Formulas.
+
+### Editing in place
+
+A document's content written as Markdown replaces all of it, dropping its comments and
+suggestions. Agents edit a document's and a presentation's text in place instead, through Google's
+Docs and Slides APIs, keeping its comments, suggestions, formatting and layout, and a spreadsheet's
+structure through the Sheets API. Reading needs Read files; every edit needs Edit files.
+
+- **Read document text**, `docs_read`, answers a document's text as the Docs API has it, paragraph
+  by paragraph, the paragraphs in tables' cells too, and the revision the document is at. Its
+  table of contents, headers, footers and footnotes are left out, and a document with several tabs
+  is read in its first. An image or a chip in the text shows as `￼`.
+- **Edit document**, `docs_edit`, takes the document, that revision and a list of edits. Each edit
+  finds text that must appear exactly once in the text `docs_read` answers, case and all, and
+  replaces it, writes text just before or after it, or styles it: bold, italic, underlined, linked,
+  or its paragraphs made a heading, a title or normal text. Text found may run across paragraphs,
+  but not across an image, a chip or a table's cells. An edit whose text appears nowhere, or more
+  than once, is turned down saying how often it appears, and so is one finding the same text as
+  another; then no edit is made. The edits are made together, in one change, only to the revision
+  given: if the document changed since it was read, Google turns them all down, and the agent
+  reads it again. Replaced text keeps the style of the text it replaces.
+- **Read presentation text**, `slides_read`, answers a presentation's text, slide by slide, what its
+  shapes and tables hold, and the revision it is at.
+- **Replace text in presentation**, `slides_edit`, replaces text everywhere it appears in a
+  presentation, matched with its case, as Slides' find and replace does, only at the revision
+  given, and answers how many times each text was replaced.
+- **Insert or delete rows**, `sheets_rows`, inserts empty rows or columns into a spreadsheet's tab,
+  at a row's number or a column's letter, or deletes them with what they hold.
+- **Add or delete tab**, `sheets_tabs`, adds an empty tab after a spreadsheet's others, or deletes
+  one with everything on it. A tab is renamed as a record, with the files tools.
+
+Each edit is a change in the file's [Version history](#version-history), with a copy kept before a
+task first changes the file. Rows, columns and tabs inserted or deleted have no exact undo: the copy
+gives back what they took away.
 
 ### Uploading through a URL
 
@@ -282,8 +321,9 @@ Sheet or Slides file, so what was converted can't be checked against the size or
 ### Version history
 
 Personal Agent Proxy keeps its own history of the Drive files agents change, beside Drive's. Every
-change made through it, a file made, copied, renamed, written, moved to Trash, a range or a row of
-a spreadsheet written, a tab renamed, is logged with who made it: the agent and the task it was
+change made through it, a file made, copied, renamed, written, moved to Trash, a document's or a
+presentation's text edited, a range or a row of a spreadsheet written, its rows, columns or tabs
+inserted, added or deleted, a tab renamed, is logged with who made it: the agent and the task it was
 for, or you, from the web app. Before a task first changes what a file holds, a copy is kept:
 
 - a file uploaded to Drive, such as a PDF or a picture, as its bytes;

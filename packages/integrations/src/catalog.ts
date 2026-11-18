@@ -1084,7 +1084,8 @@ const google: Integration = {
 		{
 			id: 'editFiles',
 			label: 'Edit files',
-			description: 'Rename files, replace a document’s content and change rows and ranges',
+			description:
+				'Rename files, edit documents’ and presentations’ text, replace a document’s content, and change rows, ranges and tabs',
 			risk: 'medium',
 			requires: 'readFiles',
 			group: 'Drive',
@@ -1365,7 +1366,9 @@ const google: Integration = {
 				// new document is written as Markdown and a new spreadsheet as CSV; any other new file goes
 				// up as its bytes with files_upload, and they aren't read back. Writing a document's content
 				// replaces all of it, dropping its comments and suggestions; a row's changes only the
-				// headers written differently. A presentation's and a spreadsheet's are only read.
+				// headers written differently. A presentation's and a spreadsheet's are only read here:
+				// docs_edit and slides_edit edit a document's or a presentation's text in place, and
+				// ranges and sheets_ tools a spreadsheet's cells and structure.
 				{
 					key: 'content',
 					label: 'Content',
@@ -1410,9 +1413,19 @@ const google: Integration = {
 				// What Write puts in the range, as CSV, one row a line, each value as if typed into the
 				// cell: =SUM(B2:B9) is a formula.
 				{key: 'values', label: 'Values', type: 'longtext'},
+				// Yes answers each cell's formula, as typed in, rather than what it shows: after Write too.
+				{
+					key: 'formulas',
+					label: 'Formulas',
+					type: 'select',
+					options: ['Yes', 'No'],
+					description:
+						'Yes answers each cell’s formula as it was typed in, =SUM(B2:B9), rather than what it shows, and a cell without one as its value unformatted',
+				},
 				// "12 rows", or how many of more were answered: at most 1000.
 				{key: 'rows', label: 'Rows', type: 'text', system: true},
-				// The range's values as Sheets shows them, as CSV, one row a line: after Write, as written.
+				// The range's values as Sheets shows them, or its formulas, as CSV, one row a line: after
+				// Write, as written.
 				{key: 'result', label: 'Result', type: 'longtext', system: true},
 			],
 		},
@@ -1535,7 +1548,10 @@ const google: Integration = {
 	// them to however it can, so they never pass through here either; files_upload needs Add files
 	// for a new file and Edit files to write over one, as does finishing it, as Files' do. A file's
 	// history, the versions Personal Agent Proxy keeps of it and the changes made through it, is
-	// read and given back through tools of their own too.
+	// read and given back through tools of their own too. A Doc's and a Slides file's text is read
+	// with the revision it is at, and edited in place only at that revision, through the Docs and
+	// Slides APIs, keeping its comments and formatting; a spreadsheet's rows, columns and tabs are
+	// inserted, added and deleted. Each edit is logged in the file's history.
 	tools: [
 		{
 			name: 'files_copy',
@@ -1668,6 +1684,201 @@ const google: Integration = {
 					change: {type: 'string', description: 'The change’s id, from files_versions'},
 				},
 				required: ['change'],
+			},
+		},
+		{
+			name: 'docs_read',
+			title: 'Read document text',
+			description:
+				'Reads a Google Doc’s text as the Docs API has it, paragraph by paragraph, the paragraphs in tables’ cells too, with the revision it is at, which docs_edit takes. Its text is what docs_edit finds text in. files_get reads a document as Markdown instead, with its formatting.',
+			action: 'readFiles',
+			readOnly: true,
+			inputSchema: {
+				type: 'object',
+				properties: {
+					id: {
+						type: 'string',
+						description: 'The document’s id, as files_list gives it, or its link',
+					},
+				},
+				required: ['id'],
+			},
+		},
+		{
+			name: 'docs_edit',
+			title: 'Edit document',
+			description:
+				'Edits a Google Doc in place, keeping its comments, suggestions and formatting: each edit finds text that must appear exactly once in the document, as docs_read answers it, and replaces it, writes text before or after it, or styles it. Give the revision docs_read answered with: where the document changed since, nothing is edited, and you read it again. The edits are made together, or none is; no two may find the same text. A copy is kept before a task first changes a file (files_versions).',
+			action: 'editFiles',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					id: {
+						type: 'string',
+						description: 'The document’s id, as files_list gives it, or its link',
+					},
+					revision: {
+						type: 'string',
+						description: 'The revision docs_read answered with',
+					},
+					edits: {
+						type: 'array',
+						description:
+							'Up to 100 edits, each find and one of replace, insertBefore, insertAfter or style',
+						items: {
+							type: 'object',
+							properties: {
+								find: {
+									type: 'string',
+									description:
+										'Text that appears exactly once in the document, case and all, as docs_read answers it; it may run across paragraphs, not across an image, a chip or a table’s cells',
+								},
+								replace: {type: 'string', description: 'Text to put in its place; "" deletes it'},
+								insertBefore: {type: 'string', description: 'Text to write just before it'},
+								insertAfter: {type: 'string', description: 'Text to write just after it'},
+								style: {
+									type: 'object',
+									description: 'Styles to give it',
+									properties: {
+										bold: {type: 'boolean'},
+										italic: {type: 'boolean'},
+										underline: {type: 'boolean'},
+										link: {
+											type: 'string',
+											description: 'A web address to link it to; "" takes a link off',
+										},
+										heading: {
+											type: 'string',
+											description: 'The style of the paragraphs it is in',
+											enum: [
+												'Normal text',
+												'Title',
+												'Subtitle',
+												'Heading 1',
+												'Heading 2',
+												'Heading 3',
+												'Heading 4',
+												'Heading 5',
+												'Heading 6',
+											],
+										},
+									},
+									additionalProperties: false,
+								},
+							},
+							required: ['find'],
+							additionalProperties: false,
+						},
+					},
+				},
+				required: ['id', 'revision', 'edits'],
+			},
+		},
+		{
+			name: 'sheets_rows',
+			title: 'Insert or delete rows',
+			description:
+				'Inserts empty rows or columns into a tab of a Google Sheet, moving those from there on down or right, or deletes them with what they hold. Deleting has no exact undo: the copy kept before a task first changes a file gives them back (files_versions, files_restore). Values are written with ranges_write.',
+			action: 'editFiles',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					spreadsheet: {
+						type: 'string',
+						description: 'The spreadsheet’s id, as files_list gives it, or its link',
+					},
+					tab: {type: 'string', description: 'The tab’s title'},
+					insert: {
+						type: 'object',
+						description:
+							'Where to insert and how many: start is the first new one’s row number, from 1, or column’s letter; one past the last adds them at the end',
+						properties: {start: {type: ['integer', 'string']}, count: {type: 'integer'}},
+						required: ['start', 'count'],
+						additionalProperties: false,
+					},
+					delete: {
+						type: 'object',
+						description:
+							'Which to delete: start is the first one’s row number, from 1, or column’s letter, and count how many',
+						properties: {start: {type: ['integer', 'string']}, count: {type: 'integer'}},
+						required: ['start', 'count'],
+						additionalProperties: false,
+					},
+					dimension: {
+						type: 'string',
+						description: 'Rows or columns; left out, rows',
+						enum: ['rows', 'columns'],
+					},
+				},
+				required: ['spreadsheet', 'tab'],
+			},
+		},
+		{
+			name: 'sheets_tabs',
+			title: 'Add or delete tab',
+			description:
+				'Adds an empty tab to a Google Sheet, after its others, or deletes one with everything on it. Deleting has no exact undo: the copy kept before a task first changes a file gives it back (files_versions, files_restore). A tab is renamed with files_update on it.',
+			action: 'editFiles',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					spreadsheet: {
+						type: 'string',
+						description: 'The spreadsheet’s id, as files_list gives it, or its link',
+					},
+					add: {type: 'string', description: 'The title of a tab to add'},
+					delete: {type: 'string', description: 'The title of a tab to delete'},
+				},
+				required: ['spreadsheet'],
+			},
+		},
+		{
+			name: 'slides_read',
+			title: 'Read presentation text',
+			description:
+				'Reads a Google Slides file’s text, slide by slide, what its shapes and tables hold, with the revision it is at, which slides_edit takes.',
+			action: 'readFiles',
+			readOnly: true,
+			inputSchema: {
+				type: 'object',
+				properties: {
+					id: {
+						type: 'string',
+						description: 'The presentation’s id, as files_list gives it, or its link',
+					},
+				},
+				required: ['id'],
+			},
+		},
+		{
+			name: 'slides_edit',
+			title: 'Replace text in presentation',
+			description:
+				'Replaces text everywhere it appears in a Google Slides file, matched with its case, as Slides’ find and replace does, keeping its slides and formatting, one replacement after another, and answers how many times each was replaced. Give the revision slides_read answered with: where the presentation changed since, nothing is replaced, and you read it again. A copy is kept before a task first changes a file (files_versions).',
+			action: 'editFiles',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					id: {
+						type: 'string',
+						description: 'The presentation’s id, as files_list gives it, or its link',
+					},
+					revision: {type: 'string', description: 'The revision slides_read answered with'},
+					replace: {
+						type: 'array',
+						description: 'Up to 100 replacements',
+						items: {
+							type: 'object',
+							properties: {
+								find: {type: 'string', description: 'The text to find, case and all'},
+								replace: {type: 'string', description: 'What to put in its place; "" deletes it'},
+							},
+							required: ['find', 'replace'],
+							additionalProperties: false,
+						},
+					},
+				},
+				required: ['id', 'revision', 'replace'],
 			},
 		},
 	],

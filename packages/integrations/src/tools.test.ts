@@ -378,6 +378,12 @@ describe('google', () => {
 			'files_versions',
 			'files_restore',
 			'files_undo',
+			'docs_read',
+			'docs_edit',
+			'sheets_rows',
+			'sheets_tabs',
+			'slides_read',
+			'slides_edit',
 		]);
 	});
 
@@ -528,7 +534,7 @@ describe('google', () => {
 		]);
 	});
 
-	test('reading a range is a read, writing one needs Edit files', () => {
+	test('reading a range is a read, writing one needs Edit files, and either answers formulas where asked', () => {
 		expect(findTool(google, 'ranges_read')).toMatchObject({
 			action: 'readFiles',
 			readOnly: true,
@@ -539,6 +545,29 @@ describe('google', () => {
 			'spreadsheet',
 			'range',
 			'values',
+			'formulas',
+		]);
+		expect(findTool(google, 'ranges_read')?.inputSchema.properties?.formulas).toMatchObject({
+			enum: ['Yes', 'No'],
+			description: expect.stringMatching(/^Formulas: Yes answers each cell’s formula/),
+		});
+	});
+
+	test('a document’s and a presentation’s text is read with Read files, and editing it, or a spreadsheet’s rows and tabs, needs Edit files', () => {
+		expect(
+			['docs_read', 'docs_edit', 'sheets_rows', 'sheets_tabs', 'slides_read', 'slides_edit'].map(
+				(name) => {
+					const tool = findTool(google, name);
+					return [name, tool?.kind, tool?.action, tool?.readOnly, tool?.inputSchema.required];
+				},
+			),
+		).toEqual([
+			['docs_read', 'native', 'readFiles', true, ['id']],
+			['docs_edit', 'native', 'editFiles', false, ['id', 'revision', 'edits']],
+			['sheets_rows', 'native', 'editFiles', false, ['spreadsheet', 'tab']],
+			['sheets_tabs', 'native', 'editFiles', false, ['spreadsheet']],
+			['slides_read', 'native', 'readFiles', true, ['id']],
+			['slides_edit', 'native', 'editFiles', false, ['id', 'revision', 'replace']],
 		]);
 	});
 

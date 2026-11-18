@@ -211,6 +211,14 @@ describe('reading a range', () => {
 		expect(google.requests).toEqual([]);
 	});
 
+	test('with Formulas, each cell’s formula is read rather than what it shows', async () => {
+		const {rangesConnector} = await import('./google-ranges');
+		await rangesConnector.newCommands?.read?.(target, {spreadsheet: LINK, range: "'Q1 Sales'!A1:C3", formulas: 'Yes'});
+		await rangesConnector.newCommands?.read?.(target, {spreadsheet: LINK, range: "'Q1 Sales'!A1:C3", formulas: 'No'});
+
+		expect(google.requests.map((request) => request.url.searchParams.get('valueRenderOption'))).toEqual(['FORMULA', null]);
+	});
+
 	test('Google turning a range down is passed on in its own words', async () => {
 		const {rangesConnector} = await import('./google-ranges');
 		google.answer = () => Response.json({error: {code: 400, message: "Unable to parse range: 'Nope'!A1", status: 'INVALID_ARGUMENT'}}, {status: 400});
@@ -237,6 +245,13 @@ describe('writing a range', () => {
 			],
 		});
 		expect(record?.values).toEqual({spreadsheet: '1BudgetSheet_x-9', range: "'Q1 Sales'!A2:C3", rows: '2 rows', result: 'Rent,"1,200","2,400"\n"Food, drink",300,600'});
+	});
+
+	test('with Formulas, the range is answered as formulas after the write', async () => {
+		const {rangesConnector} = await import('./google-ranges');
+		await rangesConnector.newCommands?.write?.(target, {spreadsheet: LINK, range: "'Q1 Sales'!A2", values: '=B2*2', formulas: 'Yes'});
+
+		expect(valueRequests()[0]?.url.searchParams.get('responseValueRenderOption')).toBe('FORMULA');
 	});
 
 	test('an empty value in quotes empties the cell', async () => {

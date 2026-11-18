@@ -21,21 +21,23 @@ type StoredConnection = {id: string; credential: string | null};
 const googleErrorSchema = z.object({
 	error: z.object({
 		message: z.string().optional(),
+		// The newer APIs' kind of error, such as FAILED_PRECONDITION.
+		status: z.string().optional(),
 		errors: z.array(z.object({reason: z.string().optional()})).optional(),
 		// Newer APIs say why in `details`, such as SERVICE_DISABLED.
 		details: z.array(z.object({reason: z.string().optional()})).optional(),
 	}),
 });
 
-// The reasons Google gave for an error, from both places it puts them, and its message.
-function readGoogleError(error: Extract<FetchError, {kind: 'http'}>): {reasons: string[]; message: string} {
+// The reasons Google gave for an error, from both places it puts them, its kind and its message.
+function readGoogleError(error: Extract<FetchError, {kind: 'http'}>): {reasons: string[]; status: string; message: string} {
 	const parsed = googleErrorSchema.safeParse(error.body);
 	if (!parsed.success) {
-		return {reasons: [], message: ''};
+		return {reasons: [], status: '', message: ''};
 	}
-	const {errors = [], details = [], message = ''} = parsed.data.error;
+	const {errors = [], details = [], status = '', message = ''} = parsed.data.error;
 	const reasons = [...errors, ...details].flatMap((entry) => (entry.reason ? [entry.reason] : []));
-	return {reasons, message};
+	return {reasons, status, message};
 }
 
 /** What reading a file past Google's export limit says, where its content would be. */
@@ -109,6 +111,22 @@ type WriteMethod = 'POST' | 'PUT' | 'PATCH';
 /** A POST, PUT or PATCH to one of Google's APIs with a JSON body, its answer read with `schema`. */
 export function googleWrite<S extends z.ZodType>(accessToken: string, method: WriteMethod, url: URL, body: object, schema: S): Promise<Result<z.infer<S>, ApiError>> {
 	return googleUpload(accessToken, method, url, {type: 'application/json', body: JSON.stringify(body)}, schema);
+}
+
+/**
+ * A write made only to the revision of a file the agent read, as a Doc's or a Slides file's
+ * `batchUpdate` with `writeControl.requiredRevisionId` is: Google turning it down since the file
+ * changed after that revision (400 FAILED_PRECONDITION) is a `conflict`, saying `stale`, which
+ * says what to read again; anything else is as `googleWrite` answers it.
+ */
+export async function googleRevisionWrite<S extends z.ZodType>(accessToken: string, url: URL, body: object, schema: S, stale: string): Promise<Result<z.infer<S>, ApiError>> {
+	const init = {method: 'POST', headers: {...authHeaders(accessToken), 'content-type': 'application/json'}, body: JSON.stringify(body)};
+	const answer = await httpRequest(url, init, {schema, timeoutMs: TIMEOUT_MS});
+	return answer.mapErr((error) => (isStaleRevision(error) ? ApiErr.conflict(stale) : googleError(error)));
+}
+
+function isStaleRevision(error: FetchError): boolean {
+	return error.kind === 'http' && error.status === 400 && readGoogleError(error).status === 'FAILED_PRECONDITION';
 }
 
 /** A write whose body is of its own type, text or bytes, as a file uploaded to Drive is, its answer read with `schema`. */
