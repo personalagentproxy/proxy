@@ -9,12 +9,14 @@ import {useParams} from 'react-router';
 import {
 	getChatThread,
 	replyInThread,
+	saveThreadDraft,
 	setThreadModel,
 	uploadThreadAttachment,
 } from '@/client/harness-client';
 import {ShownFile} from '@/components/chat/attachments';
 import {Bubble, BubbleContent} from '@/components/chat/bubble';
 import {Composer, type ComposerModel} from '@/components/chat/composer';
+import {CopyButton} from '@/components/copy-button';
 import {Message, MessageContent} from '@/components/chat/message';
 import {
 	MessageScroller,
@@ -198,6 +200,31 @@ function MissingThread({onMissing}: Pick<ThreadContext, 'onMissing'>) {
 	);
 }
 
+// What the person may be asked to send in a thread, when its agent behaves oddly, for the thread's
+// id: caught here, never sent, so neither the server nor the agent sees it. Not offered anywhere.
+const TRACE_COMMAND = '/trace';
+
+// Whether a reply is the trace command and nothing else.
+function isTrace(message: string, files: ChatAttachment[]): boolean {
+	return files.length === 0 && message.trim() === TRACE_COMMAND;
+}
+
+// The thread's id, as a reply of /trace shows it, to be copied and passed on.
+function ThreadIdLine({id}: {id: string}) {
+	return (
+		<div
+			data-enter="rise"
+			className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground"
+		>
+			<span>Thread id</span>
+			<code className="min-w-0 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground">
+				{id}
+			</code>
+			<CopyButton value={id} label="Copy thread id" />
+		</div>
+	);
+}
+
 // What the person said in the thread; null for what isn't theirs.
 function personText(message: ThreadMessage): string | null {
 	return message.kind === 'person' ? message.text : null;
@@ -232,6 +259,8 @@ function Thread({
 	// What the thread had as it opened: what comes after it rises into place.
 	const [opened] = useState(() => new Set(loaded.messages.map((message) => message.id)));
 	const [focusRequested, setFocusRequested] = useState(true);
+	// The times /trace was sent here since the thread opened, each shown as the thread's id.
+	const [traces, setTraces] = useState<string[]>([]);
 	const focused = useCallback(() => setFocusRequested(false), []);
 
 	// The thread as the page loads it again, as after a change of the persona, keeping
@@ -287,6 +316,15 @@ function Thread({
 		files: ChatAttachment[],
 		settle: () => Promise<void>,
 	): Promise<string | null> => {
+		if (isTrace(message, files)) {
+			// Kept from the server: only a draft of it saved as it was typed is forgotten there.
+			await settle();
+			if (draft.saved !== '') {
+				await saveThreadDraft(org, personaId, threadId, '');
+			}
+			setTraces((before) => [...before, `trace-${crypto.randomUUID()}`]);
+			return null;
+		}
 		const key = `sending-${crypto.randomUUID()}`;
 		sending.start({
 			id: key,
@@ -362,6 +400,11 @@ function Thread({
 								</MessageScrollerItem>
 							);
 						})}
+						{traces.map((key) => (
+							<MessageScrollerItem key={key} scrollAnchor>
+								<ThreadIdLine id={threadId} />
+							</MessageScrollerItem>
+						))}
 						{busy && (
 							<MessageScrollerItem>
 								<div data-enter="fade">

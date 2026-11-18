@@ -1482,6 +1482,47 @@ describe('ChatPage', () => {
 			expect(fetchMock.mock.calls.filter(([url]) => url.endsWith('/draft'))).toEqual([]);
 		});
 
+		test('answers a reply of /trace with the thread id, sending nothing', async () => {
+			renderChatPage({threads: [pricing], initial: '/acme/chat/general/threads/t1'});
+			const opened = await screen.findByLabelText('Thread');
+			const box = screen.getByLabelText('Reply');
+
+			typeIn(box, '/trace');
+			fireEvent.click(
+				within(box.closest('form') as HTMLElement).getByRole('button', {name: 'Send'}),
+			);
+
+			expect(await within(opened).findByText('t1')).toBeTruthy();
+			expect(within(opened).getByRole('button', {name: 'Copy thread id'})).toBeTruthy();
+			expect(within(opened).queryByText('/trace')).toBeNull();
+			expect(box.textContent).toBe('');
+			expect(fetchMock.mock.calls.some(([url]) => url.endsWith('/threads/t1/messages'))).toBe(
+				false,
+			);
+		});
+
+		test('sends /trace among other words as any reply', async () => {
+			answering((input, init) =>
+				input.endsWith('/threads/t1/messages') && init?.method === 'POST'
+					? Promise.resolve(Response.json({message: said('m4', 'person', 'what does /trace do')}))
+					: null,
+			);
+			renderChatPage({threads: [pricing], initial: '/acme/chat/general/threads/t1'});
+			await screen.findByLabelText('Thread');
+			const box = screen.getByLabelText('Reply');
+
+			typeIn(box, 'what does /trace do');
+			fireEvent.click(
+				within(box.closest('form') as HTMLElement).getByRole('button', {name: 'Send'}),
+			);
+
+			await waitFor(() =>
+				expect(fetchMock.mock.calls.some(([url]) => url.endsWith('/threads/t1/messages'))).toBe(
+					true,
+				),
+			);
+		});
+
 		test('takes the files dropped on the window into its box, uploading each to the thread', async () => {
 			const notes = {
 				connectionId: 'drive-1',
