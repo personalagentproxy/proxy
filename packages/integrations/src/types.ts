@@ -9,6 +9,9 @@ export type Field = {
 	label: string;
 	type: FieldType;
 	options?: string[];
+	// What an agent is told the field takes, after its label, where the label doesn't say it, as a
+	// Drive file's content is Markdown, CSV or base64 by its kind.
+	description?: string;
 	// Set by the provider rather than typed in, such as when an email arrived: shown, never edited.
 	system?: boolean;
 	// The action writing it needs beyond the collection's write: creating or editing a record where

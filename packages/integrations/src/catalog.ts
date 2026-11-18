@@ -928,6 +928,13 @@ const INVITED: Condition = {
 	values: ['Needs action', 'Accepted', 'Declined', 'Maybe'],
 };
 
+/**
+ * The most a file uploaded to Drive may hold, in MB: what Drive takes in one multipart upload. Its
+ * bytes come in the params as base64, a third larger, so the request carrying them is the tighter
+ * limit: a script writes at most 2 MB, and a request over MCP or from a sandbox is at most 1 MB.
+ */
+export const DRIVE_UPLOAD_MAX_MB = 5;
+
 // What a Drive record can be beside a place: a spreadsheet holds its tabs (Sheet), a tab its rows.
 const FILE_KINDS = ['Folder', 'Document', 'Spreadsheet', 'Presentation', 'Sheet', 'Row', 'File'];
 
@@ -941,7 +948,9 @@ const FILE_KINDS = ['Folder', 'Document', 'Spreadsheet', 'Presentation', 'Sheet'
 // Drive, Shared with me, Shared drives and Recent at the top, folders holding files, a spreadsheet
 // holding its tabs and a tab its rows. Documents read as Markdown, presentations as text, rows as
 // "Header: value" lines; new documents are written as Markdown and new spreadsheets as CSV, which
-// Drive converts, and a spreadsheet's ranges are read and written in A1 notation as CSV. Files are
+// Drive converts, other new files, a PDF or a picture, as their bytes in base64, kept as they are,
+// and a file in Drive is copied into a folder by Drive itself (files_copy). A spreadsheet's ranges
+// are read and written in A1 notation as CSV. Files are
 // moved to Trash, never deleted, and neither are events, contacts or tasks. Who is free is asked
 // of Google for the people named, and the people Gmail keeps under Other contacts are only read.
 // Tasks are one tree: the task lists at the top, each holding its tasks. Nothing is copied: every
@@ -1072,7 +1081,8 @@ const google: Integration = {
 		{
 			id: 'createFiles',
 			label: 'Create files',
-			description: 'Create folders, documents and spreadsheets, and add rows',
+			description:
+				'Create folders, documents and spreadsheets, upload files such as PDFs and pictures, copy files into folders, and add rows',
 			risk: 'medium',
 			requires: 'readFiles',
 			group: 'Drive',
@@ -1342,8 +1352,9 @@ const google: Integration = {
 			],
 			fields: [
 				{key: 'name', label: 'Name', type: 'text'},
-				// What a record is, and what a new one is to be: a folder, document or spreadsheet inside a
-				// folder or a place, or a row inside a tab, where it can be left out. It can't be changed.
+				// What a record is, and what a new one is to be: a folder, document, spreadsheet or other
+				// file inside a folder or a place, or a row inside a tab, where it can be left out. It
+				// can't be changed.
 				{
 					key: 'kind',
 					label: 'Kind',
@@ -1357,10 +1368,17 @@ const google: Integration = {
 				{key: 'owner', label: 'Owner', type: 'text', system: true},
 				// A document as Markdown, a presentation as text, a spreadsheet's tabs one a line with their
 				// size, a row's values one "Header: value" a line, the headers from the tab's first row. A
-				// new document is written as Markdown and a new spreadsheet as CSV. Writing a document's
-				// content replaces all of it, dropping its comments and suggestions; a row's changes only
-				// the headers written differently. A presentation's and a spreadsheet's are only read.
-				{key: 'content', label: 'Content', type: 'longtext'},
+				// new document is written as Markdown, a new spreadsheet as CSV, and any other new file as
+				// its bytes in base64, or a data URL of them, the type its name's extension says, else the
+				// data URL's; its bytes aren't read back. Writing a document's content replaces all of it,
+				// dropping its comments and suggestions; a row's changes only the headers written
+				// differently. A presentation's and a spreadsheet's are only read.
+				{
+					key: 'content',
+					label: 'Content',
+					type: 'longtext',
+					description: `a Document as Markdown, a Spreadsheet as CSV, a row as "Header: value" lines; a new File, such as report.pdf or chart.png, as its bytes in base64, or a data URL of them where its name has no extension, at most ${DRIVE_UPLOAD_MAX_MB} MB`,
+				},
 			],
 		},
 		// A range of a spreadsheet, read or written in A1 notation, as people who know Sheets think of
@@ -1515,6 +1533,33 @@ const google: Integration = {
 				// What a task was made from, such as an email in Gmail, by its link.
 				{key: 'source', label: 'Made from', type: 'text', system: true},
 			],
+		},
+	],
+	// Copying a file names both the file and where the copy goes, which no one record's write does.
+	// Drive makes the copy itself, so a file of any size is copied without passing through here.
+	tools: [
+		{
+			name: 'files_copy',
+			title: 'Copy file',
+			description:
+				'Copies a file in Drive into a folder, a shared drive or My Drive, as Drive’s Make a copy does: a PDF, a picture, a document, any file but a folder, however large. Answers with the copy’s id, kind and link.',
+			action: 'createFiles',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					id: {
+						type: 'string',
+						description: 'The id of the file to copy, as files_list gives it, or its link',
+					},
+					parent: {
+						type: 'string',
+						description:
+							'The id of the folder or shared drive to put the copy in, as files_list gives it; left out, My Drive',
+					},
+					name: {type: 'string', description: 'The copy’s name; left out, the file’s own'},
+				},
+				required: ['id'],
+			},
 		},
 	],
 };

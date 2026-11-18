@@ -124,6 +124,11 @@ export function mediaType(name: string, said: string | undefined, fallback: 'tex
 	return fallback === 'text' ? TEXT : BYTES;
 }
 
+/** Whether `text` is a media type, a type and a subtype, as `application/pdf`, without parameters. */
+export function isMediaType(text: string): boolean {
+	return MEDIA_TYPE.test(text);
+}
+
 // The pictures a browser shows as they are, with nothing in them that runs: never SVG, which is a
 // document with scripts of its own.
 const SHOWN = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
