@@ -111,8 +111,14 @@ export function googleWrite<S extends z.ZodType>(accessToken: string, method: Wr
 	return googleUpload(accessToken, method, url, {type: 'application/json', body: JSON.stringify(body)}, schema);
 }
 
-/** A write whose body is of its own type, as a file uploaded to Drive is, its answer read with `schema`. */
-export async function googleUpload<S extends z.ZodType>(accessToken: string, method: WriteMethod, url: URL, content: {type: string; body: string}, schema: S): Promise<Result<z.infer<S>, ApiError>> {
+/** A write whose body is of its own type, text or bytes, as a file uploaded to Drive is, its answer read with `schema`. */
+export async function googleUpload<S extends z.ZodType>(
+	accessToken: string,
+	method: WriteMethod,
+	url: URL,
+	content: {type: string; body: string | Blob},
+	schema: S,
+): Promise<Result<z.infer<S>, ApiError>> {
 	const init = {method, headers: {...authHeaders(accessToken), 'content-type': content.type}, body: content.body};
 	const answer = await httpRequest(url, init, {schema, timeoutMs: TIMEOUT_MS});
 	return answer.mapErr(googleError);

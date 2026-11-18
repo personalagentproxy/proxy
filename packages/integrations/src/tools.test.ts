@@ -372,6 +372,7 @@ describe('google', () => {
 			'tasks_update',
 			'tasks_complete',
 			'tasks_reopen',
+			'files_copy',
 		]);
 	});
 
@@ -461,6 +462,12 @@ describe('google', () => {
 			'kind',
 			'content',
 		]);
+		// What content takes, told after its label, so an agent finds it can upload a file's bytes.
+		const properties = create?.inputSchema.properties ?? {};
+		expect(properties.content?.description).toStartWith('Content: a Document as Markdown');
+		expect(properties.content?.description).toContain('as its bytes in base64');
+		expect(properties.content?.description).toEndWith('at most 5 MB');
+		expect(properties.name?.description).toBe('Name');
 		expect(findTool(google, 'files_update')).toMatchObject({action: 'editFiles', risk: 'medium'});
 		const update = findTool(google, 'files_update');
 		expect(update?.kind === 'update' ? update.where?.values : null).not.toContain('Place');
@@ -469,6 +476,19 @@ describe('google', () => {
 			risk: 'high',
 			where: {field: 'kind', values: ['Folder', 'Document', 'Spreadsheet', 'Presentation', 'File']},
 		});
+	});
+
+	test('copying a file is a tool of its own, needing Create files, naming the file and where the copy goes', () => {
+		const copy = findTool(google, 'files_copy');
+
+		expect(copy).toMatchObject({
+			kind: 'native',
+			action: 'createFiles',
+			risk: 'medium',
+			readOnly: false,
+		});
+		expect(copy?.inputSchema.required).toEqual(['id']);
+		expect(Object.keys(copy?.inputSchema.properties ?? {})).toEqual(['id', 'parent', 'name']);
 	});
 
 	test('reading a range is a read, writing one needs Edit files', () => {

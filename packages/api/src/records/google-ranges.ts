@@ -2,7 +2,7 @@ import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do} from '@proxy/utils';
 
-import {DRIVE_ID} from '../connections/google/drive-api';
+import {fileIdOf} from '../connections/google/drive-api';
 import {callGoogle} from '../connections/google/google-client';
 import {getValues, putValues} from '../connections/google/sheets-api';
 import type {DataRecord, NewCommandRunner, RecordValues, RunOnly} from './connector';
@@ -14,22 +14,8 @@ import {csvOf, parseCsv} from './csv';
  * as CSV, one row a line; they are read as Sheets shows them and written as if typed in.
  */
 
-// The spreadsheet in a link to it, `…/spreadsheets/d/<id>/edit`, or in Drive's `?id=` links.
-function spreadsheetIdOf(text: string): string | null {
-	const trimmed = text.trim();
-	if (DRIVE_ID.test(trimmed)) {
-		return trimmed;
-	}
-	const url = URL.parse(trimmed);
-	if (!url || url.protocol !== 'https:' || !/(^|\.)google\.com$/.test(url.hostname)) {
-		return null;
-	}
-	const id = /\/d\/([^/]+)/.exec(url.pathname)?.[1] ?? url.searchParams.get('id');
-	return id && DRIVE_ID.test(id) ? id : null;
-}
-
 function requireSpreadsheet(values: RecordValues): Result<string, ApiError> {
-	const id = spreadsheetIdOf(values.spreadsheet ?? '');
+	const id = fileIdOf(values.spreadsheet ?? '');
 	if (id === null) {
 		return Err(ApiErr.validationError('Say which spreadsheet as spreadsheet: its id, or its link'));
 	}
