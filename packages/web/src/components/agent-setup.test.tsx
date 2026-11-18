@@ -214,6 +214,28 @@ describe('AgentSetup', () => {
 		).toBeDefined();
 	});
 
+	test('adds Devin through its personal HTTP MCP settings with OAuth', () => {
+		renderAgentSetup(agentLogin('agent-1', 'Devin', 'devin'));
+
+		expect(screen.getByRole('link', {name: 'Open Devin'}).getAttribute('href')).toBe(
+			'https://app.devin.ai/customize?tab=mcps',
+		);
+		expect(screen.getByText(/Under Install MCPs for Myself/)).toBeDefined();
+		expect(screen.getByText(/select HTTP.*choose OAuth/)).toBeDefined();
+		expect(screen.getByText(/open it and choose Connect/)).toBeDefined();
+	});
+
+	test('adds Devin CLI with its MCP add and OAuth login commands', () => {
+		renderAgentSetup(agentLogin('agent-1', 'Devin CLI', 'devin-cli'));
+
+		expect(
+			screen.getByText('devin mcp add personal-agent-proxy http://localhost/mcp'),
+		).toBeDefined();
+		expect(
+			screen.getByText('Run devin mcp login personal-agent-proxy to sign in with OAuth.'),
+		).toBeDefined();
+	});
+
 	test('adds Claude through its Claude account connector', () => {
 		renderAgentSetup(agentLogin('agent-1', 'Claude', 'claude'));
 

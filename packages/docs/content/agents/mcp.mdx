@@ -1,10 +1,10 @@
 ---
 title: Connect an agent over MCP
-description: Add Personal Agent Proxy to Claude, Claude Duet, Claude Code, Claude Desktop, ChatGPT, Grok Bot, Hermes Agent, Poke or any other MCP client as an MCP server, and what an agent can do through it.
+description: Add Personal Agent Proxy to Claude, Devin, ChatGPT, Grok Bot, Hermes Agent, Poke or any other MCP client as an MCP server, and what an agent can do through it.
 ---
 
 Personal Agent Proxy is an MCP server. An agent that speaks MCP, such as Claude, Claude Duet,
-Claude Code, Claude Desktop, ChatGPT, Grok Bot, Hermes Agent, Poke or any other MCP client, connects to it,
+Claude Code, Claude Desktop, Devin, Devin CLI, ChatGPT, Grok Bot, Hermes Agent, Poke or any other MCP client, connects to it,
 signs in with OAuth, and works as one of your agent logins: it can do what that login is allowed
 and nothing more. Successful connection actions, actions denied by access settings and actions the
 service failed are in the activity log, with the task they were made for.
@@ -28,6 +28,11 @@ Add the address as a custom connector, or custom MCP server, where the agent kee
 - **Claude Code**: run the setup command shown on the agent's page. It begins
   `claude mcp add --transport http personal-agent-proxy` and ends with the server address.
 - **Claude Desktop**: open **Connectors** and add a custom connector with the address.
+- **Devin**: open [**Customize**, **MCPs**](https://app.devin.ai/customize?tab=mcps). Under
+  **Install MCPs for Myself**, choose **+**, then **New MCP**. Enter a name and description, select
+  **HTTP**, paste the address and choose **OAuth**. Add the server, open it and choose **Connect**.
+- **Devin CLI**: run `devin mcp add personal-agent-proxy <server-address>`, then
+  `devin mcp login personal-agent-proxy` to sign in with OAuth.
 - **ChatGPT**: turn on developer mode in the settings for apps and connectors, then create a
   connector with the address.
 - **Grok Bot**: open **Connect Apps** from the sidebar and add a custom connector of the type
@@ -137,7 +142,7 @@ themselves. Revoking the login signs out every app working as it, as well as its
 
 <Callout>
 A self-hosted Personal Agent Proxy has to be reachable from the internet over HTTPS for Claude,
-Claude Duet, Claude Desktop, ChatGPT, Grok Bot and Poke to connect to it: they call it from their own servers,
-not from your computer. Claude Code and Hermes Agent can instead connect to one running on the
-same computer, including over localhost.
+Claude Duet, Claude Desktop, Devin, ChatGPT, Grok Bot and Poke to connect to it: they call it from
+their own servers, not from your computer. Claude Code, Devin CLI and Hermes Agent can instead
+connect to one running on the same computer, including over localhost.
 </Callout>
