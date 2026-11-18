@@ -251,6 +251,7 @@ model Connection {
   sandboxes    Sandbox[]
   fileNodes    FileNode[]
   fileVersions FileVersion[]
+  fileUploads  FileUpload[]
 
   @@index([orgId])
   @@index([ownerUserId])
@@ -751,6 +752,81 @@ model FileChange {
   @@index([orgId, createdAt])
   @@index([connectionId, fileId, createdAt])
   @@index([taskId])
+}
+
+// What an upload makes of its bytes: a new file, or the next version of one that is there.
+enum FileUploadTarget {
+  create
+  write
+}
+
+// Where an upload stands: waiting for its bytes or for files_upload_done; made into its file;
+// refused at the end, its bytes not what was said or the file moved on since; or let go,
+// unfinished, once its hour was up.
+enum FileUploadStatus {
+  open
+  done
+  failed
+  expired
+}
+
+// An upload into a drive, through a URL rather than a tool's params: a call checks everything
+// about the file first, the agent's access, the folder, the name and the size, and is answered
+// with a URL that takes the bytes for an hour; then files_upload_done checks what arrived and makes
+// the file, as the agent's, for the task that started it. The URL is Personal Agent Proxy's own
+// for a drive kept here, its secret the one credential, and the drive's own elsewhere, as Google
+// Drive's resumable session. Plain ids for who started it, as the activity log has them; it goes
+// with its connection. Expired by the sweep (api uploads/sweeper.ts).
+model FileUpload {
+  id           String           @id @default(cuid())
+  orgId        String
+  connectionId String
+  // Who started it and for which of its tasks (AgentTask), and how the call came in.
+  agentId      String
+  taskId       String
+  via          AuditVia
+  // The activity log's entry of the call that started it (AuditEntry).
+  entryId      String?
+  // The SHA-256 of the secret in the URL Personal Agent Proxy serves for it, never the secret;
+  // none where the URL is the drive's own.
+  secretHash   String?          @unique
+  target       FileUploadTarget
+  // A new file: the folder it goes in, none for the top, and its name; a write: the file's name.
+  parentId     String?
+  name         String
+  // A write: the file written over, and the version it was read at. A new file: the file once
+  // made, or the id the drive reserved for it at the start, as Google Drive does.
+  fileId       String?
+  version      String?
+  // What the caller said it would send: how many bytes, their SHA-256 where it said, and their
+  // media type, as said or as the name tells.
+  size         BigInt
+  sha256       String?
+  type         String
+  // A drive kept here: the blob the bytes go into (FileBlob), made at the start, so the sweep of
+  // unused blobs takes it where the upload is never finished.
+  blobId       String?
+  // A drive elsewhere: the URL of the drive's own upload session, encrypted with ENCRYPTION_KEY,
+  // as connections' credentials are, and cancelled when the upload expires.
+  sessionUri   String?
+  status       FileUploadStatus @default(open)
+  // When a PUT or a files_upload_done took it to work on, so no other does at once; cleared when
+  // it ends. And when its bytes were all in, through the URL served here.
+  lockedAt     DateTime?
+  receivedAt   DateTime?
+  // Done: the file's version it made. Failed: why, said again to every files_upload_done.
+  afterVersion String?
+  failure      String?
+  // An hour from the start: no bytes are taken after it.
+  expiresAt    DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([connectionId])
+  @@index([status, expiresAt])
 }
 
 // A persona of the Chat page: an agent Personal Agent Proxy runs itself, named and given a head,

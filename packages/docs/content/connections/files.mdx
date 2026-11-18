@@ -85,7 +85,8 @@ anything to another site.
 
 An agent that may read a drive lists its folders, searches it by name, and reads a file as
 text: text as it is, a spreadsheet's tabs as CSV, a PDF's or a Word document's text, a long one
-a stretch at a time. It adds files and writes them as text.
+a stretch at a time. It adds files and writes them as text, and uploads any other file through
+a URL ([below](#uploading-through-a-url)).
 
 To write over a file, an agent has to name the version it read. Where the file changed since,
 by you or another agent, the write is refused and the agent reads the file again, so one never
@@ -94,6 +95,29 @@ writes over what it hasn't seen. Every write, rename, move and trip to the trash
 which agent made each version.
 
 An agent points you to a file it made by its link, which opens the file in your drive.
+
+### Uploading through a URL
+
+A file that isn't text, or is too large to send as a tool's words, a PDF, a picture, a
+spreadsheet or an archive, goes up through a URL, from wherever the agent runs, with a shell and
+`curl` and nothing of Personal Agent Proxy's installed:
+
+1. The agent asks for an upload with `files_upload`, saying the file's name and the folder for a
+   new file, or the file and the version it read to write over one, and the file's size in bytes,
+   with its SHA-256 if it likes. Everything is checked then, before any bytes are sent: that the
+   agent may add files, or may edit them to write over one; that the folder is there and the name
+   free in it; that the file still holds the version read; and that the file is no larger than
+   the server takes.
+2. It is answered with a URL of Personal Agent Proxy's, and a line to run as it is:
+   `curl -X PUT --upload-file report.pdf '<url>'`. The URL is the only key to the upload, so it
+   needs no sign-in. It takes one file, no more bytes than were said, for one hour.
+3. The agent calls `files_upload_done`, which checks that what arrived is the size said, and has
+   the SHA-256 given, and only then makes the file, or the file's next version, keeping the one
+   before. Bytes that aren't what was said are made into nothing, and the agent starts again.
+
+Both calls are in the activity log, and the file is in the drive's history as the agent's, for
+the task it started the upload for. An upload nobody finished within the hour is let go, and
+what was sent for it deleted.
 
 ### Files in a sandbox
 

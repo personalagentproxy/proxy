@@ -677,6 +677,23 @@ async function insertStored(
 }
 
 /**
+ * Whether a new file called `name` could go in `parentId` now, as `createFile` checks it: a folder
+ * of the drive's, outside the trash, with nothing there called that. For what is checked before
+ * its bytes are, as an upload's are, long before the file is made.
+ */
+export function checkNewFile(
+	connectionId: string,
+	data: {parentId: string | null; name: string},
+): Promise<Result<void, ApiError>> {
+	return wrapDb(async () => {
+		await requireOpenFolder(db, connectionId, data.parentId);
+		if (await isTaken(db, connectionId, data.parentId, data.name)) {
+			throw nameTaken(data.name);
+		}
+	});
+}
+
+/**
  * A new file called `name` in `parentId`, holding `content` as its first version. Where the name
  * is taken: a conflict, or, with `rename`, the first free name like it, as `report (2).pdf`.
  */
@@ -1290,6 +1307,11 @@ export function findFileVersion(
 			select: {...versionSelect, blob: {select: blobSelect}},
 		}),
 	);
+}
+
+/** A blob's row, by its id; none where it is gone. */
+export function getFileBlob(id: string): Promise<Result<FileBlobRow | null, ApiError>> {
+	return wrapDb(() => db.fileBlob.findUnique({where: {id}, select: blobSelect}));
 }
 
 /** A blob's row, made before its bytes are sent to the store under `key`. */

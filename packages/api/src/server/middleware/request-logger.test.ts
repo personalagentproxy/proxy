@@ -28,6 +28,9 @@ beforeEach(() => {
 		addContext({userId: 'u1'});
 		res.json({id: req.params.id, ctx: getContext()});
 	});
+	app.put('/api/uploads/:secret', (_req, res) => {
+		res.json({ctx: getContext()});
+	});
 	app.get('/fail', (_req, res) => {
 		res.status(500).end();
 	});
@@ -48,6 +51,14 @@ describe('requestLogger', () => {
 		const body = (await response.json()) as {id: string; ctx: Record<string, unknown>};
 		expect(body.ctx).toEqual({requestId, method: 'GET', path: '/things/42', userId: 'u1'});
 		expect(lines).toEqual([{msg: 'request finished', ctx: {status: 200, durationMs: expect.any(Number), aborted: false, route: '/things/:id'}}]);
+	});
+
+	it('never writes an upload’s secret, which is its URL’s credential', async () => {
+		const response = await fetch(`${base}/api/uploads/the-secret`, {method: 'PUT', body: 'bytes'});
+		const body = (await response.json()) as {ctx: Record<string, unknown>};
+		expect(body.ctx.path).toBe('/api/uploads/:secret');
+		expect(JSON.stringify(lines)).not.toContain('the-secret');
+		expect(lines[0]?.ctx).toMatchObject({route: '/api/uploads/:secret'});
 	});
 
 	it('keeps a request id the caller sent', async () => {

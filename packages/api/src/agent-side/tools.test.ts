@@ -818,7 +818,9 @@ describe("an integration's own tools", () => {
 		const result = await runAgentTool(caller, 'vault-1', 'entries_count', {type: 'Address'});
 
 		expect(result.unwrap()).toEqual({text: '3 entries'});
-		expect(countEntries).toHaveBeenCalledWith({caller, connection: vaultConnection, params: {type: 'Address'}});
+		// With the id the run is logged under, for what keeps pointing at it.
+		expect(countEntries).toHaveBeenCalledWith({caller, connection: vaultConnection, params: {type: 'Address'}, entryId: logAgentRequest.mock.calls[0]?.[0].id});
+		expect(logAgentRequest.mock.calls[0]?.[0].id).toEqual(expect.any(String));
 		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({
 			connectionId: 'vault-1',
 			collectionId: 'tools',
@@ -847,7 +849,7 @@ describe("an integration's own tools", () => {
 		const {runAgentTool} = await import('./tools');
 
 		expect((await runAgentTool(caller, 'vault-1', 'entries_purge', {days: 30})).unwrap()).toEqual({text: 'Purged'});
-		expect(allowed).toHaveBeenCalledWith({caller, connection: vaultConnection, params: {days: 30}});
+		expect(allowed).toHaveBeenCalledWith({caller, connection: vaultConnection, params: {days: 30}, entryId: expect.any(String)});
 		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({action: 'entries_purge', outcome: 'allowed'});
 
 		// Another run of the same tool is refused as before.

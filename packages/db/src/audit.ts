@@ -51,6 +51,8 @@ const entrySelect = {
 
 /** Logs one request of an agent, made for one of its tasks, and marks the agent active now. */
 export async function logAgentRequest(data: {
+	// The entry's id, where the caller named it before it was logged, as for an upload to point at.
+	id?: string;
 	orgId: string;
 	agentId: string;
 	connectionId: string;

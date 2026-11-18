@@ -5,7 +5,8 @@ import type {ApiError} from '@proxy/utils';
 import type {IntegrationId} from '@proxy/integrations';
 import type {Connection, plaidLinkTokenSchema} from '@proxy/contracts/connections';
 
-import type {NativeToolAllowance, NativeToolRunner} from '../native/tool';
+import type {NativeToolAction, NativeToolAllowance, NativeToolRunner} from '../native/tool';
+import type {DriveUploads} from '../uploads/tickets';
 import type {Connector} from '../records/connector';
 import type {AuthenticatedHandler, AuthenticatedResultHandler} from '../server/middleware/require-auth';
 import type {BuiltInMcp} from './mcp/built-in';
@@ -64,6 +65,12 @@ export type ApiIntegration = {
 	// The runs of its own tools the person allowed by what they did, whatever the agent's access,
 	// by the tool's name (`native/tool.ts` NativeToolAllowance).
 	allowances?: Partial<Record<string, NativeToolAllowance>>;
+	// The action a run of one of its own tools needs where it depends on the run's params, by the
+	// tool's name (`native/tool.ts` NativeToolAction); the tool's own action for every other.
+	actions?: Partial<Record<string, NativeToolAction>>;
+	// How a drive of it takes files through a URL (`uploads/tickets.ts`), for one whose uploads are
+	// let go by the sweep when nobody finishes them.
+	uploads?: DriveUploads;
 	// None for the vault, which is never connected.
 	connect?: ConnectRoutes;
 	// Built on its provider's MCP server (`built-in-mcp.ts`).

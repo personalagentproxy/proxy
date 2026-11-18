@@ -2,13 +2,16 @@ import {randomUUID} from 'node:crypto';
 
 import type {NextFunction, Request, Response} from 'express';
 
+import {UPLOADS_PATH} from '@proxy/contracts/uploads';
+
 import {log} from '../../observability/log';
 import {runInContext} from '../../observability/request-context';
 
 /**
  * Opens the log scope of every request, with an id the response carries back in `x-request-id`,
  * so a person can quote it, and writes one line when the request is answered: its status, how
- * long it took, and the route that matched, which the dashboards count and time requests by.
+ * long it took, and the route that matched, which the dashboards count and time requests by. An
+ * upload's URL is written as its route, never with its secret, which takes the upload's bytes.
  */
 
 const REQUEST_ID_HEADER = 'x-request-id';
@@ -22,6 +25,14 @@ function matchedRoute(req: Request): string | undefined {
 	return `${req.baseUrl}${path}`;
 }
 
+// The path as every line of the request says it: an upload's without its secret.
+function loggedPath(path: string): string {
+	if (path.startsWith(`${UPLOADS_PATH}/`)) {
+		return `${UPLOADS_PATH}/:secret`;
+	}
+	return path;
+}
+
 export function requestLogger(req: Request, res: Response, next: NextFunction): void {
 	const incoming = req.get(REQUEST_ID_HEADER);
 	const requestId = incoming && incoming.length > 0 && incoming.length <= 128 ? incoming : randomUUID();
@@ -29,7 +40,7 @@ export function requestLogger(req: Request, res: Response, next: NextFunction): 
 
 	const start = performance.now();
 
-	runInContext({requestId, method: req.method, path: req.path}, () => {
+	runInContext({requestId, method: req.method, path: loggedPath(req.path)}, () => {
 		let logged = false;
 		const finish = (aborted: boolean): void => {
 			if (logged) {

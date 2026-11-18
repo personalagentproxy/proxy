@@ -3,6 +3,7 @@ import {z} from 'zod';
 
 import {CLI_CALL_PATH, CLI_FILES_PATH, CLI_STATUS, type CliCallFailure} from '@proxy/contracts/cli';
 import {CLI_GITHUB_API_PATH, CLI_GITHUB_GIT_PATH, CLI_GITHUB_IDENTITY_PATH} from '@proxy/contracts/cli-github';
+import {UPLOADS_PATH} from '@proxy/contracts/uploads';
 
 import {handleActivityTimelineRoute, handleListActivityRoute, handleTaskRunRoute} from '../activity/route';
 import {handleAgentLoginRoute, handleAgentLogoutRoute} from '../agent-auth/session';
@@ -86,6 +87,7 @@ import {
 	handleWriteFileRoute,
 } from '../native/files/route';
 import {chatFiles} from '../native/files/chat';
+import {handleUploadBytesRoute} from '../native/files/upload-route';
 import {handleCliListFilesRoute, handleCliPullFileRoute, handleCliPushFileRoute} from '../native/files/cli';
 import {handleCreateRecordRoute, handleDeleteRecordRoute, handleGetRecordRoute, handleListRecordsRoute, handleUpdateRecordRoute} from '../records/route';
 import {handleAgendaRoute, handleFindEventsRoute} from '../widgets/agenda';
@@ -119,6 +121,13 @@ export function createApiRouter(): express.Router {
 	router.get(CLI_GITHUB_IDENTITY_PATH, withCliAuth('CLI GitHub identity route', handleGitHubIdentityRoute));
 	router.use(CLI_GITHUB_GIT_PATH, withCliRelay('CLI GitHub git route', handleGitHubGitRoute));
 	router.use(CLI_GITHUB_API_PATH, withCliRelay('CLI GitHub API route', handleGitHubApiRoute));
+
+	// An upload's bytes, at the URL files_upload answered with (native/files/upload-route.ts): from
+	// anything that has the URL, a model's curl or a page in a browser, so open to any origin, with
+	// the secret in the address as the one credential. Before the JSON parser, so a body is the
+	// file whatever type it is sent as.
+	router.use(UPLOADS_PATH, allowAnyOrigin);
+	router.put(`${UPLOADS_PATH}/:secret`, wrapAsyncRoute('Upload bytes route', handleUploadBytesRoute));
 
 	router.use(express.json({limit: BODY_LIMIT}));
 

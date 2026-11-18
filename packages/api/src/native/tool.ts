@@ -14,8 +14,12 @@ import type {TaskCaller} from '../agent-side/tools';
  * own schema. It answers with text, as a custom server's tool does.
  */
 
-/** A run of one of the integration's own tools: who runs it and for which task, on which connection, with what. */
-export type NativeToolRun = {caller: TaskCaller; connection: ConnectionRow & {credential: string | null}; params: Record<string, unknown>};
+/**
+ * A run of one of the integration's own tools: who runs it and for which task, on which connection,
+ * with what; and the activity log's entry it is logged as, by the id the gate gave it, for what
+ * keeps pointing at the run, as an upload does. None where a runner is called outside the gate.
+ */
+export type NativeToolRun = {caller: TaskCaller; connection: ConnectionRow & {credential: string | null}; params: Record<string, unknown>; entryId?: string};
 
 export type NativeToolRunner = (run: NativeToolRun) => Promise<Result<string, ApiError>>;
 
@@ -27,3 +31,11 @@ export type NativeToolRunner = (run: NativeToolRun) => Promise<Result<string, Ap
  * (native/files/attached.ts). The run is logged as any allowed one is.
  */
 export type NativeToolAllowance = (run: NativeToolRun) => Promise<Result<boolean, ApiError>>;
+
+/**
+ * The action a run of one of the integration's own tools needs, where it depends on what the run is
+ * given rather than being the tool's own: an upload over a file that is there needs Edit files,
+ * where a new one needs Add files. Asked by the gate, of the integration's module that names one
+ * for the tool, in place of the tool's action.
+ */
+export type NativeToolAction = (run: NativeToolRun) => Promise<Result<string, ApiError>>;

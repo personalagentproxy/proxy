@@ -1840,8 +1840,10 @@ export const FILES_TRASH_DAYS = 30;
 // an agent wrote over can be given back. The collection lists folders and opens files, as text
 // where they can be read as it; the writes are tools of the integration's own, since each names
 // who made the change and, to write over a file, the version that was read. A tool carries text:
-// the bytes of a file that isn't text go up and come down in the web app. Offered where the server
-// has a place for the bytes (FILES_DIR or FILES_S3_BUCKET).
+// the bytes of a file that isn't text go up through a URL files_upload hands out, and come down in
+// the web app or a sandbox (pap files). files_upload needs Add files for a new file and Edit files
+// to write over one, as does finishing it; the api asks for the one each run needs. Offered where
+// the server has a place for the bytes (FILES_DIR or FILES_S3_BUCKET).
 const files: Integration = {
 	id: FILES_INTEGRATION_ID,
 	name: 'Files',
@@ -1911,7 +1913,7 @@ const files: Integration = {
 			name: 'files_create',
 			title: 'Add file',
 			description:
-				'Adds a file holding content as text, or a folder, called name, in the folder parent or at the top. Refused where something there has the name: files_write changes a file that is there.',
+				'Adds a file holding content as text, or a folder, called name, in the folder parent or at the top. Refused where something there has the name: files_write changes a file that is there. A file that isn’t text, or a large one, goes up with files_upload.',
 			action: 'createFiles',
 			inputSchema: {
 				type: 'object',
@@ -1934,7 +1936,7 @@ const files: Integration = {
 			name: 'files_write',
 			title: 'Write file',
 			description:
-				'Writes content, as text, over what a file holds, as its next version; the one before is kept (files_versions). Give the version files_read answered with: where the file changed since, the write is refused, and you read it again.',
+				'Writes content, as text, over what a file holds, as its next version; the one before is kept (files_versions). Give the version files_read answered with: where the file changed since, the write is refused, and you read it again. Bytes that aren’t text go up with files_upload.',
 			action: 'editFiles',
 			inputSchema: {
 				type: 'object',
@@ -1944,6 +1946,66 @@ const files: Integration = {
 					content: {type: 'string', description: 'All of its new content, as text'},
 				},
 				required: ['id', 'version', 'content'],
+			},
+		},
+		{
+			name: 'files_upload',
+			title: 'Upload file',
+			description:
+				"Uploads a file of any kind, as its bytes: a PDF, a picture, a spreadsheet, an archive, too large or not text for files_create and files_write. Answers with a URL that takes the file for an hour, and a line to run in a shell, as curl -X PUT --upload-file <path> '<url>'; no sign-in or header is needed. Then call files_upload_done with the upload’s id: only that makes the file. For a new file give name and size, and parent for a folder; to write over a file, its id, the version you read and size, and the version before is kept. Everything is checked before the URL is given: the folder, the name, the version and the size.",
+			action: 'createFiles',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					name: {
+						type: 'string',
+						description: 'A new file’s name, with its extension, as report.pdf',
+					},
+					parent: {
+						type: 'string',
+						description: 'The id of the folder to put a new file in; left out, the top',
+					},
+					id: {
+						type: 'string',
+						description: 'The id of a file to write over, instead of name and parent',
+					},
+					version: {
+						type: 'string',
+						description: 'The version you read of the file id names, as files_read answers with it',
+					},
+					size: {
+						type: 'number',
+						description: 'The file’s size in bytes, as wc -c < <path> counts it',
+					},
+					type: {
+						type: 'string',
+						description:
+							'Its media type, as application/pdf, where its name’s extension doesn’t say',
+					},
+					sha256: {
+						type: 'string',
+						description:
+							'The file’s SHA-256 in hex, as sha256sum prints it, for done to check what arrived against',
+					},
+				},
+				required: ['size'],
+			},
+		},
+		{
+			name: 'files_upload_done',
+			title: 'Finish upload',
+			description:
+				'Makes the file of an upload, once its bytes were sent to the URL files_upload answered with: checks that its size, and its SHA-256 where you gave one, are what arrived, and answers with the file’s id, version and link. Called again, it answers the same.',
+			action: 'createFiles',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					upload: {
+						type: 'string',
+						description: 'The upload’s id, as files_upload answered with it',
+					},
+				},
+				required: ['upload'],
 			},
 		},
 		{

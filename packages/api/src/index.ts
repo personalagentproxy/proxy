@@ -13,6 +13,7 @@ import {askForJson} from './llm/open-router';
 import {claudeCredentialFor, markClaudeCredentialRefused, recordClaudeUsage} from './me/claude-credential';
 import {chatFiles} from './native/files/chat';
 import {startFilesSweeper} from './native/files/sweeper';
+import {startUploadsSweeper} from './uploads/sweeper';
 import {startSandboxSweeper} from './native/sandbox/sweeper';
 import {log, serializeError} from './observability/log';
 import {metrics} from './observability/metrics';
@@ -103,5 +104,6 @@ async function startApiServer(): Promise<void> {
 		sweeper = startAlertSweeper(harnessStore);
 		void startSandboxSweeper();
 		void startFilesSweeper();
+		startUploadsSweeper();
 	});
 }
