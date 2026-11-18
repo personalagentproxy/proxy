@@ -85,6 +85,14 @@ log.
       <strong>Hermes Agent</strong>
     </td>
   </tr>
+  <tr>
+    <td align="center" width="33%"></td>
+    <td align="center" width="33%">
+      <img src="docs/assets/agents/devin.png" width="48" height="48" alt="Devin logo"><br>
+      <strong>Devin</strong>
+    </td>
+    <td align="center" width="33%"></td>
+  </tr>
 </table>
 
 <img src="docs/assets/agent-dashboard.png" alt="Personal Agent Proxy agents dashboard">

@@ -235,6 +235,37 @@ describe('handleConsentRoute', () => {
 		expect(createOAuthCode.mock.calls[0]?.[0].agentId).toBe('agent-new');
 	});
 
+	test('recognizes Devin CLI and makes its suggested login through the same consent flow', async () => {
+		const redirectUri = 'http://127.0.0.1:8765/auth/callback';
+		const sealedRequest = sealed({redirectUri});
+		getOAuthClient.mockResolvedValue(Ok({...publicClient, name: 'Devin CLI', redirectUris: [redirectUri]}));
+		createAgentLogin.mockResolvedValue(Ok({agent: {id: 'agent-devin'}, password: 'unused'}));
+		const {handleGetAuthorizationRequestRoute} = await import('./authorize');
+
+		const details = await handleGetAuthorizationRequestRoute({
+			query: {request: sealedRequest},
+		} as never);
+		await consent({
+			request: sealedRequest,
+			allow: true,
+			org: 'org-1',
+			providerId: details.unwrap().suggestedProviderId,
+		});
+
+		expect(details.unwrap()).toEqual({
+			clientName: 'Devin CLI',
+			redirectHost: '127.0.0.1:8765',
+			suggestedProviderId: 'devin-cli',
+		});
+		expect(createAgentLogin).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'devin-cli', {name: undefined});
+		expect(createOAuthCode.mock.calls[0]?.[0]).toMatchObject({
+			clientId: 'client-1',
+			agentId: 'agent-devin',
+			userId: 'user-1',
+			redirectUri,
+		});
+	});
+
 	test('can make a custom agent, named by the person, to work as', async () => {
 		createAgentLogin.mockResolvedValue(Ok({agent: {id: 'agent-new'}, password: 'unused'}));
 		await consent({request: sealed(), allow: true, org: 'org-1', providerId: 'custom', name: 'MCP Inspector'});

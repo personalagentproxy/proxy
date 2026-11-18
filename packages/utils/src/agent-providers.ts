@@ -8,6 +8,8 @@ export type AgentProviderId =
 	| 'claude-duet'
 	| 'claude-code'
 	| 'claude-desktop'
+	| 'devin'
+	| 'devin-cli'
 	| 'hermes'
 	| 'chatgpt'
 	| 'custom'
@@ -137,6 +139,22 @@ export const AGENT_PROVIDERS: AgentProvider[] = [
 		connects: 'mcp',
 		local: true,
 		faviconUrl: '/agent-providers/claude-desktop.png',
+	},
+	{
+		id: 'devin',
+		name: 'Devin',
+		company: 'Cognition',
+		connects: 'mcp',
+		local: false,
+		faviconUrl: '/agent-providers/devin.png',
+	},
+	{
+		id: 'devin-cli',
+		name: 'Devin CLI',
+		company: 'Cognition',
+		connects: 'mcp',
+		local: true,
+		faviconUrl: '/agent-providers/devin-cli.png',
 	},
 	{
 		id: 'hermes',

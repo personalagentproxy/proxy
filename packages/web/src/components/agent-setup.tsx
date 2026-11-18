@@ -357,6 +357,20 @@ const MCP_STEPS: Partial<
 	'claude-desktop': {
 		where: 'In Claude Desktop, open Settings, then Connectors, and choose Add custom connector.',
 	},
+	devin: {
+		where:
+			'In Devin, open Customize, then MCPs. Under Install MCPs for Myself, choose +, then New MCP.',
+		url: 'https://app.devin.ai/customize?tab=mcps',
+		openLabel: 'Devin',
+		afterAdd:
+			'Enter a name and description, select HTTP, paste the server address, and choose OAuth. Add the server, then open it and choose Connect.',
+	},
+	'devin-cli': {
+		where: 'Run the command above in a terminal.',
+		command: (serverUrl) => `devin mcp add personal-agent-proxy ${serverUrl}`,
+		afterAdd:
+			'Devin CLI opens the OAuth sign-in automatically. If it does not, run devin mcp login personal-agent-proxy.',
+	},
 	hermes: {
 		where: 'Run the command above in a terminal.',
 		command: (serverUrl) =>

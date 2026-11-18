@@ -18,6 +18,7 @@ const AGENTS: Logo[] = [
 	{name: 'Claude', src: '/logos/claude.png', tile: ''},
 	{name: 'Grok Bot', src: '/logos/grok-bot.png', tile: '', lit: true},
 	{name: 'Claude Duet', src: '/logos/claude-duet.png', tile: ''},
+	{name: 'Devin', src: '/logos/devin.png', tile: '', lit: true},
 	{name: 'Muse', src: '/logos/muse.png', tile: '', lit: true},
 	{name: 'Poke', src: '/logos/poke.jpg', tile: '', lit: true},
 	{name: 'Hermes Agent', src: '/logos/hermes.png', tile: ''},

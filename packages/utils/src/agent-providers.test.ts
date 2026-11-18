@@ -91,6 +91,8 @@ describe('agent providers', () => {
 		expect(suggestAgentProvider('Claude Duet')?.id).toBe('claude');
 		expect(suggestAgentProvider('Claude Code')?.id).toBe('claude-code');
 		expect(suggestAgentProvider('Claude Desktop')?.id).toBe('claude-desktop');
+		expect(suggestAgentProvider('Devin')?.id).toBe('devin');
+		expect(suggestAgentProvider('Devin CLI')?.id).toBe('devin-cli');
 		expect(suggestAgentProvider('Hermes Agent')?.id).toBe('hermes');
 		expect(suggestAgentProvider('ChatGPT Connector')?.id).toBe('chatgpt');
 		expect(suggestAgentProvider('Dot')?.id).toBe('dot');

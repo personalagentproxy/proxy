@@ -156,6 +156,18 @@ describe('AddAgent', () => {
 		).toBeDefined();
 	});
 
+	test('requires public HTTPS for Devin Cloud but offers local Devin CLI on localhost', () => {
+		renderAddAgent();
+
+		const cloud = screen.getByRole('button', {
+			name: 'Devin Needs a public https address',
+		}) as HTMLButtonElement;
+		const cli = screen.getByRole('button', {name: 'Devin CLI Cognition'}) as HTMLButtonElement;
+
+		expect(cloud.disabled).toBe(true);
+		expect(cli.disabled).toBe(false);
+	});
+
 	test('makes Claude Duet a Claude login, and sets it up as Claude Duet', async () => {
 		const made = agentLogin('agent-1', 'Claude', 'claude');
 		fetchMock.mockImplementation((_input, init) =>
@@ -210,6 +222,31 @@ describe('AgentSetup', () => {
 		expect(
 			screen.getByText(
 				'Claude Code opens Personal Agent Proxy to sign in. Allow it to work as Claude Code.',
+			),
+		).toBeDefined();
+	});
+
+	test('adds Devin through its personal HTTP MCP settings with OAuth', () => {
+		renderAgentSetup(agentLogin('agent-1', 'Devin', 'devin'));
+
+		expect(screen.getByRole('link', {name: 'Open Devin'}).getAttribute('href')).toBe(
+			'https://app.devin.ai/customize?tab=mcps',
+		);
+		expect(screen.getByText(/Under Install MCPs for Myself/)).toBeDefined();
+		expect(screen.getByText(/select HTTP.*choose OAuth/)).toBeDefined();
+		expect(screen.getByText(/open it and choose Connect/)).toBeDefined();
+		expect(fetchMock).not.toHaveBeenCalled();
+	});
+
+	test('adds Devin CLI with its MCP add and OAuth login commands', () => {
+		renderAgentSetup(agentLogin('agent-1', 'Devin CLI', 'devin-cli'));
+
+		expect(
+			screen.getByText('devin mcp add personal-agent-proxy http://localhost/mcp'),
+		).toBeDefined();
+		expect(
+			screen.getByText(
+				'Devin CLI opens the OAuth sign-in automatically. If it does not, run devin mcp login personal-agent-proxy.',
 			),
 		).toBeDefined();
 	});
