@@ -4,7 +4,7 @@ import type {JobRow, ThreadRow} from '@proxy/db/harness';
 
 import {ATTACHMENT_MARK} from '@proxy/utils/harness';
 
-import {afterAnswer, failureNote, planCall, STOPPED_NOTE, threadOpening} from './thread-rules';
+import {afterAnswer, failureNote, planCall, STOPPED_NOTE, subAgentModels, threadOpening} from './thread-rules';
 
 const now = new Date('2026-10-21T10:00:00Z');
 // The member's chat.
@@ -161,5 +161,31 @@ describe('a sub-agent', () => {
 		});
 		const note = failureNote('The model could not be reached.')(turn);
 		expect(note).toMatchObject({kind: 'end', end: {toParent: {stopped: {isError: true}}}});
+	});
+});
+
+describe('a sub-agent’s model', () => {
+	// The Claude harness's ranking: Fable, Opus, Sonnet.
+	const claude = [
+		{id: 'sonnet', strength: 1},
+		{id: 'opus', strength: 2},
+		{id: 'fable', strength: 3},
+	];
+
+	test('is the thread’s own or a weaker one its harness ranks, strongest first; its own alone where the harness ranks none', () => {
+		expect(subAgentModels(claude, 'fable')).toEqual(['fable', 'opus', 'sonnet']);
+		expect(subAgentModels(claude, 'opus')).toEqual(['opus', 'sonnet']);
+		expect(subAgentModels(claude, 'sonnet')).toEqual(['sonnet']);
+		expect(subAgentModels([{id: 'claude'}, {id: 'glm'}], 'claude')).toEqual(['claude']);
+		expect(subAgentModels(claude, 'haiku')).toEqual(['haiku']);
+	});
+
+	test('is the one the call names where the thread may use it, refused otherwise, and the thread’s where none is named', () => {
+		const call = (args: Record<string, string>) => ({id: 'c1', name: 'create_subagent', arguments: JSON.stringify({title: 'Read it', brief: 'Read the contract.', ...args})});
+		expect(planCall(thread, call({model: 'sonnet'}), now, ['opus', 'sonnet'])).toMatchObject({kind: 'create_subagent', start: {model: 'sonnet'}});
+		expect(planCall(thread, call({model: 'fable'}), now, ['opus', 'sonnet'])).toEqual({kind: 'answer', text: expect.stringContaining('opus, sonnet'), isError: true});
+		expect(planCall(thread, call({model: 'opus'}), now, ['sonnet'])).toEqual({kind: 'answer', text: expect.stringContaining('Leave model out'), isError: true});
+		const plain = planCall(thread, call({}), now, ['opus', 'sonnet']);
+		expect(plain.kind === 'create_subagent' && plain.start.model).toBeUndefined();
 	});
 });

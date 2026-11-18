@@ -13,7 +13,6 @@ import {
 	SEND_TO_SUBAGENT_TOOL,
 	SLEEP_TOOL,
 	sleepUntil,
-	subAgentArgs,
 	subAgentMessageArgs,
 	type ToolCall,
 } from '@proxy/utils/harness';
@@ -28,6 +27,7 @@ import {
 	BAD_PERSON_MESSAGE_ARGS,
 	BAD_SUBAGENT_ARGS,
 	BAD_SUBAGENT_MESSAGE_ARGS,
+	checkedSubAgentArgs,
 	isSubAgent,
 	jobLost,
 	notTheThreads,
@@ -151,6 +151,29 @@ const CREATE_SUBAGENT: ModelTool = {
 	},
 };
 
+// create_subagent where the thread may start a sub-agent on more than one model: with the model to
+// run it on, its own or a weaker one, strongest first; left out, its own.
+function createSubAgentTool(models: string[]): ModelTool {
+	if (models.length < 2) {
+		return CREATE_SUBAGENT;
+	}
+	const parameters = CREATE_SUBAGENT.parameters as {properties: Record<string, unknown>};
+	return {
+		...CREATE_SUBAGENT,
+		parameters: {
+			...CREATE_SUBAGENT.parameters,
+			properties: {
+				...parameters.properties,
+				model: {
+					type: 'string',
+					enum: models,
+					description: 'The model it runs on: yours or a weaker one, strongest first. Left out, yours. Pick the weakest that does the part well.',
+				},
+			},
+		},
+	};
+}
+
 const SEND_TO_SUBAGENT: ModelTool = {
 	name: SEND_TO_SUBAGENT_TOOL,
 	description:
@@ -186,11 +209,12 @@ export const THREAD_TOOLS: ModelTool[] = [SCRIPT, SEND_TO_PERSON, SLEEP, SET_ALE
 export const SUB_AGENT_TOOLS: ModelTool[] = [SCRIPT, SEND_TO_PARENT, SLEEP];
 
 /** The tools of the thread's agent: a thread's, and, in one an alert opened, dismissing it. */
-export function threadTools(thread: ThreadRow): ModelTool[] {
+export function threadTools(thread: ThreadRow, models: string[] = []): ModelTool[] {
 	if (isSubAgent(thread)) {
 		return SUB_AGENT_TOOLS;
 	}
-	return thread.openedByAlert ? [...THREAD_TOOLS, DISMISS] : THREAD_TOOLS;
+	const tools = models.length < 2 ? THREAD_TOOLS : THREAD_TOOLS.map((tool) => (tool === CREATE_SUBAGENT ? createSubAgentTool(models) : tool));
+	return thread.openedByAlert ? [...tools, DISMISS] : tools;
 }
 
 // A tool as the harness is given it. None only reads: a script may change something, and the
@@ -254,15 +278,18 @@ function dismissInline(store: ToolSurfaceStore, thread: ThreadRow, job: InlineJo
 // What a call does, at once: the person told, which is the call itself, read where the thread is
 // shown, so nothing is written for it; a sleep as a wake job, the answer ending the turn; an alert
 // set or cancelled; or a script run.
-function execute(store: ToolSurfaceStore, thread: ThreadRow, job: InlineJob, call: ToolCall, args: Record<string, unknown>, now: Date): Promise<Result<ToolAnswer, ApiError>> {
+function execute(store: ToolSurfaceStore, thread: ThreadRow, job: InlineJob, call: ToolCall, args: Record<string, unknown>, now: Date, models: string[]): Promise<Result<ToolAnswer, ApiError>> {
 	if (notTheThreads(thread, call.name)) {
 		return Promise.resolve(Ok(noSuchTool(call.name)));
 	}
 	return Do(async ($) => {
 		if (call.name === CREATE_SUBAGENT_TOOL) {
-			const parsed = subAgentArgs(args);
+			const parsed = checkedSubAgentArgs(args, models);
 			if (!parsed) {
 				return error(BAD_SUBAGENT_ARGS);
+			}
+			if ('refused' in parsed) {
+				return error(parsed.refused);
 			}
 			const id = $(requirePresent($(await store.startSubAgentInline(job, subAgentStart(thread, {id: call.id, ...parsed}))), jobLost()));
 			return {text: started(parsed.title)(id), isError: false};
@@ -334,16 +361,24 @@ async function withMeanwhile(store: ToolSurfaceStore, thread: ThreadRow, callId:
  * sleep or an alert counted from when it began would be due before it was asked for. What came
  * into the thread meanwhile goes with an answer, its ids kept in `delivered`.
  */
-export function toolSurfaceFor(store: ToolSurfaceStore, thread: ThreadRow, job: {id: string}, workerId: string, clock: () => Date, delivered: Delivered = new Map()): ToolSurface {
+export function toolSurfaceFor(
+	store: ToolSurfaceStore,
+	thread: ThreadRow,
+	job: {id: string},
+	workerId: string,
+	clock: () => Date,
+	delivered: Delivered = new Map(),
+	models: string[] = [],
+): ToolSurface {
 	const inlineJob: InlineJob = {jobId: job.id, workerId, threadId: thread.id};
 	return {
-		tools: threadTools(thread).map(toHarnessTool),
+		tools: threadTools(thread, models).map(toHarnessTool),
 		execute: async (call) => {
 			const args = callArguments(call);
 			if (!isRecord(args)) {
 				return Ok(error(NOT_JSON));
 			}
-			const answer = await execute(store, thread, inlineJob, call, args, clock());
+			const answer = await execute(store, thread, inlineJob, call, args, clock(), models);
 			if (answer.isErr()) {
 				return answer;
 			}

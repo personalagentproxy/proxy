@@ -95,9 +95,9 @@ const STEP_KINDS = new Set<ContextEntry['kind']>(['assistant', 'tool_result']);
 // persona keeps it under; and each as the SDK is told it, the full model id, so that what answers
 // is what the label says, whatever the binary takes a bare `sonnet` to mean.
 const MODELS: HarnessBackend['models'] = [
-	{id: 'sonnet', label: 'Claude Sonnet 5.5', images: true},
-	{id: 'opus', label: 'Claude Opus 5.5', images: true},
-	{id: 'fable', label: 'Claude Fable 5.2', images: true},
+	{id: 'sonnet', label: 'Claude Sonnet 5.5', images: true, strength: 1},
+	{id: 'opus', label: 'Claude Opus 5.5', images: true, strength: 2},
+	{id: 'fable', label: 'Claude Fable 5.2', images: true, strength: 3},
 ];
 const DEFAULT_SDK_MODEL = 'claude-sonnet-5-5';
 const SDK_MODELS = new Map([

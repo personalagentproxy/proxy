@@ -175,7 +175,15 @@ describe('the worker', () => {
 		};
 		store.getJobThread.mockImplementation(async (threadId) => Ok(row(threadId)));
 		store.getChatThread.mockImplementation(async (_chatId, threadId) =>
-			Ok({...row(threadId), state: {kind: 'stopped'}, standing: {waitingForMember: false, summary: null, summarySeq: null, archived: false}, alerts: 0, entries: [said], attachments: []}),
+			Ok({
+				...row(threadId),
+				state: {kind: 'stopped'},
+				standing: {waitingForMember: false, summary: null, summarySeq: null, archived: false},
+				alerts: 0,
+				entries: [said],
+				attachments: [],
+				subAgents: [],
+			}),
 		);
 
 		const worker = startHarnessWorker(store, harness, {key: 'sk-or-1', ask, timeoutMs: 20, retryMs: 1});
@@ -250,8 +258,9 @@ describe('the worker', () => {
 				state: {kind: 'working'},
 				standing: {waitingForMember: false, summary: null, summarySeq: null, archived: false},
 				alerts: 0,
-				entries: [{id: 'e1', seq: 1, kind: 'person', text: 'move the pricing review with dana', pending: false, toolCalls: null, isError: false, createdAt: now}],
+				entries: [{id: 'e1', seq: 1, kind: 'person', text: 'move the pricing review with dana', pending: false, toolCalls: null, callId: null, isError: false, createdAt: now}],
 				attachments: [],
+				subAgents: [],
 			}),
 		);
 		store.writeThreadTitle.mockImplementation(async () => {
@@ -317,8 +326,9 @@ describe('the worker', () => {
 				state: {kind: 'stopped'},
 				standing: {waitingForMember: false, summary: null, summarySeq: null, archived: false},
 				alerts: 0,
-				entries: [{id: 'e1', seq: 1, kind: 'person', text: 'Move the pricing review', pending: false, toolCalls: null, isError: false, createdAt: now}],
+				entries: [{id: 'e1', seq: 1, kind: 'person', text: 'Move the pricing review', pending: false, toolCalls: null, callId: null, isError: false, createdAt: now}],
 				attachments: [],
+				subAgents: [],
 			});
 		});
 		store.writeThreadStanding.mockImplementation(async () => {
@@ -385,7 +395,7 @@ describe('the worker', () => {
 				standing: {waitingForMember: false, summary: null, summarySeq: null, archived: false},
 				alerts: 0,
 				entries: [
-					{id: 'e1', seq: 1, kind: 'person', text: 'Move the pricing review', pending: false, toolCalls: null, isError: false, createdAt: now},
+					{id: 'e1', seq: 1, kind: 'person', text: 'Move the pricing review', pending: false, toolCalls: null, callId: null, isError: false, createdAt: now},
 					{
 						id: 'e2',
 						seq: 2,
@@ -393,11 +403,13 @@ describe('the worker', () => {
 						text: 'Looking at the calendar first.',
 						pending: false,
 						toolCalls: [{id: 'c1', name: 'script', arguments: '{"code":"return 1"}'}],
+						callId: null,
 						isError: false,
 						createdAt: now,
 					},
 				],
 				attachments: [],
+				subAgents: [],
 			}),
 		);
 		store.writeThreadStanding.mockImplementation(async () => {

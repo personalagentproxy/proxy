@@ -107,10 +107,11 @@ export function threadEnd(said: string, isError = false): ThreadEnd {
 }
 
 /** The sub-agent a create_subagent call starts: titled as the call says, its task the brief, and the brief the first thing said in its thread. */
-export function subAgentStart(parent: ThreadRow, call: {id: string; title: string; brief: string}): SubAgentStart {
+export function subAgentStart(parent: ThreadRow, call: {id: string; title: string; brief: string; model?: string}): SubAgentStart {
 	return {
 		callId: call.id,
 		title: call.title,
+		...(call.model === undefined ? {} : {model: call.model}),
 		task: taskFor(parent, {title: call.title, goal: cut(call.brief, MAX_TASK_TEXT)}),
 		entries: [{kind: 'person', text: call.brief}],
 	};
@@ -142,6 +143,36 @@ export function sentToSubAgent(id: string): (subAgent: SubAgentRow | null) => {t
 					: 'is at work, and reads it when its current call is answered';
 		return {text: `Sent to “${subAgent.title ?? ''}”, which ${was}.`, isError: false};
 	};
+}
+
+/**
+ * The models a thread's agent may start a sub-agent on: its own, which it runs on now, and those
+ * its harness ranks weaker (@proxy/backends/harness HarnessModel strength), the strongest first;
+ * its own alone where the harness ranks none, or not its own.
+ */
+export function subAgentModels(models: ReadonlyArray<{id: string; strength?: number}>, current: string): string[] {
+	const own = models.find((model) => model.id === current)?.strength;
+	if (own === undefined) {
+		return [current];
+	}
+	return models
+		.flatMap((model) => (model.strength !== undefined && model.strength <= own ? [{id: model.id, strength: model.strength}] : []))
+		.sort((a, b) => b.strength - a.strength)
+		.map((model) => model.id);
+}
+
+/** What a create_subagent call naming a model it may not use is answered with: the models it may. */
+export function badSubAgentModel(models: string[]): string {
+	return models.length > 1 ? `Give model as one of: ${models.join(', ')}, or leave it out for yours.` : 'Leave model out: sub-agents run on your model.';
+}
+
+/** A create_subagent call's arguments, its model checked against those the thread may use: null where they are no good, and the answer where the model is not one of them. */
+export function checkedSubAgentArgs(args: unknown, models: string[]): {title: string; brief: string; model?: string} | {refused: string} | null {
+	const parsed = subAgentArgs(args);
+	if (!parsed || parsed.model === undefined) {
+		return parsed;
+	}
+	return models.includes(parsed.model) ? parsed : {refused: badSubAgentModel(models)};
 }
 
 /** Whether the thread is a sub-agent's, which works for another thread's agent rather than the person. */
@@ -191,7 +222,7 @@ export const BAD_PERSON_MESSAGE_ARGS = 'Give text, the message.';
  * where its arguments are no good too; every other call's job is due now, the tool job answering
  * one the thread hasn't got (tool-job.ts).
  */
-export function planCall(thread: ThreadRow, call: ToolCall, now: Date): CallPlan {
+export function planCall(thread: ThreadRow, call: ToolCall, now: Date, models: string[] = []): CallPlan {
 	const args = callArguments(call);
 	if (call.name === SLEEP_TOOL) {
 		return {kind: 'job', runAt: sleepUntil(args, now) ?? now};
@@ -200,9 +231,12 @@ export function planCall(thread: ThreadRow, call: ToolCall, now: Date): CallPlan
 		return personMessageArgs(args) ? {kind: 'answer', text: SENT_TO_PERSON, isError: false} : {kind: 'answer', text: BAD_PERSON_MESSAGE_ARGS, isError: true};
 	}
 	if (call.name === CREATE_SUBAGENT_TOOL && !isSubAgent(thread)) {
-		const parsed = subAgentArgs(args);
+		const parsed = checkedSubAgentArgs(args, models);
 		if (!parsed) {
 			return {kind: 'answer', text: BAD_SUBAGENT_ARGS, isError: true};
+		}
+		if ('refused' in parsed) {
+			return {kind: 'answer', text: parsed.refused, isError: true};
 		}
 		return {kind: 'create_subagent', start: subAgentStart(thread, {id: call.id, ...parsed}), started: started(parsed.title)};
 	}
@@ -224,8 +258,8 @@ export function planCall(thread: ThreadRow, call: ToolCall, now: Date): CallPlan
 }
 
 /** What is to happen with each of the model's calls, by the id it gave the call. */
-export function planCalls(thread: ThreadRow, calls: ToolCall[], now: Date): Record<string, CallPlan> {
-	return Object.fromEntries(calls.map((call) => [call.id, planCall(thread, call, now)]));
+export function planCalls(thread: ThreadRow, calls: ToolCall[], now: Date, models: string[] = []): Record<string, CallPlan> {
+	return Object.fromEntries(calls.map((call) => [call.id, planCall(thread, call, now, models)]));
 }
 
 /** What follows the model's answer: an answer without calls ends the thread's turn; any other, its calls as planned. */

@@ -1,6 +1,12 @@
 import type {ChatAttachment, ThreadStanding} from '@proxy/contracts/harness';
 import {attachedParts} from '@proxy/utils/harness';
-import {ArchiveIcon, CheckIcon, ClockIcon, LoaderCircleIcon} from 'lucide-react';
+import {
+	ArchiveIcon,
+	CheckIcon,
+	ClockIcon,
+	CornerDownRightIcon,
+	LoaderCircleIcon,
+} from 'lucide-react';
 import {Fragment, type ReactNode, useMemo, useState} from 'react';
 import {Link} from 'react-router';
 import {SentChip} from '@/components/chat/attachments';
@@ -227,6 +233,35 @@ export function EventLine({text}: {text: string}) {
 				<ClockIcon className="size-[15px]" aria-hidden />
 			</span>
 			<span className="min-w-0">{text}</span>
+		</p>
+	);
+}
+
+/** A sub-agent the persona started: a quiet line by an arrow, its title opening its thread, shimmering as the Working line does while it is at work. */
+export function SubAgentLine({
+	title,
+	to,
+	working = false,
+}: {
+	title: string;
+	to: string;
+	working?: boolean;
+}) {
+	return (
+		<p className="flex min-w-0 items-start gap-2 text-sm leading-relaxed text-muted-foreground">
+			{/* Centred on the line's first row. */}
+			<span className="flex h-[1.625em] shrink-0 items-center">
+				<CornerDownRightIcon className="size-[15px]" aria-hidden />
+			</span>
+			<Link
+				to={to}
+				className={cn(
+					'min-w-0 truncate hover:text-foreground hover:underline',
+					working && 'shimmer motion-reduce:shimmer-none',
+				)}
+			>
+				{title}
+			</Link>
 		</p>
 	);
 }

@@ -13,7 +13,7 @@ import {chatFolder} from '../native/files/names';
 import {log, serializeError} from '../observability/log';
 import {alertsParagraph} from './alerts';
 import {picturesOf, withAttached} from './attachments';
-import {afterAnswer, isSubAgent, jobLost, planCalls, SHOWN_CALLS} from './thread-rules';
+import {afterAnswer, isSubAgent, jobLost, planCalls, SHOWN_CALLS, subAgentModels} from './thread-rules';
 import type {HarnessStore} from './store';
 import {type Delivered, type ToolSurfaceStore, toolSurfaceFor} from './tool-surface';
 
@@ -92,7 +92,7 @@ const THREAD_FLOW =
 
 // What a thread's agent is told of sub-agents: what they are for, and how to wait for them.
 const SUB_AGENTS =
-	'For sizeable parts of this work that can run side by side, start sub-agents rather than doing each in turn: each works on its brief with your access and answers you with a message, which wakes you. While they work, tell the person in a few words what you are looking into and end your turn, or sleep; never have one ask the person anything. Message a sub-agent only about its own work, and start a new one for anything else. Its messages show to the person as quiet lines: pass on what matters in your own answer.';
+	'For sizeable parts of this work that can run side by side, start sub-agents rather than doing each in turn: each works on its brief with your access and answers you with a message, which wakes you. While they work, tell the person in a few words what you are looking into and end your turn, or sleep; never have one ask the person anything. Message a sub-agent only about its own work, and start a new one for anything else. Where create_subagent offers a model, give each the weakest that does its part well. Its messages show to the person as quiet lines: pass on what matters in your own answer.';
 
 // How a sub-agent is to go about it: a brief, its tools, and messages to and from the thread's agent
 // it works for, which alone reads what it says.
@@ -417,7 +417,7 @@ function askOnLog(
 						entries: withAttached(entries, attached, pictures),
 						woken,
 						system,
-						tools: toolSurfaceFor(store, thread, job, workerId, clock, delivered),
+						tools: toolSurfaceFor(store, thread, job, workerId, clock, delivered, subAgentModels(choice.harness.models, choice.model)),
 						model: choice.model,
 						signal: new AbortController().signal,
 					}),
@@ -450,7 +450,7 @@ function writeBack(
 	return Do(async ($) => {
 		const {harness} = choice;
 		const session: ThreadSession | undefined = outcome.session !== null || thread.harness !== null ? {harness: harness.id, session: outcome.session} : undefined;
-		const plans = planCalls(thread, outcome.open, now);
+		const plans = planCalls(thread, outcome.open, now, subAgentModels(harness.models, choice.model));
 		const nothingLeft = outcome.wroteInline && outcome.text.trim() === '' && outcome.toolCalls.length === 0;
 		const turn: AssistantTurn | null = nothingLeft
 			? null

@@ -13,6 +13,7 @@ import {
 	ensureFirstPersona,
 	ensureMemberChat,
 	failJob,
+	getChatThread,
 	getJobThread,
 	listChatThreads,
 	listEntries,
@@ -73,6 +74,7 @@ describe.skipIf(!databaseUrl)('sub-agents, against the database', () => {
 		return {
 			callId,
 			title: 'Read the contract',
+			model: 'fable',
 			task: {
 				orgId,
 				agentId,
@@ -166,6 +168,13 @@ describe.skipIf(!databaseUrl)('sub-agents, against the database', () => {
 			title: 'Read the contract',
 		});
 		expect(sub?.taskId).not.toBe(thread.taskId);
+		// It runs on the model the call named, the thread's harness kept.
+		expect(
+			await db.agentThread.findUniqueOrThrow({
+				where: {id: subAgentId},
+				select: {chosenModel: true},
+			}),
+		).toEqual({chosenModel: 'fable'});
 		// Its task is a sub-task of the thread's, so the activity log draws it under the thread.
 		expect(await db.agentTask.findUniqueOrThrow({where: {id: sub?.taskId ?? ''}})).toMatchObject({
 			parentId: thread.taskId,
@@ -176,6 +185,16 @@ describe.skipIf(!databaseUrl)('sub-agents, against the database', () => {
 		expect(unwrap(await listChatThreads(chat.id, [])).map((listed) => listed.id)).toEqual([
 			thread.id,
 		]);
+		// The thread lists it with what it is up to, for its line.
+		const shown = unwrap(await getChatThread(chat.id, thread.id, ['create_subagent']));
+		expect(shown?.subAgents).toEqual([
+			{id: subAgentId, title: 'Read the contract', parentCallId: 'c1', state: {kind: 'working'}},
+		]);
+		expect(
+			shown?.entries
+				.find((entry) => entry.kind === 'assistant')
+				?.toolCalls?.map((made) => made.name),
+		).toEqual(['create_subagent']);
 		expect(
 			unwrap(await listSubAgents(thread.id)).map((listed) => [listed.id, listed.state.kind]),
 		).toEqual([[subAgentId, 'working']]);
