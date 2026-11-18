@@ -1,17 +1,22 @@
 import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do} from '@proxy/utils';
+import type {FileChangeBy} from '@proxy/db/files';
 
 import {fileIdOf} from '../connections/google/drive-api';
 import {callGoogle} from '../connections/google/google-client';
-import {getValues, putValues} from '../connections/google/sheets-api';
+import {getSheets, getValues, putValues} from '../connections/google/sheets-api';
 import type {DataRecord, NewCommandRunner, RecordValues, RunOnly} from './connector';
 import {csvOf, parseCsv} from './csv';
+import {cellsBefore, cellsOfRange, cellsUndo} from './google-cells';
+import {changeBy, changeDriveFile, requireEditor, type DriveChangeEntry} from './google-history';
 
 /**
  * A spreadsheet's ranges as the `ranges` collection: never listed or opened, only read or written,
  * a range at a time, in A1 notation with the tab, `'Q1 Sales'!A1:F20`. Values go in and come out
- * as CSV, one row a line; they are read as Sheets shows them and written as if typed in.
+ * as CSV, one row a line; they are read as Sheets shows them and written as if typed in. A write
+ * goes through the spreadsheet's history (google-history.ts), the cells it changes kept as they
+ * were for an exact undo (google-cells.ts).
  */
 
 function requireSpreadsheet(values: RecordValues): Result<string, ApiError> {
@@ -64,6 +69,28 @@ const read: NewCommandRunner = (target, values) =>
 		return rangeRecord(spreadsheet, answer.range, answer.values);
 	});
 
+type Written = {range: string; values: string[][]};
+
+// Writes rows into a range, the cells they land on read before and after, for the change's undo.
+function writeCells(token: string, spreadsheet: string, range: string, rows: string[][]): Promise<Result<{done: Written; entry: DriveChangeEntry}, ApiError>> {
+	return Do(async ($) => {
+		const size = {rows: rows.length, columns: Math.max(...rows.map((row) => row.length))};
+		const area = cellsOfRange(spreadsheet, $(await getSheets(token, spreadsheet)), range, size);
+		const before = area ? $(await cellsBefore(token, area)) : null;
+		const written = $(await putValues(token, spreadsheet, range, rows));
+		const undo = area ? $(await cellsUndo(token, area, before)) : null;
+		return {done: written, entry: {kind: 'edit', undo}};
+	});
+}
+
+// Writes rows into a range through the spreadsheet's history, as whoever `change` says.
+function writeRange(token: string, change: FileChangeBy | null, spreadsheet: string, range: string, rows: string[][]): Promise<Result<Written, ApiError>> {
+	return Do(async ($) => {
+		const editor = $(requireEditor(token, change));
+		return $(await changeDriveFile(editor, spreadsheet, {content: true}, () => writeCells(token, spreadsheet, range, rows)));
+	});
+}
+
 /** Writes `values` into a range and answers what it holds now, formulas worked out. */
 const write: NewCommandRunner = (target, values) =>
 	Do(async ($) => {
@@ -73,7 +100,8 @@ const write: NewCommandRunner = (target, values) =>
 		if (rows.length === 0) {
 			return $(Err(ApiErr.validationError('Write the values as CSV, one row a line; "" empties a cell')));
 		}
-		const answer = $(await callGoogle(target.connection, (token) => putValues(token, spreadsheet, range, rows)));
+		const change = target.by ? changeBy(target.connection, target.by) : null;
+		const answer = $(await callGoogle(target.connection, (token) => writeRange(token, change, spreadsheet, range, rows)));
 		return rangeRecord(spreadsheet, answer.range, answer.values);
 	});
 

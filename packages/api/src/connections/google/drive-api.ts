@@ -3,9 +3,9 @@ import {randomUUID} from 'node:crypto';
 import type {Result} from 'ts-results-es';
 import {z} from 'zod';
 
-import type {ApiError} from '@proxy/utils';
+import {type ApiError, Do} from '@proxy/utils';
 
-import {googleRequest, googleText, googleUpload, googleWrite} from './google-client';
+import {googleRequest, googleSession, googleStream, googleText, googleTransfer, googleUpload, googleWrite} from './google-client';
 
 /**
  * The Drive v3 calls the `files` collection makes, and the reading of their answers. Every call
@@ -198,4 +198,106 @@ export function replaceContent(accessToken: string, fileId: string, upload: Uplo
 		{...upload, type: textType(upload.type)},
 		driveFileSchema,
 	);
+}
+
+// ---- What a file's history needs ---------------------------------------------------------------
+
+/**
+ * What Drive keeps of the Google types that a copy is made of, exported as the Office file each
+ * converts to and from: a Doc as docx, a Sheet as xlsx, a Slides file as pptx.
+ */
+export const OFFICE_TYPES: Partial<Record<string, string>> = {
+	[MIME_TYPES.document]: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+	[MIME_TYPES.spreadsheet]: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+	[MIME_TYPES.presentation]: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+};
+
+/** Whether a type is one of Google's own, a Doc, Sheet, Slides file, folder or other, which has no bytes of its own in Drive. */
+export function isGoogleType(mimeType: string): boolean {
+	return mimeType.startsWith('application/vnd.google-apps.');
+}
+
+const STATE_FIELDS = 'id,name,mimeType,webViewLink,parents,headRevisionId,sha256Checksum,size';
+
+// `headRevisionId` and `sha256Checksum` only for a file with bytes of its own, not one of Google's
+// types; `size` as text, as Drive writes its 64-bit numbers.
+const fileStateSchema = z.object({
+	id: z.string(),
+	name: z.string(),
+	mimeType: z.string(),
+	webViewLink: z.string().optional(),
+	parents: z.array(z.string()).optional(),
+	headRevisionId: z.string().optional(),
+	sha256Checksum: z.string().optional(),
+	size: z.string().optional(),
+});
+
+/** A file as a change to it is recorded against: its revision, and what copying it needs. */
+export type DriveFileState = z.infer<typeof fileStateSchema>;
+
+/** A file's metadata with its head revision, checksum and size. */
+export function getFileState(accessToken: string, fileId: string): Promise<Result<DriveFileState, ApiError>> {
+	return googleRequest(accessToken, driveUrl(`/files/${fileId}`, {fields: STATE_FIELDS, supportsAllDrives: 'true'}), fileStateSchema);
+}
+
+const revisionListSchema = z.object({revisions: z.array(z.object({id: z.string()})).optional(), nextPageToken: z.string().optional()});
+
+// How many pages of a file's revisions are read for its latest at most: Drive lists them oldest
+// first, a thousand to a page.
+const MAX_REVISION_PAGES = 20;
+
+/**
+ * A file's latest revision, as Drive's version history lists it, the last of its revisions: for a
+ * Doc, Sheet or Slides file, which has no head revision of its own. Null where Drive lists none.
+ */
+export function latestRevision(accessToken: string, fileId: string): Promise<Result<string | null, ApiError>> {
+	return Do(async ($) => {
+		let latest: string | null = null;
+		let pageToken: string | null = null;
+		for (let page = 0; page < MAX_REVISION_PAGES; page += 1) {
+			const url = driveUrl(`/files/${fileId}/revisions`, {fields: 'nextPageToken,revisions(id)', pageSize: '1000', ...(pageToken ? {pageToken} : {})});
+			const list = $(await googleRequest(accessToken, url, revisionListSchema));
+			latest = list.revisions?.at(-1)?.id ?? latest;
+			if (!list.nextPageToken) {
+				return latest;
+			}
+			pageToken = list.nextPageToken;
+		}
+		return latest;
+	});
+}
+
+/** Marks a revision of a file with bytes of its own to be kept for good, or no longer; Drive keeps at most 200 such a file. */
+export async function keepRevision(accessToken: string, fileId: string, revisionId: string, keepForever: boolean): Promise<Result<void, ApiError>> {
+	const answer = await googleWrite(accessToken, 'PATCH', driveUrl(`/files/${fileId}/revisions/${revisionId}`, {fields: 'id,keepForever'}), {keepForever}, z.object({id: z.string()}));
+	return answer.map(() => undefined);
+}
+
+/** A file's bytes, as they come, for a file that isn't one of Google's types. */
+export function downloadFile(accessToken: string, fileId: string): Promise<Result<ReadableStream<Uint8Array>, ApiError>> {
+	return googleStream(accessToken, driveUrl(`/files/${fileId}`, {alt: 'media', supportsAllDrives: 'true'}));
+}
+
+/** The bytes of one of a file's revisions, as they come, for a file that isn't one of Google's types. */
+export function downloadRevision(accessToken: string, fileId: string, revisionId: string): Promise<Result<ReadableStream<Uint8Array>, ApiError>> {
+	return googleStream(accessToken, driveUrl(`/files/${fileId}/revisions/${revisionId}`, {alt: 'media'}));
+}
+
+/** A Doc, Sheet or Slides file exported as `mimeType`, as its bytes come; Drive exports at most 10 MB. */
+export function exportBytes(accessToken: string, fileId: string, mimeType: string): Promise<Result<ReadableStream<Uint8Array>, ApiError>> {
+	return googleStream(accessToken, driveUrl(`/files/${fileId}/export`, {mimeType}));
+}
+
+/**
+ * Puts bytes in place of all of a file's content, as its new revision, keeping its id: a file with
+ * bytes of its own takes them as they are; a Doc, Sheet or Slides file takes a docx, xlsx or pptx
+ * and converts it into what it is. Sent through a resumable upload's session, as Drive takes a file
+ * of more than 5 MB, the bytes in one request as they come.
+ */
+export function putContent(accessToken: string, fileId: string, content: {type: string; body: ReadableStream<Uint8Array>; size: number | null}): Promise<Result<DriveFileState, ApiError>> {
+	return Do(async ($) => {
+		const url = driveUrl(`/files/${fileId}`, {uploadType: 'resumable', fields: STATE_FIELDS, supportsAllDrives: 'true'}, UPLOAD);
+		const session = $(await googleSession(accessToken, 'PATCH', url, {type: content.type, size: content.size, metadata: {}}));
+		return $(await googleTransfer(accessToken, 'PUT', new URL(session), content, fileStateSchema));
+	});
 }

@@ -12,7 +12,9 @@ import {parseRecordValues} from './record-values';
 import {loadRecordTarget} from './target';
 
 // The human side's records: the owner of the connections reads and writes them in full, as far as
-// the collection offers it, and nothing is logged. Agents go through the agent routes.
+// the collection offers it, and nothing is logged in the activity log; a write to a file in Google
+// Drive is kept in its history as the member's (google-history.ts). Agents go through the agent
+// routes.
 
 type Request = 'list' | 'view' | 'create' | 'update' | 'delete';
 
@@ -26,7 +28,7 @@ function storeFor(request: AuthenticatedRequest, asked: Request): Promise<Result
 		if (requiredAction(target.collection, asked) === null || !isRecordStore(connector)) {
 			return $(Err(ApiErr.forbidden()));
 		}
-		return {...target, connector};
+		return {...target, connector, by: {userId: viewer.userId}};
 	});
 }
 

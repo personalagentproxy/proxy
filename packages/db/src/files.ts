@@ -1231,6 +1231,51 @@ export function listFileVersions(
 	});
 }
 
+/** One change of a file's journal with who made it: the member, or the agent as its maker and the task it was for. */
+export type FileChangeEntry = FileChangeRow & {
+	user: {name: string | null; email: string} | null;
+	maker: FileMaker | null;
+	task: {id: string; title: string} | null;
+};
+
+/**
+ * A file's changes, newest first, at most `limit`, each with who made it: for a drive elsewhere,
+ * whose versions are copies taken before changes, what each change was and what it started from.
+ */
+export function listFileChanges(
+	connectionId: string,
+	fileId: string,
+	limit: number,
+): Promise<Result<FileChangeEntry[], ApiError>> {
+	return wrapDb(async () => {
+		const rows = await db.fileChange.findMany({
+			where: {connectionId, fileId},
+			select: changeSelect,
+			orderBy: [{createdAt: 'desc'}, {id: 'desc'}],
+			take: limit,
+		});
+		const userIds = [
+			...new Set(rows.flatMap((change) => (change.userId === null ? [] : [change.userId]))),
+		];
+		const [users, {makerOf, taskOf}] = await Promise.all([
+			db.user.findMany({
+				where: {id: {in: userIds}},
+				select: {id: true, name: true, email: true},
+			}),
+			makersOf(rows),
+		]);
+		return rows.map((row) => {
+			const user = users.find((candidate) => candidate.id === row.userId);
+			return {
+				...changeRow(row),
+				user: user ? {name: user.name, email: user.email} : null,
+				maker: makerOf(row),
+				task: taskOf(row),
+			};
+		});
+	});
+}
+
 /**
  * The agents that made what each of `fileIds` holds, by file, the latest first, each once; a file
  * only members made has none. One whose agent is gone is left out.

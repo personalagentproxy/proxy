@@ -1,4 +1,4 @@
-import {Err, Ok, type Result} from 'ts-results-es';
+import {Err, Ok, Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, type FetchError, httpRequest} from '@proxy/utils';
@@ -122,6 +122,53 @@ export async function googleUpload<S extends z.ZodType>(
 	const init = {method, headers: {...authHeaders(accessToken), 'content-type': content.type}, body: content.body};
 	const answer = await httpRequest(url, init, {schema, timeoutMs: TIMEOUT_MS});
 	return answer.mapErr(googleError);
+}
+
+// How long a file's bytes may take to come down or go up whole, as a copy kept or given back does:
+// far longer than a call's, for files of hundreds of megabytes.
+const TRANSFER_TIMEOUT_MS = 30 * 60_000;
+
+/** A GET whose answer is a file's bytes, as they come, never held whole here. */
+export async function googleStream(accessToken: string, url: URL): Promise<Result<ReadableStream<Uint8Array>, ApiError>> {
+	const answer = await httpRequest(url, authorized(accessToken), {parse: 'response', timeoutMs: TRANSFER_TIMEOUT_MS});
+	return answer.map((response) => response.body ?? new Blob([]).stream()).mapErr(googleError);
+}
+
+/**
+ * A write whose body is a file's bytes as they come, as a copy given back is, `size` of them where
+ * that is known; its answer read with `schema`.
+ */
+export async function googleTransfer<S extends z.ZodType>(
+	accessToken: string,
+	method: WriteMethod,
+	url: URL,
+	content: {type: string; body: ReadableStream<Uint8Array>; size: number | null},
+	schema: S,
+): Promise<Result<z.infer<S>, ApiError>> {
+	const length: Record<string, string> = content.size === null ? {} : {'content-length': String(content.size)};
+	const init = {method, headers: {...authHeaders(accessToken), 'content-type': content.type, ...length}, body: content.body};
+	const answer = await httpRequest(url, init, {schema, timeoutMs: TRANSFER_TIMEOUT_MS});
+	return answer.mapErr(googleError);
+}
+
+/**
+ * Starts a resumable upload at Drive, for bytes of `type`, `size` of them where that is known, with
+ * `metadata` as JSON: the session's address, where the bytes are then sent, which Google answers in
+ * `Location`.
+ */
+export function googleSession(accessToken: string, method: WriteMethod, url: URL, content: {type: string; size: number | null; metadata: object}): Promise<Result<string, ApiError>> {
+	return Do(async ($) => {
+		const length: Record<string, string> = content.size === null ? {} : {'x-upload-content-length': String(content.size)};
+		const headers = {...authHeaders(accessToken), 'content-type': 'application/json; charset=UTF-8', 'x-upload-content-type': content.type, ...length};
+		const answer = await httpRequest(url, {method, headers, body: JSON.stringify(content.metadata)}, {parse: 'response', timeoutMs: TIMEOUT_MS});
+		const response = $(answer.mapErr(googleError));
+		await Result.wrapAsync(() => response.body?.cancel() ?? Promise.resolve());
+		const location = response.headers.get('location');
+		if (location === null) {
+			return $(Err(ApiErr.providerUnreachable(new Error('Google started an upload without saying where to send it'))));
+		}
+		return location;
+	});
 }
 
 /** A DELETE, whose answer is empty. */

@@ -1,5 +1,5 @@
 import {beforeEach, describe, expect, mock, spyOn, test} from 'bun:test';
-import {Ok, type Result} from 'ts-results-es';
+import {Err, Ok, type Result} from 'ts-results-es';
 
 import type {ApiError} from '@proxy/utils';
 import {findCollection, findIntegration, type Collection} from '@proxy/integrations';
@@ -7,8 +7,29 @@ import {findCollection, findIntegration, type Collection} from '@proxy/integrati
 const markCredentialRejected = mock(async () => Ok(true));
 mock.module('@proxy/db/connection', () => ({markCredentialRejected, updateConnectionCredential: mock(), getConnectionCredential: mock(async () => Ok(null))}));
 
+// The history every write goes through (google-history.ts), kept in memory: each task has its copy
+// already, so no copy is taken here (google-history.test.ts takes them), and the changes logged are
+// kept to look at.
+type Logged = {kind: string; fileId: string; name: string; beforeName?: string | null; beforeRevision?: string | null; afterRevision?: string | null; undo?: unknown};
+const history = {logged: [] as Logged[], down: false};
+mock.module('@proxy/db/files', () => ({
+	hasTaskCopied: mock(async () => Ok(true)),
+	getLatestFileVersion: mock(async () => Ok(null)),
+	recordFileVersion: mock(),
+	logFileChange: mock(async (_change: object, entry: Logged) => {
+		if (history.down) {
+			return Err({kind: 'db_error', statusCode: 500, cause: new Error('the database is down')});
+		}
+		history.logged.push(entry);
+		return Ok({change: {id: `change-${history.logged.length}`, ...entry}, version: null});
+	}),
+	createFileBlob: mock(),
+	completeFileBlob: mock(),
+}));
+
+const logError = mock();
 mock.module('../observability/log', () => ({
-	log: {debug: mock(), info: mock(), warn: mock(), error: mock()},
+	log: {debug: mock(), info: mock(), warn: mock(), error: logError},
 	serializeError: mock(() => ({})),
 }));
 
@@ -55,6 +76,7 @@ const target = {
 		credential: `enc:${JSON.stringify(CREDENTIAL)}`,
 	},
 	collection: files(),
+	by: {agentId: 'agent-1', taskId: 'task-1'},
 };
 
 const MY_DRIVE_ID = '0AFmyDriveRootUk9PVA';
@@ -143,6 +165,14 @@ function multipartOf(request: Request): {metadata: {name: string; mimeType: stri
 	return {metadata, type, content: bytes.toString('utf8')};
 }
 
+// The cells of a range of the tab as they were entered, as Sheets answers them with the grid's
+// data: from the range's first cell, the empty ones at the end of each row and of the rows left out.
+function enteredOf(range: string): object {
+	const [, first = 'A', top = '1', last = 'A', bottom = '1'] = /!([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(range) ?? [];
+	const rows = state.grid.slice(Number(top) - 1, Number(bottom)).map((row) => row.slice(first.charCodeAt(0) - 65, last.charCodeAt(0) - 64));
+	return {startRow: Number(top) - 1, startColumn: first.charCodeAt(0) - 65, rowData: rows.map((row) => ({values: row.map((cell) => (cell === '' ? {} : {userEnteredValue: {stringValue: cell}}))}))};
+}
+
 function make(name: string, mimeType: string, parents: string[], content: string): Response {
 	state.made += 1;
 	const file = {id: `1New${state.made}`, name, mimeType, parents, content};
@@ -176,6 +206,10 @@ function answer(request: Request): Response {
 		const {name, parents} = JSON.parse(request.body);
 		return make(name, original.mimeType, parents, original.content);
 	}
+	const revised = /^\/drive\/v3\/files\/([^/]+)\/revisions$/.exec(path)?.[1];
+	if (revised) {
+		return Response.json({revisions: [{id: `${revised}-r1`}, {id: `${revised}-r${writes().length + 1}`}]});
+	}
 	const exported = /^\/drive\/v3\/files\/([^/]+)\/export$/.exec(path)?.[1];
 	if (exported) {
 		return new Response(state.files[exported]?.content ?? '');
@@ -195,6 +229,9 @@ function answer(request: Request): Response {
 	}
 	if (file) {
 		return Response.json(driveFile(file));
+	}
+	if (path === '/v4/spreadsheets/1Budget' && url.searchParams.has('ranges')) {
+		return Response.json({sheets: [{data: [enteredOf(url.searchParams.get('ranges') ?? '')]}]});
 	}
 	if (path === '/v4/spreadsheets/1Budget') {
 		return Response.json({sheets: [{properties: {sheetId: 0, title: 'Q1', gridProperties: {rowCount: 100, columnCount: 3}}}]});
@@ -247,6 +284,9 @@ function writes(): Request[] {
 
 beforeEach(() => {
 	state = fresh();
+	history.logged = [];
+	history.down = false;
+	logError.mockClear();
 	google.requests = [];
 	google.appendColumn = 'A';
 	google.appendedTitle = 'Q1';
@@ -698,5 +738,88 @@ describe('finding files for the widget', () => {
 		expect(params?.has('orderBy')).toBe(false);
 		expect(params?.get('pageSize')).toBe('8');
 		expect(found.map((file) => [file.name, file.matched])).toEqual([['Launch plan', 'content']]);
+	});
+});
+
+describe('the history of what is written', () => {
+	test('a file made, a copy too, is logged as made, with the revision Drive gives it', async () => {
+		const {filesConnector, runFilesCopy} = await import('./google-files');
+		await filesConnector.create(target, {name: 'Notes', kind: 'Document', content: '# Notes'}, '1Projects');
+		const agent = {agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'claude', name: 'Claude', orgSlug: 'acme', experiments: []};
+		await runFilesCopy({caller: {agent, via: 'mcp', taskId: 'task-1'}, connection: target.connection, params: {id: '1Plan'}});
+
+		expect(history.logged.map(({kind, fileId, name, afterRevision}) => [kind, fileId, name, afterRevision])).toEqual([
+			['create', '1New1', 'Notes', '1New1-r2'],
+			['create', '1New2', 'Launch plan', '1New2-r3'],
+		]);
+	});
+
+	test('a rename is logged as a move from the old name, and a document written over with the revisions around it', async () => {
+		const {filesConnector} = await import('./google-files');
+		await filesConnector.update(target, '1Plan', {name: 'Launch plan v2', content: '# Launch plan\n\n- Ship it twice'});
+
+		expect(history.logged).toEqual([
+			expect.objectContaining({kind: 'move', fileId: '1Plan', name: 'Launch plan v2', beforeName: 'Launch plan', beforeRevision: '1Plan-r1', afterRevision: '1Plan-r2'}),
+			expect.objectContaining({kind: 'write', fileId: '1Plan', name: 'Launch plan v2', beforeRevision: '1Plan-r2', afterRevision: '1Plan-r3', undo: null}),
+		]);
+	});
+
+	test('a row changed keeps its cells from the first changed to the last as they were and are, for an exact undo', async () => {
+		const {filesConnector} = await import('./google-files');
+		await filesConnector.update(target, 'row-1Budget-0-3', {content: 'Item: Food\nAmount: 350\nStatus: Paid'});
+
+		const [edit] = history.logged;
+		expect(edit).toMatchObject({kind: 'edit', fileId: '1Budget', name: 'Budget 2026'});
+		expect(edit?.undo).toEqual({
+			kind: 'sheets_cells',
+			sheetId: 0,
+			tab: 'Q1',
+			range: 'B3:C3',
+			before: [[{value: '300'}, null]],
+			after: [[{value: '350'}, {value: 'Paid'}]],
+		});
+	});
+
+	test('a row added keeps its cells as empty before, and a tab renamed is an edit of the spreadsheet', async () => {
+		const {filesConnector} = await import('./google-files');
+		await filesConnector.create(target, {content: 'Item: Travel\nStatus: Due'}, 'sheet-1Budget-0');
+		await filesConnector.update(target, 'sheet-1Budget-0', {name: 'Q1 2026'});
+
+		expect(history.logged.map(({kind, fileId, undo}) => [kind, fileId, undo])).toEqual([
+			['edit', '1Budget', {kind: 'sheets_cells', sheetId: 0, tab: 'Q1', range: 'A4:C4', before: [[null, null, null]], after: [[{value: 'Travel'}, null, {value: 'Due'}]]}],
+			['edit', '1Budget', null],
+		]);
+	});
+
+	test('a file moved to Trash is logged as trashed', async () => {
+		const {filesConnector} = await import('./google-files');
+		await filesConnector.commands?.trash?.(target, '1Paper');
+
+		expect(history.logged.map(({kind, fileId}) => [kind, fileId])).toEqual([['trash', '1Paper']]);
+	});
+
+	test('a write Drive made is answered as made even where logging it fails, which the server logs by its ids alone', async () => {
+		history.down = true;
+		const {filesConnector} = await import('./google-files');
+		const row = await filesConnector.create(target, {content: 'Item: Travel\nStatus: Due'}, 'sheet-1Budget-0');
+		const folder = await filesConnector.create(target, {name: 'Receipts', kind: 'Folder'}, '1Projects');
+
+		expect(row.isOk() && row.value.id).toBe('row-1Budget-0-4');
+		expect(folder.isOk() && folder.value.values.name).toBe('Receipts');
+		expect(writes().filter((request) => request.method === 'POST')).toHaveLength(2);
+		expect(logError.mock.calls).toEqual([
+			['A change made in Google Drive could not be logged in its history', {connectionId: 'google-1', fileId: '1Budget', kind: 'edit', errorKind: 'db_error'}],
+			['A change made in Google Drive could not be logged in its history', {connectionId: 'google-1', fileId: '1New1', kind: 'create', errorKind: 'db_error'}],
+		]);
+	});
+
+	test('a write with no one to log it as never reaches Drive', async () => {
+		const {filesConnector} = await import('./google-files');
+		const {by: _by, ...unknown} = target;
+		const result = await filesConnector.update(unknown, '1Plan', {name: 'Nobody’s plan'});
+
+		expect(result.isErr() && result.error.kind).toBe('internal_error');
+		expect(writes()).toEqual([]);
+		expect(history.logged).toEqual([]);
 	});
 });

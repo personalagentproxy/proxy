@@ -373,6 +373,9 @@ describe('google', () => {
 			'tasks_complete',
 			'tasks_reopen',
 			'files_copy',
+			'files_versions',
+			'files_restore',
+			'files_undo',
 		]);
 	});
 
@@ -489,6 +492,19 @@ describe('google', () => {
 		});
 		expect(copy?.inputSchema.required).toEqual(['id']);
 		expect(Object.keys(copy?.inputSchema.properties ?? {})).toEqual(['id', 'parent', 'name']);
+	});
+
+	test('a file’s versions are read with Read files, and giving one back or undoing a change needs Edit files', () => {
+		expect(
+			['files_versions', 'files_restore', 'files_undo'].map((name) => {
+				const tool = findTool(google, name);
+				return [name, tool?.kind, tool?.action, tool?.readOnly, tool?.inputSchema.required];
+			}),
+		).toEqual([
+			['files_versions', 'native', 'readFiles', true, ['id']],
+			['files_restore', 'native', 'editFiles', false, ['id', 'version']],
+			['files_undo', 'native', 'editFiles', false, ['change']],
+		]);
 	});
 
 	test('reading a range is a read, writing one needs Edit files', () => {

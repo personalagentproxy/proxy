@@ -12,6 +12,7 @@ import {startHarnessWorker, type HarnessWorker} from './harness/worker';
 import {askForJson} from './llm/open-router';
 import {claudeCredentialFor, markClaudeCredentialRefused, recordClaudeUsage} from './me/claude-credential';
 import {chatFiles} from './native/files/chat';
+import {startDriveSweeper} from './connections/google/drive-sweeper';
 import {startFilesSweeper} from './native/files/sweeper';
 import {startUploadsSweeper} from './uploads/sweeper';
 import {startSandboxSweeper} from './native/sandbox/sweeper';
@@ -105,5 +106,6 @@ async function startApiServer(): Promise<void> {
 		void startSandboxSweeper();
 		void startFilesSweeper();
 		startUploadsSweeper();
+		startDriveSweeper();
 	});
 }

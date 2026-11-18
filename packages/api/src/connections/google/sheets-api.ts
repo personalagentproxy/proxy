@@ -2,6 +2,7 @@ import type {Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
+import type {SheetCell} from '@proxy/db/file-undo';
 
 import {googleRequest, googleWrite} from './google-client';
 
@@ -164,4 +165,142 @@ export function columnIndex(letters: string): number {
 export function columnLetters(index: number): string {
 	const letter = String.fromCharCode(65 + (index % 26));
 	return index < 26 ? letter : `${columnLetters(Math.floor(index / 26) - 1)}${letter}`;
+}
+
+// ---- Cells as they were entered, for an exact undo ---------------------------------------------
+
+/** A rectangle of a tab's cells, by the tab's id and the first row's and column's positions counting from 0. */
+export type CellArea = {sheetId: number; row: number; column: number; rows: number; columns: number};
+
+/** An area in A1 notation inside its tab, without the tab: `B2:D4`. */
+export function areaRange(area: Pick<CellArea, 'row' | 'column' | 'rows' | 'columns'>): string {
+	return `${columnLetters(area.column)}${area.row + 1}:${columnLetters(area.column + area.columns - 1)}${area.row + area.rows}`;
+}
+
+/** An area in A1 notation with its tab: `'Q1 Sales'!B2:D4`. */
+export function tabRange(title: string, area: Pick<CellArea, 'row' | 'column' | 'rows' | 'columns'>): string {
+	return `${quotedTitle(title)}!${areaRange(area)}`;
+}
+
+const AREA = /^\$?([A-Z]{1,3})\$?(\d{1,7}):\$?([A-Z]{1,3})\$?(\d{1,7})$/;
+
+/** The area `B2:D4` names inside a tab; null for anything else. */
+export function parseArea(range: string): Pick<CellArea, 'row' | 'column' | 'rows' | 'columns'> | null {
+	const [, first, top, last, bottom] = AREA.exec(range) ?? [];
+	if (!first || !top || !last || !bottom) {
+		return null;
+	}
+	const area = {row: Number(top) - 1, column: columnIndex(first), rows: Number(bottom) - Number(top) + 1, columns: columnIndex(last) - columnIndex(first) + 1};
+	return area.row >= 0 && area.rows > 0 && area.columns > 0 ? area : null;
+}
+
+// What a cell holds as it was entered: a formula, text, a number or a yes or no; an error typed in
+// is the one kind with no value to put back.
+const enteredSchema = z.object({
+	formulaValue: z.string().optional(),
+	stringValue: z.string().optional(),
+	numberValue: z.number().optional(),
+	boolValue: z.boolean().optional(),
+	errorValue: z.object({}).loose().optional(),
+});
+
+const gridSchema = z.object({
+	sheets: z
+		.array(
+			z.object({
+				data: z
+					.array(
+						z.object({
+							startRow: z.number().optional(),
+							startColumn: z.number().optional(),
+							rowData: z.array(z.object({values: z.array(z.object({userEnteredValue: enteredSchema.optional()})).optional()})).optional(),
+						}),
+					)
+					.optional(),
+			}),
+		)
+		.optional(),
+});
+
+type Entered = z.infer<typeof enteredSchema>;
+
+// A cell as it was entered, or undefined for one that can't be put back as it was.
+function cellOf(entered: Entered | undefined): SheetCell | undefined {
+	if (entered === undefined) {
+		return null;
+	}
+	if (entered.formulaValue !== undefined) {
+		return {formula: entered.formulaValue};
+	}
+	if (entered.stringValue !== undefined) {
+		return {value: entered.stringValue};
+	}
+	if (entered.numberValue !== undefined) {
+		return {value: entered.numberValue};
+	}
+	if (entered.boolValue !== undefined) {
+		return {value: entered.boolValue};
+	}
+	return entered.errorValue === undefined ? null : undefined;
+}
+
+/**
+ * The cells of `area` of the tab called `title` as they were entered, row by row, every row as wide
+ * as the area: a formula told apart from text that merely starts with `=`, so that writing them
+ * back gives them exactly as they were. Null where one of them can't be: an error typed in.
+ */
+export function getEnteredCells(accessToken: string, spreadsheetId: string, title: string, area: CellArea): Promise<Result<SheetCell[][] | null, ApiError>> {
+	return Do(async ($) => {
+		const url = new URL(`${SHEETS}/${spreadsheetId}`);
+		url.searchParams.set('ranges', tabRange(title, area));
+		url.searchParams.set('fields', 'sheets(data(startRow,startColumn,rowData(values(userEnteredValue))))');
+		const {sheets = []} = $(await googleRequest(accessToken, url, gridSchema));
+		const grid = sheets.flatMap((sheet) => sheet.data ?? [])[0];
+		// Sheets leaves out the empty rows and cells at the end of what it answers.
+		const rows = grid?.rowData ?? [];
+		const cells: SheetCell[][] = [];
+		for (let row = 0; row < area.rows; row += 1) {
+			const values = rows[row]?.values ?? [];
+			const line: SheetCell[] = [];
+			for (let column = 0; column < area.columns; column += 1) {
+				const cell = cellOf(values[column]?.userEnteredValue);
+				if (cell === undefined) {
+					return null;
+				}
+				line.push(cell);
+			}
+			cells.push(line);
+		}
+		return cells;
+	});
+}
+
+// A cell as Sheets takes it to be entered: the formula, or the value of its kind; none empties it.
+function enteredOf(cell: SheetCell): {userEnteredValue?: Record<string, string | number | boolean>} {
+	if (cell === null) {
+		return {};
+	}
+	if ('formula' in cell) {
+		return {userEnteredValue: {formulaValue: cell.formula}};
+	}
+	if (typeof cell.value === 'string') {
+		return {userEnteredValue: {stringValue: cell.value}};
+	}
+	if (typeof cell.value === 'number') {
+		return {userEnteredValue: {numberValue: cell.value}};
+	}
+	return {userEnteredValue: {boolValue: cell.value}};
+}
+
+/** Puts cells back into `area` exactly as they were entered, each a formula or a value of its own kind, an empty one cleared; their formats stay. */
+export async function putEnteredCells(accessToken: string, spreadsheetId: string, area: CellArea, cells: SheetCell[][]): Promise<Result<void, ApiError>> {
+	const request = {
+		updateCells: {
+			range: {sheetId: area.sheetId, startRowIndex: area.row, endRowIndex: area.row + area.rows, startColumnIndex: area.column, endColumnIndex: area.column + area.columns},
+			rows: cells.map((row) => ({values: row.map(enteredOf)})),
+			fields: 'userEnteredValue',
+		},
+	};
+	const answer = await googleWrite(accessToken, 'POST', new URL(`${SHEETS}/${spreadsheetId}:batchUpdate`), {requests: [request]}, z.object({}));
+	return answer.map(() => undefined);
 }

@@ -4,7 +4,8 @@ description: Connect a Google account for agents to work with Gmail, Calendar, D
 ---
 
 Agents work with the account's email, calendars, files, contacts and tasks, as the person who signs
-in. Every request goes to Google live; nothing is copied. One sign-in covers Gmail, Calendar, Drive,
+in. Every request goes to Google live; the only thing kept is a copy of a Drive file before an
+agent first changes it, as under [Version history](#version-history). One sign-in covers Gmail, Calendar, Drive,
 Docs, Sheets, Slides, Contacts and Tasks, and one connection holds them all. Gmail needs no app password, so it works for accounts
 that can't make one.
 
@@ -225,7 +226,8 @@ For Drive, Docs, Sheets and Slides:
   which drops its comments and suggestions, and only when it is written differently from how it
   read, so renaming a document leaves its content alone. Shared drives aren't renamed or trashed. A row changes only in the values written differently,
   so a formula in another of its cells stays. A presentation's and a spreadsheet's content are only
-  read.
+  read. It also gives a file an earlier version back, and undoes a change to a spreadsheet's
+  cells, as under [Version history](#version-history).
 - **Move files to Trash** moves files and folders to Drive's Trash, where Drive keeps them 30 days
   before deleting them, and requires Read files. Nothing is deleted for good.
 
@@ -235,6 +237,42 @@ A range without a tab is in the first one. Reading needs Read files and answers 
 Sheets shows them, as CSV, one row a line, 1000 rows at most.
 Writing needs Edit files and takes CSV the same way, each value as if typed into its cell, so
 `=SUM(B2:B9)` is a formula, and `""` empties a cell; it answers what the range holds afterwards.
+
+### Version history
+
+Personal Agent Proxy keeps its own history of the Drive files agents change, beside Drive's. Every
+change made through it, a file made, copied, renamed, written, moved to Trash, a range or a row of
+a spreadsheet written, a tab renamed, is logged with who made it: the agent and the task it was
+for, or you, from the web app. Before a task first changes what a file holds, a copy is kept:
+
+- a file uploaded to Drive, such as a PDF or a picture, as its bytes;
+- a Doc, Sheet or Slides file as the docx, xlsx or pptx Google exports, with Drive's revision it
+  was taken of.
+
+A copy is kept in the same store as Files (`FILES_DIR` or `FILES_S3_BUCKET`), up to
+`DRIVE_COPY_MAX_MB`, 25 MB unless set otherwise. A larger file, or any file on a server with no
+store, isn't copied: an uploaded file's revision is kept for good in Drive instead, and a Doc's,
+Sheet's or Slides file's revision is only noted, for Drive's own version history (Google exports
+at most 10 MB anyway). A copy the latest version holds already, the same revision or the same
+bytes, isn't kept twice. Renaming a file or moving it to Trash leaves what it holds alone, and
+takes no copy. Copies are let go after `DRIVE_COPY_KEEP_DAYS`, 30 days unless set otherwise, and
+the revisions kept for good in their place are released in Drive then; the history of the
+changes stays.
+
+Writing a range or a row of a spreadsheet also keeps the cells it changes as they were and as it
+left them, formulas as formulas, up to 10,000 cells, so the change can be undone exactly.
+
+- **List versions**, `files_versions`, needs Read files: a file's versions, newest first, each
+  kept here or only in Drive, and the changes made to it, who made each and for which task.
+- **Restore version**, `files_restore`, needs Edit files: gives a version back as the file's
+  newest revision, keeping its id and link. An uploaded file gets its bytes back; a Doc, Sheet or
+  Slides file is converted back from its copy. A version kept only in Drive is downloaded from
+  Drive and uploaded again for an uploaded file; for a Doc, Sheet or Slides file the agent is told
+  to restore it from Drive's own version history (File > Version history) instead. What the file
+  held until then is kept as a version too.
+- **Undo change**, `files_undo`, needs Edit files: puts a spreadsheet's cells back as they were
+  before a change, only while they still hold what it wrote; otherwise the agent is pointed to
+  Restore version.
 
 For Contacts, agents see the account's contacts in Google Contacts, the most recently changed
 first, 50 to a page. A search is Google's, matching the start of a name, email address, phone

@@ -3,6 +3,7 @@ import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
 import {formatBytes} from '@proxy/utils/bytes';
+import type {FileChangeBy} from '@proxy/db/files';
 import {DRIVE_UPLOAD_MAX_MB} from '@proxy/integrations';
 
 import {
@@ -33,6 +34,8 @@ import {isMediaType, mediaType} from '../native/files/names';
 import type {NativeToolRunner} from '../native/tool';
 import {requireFirstPage, type CommandRunner, type Crumb, type DataRecord, type ListQuery, type RecordPage, type RecordStore, type RecordTarget, type RecordValues} from './connector';
 import type {FileSearch, Matched, MatchedFile} from './capabilities';
+import {cellsBefore, cellsOfRow, cellsUndo, emptyCells, type CellsWritten} from './google-cells';
+import {changeBy, changeDriveFile, logDriveCreate, loggedAs, requireEditor, type DriveChangeEntry, type DriveEditor} from './google-history';
 import {readValueLines, valueLines} from './value-lines';
 
 /**
@@ -56,6 +59,10 @@ import {readValueLines, valueLines} from './value-lines';
  * a row changes only in the cells written differently. A presentation's and a spreadsheet's
  * content are only read, and so are the bytes of a file uploaded. Files go to Trash, never deleted
  * for good.
+ *
+ * Every write to a file goes through its history (google-history.ts): logged as the agent's, for
+ * its task, or the member's, with a copy of the file kept before a task first changes what it holds,
+ * and a Sheet's cells written kept for an exact undo (google-cells.ts).
  *
  * For the Find file widget, a search of all of Drive, shared drives too, by name, or where no name
  * has the words, inside the files.
@@ -129,14 +136,23 @@ function notFoundAs(recordId: string) {
 	return (error: ApiError): ApiError => (error.kind === 'not_found' ? ApiErr.notFound('record', recordId) : error);
 }
 
-/** One request's way into Drive: the access token, and My Drive's own id, asked for once at most. */
-type Drive = {token: string; myDriveId: () => Promise<Result<string, ApiError>>};
+/**
+ * One request's way into Drive: the access token, My Drive's own id, asked for once at most, and
+ * who its writes are logged as, where it writes.
+ */
+type Drive = {token: string; myDriveId: () => Promise<Result<string, ApiError>>; change: FileChangeBy | null};
 
-function withDrive<T>(target: Pick<RecordTarget, 'connection'>, run: (drive: Drive) => Promise<Result<T, ApiError>>): Promise<Result<T, ApiError>> {
+function withDrive<T>(target: Pick<RecordTarget, 'connection' | 'by'>, run: (drive: Drive) => Promise<Result<T, ApiError>>): Promise<Result<T, ApiError>> {
+	const change = target.by ? changeBy(target.connection, target.by) : null;
 	return callGoogle(target.connection, (token) => {
 		let myDriveId: Promise<Result<string, ApiError>> | null = null;
-		return run({token, myDriveId: () => (myDriveId ??= getMyDriveId(token))});
+		return run({token, myDriveId: () => (myDriveId ??= getMyDriveId(token)), change});
 	});
+}
+
+// Who a write is made as, through the file's history.
+function editorOf(drive: Drive): Result<DriveEditor, ApiError> {
+	return requireEditor(drive.token, drive.change);
 }
 
 function kindOf(mimeType: string): string {
@@ -599,7 +615,9 @@ function uploadIn(drive: Drive, parentId: string, values: RecordValues): Promise
 			return $(Err(ApiErr.validationError('A new file needs a name, with its extension, such as report.pdf')));
 		}
 		const {type, bytes} = $(readUpload(name, values.content ?? ''));
+		const editor = $(editorOf(drive));
 		const file = $(await uploadFile(drive.token, {name, mimeType: type, parent: parentId}, bytes));
+		await logDriveCreate(editor, file);
 		return $(await getRef(drive, {kind: 'file', fileId: file.id}));
 	});
 }
@@ -625,7 +643,9 @@ function makeFile(drive: Drive, parentId: string, values: RecordValues): Promise
 			return $(Err(ApiErr.validationError('A folder has no content')));
 		}
 		const upload = made.upload === null || content === '' ? null : {type: made.upload, body: content};
+		const editor = $(editorOf(drive));
 		const file = $(await createFile(drive.token, {name, mimeType: made.mimeType, parent: parentId}, upload));
+		await logDriveCreate(editor, file);
 		return $(await getRef(drive, {kind: 'file', fileId: file.id}));
 	});
 }
@@ -635,6 +655,17 @@ function headersOf(drive: Drive, file: DriveFile, sheet: Sheet): Promise<Result<
 	return Do(async ($) => {
 		const [[headers = []] = []] = $(await getRanges(drive.token, file.id, [rowsRange(sheet.title, 1, 1)]));
 		return {headers, names: columnNames(headers, sheet)};
+	});
+}
+
+// A row appended to a tab, and its undo: the row is new, so its cells were empty before, and
+// undoing it empties them again.
+function appendCells(drive: Drive, file: DriveFile, sheet: Sheet, cells: string[]): Promise<Result<{done: number; entry: DriveChangeEntry}, ApiError>> {
+	return Do(async ($) => {
+		const row = $(await appendRow(drive.token, file.id, sheet.title, cells));
+		const area = cellsOfRow(file.id, sheet, row, 0, cells.length - 1);
+		const undo = area ? $(await cellsUndo(drive.token, area, emptyCells(area))) : null;
+		return {done: row, entry: {kind: 'edit', undo}};
 	});
 }
 
@@ -658,7 +689,8 @@ function addRow(drive: Drive, ref: {fileId: string; sheetId: number}, values: Re
 		if (last === -1) {
 			return $(Err(ApiErr.validationError('Write the row’s values in content, one "Header: value" a line')));
 		}
-		const row = $(await appendRow(drive.token, file.id, sheet.title, cells.slice(0, last + 1)));
+		const editor = $(editorOf(drive));
+		const row = $(await changeDriveFile(editor, file.id, {content: true}, () => appendCells(drive, file, sheet, cells.slice(0, last + 1))));
 		return $(await getRef(drive, {kind: 'row', fileId: file.id, sheetId: sheet.sheetId, row}));
 	});
 }
@@ -765,11 +797,12 @@ function updateFileRef(drive: Drive, fileId: string, values: RecordValues, befor
 		if (replaced && kind !== 'Document') {
 			return $(Err(ApiErr.validationError(CONTENT_REFUSALS[kind] ?? OTHER_FILE_REFUSAL)));
 		}
+		const editor = $(editorOf(drive));
 		if (name !== null) {
-			$(await updateFile(drive.token, file.id, {name}));
+			$(await changeDriveFile(editor, file.id, {content: false}, () => loggedAs({kind: 'move', name, beforeName: file.name}, updateFile(drive.token, file.id, {name}))));
 		}
 		if (replaced) {
-			$(await replaceContent(drive.token, file.id, {type: 'text/markdown', body: content}));
+			$(await changeDriveFile(editor, file.id, {content: true}, () => loggedAs({kind: 'write'}, replaceContent(drive.token, file.id, {type: 'text/markdown', body: content}))));
 		}
 		return $(await getRef(drive, {kind: 'file', fileId: file.id}));
 	});
@@ -787,8 +820,19 @@ function updateSheet(drive: Drive, ref: {fileId: string; sheetId: number}, value
 		if (name === null) {
 			return sheetRecord(file, sheet);
 		}
-		$(await renameSheet(drive.token, file.id, sheet.sheetId, name));
+		const editor = $(editorOf(drive));
+		$(await changeDriveFile(editor, file.id, {content: true}, () => loggedAs({kind: 'edit'}, renameSheet(drive.token, file.id, sheet.sheetId, name))));
 		return $(await getRef(drive, {kind: 'sheet', fileId: file.id, sheetId: sheet.sheetId}));
+	});
+}
+
+// A row's cells written, each in its own cell, and their undo, the cells of `area` read before and after.
+function writeRowCells(drive: Drive, fileId: string, cells: {range: string; value: string}[], area: CellsWritten | null): Promise<Result<{done: void; entry: DriveChangeEntry}, ApiError>> {
+	return Do(async ($) => {
+		const before = area ? $(await cellsBefore(drive.token, area)) : null;
+		$(await updateCells(drive.token, fileId, cells));
+		const undo = area ? $(await cellsUndo(drive.token, area, before)) : null;
+		return {done: undefined, entry: {kind: 'edit', undo}};
 	});
 }
 
@@ -810,12 +854,16 @@ function updateRow(drive: Drive, ref: {fileId: string; sheetId: number; row: num
 		const written = $(readValueLines(values.content ?? '', names));
 		const changed = names.flatMap((name, column) => {
 			const value = written[name];
-			return value !== undefined && value !== (cells[column] ?? '') ? [{range: cellRange(sheet.title, column, ref.row), value}] : [];
+			return value !== undefined && value !== (cells[column] ?? '') ? [{column, range: cellRange(sheet.title, column, ref.row), value}] : [];
 		});
-		if (changed.length === 0) {
+		const [first, ...rest] = changed;
+		if (!first) {
 			return current;
 		}
-		$(await updateCells(drive.token, file.id, changed));
+		const editor = $(editorOf(drive));
+		// The cells from the first changed to the last, those between them unchanged.
+		const area = cellsOfRow(file.id, sheet, ref.row, first.column, rest.at(-1)?.column ?? first.column);
+		$(await changeDriveFile(editor, file.id, {content: true}, () => writeRowCells(drive, file.id, changed, area)));
 		return $(await getRef(drive, {kind: 'row', fileId: file.id, sheetId: sheet.sheetId, row: ref.row}));
 	});
 }
@@ -875,7 +923,9 @@ function copyInto(drive: Drive, copy: Copy): Promise<Result<string, ApiError>> {
 		const ref = $(requireRef(where));
 		const folderId = $((await folderOf(drive, ref, 'A spreadsheet holds tabs: copy the file into a folder')).mapErr(notFoundAs(where)));
 		const name = copy.name?.trim() || source.name;
+		const editor = $(editorOf(drive));
 		const made = $(await copyFile(drive.token, source.id, {name, parent: folderId}));
+		await logDriveCreate(editor, made);
 		const link = made.webViewLink ? [`Link: ${made.webViewLink}`] : [];
 		return [`Made “${made.name}”, a copy of “${source.name}”.`, `Id: ${made.id}`, `Kind: ${kindOf(made.mimeType)}`, ...link].join('\n');
 	});
@@ -888,7 +938,8 @@ function copyInto(drive: Drive, copy: Copy): Promise<Result<string, ApiError>> {
 export const runFilesCopy: NativeToolRunner = (run) =>
 	Do(async ($) => {
 		const copy = $(parseSchema(copySchema, run.params).mapErr(() => ApiErr.validationError('files_copy takes id, and parent and name where wanted, each as text')));
-		return $(await withDrive(run, (drive) => copyInto(drive, copy)));
+		const by = {agentId: run.caller.agent.agentId, taskId: run.caller.taskId};
+		return $(await withDrive({connection: run.connection, by}, (drive) => copyInto(drive, copy)));
 	});
 
 /** Moves a file or folder to Trash, where Drive keeps it 30 days; it leaves the tree. */
@@ -899,7 +950,9 @@ const trashFilesRecord: CommandRunner = (target, recordId) =>
 			if (ref.kind !== 'file') {
 				return $(Err(ApiErr.validationError('Only files and folders go to Trash, not places, shared drives, tabs or rows')));
 			}
-			$((await updateFile(drive.token, ref.fileId, {trashed: true})).mapErr(notFoundAs(recordId)));
+			const editor = $(editorOf(drive));
+			const trashed = await changeDriveFile(editor, ref.fileId, {content: false}, () => loggedAs({kind: 'trash'}, updateFile(drive.token, ref.fileId, {trashed: true})));
+			$(trashed.mapErr(notFoundAs(recordId)));
 			return null;
 		}),
 	);

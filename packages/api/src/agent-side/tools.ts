@@ -256,7 +256,7 @@ export function runAgentTool(caller: TaskCaller, connectionId: string, toolName:
 		const unavailable = unavailableActions(connection);
 		const run: ToolRun = {
 			caller,
-			target: {connection, collection},
+			target: {connection, collection, by: {agentId: caller.agent.agentId, taskId: caller.taskId}},
 			connector: $(requirePresent(connectorFor(integration.id, collection.id), ApiErr.notFound('tool', toolName))),
 			tool,
 			actions: actionsOf(agent, connection, integration, unavailable),

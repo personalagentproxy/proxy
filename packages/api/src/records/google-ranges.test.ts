@@ -7,6 +7,22 @@ import {findCollection, findIntegration, type Collection} from '@proxy/integrati
 const markCredentialRejected = mock(async () => Ok(true));
 mock.module('@proxy/db/connection', () => ({markCredentialRejected, updateConnectionCredential: mock(), getConnectionCredential: mock(async () => Ok(null))}));
 
+// The history every write goes through (google-history.ts), kept in memory: each task has its copy
+// already, and the changes logged are kept to look at.
+type Logged = {kind: string; fileId: string; name: string; beforeRevision?: string | null; afterRevision?: string | null; undo?: unknown};
+const history = {logged: [] as Logged[]};
+mock.module('@proxy/db/files', () => ({
+	hasTaskCopied: mock(async () => Ok(true)),
+	getLatestFileVersion: mock(async () => Ok(null)),
+	recordFileVersion: mock(),
+	logFileChange: mock(async (_change: object, entry: Logged) => {
+		history.logged.push(entry);
+		return Ok({change: {id: `change-${history.logged.length}`, ...entry}, version: null});
+	}),
+	createFileBlob: mock(),
+	completeFileBlob: mock(),
+}));
+
 mock.module('../observability/log', () => ({
 	log: {debug: mock(), info: mock(), warn: mock(), error: mock()},
 	serializeError: mock(() => ({})),
@@ -55,11 +71,52 @@ const target = {
 		credential: `enc:${JSON.stringify(CREDENTIAL)}`,
 	},
 	collection: ranges(),
+	by: {agentId: 'agent-1', taskId: 'task-1'},
 };
 
 type Request = {method: string; url: URL; body: string};
 
 const google = {requests: [] as Request[], answer: (_request: Request): Response | null => null};
+
+// The cells of the Q1 Sales tab as they were entered, before a write and after it, the second
+// written as the write's answer says.
+const cells = {
+	before: [[{stringValue: 'Rent'}, {numberValue: 1200}, {formulaValue: '=B2*2'}], [{stringValue: '=not a formula'}]],
+	after: [
+		[{stringValue: 'Rent'}, {numberValue: 1200}, {formulaValue: '=B2*2'}],
+		[{stringValue: 'Food, drink'}, {numberValue: 300}, {formulaValue: '=B3*2'}],
+	],
+};
+
+// What a write's history asks of Drive and Sheets: the spreadsheet as a file, its revisions, its
+// tabs, and the cells written, before the write and after it.
+function historyAnswer(request: Request): Response | null {
+	const path = decodeURIComponent(request.url.pathname);
+	const writes = google.requests.filter((sent) => sent.method !== 'GET').length;
+	if (/^\/drive\/v3\/files\/[^/]+$/.test(path)) {
+		return Response.json({id: '1BudgetSheet_x-9', name: 'Budget 2026', mimeType: 'application/vnd.google-apps.spreadsheet'});
+	}
+	if (path.endsWith('/revisions')) {
+		return Response.json({revisions: [{id: `r${writes + 1}`}]});
+	}
+	if (/^\/v4\/spreadsheets\/[^/]+$/.test(path) && request.url.searchParams.has('ranges')) {
+		return Response.json({sheets: [{data: [{startRow: 1, rowData: (writes === 0 ? cells.before : cells.after).map((values) => ({values: values.map((userEnteredValue) => ({userEnteredValue}))}))}]}]});
+	}
+	if (/^\/v4\/spreadsheets\/[^/]+$/.test(path)) {
+		return Response.json({
+			sheets: [
+				{properties: {sheetId: 7, title: 'Q1 Sales', gridProperties: {rowCount: 100, columnCount: 10}}},
+				{properties: {sheetId: 0, title: 'Sheet1', gridProperties: {rowCount: 1000, columnCount: 26}}},
+			],
+		});
+	}
+	return null;
+}
+
+// The requests that read or write values, as a range's read and write make them.
+function valueRequests(): Request[] {
+	return google.requests.filter((request) => request.url.pathname.includes('/values/'));
+}
 
 spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Request, init?: RequestInit) => {
 	const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
@@ -68,6 +125,10 @@ spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Requ
 	const custom = google.answer(request);
 	if (custom) {
 		return custom;
+	}
+	const history = historyAnswer(request);
+	if (history) {
+		return history;
 	}
 	if (request.method === 'PUT') {
 		const {range, values} = JSON.parse(request.body);
@@ -95,6 +156,7 @@ spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Requ
 }) as typeof fetch);
 
 beforeEach(() => {
+	history.logged = [];
 	google.requests = [];
 	google.answer = () => null;
 });
@@ -163,7 +225,7 @@ describe('writing a range', () => {
 		const {rangesConnector} = await import('./google-ranges');
 		const record = (await rangesConnector.newCommands?.write?.(target, {spreadsheet: LINK, range: "'Q1 Sales'!A2", values: 'Rent,"1,200",=B2*2\n"Food, drink",300,=B3*2\n'}))?.unwrap();
 
-		const [request] = google.requests;
+		const [request] = valueRequests();
 		expect(request?.method).toBe('PUT');
 		expect(Object.fromEntries(request?.url.searchParams ?? [])).toEqual({valueInputOption: 'USER_ENTERED', includeValuesInResponse: 'true', responseValueRenderOption: 'FORMATTED_VALUE'});
 		expect(JSON.parse(request?.body ?? '')).toEqual({
@@ -181,7 +243,7 @@ describe('writing a range', () => {
 		const {rangesConnector} = await import('./google-ranges');
 		await rangesConnector.newCommands?.write?.(target, {spreadsheet: LINK, range: 'A1', values: '""'});
 
-		expect(JSON.parse(google.requests[0]?.body ?? '').values).toEqual([['']]);
+		expect(JSON.parse(valueRequests()[0]?.body ?? '').values).toEqual([['']]);
 	});
 
 	test('no values, or a quote never closed, is turned down', async () => {
@@ -191,6 +253,71 @@ describe('writing a range', () => {
 
 		expect(messageOf(empty)).toBe('Write the values as CSV, one row a line; "" empties a cell');
 		expect(messageOf(unclosed)).toBe('The CSV has a quote that is never closed');
+		expect(google.requests).toEqual([]);
+	});
+});
+
+describe('the history of a range written', () => {
+	test('the cells written are kept as they were entered before and after, a formula told from text, for an exact undo', async () => {
+		const {rangesConnector} = await import('./google-ranges');
+		await rangesConnector.newCommands?.write?.(target, {spreadsheet: LINK, range: "'Q1 Sales'!A2", values: 'Rent,"1,200",=B2*2\n"Food, drink",300,=B3*2'});
+
+		const reads = google.requests.filter((request) => request.url.searchParams.has('ranges')).map((request) => request.url.searchParams.get('ranges'));
+		expect(reads).toEqual(["'Q1 Sales'!A2:C3", "'Q1 Sales'!A2:C3"]);
+		expect(history.logged).toEqual([
+			expect.objectContaining({
+				kind: 'edit',
+				fileId: '1BudgetSheet_x-9',
+				name: 'Budget 2026',
+				beforeRevision: 'r1',
+				afterRevision: 'r2',
+				undo: {
+					kind: 'sheets_cells',
+					sheetId: 7,
+					tab: 'Q1 Sales',
+					range: 'A2:C3',
+					before: [
+						[{value: 'Rent'}, {value: 1200}, {formula: '=B2*2'}],
+						[{value: '=not a formula'}, null, null],
+					],
+					after: [
+						[{value: 'Rent'}, {value: 1200}, {formula: '=B2*2'}],
+						[{value: 'Food, drink'}, {value: 300}, {formula: '=B3*2'}],
+					],
+				},
+			}),
+		]);
+	});
+
+	test('a range without a tab is in the first one, from its first cell, a whole column from its top', async () => {
+		const {rangesConnector} = await import('./google-ranges');
+		await rangesConnector.newCommands?.write?.(target, {spreadsheet: LINK, range: 'B:B', values: '1\n2'});
+		await rangesConnector.newCommands?.write?.(target, {spreadsheet: LINK, range: 'Sheet1!$C$5:$D$9', values: '1,2'});
+
+		const reads = google.requests.filter((request) => request.url.searchParams.has('ranges')).map((request) => request.url.searchParams.get('ranges'));
+		expect(reads).toEqual(["'Q1 Sales'!B1:B2", "'Q1 Sales'!B1:B2", "'Sheet1'!C5:D5", "'Sheet1'!C5:D5"]);
+		expect(history.logged.map((entry) => (entry.undo as {sheetId: number} | null)?.sheetId)).toEqual([7, 0]);
+	});
+
+	test('a range past the tab’s grid, a named range or a tab not there, is written and logged without an undo', async () => {
+		const {rangesConnector} = await import('./google-ranges');
+		await rangesConnector.newCommands?.write?.(target, {spreadsheet: LINK, range: "'Q1 Sales'!K1", values: '1'});
+		await rangesConnector.newCommands?.write?.(target, {spreadsheet: LINK, range: 'Totals', values: '1'});
+
+		expect(google.requests.filter((request) => request.url.searchParams.has('ranges'))).toEqual([]);
+		expect(valueRequests().map((request) => request.method)).toEqual(['PUT', 'PUT']);
+		expect(history.logged.map((entry) => [entry.kind, entry.undo])).toEqual([
+			['edit', null],
+			['edit', null],
+		]);
+	});
+
+	test('a write with no one to log it as never reaches Sheets', async () => {
+		const {rangesConnector} = await import('./google-ranges');
+		const {by: _by, ...unknown} = target;
+		const result = await rangesConnector.newCommands?.write?.(unknown, {spreadsheet: LINK, range: 'A1', values: '1'});
+
+		expect(result?.isErr() && result.error.kind).toBe('internal_error');
 		expect(google.requests).toEqual([]);
 	});
 });

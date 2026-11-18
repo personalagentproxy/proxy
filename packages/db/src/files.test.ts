@@ -19,6 +19,7 @@ import {
 	getFileVersion,
 	getLatestFileVersion,
 	hasTaskCopied,
+	listFileChanges,
 	listFileMakers,
 	listFileVersions,
 	listFolder,
@@ -775,6 +776,24 @@ describe.skipIf(!databaseUrl)('files, against the database', () => {
 			['r3', true, 'restore', 'Dana'],
 			['r1', true, null, null],
 		]);
+
+		// The journal of the file, newest first, each change with who made it and for which task.
+		const changes = unwrap(await listFileChanges(elsewhereId, fileId, 10));
+		expect(
+			changes.map((change) => [
+				change.kind,
+				change.user?.name ?? null,
+				change.task?.title ?? null,
+				change.undo?.kind ?? null,
+			]),
+		).toEqual([
+			['restore', 'Dana', null, null],
+			['move', null, 'Fill in the budget', null],
+			['edit', null, 'Tidy the reports', 'sheets_cells'],
+		]);
+		expect(
+			unwrap(await listFileChanges(elsewhereId, fileId, 1)).map((change) => change.kind),
+		).toEqual(['restore']);
 	});
 
 	test('keeps only an undo it can read, and reads one it doesn’t know as none', async () => {

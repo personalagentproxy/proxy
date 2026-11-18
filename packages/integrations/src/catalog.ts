@@ -951,8 +951,10 @@ const FILE_KINDS = ['Folder', 'Document', 'Spreadsheet', 'Presentation', 'Sheet'
 // are read and written in A1 notation as CSV. Files are
 // moved to Trash, never deleted, and neither are events, contacts or tasks. Who is free is asked
 // of Google for the people named, and the people Gmail keeps under Other contacts are only read.
-// Tasks are one tree: the task lists at the top, each holding its tasks. Nothing is copied: every
-// request goes to Google.
+// Tasks are one tree: the task lists at the top, each holding its tasks. Every request goes to
+// Google; the only thing kept is a Drive file's history: a copy of it before a task first changes
+// it, and the changes made to it, read and given back with files_versions, files_restore and
+// files_undo.
 const google: Integration = {
 	id: 'google',
 	signIn: true,
@@ -1534,7 +1536,9 @@ const google: Integration = {
 		},
 	],
 	// Copying a file names both the file and where the copy goes, which no one record's write does.
-	// Drive makes the copy itself, so a file of any size is copied without passing through here.
+	// Drive makes the copy itself, so a file of any size is copied without passing through here. A
+	// file's history, the versions Personal Agent Proxy keeps of it and the changes made through it,
+	// is read and given back through tools of their own too.
 	tools: [
 		{
 			name: 'files_copy',
@@ -1557,6 +1561,50 @@ const google: Integration = {
 					name: {type: 'string', description: 'The copy’s name; left out, the file’s own'},
 				},
 				required: ['id'],
+			},
+		},
+		{
+			name: 'files_versions',
+			title: 'List versions',
+			description:
+				'Lists the versions Personal Agent Proxy keeps of a file in Drive, newest first, and the changes made to it through Personal Agent Proxy: who made each, for which task, and whether a version is kept here or only as Drive’s own revision. A copy is kept before a task first changes a file. Answers the version ids files_restore takes and the change ids files_undo takes.',
+			action: 'readFiles',
+			readOnly: true,
+			inputSchema: {
+				type: 'object',
+				properties: {
+					id: {type: 'string', description: 'The file’s id, as files_list gives it, or its link'},
+				},
+				required: ['id'],
+			},
+		},
+		{
+			name: 'files_restore',
+			title: 'Restore version',
+			description:
+				'Gives a file in Drive an earlier version back, from files_versions, as its newest revision, keeping its id and link: a PDF or a picture as its bytes were, a Doc, Sheet or Slides file converted back from the copy kept. What it held until now is kept as a version too. A Doc’s version kept only in Drive is given back in Drive’s own version history instead, as the refusal says.',
+			action: 'editFiles',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					id: {type: 'string', description: 'The file’s id, or its link'},
+					version: {type: 'string', description: 'The version to give back, from files_versions'},
+				},
+				required: ['id', 'version'],
+			},
+		},
+		{
+			name: 'files_undo',
+			title: 'Undo change',
+			description:
+				'Undoes one change exactly, where it has an exact undo, as a range or a row of a Sheet written: puts the cells back as they were before it. Refused where the cells changed since; files_restore gives back the whole version from before it instead.',
+			action: 'editFiles',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					change: {type: 'string', description: 'The change’s id, from files_versions'},
+				},
+				required: ['change'],
 			},
 		},
 	],
