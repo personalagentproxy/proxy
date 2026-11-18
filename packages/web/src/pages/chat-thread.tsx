@@ -141,6 +141,21 @@ function saidPart(message: ThreadMessage) {
 	);
 }
 
+// The thread's messages as they are drawn: each on its own, but sub-agent lines one after another
+// together, close as a list rather than apart as messages.
+function runsOf(messages: ThreadMessage[]): [ThreadMessage, ...ThreadMessage[]][] {
+	const runs: [ThreadMessage, ...ThreadMessage[]][] = [];
+	for (const message of messages) {
+		const last = runs.at(-1);
+		if (last && message.subAgent !== undefined && last.at(-1)?.subAgent !== undefined) {
+			last.push(message);
+			continue;
+		}
+		runs.push([message]);
+	}
+	return runs;
+}
+
 // A sub-agent's line, opening its thread beside the chat as any thread of it opens.
 function SubAgentOpener({id, title, working}: {id: string; title: string; working: boolean}) {
 	const {org = '', id: personaId = ''} = useParams();
@@ -327,19 +342,23 @@ function Thread({
 			<MessageScroller className="min-h-0 flex-1">
 				<MessageScrollerViewport aria-label="Thread">
 					<MessageScrollerContent className={cn('w-full gap-4.5 pt-6 pb-4', column)}>
-						{sending.entries.map((message, index) => {
-							const key = sending.keyOf(message);
-							// Sub-agent lines one after another sit close, as a list, not apart as messages.
-							const listed =
-								message.subAgent !== undefined &&
-								sending.entries[index - 1]?.subAgent !== undefined;
+						{runsOf(sending.entries).map((run) => {
+							const key = sending.keyOf(run[0]);
 							return (
-								<MessageScrollerItem
-									key={key}
-									scrollAnchor={sending.sentHere(message)}
-									className={listed ? '-mt-3' : undefined}
-								>
-									<Said message={message} fresh={!opened.has(key)} />
+								<MessageScrollerItem key={key} scrollAnchor={run.some(sending.sentHere)}>
+									{run.length === 1 ? (
+										<Said message={run[0]} fresh={!opened.has(key)} />
+									) : (
+										<div className="flex flex-col gap-1.5">
+											{run.map((message) => (
+												<Said
+													key={sending.keyOf(message)}
+													message={message}
+													fresh={!opened.has(sending.keyOf(message))}
+												/>
+											))}
+										</div>
+									)}
 								</MessageScrollerItem>
 							);
 						})}
