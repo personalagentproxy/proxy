@@ -327,10 +327,18 @@ function Thread({
 			<MessageScroller className="min-h-0 flex-1">
 				<MessageScrollerViewport aria-label="Thread">
 					<MessageScrollerContent className={cn('w-full gap-4.5 pt-6 pb-4', column)}>
-						{sending.entries.map((message) => {
+						{sending.entries.map((message, index) => {
 							const key = sending.keyOf(message);
+							// Sub-agent lines one after another sit close, as a list, not apart as messages.
+							const listed =
+								message.subAgent !== undefined &&
+								sending.entries[index - 1]?.subAgent !== undefined;
 							return (
-								<MessageScrollerItem key={key} scrollAnchor={sending.sentHere(message)}>
+								<MessageScrollerItem
+									key={key}
+									scrollAnchor={sending.sentHere(message)}
+									className={listed ? '-mt-3' : undefined}
+								>
 									<Said message={message} fresh={!opened.has(key)} />
 								</MessageScrollerItem>
 							);
