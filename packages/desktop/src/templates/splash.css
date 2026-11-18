@@ -2,22 +2,22 @@
    puts class="dark" on <html>, as the system's appearance says. */
 :root {
 	color-scheme: light;
-	--background: #f5f5f2;
-	--foreground: #292720;
-	--muted-foreground: #73726c;
-	--border: #dcdcd8;
-	--primary: #292720;
-	--primary-foreground: #f5f5f2;
+	--background: #f6f7fb;
+	--foreground: #171b26;
+	--muted-foreground: #646b7d;
+	--border: #dfe2ea;
+	--primary: #171b26;
+	--primary-foreground: #f6f7fb;
 	--traffic-light: oklch(0.75 0 0);
 }
 :root.dark {
 	color-scheme: dark;
-	--background: #16130c;
+	--background: #0f1117;
 	--foreground: #e9e8e8;
 	--muted-foreground: #8c8a86;
 	--border: #29261f;
 	--primary: #e9e8e8;
-	--primary-foreground: #16130c;
+	--primary-foreground: #0f1117;
 	--traffic-light: oklch(0.36 0 0);
 }
 body {
