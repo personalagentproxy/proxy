@@ -2,7 +2,7 @@ import {Err, Ok, type Result} from 'ts-results-es';
 import type {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
-import {callArguments, CREATE_SUBAGENT_TOOL, keepMarks, personMessageArgs, preview, SEND_TO_PERSON_TOOL, toAvatarColor} from '@proxy/utils/harness';
+import {callArguments, CREATE_SUBAGENT_TOOL, keepMarks, personMessageArgs, preview, SEND_TO_PERSON_TOOL, SEND_TO_SUBAGENT_TOOL, subAgentMessageArgs, toAvatarColor} from '@proxy/utils/harness';
 import type {ChatThreadRow, DraftAttachment, LastMessage, Persona, PersonaModel, PersonaRow, ThreadRow} from '@proxy/db/harness';
 import {
 	type chatAnswersSchema,
@@ -349,8 +349,9 @@ function handleMarkReadRoute(store: ChatStore, request: AuthenticatedRequest): P
 	});
 }
 
-// The calls a thread shows: its messages to the person, and the sub-agents it started.
-const THREAD_CALLS = [...SHOWN_CALLS, CREATE_SUBAGENT_TOOL];
+// The calls a thread shows: its messages to the person, the sub-agents it started, and its
+// follow-ups to them.
+const THREAD_CALLS = [...SHOWN_CALLS, CREATE_SUBAGENT_TOOL, SEND_TO_SUBAGENT_TOOL];
 
 // Something a thread shows, with the entry it comes from.
 type Shown = {entryId: string; message: ThreadMessage};
@@ -363,10 +364,21 @@ type Shown = {entryId: string; message: ThreadMessage};
 function threadShown(thread: ChatThreadRow, files: RouteFiles): Shown[] {
 	const attachmentsOf = (entryId: string) => thread.attachments.filter((attachment) => attachment.entryId === entryId).map(files.shown);
 	const subAgentOf = new Map(thread.subAgents.flatMap((subAgent) => (subAgent.parentCallId === null ? [] : [[subAgent.parentCallId, subAgent] as const])));
-	return thread.entries.flatMap((entry): Shown[] => {
+	const subAgentById = new Map(thread.subAgents.map((subAgent) => [subAgent.id, subAgent] as const));
+	// A sub-agent's line, where the persona started it or sent it more: at work as the sub-agent is,
+	// the latest line of each alone (lastLines).
+	const subAgentLine = (subAgent: ChatThreadRow['subAgents'][number], id: string, at: string): ThreadMessage => {
+		const title = subAgent.title ?? 'Sub-agent';
+		return {id, kind: 'event', text: title, isError: false, at, attachments: [], subAgent: {id: subAgent.id, title, working: subAgent.state.kind !== 'stopped'}};
+	};
+	const shown = thread.entries.flatMap((entry): Shown[] => {
 		const at = entry.createdAt.toISOString();
 		const from = (message: ThreadMessage): Shown => ({entryId: entry.id, message});
 		if (entry.kind === 'event' && entry.callId !== null && subAgentOf.has(entry.callId)) {
+			return [];
+		}
+		// A sub-agent's brief and what its persona sent it later are for the sub-agent alone.
+		if (entry.kind === 'person' && thread.subAgentOfId !== null) {
 			return [];
 		}
 		if (entry.kind === 'person' || entry.kind === 'event') {
@@ -377,15 +389,35 @@ function threadShown(thread: ChatThreadRow, files: RouteFiles): Shown[] {
 		}
 		const said: Shown[] = entry.text === '' ? [] : [from({id: entry.id, kind: 'assistant', text: entry.text, isError: entry.isError, at, attachments: attachmentsOf(entry.id)})];
 		const told = (entry.toolCalls ?? []).flatMap((call): Shown[] => {
-			const subAgent = call.name === CREATE_SUBAGENT_TOOL ? subAgentOf.get(call.id) : undefined;
+			const started = call.name === CREATE_SUBAGENT_TOOL ? subAgentOf.get(call.id) : undefined;
+			const messaged = call.name === SEND_TO_SUBAGENT_TOOL ? subAgentById.get(subAgentMessageArgs(callArguments(call))?.subagent ?? '') : undefined;
+			const subAgent = started ?? messaged;
 			if (subAgent) {
-				const title = subAgent.title ?? 'Sub-agent';
-				return [from({id: `${entry.id}:${call.id}`, kind: 'event', text: title, isError: false, at, attachments: [], subAgent: {id: subAgent.id, title, working: subAgent.state.kind !== 'stopped'}})];
+				return [from(subAgentLine(subAgent, `${entry.id}:${call.id}`, at))];
 			}
 			const message = call.name === SEND_TO_PERSON_TOOL ? personMessageArgs(callArguments(call)) : null;
 			return message ? [from({id: `${entry.id}:${call.id}`, kind: 'assistant', text: message.text, isError: false, at, attachments: []})] : [];
 		});
 		return [...said, ...told];
+	});
+	return lastLines(shown);
+}
+
+// The shown with only the latest line of each sub-agent at work, as it is: an earlier one, where it
+// started or was sent more before, is over.
+function lastLines(shown: Shown[]): Shown[] {
+	const latest = new Map<string, number>();
+	shown.forEach(({message}, index) => {
+		if (message.subAgent) {
+			latest.set(message.subAgent.id, index);
+		}
+	});
+	return shown.map((item, index) => {
+		const {subAgent} = item.message;
+		if (!subAgent || !subAgent.working || latest.get(subAgent.id) === index) {
+			return item;
+		}
+		return {...item, message: {...item.message, subAgent: {...subAgent, working: false}}};
 	});
 }
 

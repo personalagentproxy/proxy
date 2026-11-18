@@ -513,7 +513,7 @@ describe('the chat’s threads', () => {
 		expect(listed.alerts).toBe(2);
 
 		expect(store.ensureMemberChat).toHaveBeenCalledWith({orgId: 'org-1', agentId: 'login-1', personaId: 'persona-1', userId: 'user-1'});
-		expect(store.listChatThreads).toHaveBeenCalledWith('chat-1', ['send_to_person', 'create_subagent'], expect.any(Date));
+		expect(store.listChatThreads).toHaveBeenCalledWith('chat-1', ['send_to_person', 'create_subagent', 'send_to_subagent'], expect.any(Date));
 		expect(listed.persona).toEqual(personaResponse);
 		expect(listed.draft).toBe('Move the review');
 		expect(listed.draftAttachments).toEqual([shownAttachment]);
@@ -754,7 +754,7 @@ describe('the chat’s threads', () => {
 
 		const view = (await handleGetChatThreadRoute(request({personaId: 'persona-1', threadId: 'thread-2'}))).unwrap();
 
-		expect(store.getChatThread).toHaveBeenCalledWith('chat-1', 'thread-2', ['send_to_person', 'create_subagent'], expect.any(Date));
+		expect(store.getChatThread).toHaveBeenCalledWith('chat-1', 'thread-2', ['send_to_person', 'create_subagent', 'send_to_subagent'], expect.any(Date));
 		expect(view.busy).toBe(true);
 		expect(view.thread).toMatchObject({id: 'thread-2', state: {kind: 'working'}, messageCount: 3});
 		// Asleep until it wakes, it is still at work; stopped, it is not.
@@ -826,6 +826,43 @@ describe('the chat’s threads', () => {
 		expect((await handleGetChatThreadRoute(request({personaId: 'persona-1', threadId: 'thread-2'}))).unwrap().messages[3]?.subAgent?.working).toBe(false);
 	});
 
+	test('show a follow-up to a sub-agent as its line again, where it was sent, the latest line alone at work; and in a sub-agent’s own thread, not what its persona sent it', async () => {
+		const {handleGetChatThreadRoute} = routes;
+		const started = logEntry({
+			id: 'e7',
+			seq: 7,
+			threadId: 'thread-2',
+			kind: 'assistant',
+			text: '',
+			toolCalls: [call('c5', 'create_subagent', {title: 'Prime counter', brief: 'Count them.'})],
+			createdAt: later(3),
+		});
+		const followed = logEntry({
+			id: 'e9',
+			seq: 9,
+			threadId: 'thread-2',
+			kind: 'assistant',
+			text: '',
+			toolCalls: [call('c7', 'send_to_subagent', {subagent: 'sub-1', text: 'Below 2,000,000 too.'}), call('c8', 'send_to_subagent', {subagent: 'sub-9', text: 'Nobody.'})],
+			createdAt: later(5),
+		});
+		const sub = {id: 'sub-1', title: 'Prime counter', parentCallId: 'c5', state: {kind: 'working' as const}};
+		store.getChatThread.mockResolvedValue(Ok({...review, entries: [...review.entries, started, followed], subAgents: [sub]}));
+
+		const lines = (await handleGetChatThreadRoute(request({personaId: 'persona-1', threadId: 'thread-2'}))).unwrap().messages.slice(3);
+		expect(lines.map((message) => [message.id, message.subAgent])).toEqual([
+			['e7:c5', {id: 'sub-1', title: 'Prime counter', working: false}],
+			['e9:c7', {id: 'sub-1', title: 'Prime counter', working: true}],
+		]);
+
+		// The sub-agent's own thread: its answers, not its brief nor what it was sent later.
+		const brief = logEntry({id: 's1', seq: 10, threadId: 'sub-1', kind: 'person', text: 'Count them.'});
+		const answer = logEntry({id: 's2', seq: 11, threadId: 'sub-1', kind: 'assistant', text: '78,498.'});
+		const more = logEntry({id: 's3', seq: 12, threadId: 'sub-1', kind: 'person', text: 'Below 2,000,000 too.'});
+		store.getChatThread.mockResolvedValue(Ok(chatThread({id: 'sub-1', subAgentOfId: 'thread-2', parentCallId: 'c5', entries: [brief, answer, more]})));
+		expect((await handleGetChatThreadRoute(request({personaId: 'persona-1', threadId: 'sub-1'}))).unwrap().messages.map((message) => message.id)).toEqual(['s2']);
+	});
+
 	test('open a thread with what the viewer says, trimmed, and the files they attach, titled with a line of it, and answer with the thread', async () => {
 		const {handleOpenThreadRoute} = routes;
 		const ref = {connectionId: 'drive-1', fileId: 'file-1', version: 'v1'};
@@ -850,7 +887,7 @@ describe('the chat’s threads', () => {
 			},
 			[attached],
 		);
-		expect(store.getChatThread).toHaveBeenCalledWith('chat-1', 'thread-2', ['send_to_person', 'create_subagent'], expect.any(Date));
+		expect(store.getChatThread).toHaveBeenCalledWith('chat-1', 'thread-2', ['send_to_person', 'create_subagent', 'send_to_subagent'], expect.any(Date));
 		expect(opened.thread).toMatchObject({id: 'thread-2', title: 'Pricing review with Dana'});
 
 		// With files alone, titled by their names.
