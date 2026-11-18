@@ -30,8 +30,10 @@ import {
 	type FileMaker as FileMakerRow,
 	type FileNodeRow,
 	type FileVersionEntry,
+	type StoredVersionRow,
 	getFile,
 	getFileVersion,
+	isStored,
 	listFileMakers,
 	listFileVersions,
 	listFolder,
@@ -125,7 +127,7 @@ function toCrumbs(trail: FileNodeRow[]): FileCrumb[] {
 	return trail.map((folder) => ({id: folder.id, name: folder.name}));
 }
 
-function toVersion(version: FileVersionEntry, file: FileEntry): FileVersion {
+function toVersion(version: FileVersionEntry & StoredVersionRow, file: FileEntry): FileVersion {
 	const {author} = version;
 	const by = (): FileVersion['by'] => {
 		if (author === null) {
@@ -185,7 +187,8 @@ export function handleGetFileRoute(request: AuthenticatedRequest): Promise<Resul
 		const {connectionId} = $(await driveOf(request));
 		const fileId = request.params.fileId ?? '';
 		const file = $(requirePresent($(await getFile(connectionId, fileId)), ApiErr.notFound('file', fileId)));
-		const versions = file.folder ? [] : $(await listFileVersions(connectionId, file.id));
+		// A file of Files has every version's bytes here.
+		const versions = file.folder ? [] : $(await listFileVersions(connectionId, file.id)).filter(isStored);
 		return {file: toFile(file), trail: toCrumbs(file.trail), versions: versions.map((version) => toVersion(version, file))};
 	});
 }

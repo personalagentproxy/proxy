@@ -4,6 +4,7 @@ import type {Result} from 'ts-results-es';
 import {ApiErr, type ApiError, wrapDb} from '@proxy/utils';
 
 import {db} from '.';
+import {type FileUndo, fileUndoSchema, parseFileUndo} from './file-undo';
 
 /**
  * Files (schema.prisma FileNode, FileVersion, FileBlob, FileChange): the drives kept in Personal
@@ -16,6 +17,11 @@ import {db} from '.';
  * written to what is in the trash. Every change takes the connection's row first, so two changes
  * to one drive run one after the other, and is written with its journal row or not at all. What
  * a change refuses is thrown as the api's error, which `wrapDb` hands on as it is.
+ *
+ * A drive whose tree lives elsewhere, as Google Drive, keeps only versions and the journal here,
+ * by plain ids (`recordFileVersion`, `logFileChange`): its file is changed there, and what is
+ * recorded here takes a lock on that one file, not the drive. Its version may be a copy in the blob
+ * store, or only the drive's own revision with no blob; a file of Files always has its bytes here.
  */
 
 type Tx = Prisma.TransactionClient;
@@ -36,11 +42,17 @@ export type FileVersionRow = {
 	id: string;
 	connectionId: string;
 	fileId: string;
-	blobId: string;
-	size: number;
+	blobId: string | null;
+	size: number | null;
 	type: string;
+	sourceRevision: string | null;
+	sourceType: string | null;
+	pinned: boolean;
 	createdAt: Date;
 };
+
+/** A version with its bytes in the blob store, as every version of a file of Files is. */
+export type StoredVersionRow = FileVersionRow & {blobId: string; size: number};
 
 export type FileBlobRow = {
 	id: string;
@@ -52,7 +64,7 @@ export type FileBlobRow = {
 };
 
 /** A file or folder as a list shows it: a file with what it holds now. */
-export type FileEntry = FileNodeRow & {head: FileVersionRow | null};
+export type FileEntry = FileNodeRow & {head: StoredVersionRow | null};
 
 /** A file or folder opened: where it is, the folders above it from the top down, and whether it is in the trash, by itself or with a folder above it. */
 export type FileFound = FileEntry & {trail: FileNodeRow[]; trashed: boolean};
@@ -63,7 +75,28 @@ export type FileActor = {userId: string} | {agentId: string; taskId: string};
 /** The drive a change is made in, and who makes it. */
 export type FileChangeBy = {orgId: string; connectionId: string; by: FileActor};
 
-export type {FileChangeKind};
+export type {FileChangeKind, FileUndo};
+
+/** One change of the journal, its inverse read as one this server knows, or null. */
+export type FileChangeRow = {
+	id: string;
+	orgId: string;
+	connectionId: string;
+	fileId: string;
+	name: string;
+	kind: FileChangeKind;
+	beforeVersion: string | null;
+	afterVersion: string | null;
+	beforeRevision: string | null;
+	afterRevision: string | null;
+	beforeParentId: string | null;
+	beforeName: string | null;
+	undo: FileUndo | null;
+	userId: string | null;
+	agentId: string | null;
+	taskId: string | null;
+	createdAt: Date;
+};
 
 const nodeSelect = {
 	id: true,
@@ -83,6 +116,9 @@ const versionSelect = {
 	blobId: true,
 	size: true,
 	type: true,
+	sourceRevision: true,
+	sourceType: true,
+	pinned: true,
 	createdAt: true,
 } as const;
 const blobSelect = {
@@ -107,6 +143,29 @@ function nameTaken(name: string): ApiError {
 
 async function lockDrive(tx: Tx, connectionId: string): Promise<void> {
 	await tx.$queryRaw`SELECT "id" FROM "Connection" WHERE "id" = ${connectionId} FOR UPDATE`;
+}
+
+// One file of a drive elsewhere, held until the transaction ends, so that what is recorded of it
+// is recorded one after the other: a lock on a key made of its connection's and its own id, as the
+// file has no row here to take.
+async function lockFile(tx: Tx, connectionId: string, fileId: string): Promise<void> {
+	await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`file:${connectionId}:${fileId}`}::text, 0))`;
+}
+
+/** Whether a version has its bytes in the blob store, as every one of a file of Files does. */
+export function isStored<V extends FileVersionRow>(
+	version: V,
+): version is V & {blobId: string; size: number} {
+	return version.blobId !== null && version.size !== null;
+}
+
+// A version of a file of Files, which always has its bytes in the store: thrown as the server's
+// error where one has none.
+function stored<V extends FileVersionRow>(version: V): V & {blobId: string; size: number} {
+	if (!isStored(version)) {
+		throw ApiErr.internalError(new Error(`Version ${version.id} of a file of Files has no bytes.`));
+	}
+	return version;
 }
 
 // The folders above a place, from the top down, the folder itself last; none for the top. Thrown
@@ -274,26 +333,120 @@ function actorColumns(by: FileActor): {
 	return {userId: null, agentId: by.agentId, taskId: by.taskId};
 }
 
-type Journaled = {
+/** What a change was, as the journal keeps it; what is left out is null. */
+export type Journaled = {
 	fileId: string;
+	/** The file's name, after the change. */
 	name: string;
 	kind: FileChangeKind;
 	beforeVersion?: string | null;
 	afterVersion?: string | null;
+	/** A drive elsewhere's own revisions of the file, just before and just after the change. */
+	beforeRevision?: string | null;
+	afterRevision?: string | null;
 	beforeParentId?: string | null;
 	beforeName?: string | null;
+	/** The change's exact inverse, where it has one. */
+	undo?: FileUndo | null;
 };
 
-async function journal(tx: Tx, change: FileChangeBy, entry: Journaled): Promise<void> {
-	await tx.fileChange.create({
+const changeSelect = {
+	id: true,
+	orgId: true,
+	connectionId: true,
+	fileId: true,
+	name: true,
+	kind: true,
+	beforeVersion: true,
+	afterVersion: true,
+	beforeRevision: true,
+	afterRevision: true,
+	beforeParentId: true,
+	beforeName: true,
+	undo: true,
+	userId: true,
+	agentId: true,
+	taskId: true,
+	createdAt: true,
+} as const;
+
+function changeRow(row: Prisma.FileChangeGetPayload<{select: typeof changeSelect}>): FileChangeRow {
+	return {...row, undo: parseFileUndo(row.undo)};
+}
+
+async function journal(tx: Tx, change: FileChangeBy, entry: Journaled): Promise<FileChangeRow> {
+	const {undo, ...rest} = entry;
+	// An inverse is checked as it will be read, so none is kept that could never be applied.
+	const checked = undo ? fileUndoSchema.safeParse(undo) : null;
+	if (checked && !checked.success) {
+		const why = checked.error.issues.map((issue) => issue.message).join(' ');
+		throw ApiErr.validationError(`That change’s undo is not one to keep: ${why}`);
+	}
+	const row = await tx.fileChange.create({
 		data: {
 			orgId: change.orgId,
 			connectionId: change.connectionId,
-			...entry,
+			...rest,
+			...(checked ? {undo: checked.data} : {}),
 			...actorColumns(change.by),
 		},
-		select: {id: true},
+		select: changeSelect,
 	});
+	return changeRow(row);
+}
+
+/** What a version holds, as a drive elsewhere records it: a copy in the store, or none, and the drive's own revision and type. */
+export type RecordedContent = {
+	/** The copy's blob and its size; null for a version kept only in the drive. */
+	blobId: string | null;
+	size: number | null;
+	/** The media type of the bytes: the copy's, or else the revision's in the drive. */
+	type: string;
+	sourceRevision: string | null;
+	sourceType: string | null;
+	/** Whether the revision was pinned in the drive, to be released later. */
+	pinned?: boolean;
+};
+
+async function insertVersion(
+	tx: Tx,
+	connectionId: string,
+	fileId: string,
+	content: RecordedContent,
+): Promise<FileVersionRow> {
+	return tx.fileVersion.create({
+		data: {connectionId, fileId, ...content},
+		select: versionSelect,
+	});
+}
+
+/** A version with the blob that has its bytes, where it has one. */
+export type FileVersionFound = FileVersionRow & {blob: FileBlobRow | null};
+
+// The newest of a file's versions, with its blob where it has one.
+function latestVersion(
+	client: Tx,
+	connectionId: string,
+	fileId: string,
+): Promise<FileVersionFound | null> {
+	return client.fileVersion.findFirst({
+		where: {connectionId, fileId},
+		select: {...versionSelect, blob: {select: blobSelect}},
+		orderBy: [{createdAt: 'desc'}, {id: 'desc'}],
+	});
+}
+
+// Whether `latest` already holds what `content` would: the same revision of the drive, kept at
+// least as well, with a copy where `content` has one and pinned where it is pinned, so a pin made
+// is never left unrecorded.
+function holdsAlready(latest: FileVersionRow, content: RecordedContent): boolean {
+	if (content.sourceRevision === null || latest.sourceRevision !== content.sourceRevision) {
+		return false;
+	}
+	if (content.blobId !== null && latest.blobId === null) {
+		return false;
+	}
+	return !content.pinned || latest.pinned;
 }
 
 async function withHeads(client: Tx, nodes: FileNodeRow[]): Promise<FileEntry[]> {
@@ -302,7 +455,7 @@ async function withHeads(client: Tx, nodes: FileNodeRow[]): Promise<FileEntry[]>
 		ids.length === 0
 			? []
 			: await client.fileVersion.findMany({where: {id: {in: ids}}, select: versionSelect});
-	const byId = new Map(versions.map((version) => [version.id, version]));
+	const byId = new Map(versions.map((version) => [version.id, stored(version)]));
 	return nodes.map((node) => ({
 		...node,
 		head: (node.headVersionId && byId.get(node.headVersionId)) || null,
@@ -508,6 +661,21 @@ export function ensureFolder(
 /** What a new version holds: the blob with its bytes, already in the store, and what they are. */
 export type NewContent = {blobId: string; size: number; type: string};
 
+// A file of Files' next version, its bytes in the store.
+async function insertStored(
+	tx: Tx,
+	connectionId: string,
+	fileId: string,
+	content: NewContent,
+): Promise<StoredVersionRow> {
+	const version = await insertVersion(tx, connectionId, fileId, {
+		...content,
+		sourceRevision: null,
+		sourceType: null,
+	});
+	return stored(version);
+}
+
 /**
  * A new file called `name` in `parentId`, holding `content` as its first version. Where the name
  * is taken: a conflict, or, with `rename`, the first free name like it, as `report (2).pdf`.
@@ -531,10 +699,7 @@ export function createFile(
 				data: {connectionId, parentId: data.parentId, name},
 				select: nodeSelect,
 			});
-			const head = await tx.fileVersion.create({
-				data: {connectionId, fileId: made.id, ...data.content},
-				select: versionSelect,
-			});
+			const head = await insertStored(tx, connectionId, made.id, data.content);
 			const node = await tx.fileNode.update({
 				where: {id: made.id},
 				data: {headVersionId: head.id},
@@ -565,10 +730,7 @@ export function writeFile(
 			if (node.headVersionId !== data.ifVersion) {
 				throw ApiErr.conflict(FILE_CHANGED);
 			}
-			const head = await tx.fileVersion.create({
-				data: {connectionId, fileId: node.id, ...data.content},
-				select: versionSelect,
-			});
+			const head = await insertStored(tx, connectionId, node.id, data.content);
 			const written = await tx.fileNode.update({
 				where: {id: node.id},
 				data: {headVersionId: head.id},
@@ -599,25 +761,21 @@ export function restoreFileVersion(
 		db.$transaction(async (tx) => {
 			await lockDrive(tx, connectionId);
 			const node = await requireLive(tx, connectionId, data.fileId);
-			const earlier = await tx.fileVersion.findFirst({
+			const found = await tx.fileVersion.findFirst({
 				where: {id: data.versionId, connectionId, fileId: node.id},
 				select: versionSelect,
 			});
-			if (!earlier) {
+			if (!found) {
 				throw ApiErr.notFound('version', data.versionId);
 			}
+			const earlier = stored(found);
 			if (node.headVersionId === earlier.id) {
 				return {...node, head: earlier};
 			}
-			const head = await tx.fileVersion.create({
-				data: {
-					connectionId,
-					fileId: node.id,
-					blobId: earlier.blobId,
-					size: earlier.size,
-					type: earlier.type,
-				},
-				select: versionSelect,
+			const head = await insertStored(tx, connectionId, node.id, {
+				blobId: earlier.blobId,
+				size: earlier.size,
+				type: earlier.type,
 			});
 			const restored = await tx.fileNode.update({
 				where: {id: node.id},
@@ -761,6 +919,168 @@ export function untrashFile(
 }
 
 /**
+ * A drive elsewhere's file's next version, recorded by its connection's id and its id there: a
+ * copy taken before a change, or a revision the drive keeps. Where the newest version holds that
+ * revision already, kept as well, it is answered and nothing is recorded, so two changes that
+ * copy a file at once keep one copy; the other's blob is left for the sweep.
+ */
+export function recordFileVersion(data: {
+	connectionId: string;
+	fileId: string;
+	content: RecordedContent;
+}): Promise<Result<FileVersionRow, ApiError>> {
+	const {connectionId, fileId, content} = data;
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			await lockFile(tx, connectionId, fileId);
+			const latest = await latestVersion(tx, connectionId, fileId);
+			if (latest && holdsAlready(latest, content)) {
+				const {blob: _blob, ...version} = latest;
+				return version;
+			}
+			return insertVersion(tx, connectionId, fileId, content);
+		}),
+	);
+}
+
+/**
+ * A change made to a drive elsewhere's file, logged as whoever made it, with the version it made
+ * where it made one (`made`), recorded with it as its after version; neither without the other.
+ */
+export function logFileChange(
+	change: FileChangeBy,
+	entry: Journaled & {made?: RecordedContent},
+): Promise<Result<{change: FileChangeRow; version: FileVersionRow | null}, ApiError>> {
+	const {made, ...journaled} = entry;
+	const {connectionId} = change;
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			await lockFile(tx, connectionId, entry.fileId);
+			if (!made) {
+				return {change: await journal(tx, change, journaled), version: null};
+			}
+			const version = await insertVersion(tx, connectionId, entry.fileId, made);
+			const logged = await journal(tx, change, {...journaled, afterVersion: version.id});
+			return {change: logged, version};
+		}),
+	);
+}
+
+/**
+ * Whether a task has had its copy of a file: it changed the file before, starting from a version
+ * recorded here, or made it. A copy is taken before a task's first change to a file only.
+ */
+export function hasTaskCopied(
+	connectionId: string,
+	fileId: string,
+	taskId: string,
+): Promise<Result<boolean, ApiError>> {
+	return wrapDb(async () => {
+		const found = await db.fileChange.findFirst({
+			where: {
+				connectionId,
+				fileId,
+				taskId,
+				OR: [{beforeVersion: {not: null}}, {kind: 'create'}],
+			},
+			select: {id: true},
+		});
+		return found !== null;
+	});
+}
+
+/** The newest of a file's versions, with its blob where it has one; `Ok(null)` for none. */
+export function getLatestFileVersion(
+	connectionId: string,
+	fileId: string,
+): Promise<Result<FileVersionFound | null, ApiError>> {
+	return wrapDb(() => latestVersion(db, connectionId, fileId));
+}
+
+/** One change of a drive's journal, its inverse read as one this server knows; `Ok(null)` for none. */
+export function getFileChange(
+	connectionId: string,
+	id: string,
+): Promise<Result<FileChangeRow | null, ApiError>> {
+	return wrapDb(async () => {
+		const row = await db.fileChange.findFirst({where: {id, connectionId}, select: changeSelect});
+		return row ? changeRow(row) : null;
+	});
+}
+
+/** Versions of one integration's drives made before `before`, oldest first, at most `limit`. */
+type Aged = {integrationId: string; before: Date; limit: number};
+
+/** A version by its id and its file's. */
+type VersionOf = {id: string; connectionId: string; fileId: string};
+
+/** The copies in the store of an integration's files, as Google Drive's, made before `before`: to be let go once kept as long as they are. */
+export function listOldFileCopies(data: Aged): Promise<Result<StoredVersionRow[], ApiError>> {
+	return wrapDb(async () => {
+		const versions = await db.fileVersion.findMany({
+			where: {
+				connection: {integrationId: data.integrationId},
+				blobId: {not: null},
+				createdAt: {lt: data.before},
+			},
+			select: versionSelect,
+			orderBy: {createdAt: 'asc'},
+			take: data.limit,
+		});
+		return versions.filter(isStored);
+	});
+}
+
+/**
+ * Lets a version's copy go: the version stays, with its size and the drive's revision, and its
+ * blob is the sweep's to remove once no version points at it. Whether it had one.
+ */
+export function dropFileVersionCopy(version: VersionOf): Promise<Result<boolean, ApiError>> {
+	const {id, connectionId, fileId} = version;
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			await lockFile(tx, connectionId, fileId);
+			const {count} = await tx.fileVersion.updateMany({
+				where: {id, connectionId, fileId, blobId: {not: null}},
+				data: {blobId: null},
+			});
+			return count > 0;
+		}),
+	);
+}
+
+/** The revisions an integration's drives keep for good because they were pinned, made before `before`: to be released. */
+export function listOldPinnedVersions(data: Aged): Promise<Result<FileVersionRow[], ApiError>> {
+	return wrapDb(() =>
+		db.fileVersion.findMany({
+			where: {
+				connection: {integrationId: data.integrationId},
+				pinned: true,
+				createdAt: {lt: data.before},
+			},
+			select: versionSelect,
+			orderBy: {createdAt: 'asc'},
+			take: data.limit,
+		}),
+	);
+}
+
+/** A version whose revision was released in its drive, pinned no longer; whether it was. */
+export function unpinFileVersion(version: VersionOf): Promise<Result<boolean, ApiError>> {
+	const {id, connectionId, fileId} = version;
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			await lockFile(tx, connectionId, fileId);
+			const {count} = await tx.fileVersion.updateMany({
+				where: {id, connectionId, fileId, pinned: true},
+				data: {pinned: false},
+			});
+			return count > 0;
+		}),
+	);
+}
+
+/**
  * An agent that made what a file holds, by a version it wrote or gave back: as the persona it
  * worked as, where it was one of the Chat page's and the persona is still there, or else as itself.
  */
@@ -831,7 +1151,13 @@ export type VersionAuthor = {
 
 export type FileVersionEntry = FileVersionRow & {author: VersionAuthor | null};
 
-/** A file's versions, newest first, each with who made it. */
+// The changes that make what a file holds, all of it or a part, and so who made a version.
+const MAKING: FileChangeKind[] = ['create', 'write', 'restore', 'edit'];
+
+/**
+ * A file's versions, newest first, each with who made it: a drive elsewhere's with or without a
+ * copy here, and with no maker where it is a copy taken of what the file held.
+ */
 export function listFileVersions(
 	connectionId: string,
 	fileId: string,
@@ -847,7 +1173,7 @@ export function listFileVersions(
 				connectionId,
 				fileId,
 				afterVersion: {in: versions.map((version) => version.id)},
-				kind: {in: ['create', 'write', 'restore']},
+				kind: {in: MAKING},
 			},
 			select: {
 				kind: true,
@@ -906,7 +1232,7 @@ export function listFileMakers(
 				connectionId,
 				fileId: {in: fileIds},
 				agentId: {not: null},
-				kind: {in: ['create', 'write', 'restore']},
+				kind: {in: MAKING},
 			},
 			select: {fileId: true, agentId: true, taskId: true},
 			orderBy: [{createdAt: 'desc'}, {id: 'desc'}],
@@ -927,12 +1253,37 @@ export function listFileMakers(
 	});
 }
 
-/** One of a file's versions with the blob that has its bytes; `Ok(null)` for none. */
+/**
+ * One of a file's versions with the blob that has its bytes; `Ok(null)` for none, and for one
+ * kept only in the drive the file is in, which `findFileVersion` reads.
+ */
 export function getFileVersion(
 	connectionId: string,
 	fileId: string,
 	versionId: string,
-): Promise<Result<(FileVersionRow & {blob: FileBlobRow}) | null, ApiError>> {
+): Promise<Result<(StoredVersionRow & {blob: FileBlobRow}) | null, ApiError>> {
+	return wrapDb(async () => {
+		const version = await db.fileVersion.findFirst({
+			where: {id: versionId, connectionId, fileId},
+			select: {...versionSelect, blob: {select: blobSelect}},
+		});
+		if (!version) {
+			return null;
+		}
+		const {blob} = version;
+		if (blob === null || !isStored(version)) {
+			return null;
+		}
+		return {...version, blob};
+	});
+}
+
+/** One of a file's versions as recorded, with its blob or none; `Ok(null)` for none. */
+export function findFileVersion(
+	connectionId: string,
+	fileId: string,
+	versionId: string,
+): Promise<Result<FileVersionFound | null, ApiError>> {
 	return wrapDb(() =>
 		db.fileVersion.findFirst({
 			where: {id: versionId, connectionId, fileId},

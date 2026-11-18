@@ -11,6 +11,7 @@ import {
 	type FileFound,
 	getFile,
 	getFileVersion,
+	isStored,
 	listFileVersions,
 	moveFile,
 	restoreFileVersion,
@@ -143,7 +144,8 @@ export const runFilesVersions: NativeToolRunner = (run) =>
 		if (file.folder) {
 			return $(Err(ApiErr.validationError(`${file.name} is a folder, which has no versions`)));
 		}
-		const versions = $(await listFileVersions(run.connection.id, id));
+		// A file of Files has every version's bytes here.
+		const versions = $(await listFileVersions(run.connection.id, id)).filter(isStored);
 		const lines = versions.map(
 			(version) => `${version.id}${version.id === file.head?.id ? ' (now)' : ''}: ${version.createdAt.toISOString()}, ${formatBytes(version.size)}${authorText(version.author)}`,
 		);

@@ -11,24 +11,36 @@ import {
 	createFolder,
 	createMissingFilesConnection,
 	deleteUnusedFileBlob,
+	dropFileVersionCopy,
 	FILE_CHANGED,
+	findFileVersion,
 	getFile,
+	getFileChange,
 	getFileVersion,
+	getLatestFileVersion,
+	hasTaskCopied,
 	listFileMakers,
 	listFileVersions,
 	listFolder,
+	listOldFileCopies,
+	listOldPinnedVersions,
 	listTrash,
 	listTrashedBefore,
 	listUnusedFileBlobs,
+	logFileChange,
 	moveFile,
 	purgeTrashed,
+	recordFileVersion,
 	restoreFileVersion,
 	searchFiles,
 	trashFile,
+	unpinFileVersion,
 	untrashFile,
 	writeFile,
 	type FileChangeBy,
+	type FileUndo,
 	type NewContent,
+	type RecordedContent,
 } from './files';
 
 // A drive's tree, versions and journal, against the local database: run with it up
@@ -60,6 +72,12 @@ describe.skipIf(!databaseUrl)('files, against the database', () => {
 	let connectionId = '';
 	let person: FileChangeBy;
 	let agent: FileChangeBy;
+	// A drive whose files live elsewhere, as Google Drive: an integration of its own, so that what
+	// the retention queries find of it is only this test's.
+	const elsewhereIntegration = `drive-test-${stamp}`;
+	let elsewhereId = '';
+	let elsewhere: FileChangeBy;
+	let taskId = '';
 	let blobs = 0;
 
 	// Content to point a version at: a blob's row, as the api makes one once the bytes are stored.
@@ -71,6 +89,29 @@ describe.skipIf(!databaseUrl)('files, against the database', () => {
 		unwrap(await completeFileBlob(blob.id, {size, sha256: `hash-${blobs}`}));
 		return {blobId: blob.id, size, type};
 	}
+
+	const SHEET = 'application/vnd.google-apps.spreadsheet';
+	const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+	// A Sheet's export copied into the store, as of the drive's revision `revision`.
+	async function sheetCopy(revision: string): Promise<RecordedContent> {
+		return {...(await content(20, XLSX)), sourceRevision: revision, sourceType: SHEET};
+	}
+
+	// A Sheet's revision the drive keeps, with no copy here.
+	function sheetRevision(revision: string): RecordedContent {
+		return {blobId: null, size: null, type: XLSX, sourceRevision: revision, sourceType: SHEET};
+	}
+
+	// Two cells of a tab written, as they were and as the write left them.
+	const budgetUndo: FileUndo = {
+		kind: 'sheets_cells',
+		sheetId: 0,
+		tab: 'Budget',
+		range: 'B2:C2',
+		before: [[{value: 1200}, {formula: '=B2*2'}]],
+		after: [[{value: 1500}, null]],
+	};
 
 	beforeAll(async () => {
 		const user = await db.user.create({
@@ -110,6 +151,12 @@ describe.skipIf(!databaseUrl)('files, against the database', () => {
 		});
 		person = {orgId, connectionId, by: {userId}};
 		agent = {orgId, connectionId, by: {agentId: 'agent-1', taskId: task.id}};
+		taskId = task.id;
+		const drive = await db.connection.create({
+			data: {orgId, integrationId: elsewhereIntegration, account: 'dana@example.com'},
+		});
+		elsewhereId = drive.id;
+		elsewhere = {orgId, connectionId: elsewhereId, by: {agentId: 'agent-1', taskId: task.id}};
 	});
 
 	afterAll(async () => {
@@ -542,5 +589,266 @@ describe.skipIf(!databaseUrl)('files, against the database', () => {
 		unwrap(await createFile(person, {parentId: null, name: 'held.txt', content: held}));
 
 		expect(unwrap(await deleteUnusedFileBlob(held.blobId))).toBe(false);
+	});
+
+	test('records versions of a drive elsewhere’s file by plain ids, a copy or only its revision, once a revision', async () => {
+		const fileId = `sheet-${stamp}-1`;
+		const first = unwrap(
+			await recordFileVersion({connectionId: elsewhereId, fileId, content: await sheetCopy('r1')}),
+		);
+		// Copied again at the same revision, as a change racing the first would: the first is kept.
+		expect(
+			unwrap(
+				await recordFileVersion({
+					connectionId: elsewhereId,
+					fileId,
+					content: await sheetCopy('r1'),
+				}),
+			).id,
+		).toBe(first.id);
+		// A revision the drive keeps only, then pinned, then copied: each keeps more than the one
+		// before, and so is a version of its own.
+		const kept = unwrap(
+			await recordFileVersion({connectionId: elsewhereId, fileId, content: sheetRevision('r2')}),
+		);
+		const pinned = unwrap(
+			await recordFileVersion({
+				connectionId: elsewhereId,
+				fileId,
+				content: {...sheetRevision('r2'), size: 80_000_000, pinned: true},
+			}),
+		);
+		expect(
+			unwrap(
+				await recordFileVersion({
+					connectionId: elsewhereId,
+					fileId,
+					content: {...sheetRevision('r2'), pinned: true},
+				}),
+			).id,
+		).toBe(pinned.id);
+		const copied = unwrap(
+			await recordFileVersion({connectionId: elsewhereId, fileId, content: await sheetCopy('r2')}),
+		);
+		// The one before is no longer the newest: the same revision as an older one is a version.
+		expect(
+			unwrap(
+				await recordFileVersion({connectionId: elsewhereId, fileId, content: sheetRevision('r1')}),
+			).id,
+		).not.toBe(first.id);
+
+		const versions = unwrap(await listFileVersions(elsewhereId, fileId));
+		expect(
+			versions.map((version) => [
+				version.sourceRevision,
+				version.blobId === null,
+				version.pinned,
+				version.author,
+			]),
+		).toEqual([
+			['r1', true, false, null],
+			['r2', false, false, null],
+			['r2', true, true, null],
+			['r2', true, false, null],
+			['r1', false, false, null],
+		]);
+		expect(versions.slice(1, 4).map((version) => version.id)).toEqual([
+			copied.id,
+			pinned.id,
+			kept.id,
+		]);
+		const latest = unwrap(await getLatestFileVersion(elsewhereId, fileId));
+		expect([latest?.id, latest?.blob]).toEqual([versions[0]?.id, null]);
+		expect(unwrap(await getLatestFileVersion(elsewhereId, 'no-such-file'))).toBeNull();
+		// One with no copy is no version to read the bytes of, but is found as recorded.
+		expect(unwrap(await getFileVersion(elsewhereId, fileId, pinned.id))).toBeNull();
+		expect(unwrap(await findFileVersion(elsewhereId, fileId, pinned.id))).toMatchObject({
+			size: 80_000_000,
+			type: XLSX,
+			sourceType: SHEET,
+			blob: null,
+		});
+		expect(unwrap(await getFileVersion(elsewhereId, fileId, copied.id))?.blob.sha256).toStartWith(
+			'hash-',
+		);
+		// Nothing of the tree is made for it.
+		expect(unwrap(await getFile(elsewhereId, fileId))).toBeNull();
+	});
+
+	test('records a revision copied by many at once a single time', async () => {
+		const fileId = `sheet-${stamp}-race`;
+		const contents = await Promise.all([1, 2, 3, 4, 5].map(() => sheetCopy('r9')));
+
+		const recorded = await Promise.all(
+			contents.map((copy) => recordFileVersion({connectionId: elsewhereId, fileId, content: copy})),
+		);
+
+		expect(new Set(recorded.map((result) => unwrap(result).id)).size).toBe(1);
+		expect(unwrap(await listFileVersions(elsewhereId, fileId))).toHaveLength(1);
+	});
+
+	test('logs changes to a drive elsewhere’s file with the version they made, and knows a task has its copy', async () => {
+		const fileId = `sheet-${stamp}-2`;
+		const other = await db.agentTask.create({
+			data: {orgId, agentId: 'agent-1', title: 'Fill in the budget', goal: 'Fill', via: 'mcp'},
+		});
+		const byOther: FileChangeBy = {
+			orgId,
+			connectionId: elsewhereId,
+			by: {agentId: 'agent-1', taskId: other.id},
+		};
+		expect(unwrap(await hasTaskCopied(elsewhereId, fileId, taskId))).toBe(false);
+		const copy = unwrap(
+			await recordFileVersion({connectionId: elsewhereId, fileId, content: await sheetCopy('r1')}),
+		);
+
+		const edit = unwrap(
+			await logFileChange(elsewhere, {
+				fileId,
+				name: 'Budget',
+				kind: 'edit',
+				beforeVersion: copy.id,
+				beforeRevision: 'r1',
+				afterRevision: 'r2',
+				undo: budgetUndo,
+			}),
+		);
+
+		expect(edit.version).toBeNull();
+		expect(edit.change).toMatchObject({
+			kind: 'edit',
+			beforeVersion: copy.id,
+			afterVersion: null,
+			beforeRevision: 'r1',
+			afterRevision: 'r2',
+			undo: budgetUndo,
+			agentId: 'agent-1',
+			taskId,
+		});
+		expect(unwrap(await getFileChange(elsewhereId, edit.change.id))?.undo).toEqual(budgetUndo);
+		expect(unwrap(await getFileChange(connectionId, edit.change.id))).toBeNull();
+		expect(unwrap(await hasTaskCopied(elsewhereId, fileId, taskId))).toBe(true);
+		expect(unwrap(await hasTaskCopied(elsewhereId, fileId, other.id))).toBe(false);
+		// A rename by the other task started from no copy, so it has none yet.
+		unwrap(
+			await logFileChange(byOther, {
+				fileId,
+				name: 'Budget 2026',
+				kind: 'move',
+				beforeName: 'Budget',
+			}),
+		);
+		expect(unwrap(await hasTaskCopied(elsewhereId, fileId, other.id))).toBe(false);
+		// What a task made needs no copy.
+		unwrap(await logFileChange(byOther, {fileId: `${fileId}-new`, name: 'Notes', kind: 'create'}));
+		expect(unwrap(await hasTaskCopied(elsewhereId, `${fileId}-new`, other.id))).toBe(true);
+
+		// The copy given back makes a version of the same blob, at the drive's new revision.
+		const restore = unwrap(
+			await logFileChange(
+				{orgId, connectionId: elsewhereId, by: {userId}},
+				{
+					fileId,
+					name: 'Budget 2026',
+					kind: 'restore',
+					beforeRevision: 'r2',
+					afterRevision: 'r3',
+					made: {
+						blobId: copy.blobId,
+						size: copy.size,
+						type: copy.type,
+						sourceRevision: 'r3',
+						sourceType: SHEET,
+					},
+				},
+			),
+		);
+		expect(restore.change.afterVersion).toBe(restore.version?.id ?? '');
+		expect(
+			unwrap(await listFileVersions(elsewhereId, fileId)).map((version) => [
+				version.sourceRevision,
+				version.blobId === copy.blobId,
+				version.author?.kind ?? null,
+				version.author?.user?.name ?? null,
+			]),
+		).toEqual([
+			['r3', true, 'restore', 'Dana'],
+			['r1', true, null, null],
+		]);
+	});
+
+	test('keeps only an undo it can read, and reads one it doesn’t know as none', async () => {
+		const fileId = `sheet-${stamp}-3`;
+		const crooked: FileUndo = {...budgetUndo, after: [[{value: 1500}]]};
+
+		expect(
+			refusal(
+				await logFileChange(elsewhere, {fileId, name: 'Budget', kind: 'edit', undo: crooked}),
+			),
+		).toBe(
+			'validation_error: That change’s undo is not one to keep: The cells before and after are not the same shape.',
+		);
+		expect(await db.fileChange.count({where: {connectionId: elsewhereId, fileId}})).toBe(0);
+
+		const logged = unwrap(
+			await logFileChange(elsewhere, {fileId, name: 'Budget', kind: 'edit', undo: budgetUndo}),
+		);
+		// As a newer server's kind would be.
+		await db.fileChange.update({
+			where: {id: logged.change.id},
+			data: {undo: {kind: 'docs_text', find: 'Q3'}},
+		});
+		expect(unwrap(await getFileChange(elsewhereId, logged.change.id))?.undo).toBeNull();
+	});
+
+	test('finds an integration’s old copies and pins, lets the copies go and releases the pins', async () => {
+		const fileId = `sheet-${stamp}-4`;
+		const copy = unwrap(
+			await recordFileVersion({connectionId: elsewhereId, fileId, content: await sheetCopy('r1')}),
+		);
+		const pinned = unwrap(
+			await recordFileVersion({
+				connectionId: elsewhereId,
+				fileId,
+				content: {...sheetRevision('r2'), pinned: true},
+			}),
+		);
+		const native = unwrap(
+			await createFile(person, {parentId: null, name: 'kept.txt', content: await content()}),
+		);
+		const later = new Date(Date.now() + 60_000);
+		const aged = {integrationId: elsewhereIntegration, before: later, limit: 1000};
+
+		const copies = unwrap(await listOldFileCopies(aged)).map((version) => version.id);
+		expect(copies).toContain(copy.id);
+		expect(copies).not.toContain(pinned.id);
+		expect(copies).not.toContain(native.head?.id);
+		expect(
+			unwrap(await listOldFileCopies({...aged, before: new Date(Date.now() - 60_000)})),
+		).toEqual([]);
+		expect(unwrap(await listOldPinnedVersions(aged)).map((version) => version.id)).toContain(
+			pinned.id,
+		);
+
+		expect(unwrap(await dropFileVersionCopy(copy))).toBe(true);
+		expect(unwrap(await dropFileVersionCopy(copy))).toBe(false);
+		// The version stays, with its revision, and the blob is the sweep's.
+		expect(unwrap(await findFileVersion(elsewhereId, fileId, copy.id))).toMatchObject({
+			blobId: null,
+			size: 20,
+			sourceRevision: 'r1',
+		});
+		expect(unwrap(await listOldFileCopies(aged)).map((version) => version.id)).not.toContain(
+			copy.id,
+		);
+		expect(unwrap(await listUnusedFileBlobs(later, 1000)).map((blob) => blob.id)).toContain(
+			copy.blobId ?? '',
+		);
+
+		expect(unwrap(await unpinFileVersion(pinned))).toBe(true);
+		expect(unwrap(await unpinFileVersion(pinned))).toBe(false);
+		expect(unwrap(await listOldPinnedVersions(aged)).map((version) => version.id)).not.toContain(
+			pinned.id,
+		);
 	});
 });
