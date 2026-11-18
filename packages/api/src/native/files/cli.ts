@@ -264,7 +264,7 @@ export async function handleCliStartUploadRoute(request: CliRequest, response: R
 					if (inside !== null && !inside.folder) {
 						return $$(Err(ApiErr.validationError(`${reached.map((one) => one.name).join('/')} is a file, so nothing goes inside it.`)));
 					}
-					const target = {kind: 'create' as const, parentId: inside?.id ?? null, folders: missing.slice(0, -1), name};
+					const target = {kind: 'create' as const, parentId: inside?.id ?? null, folders: missing.slice(0, -1), name, convert: false};
 					return startedOf($$(await startUpload(runOf(entryId), uploads, target, file)));
 				}),
 			),

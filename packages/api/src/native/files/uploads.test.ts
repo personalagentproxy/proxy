@@ -199,6 +199,9 @@ describe.skipIf(!databaseUrl)('uploads into a drive, through a URL', () => {
 			`conflict: notes.txt changed since that version was read: it holds ${first} now. Read it again with files_read, then upload what you make of it.`,
 		);
 		expect(refusal(await tool('files_upload', {id, size: 6}))).toStartWith('validation_error: To write over a file, give the version you read too');
+		// Files keeps every file as its bytes: nothing is converted, new or written over.
+		expect(refusal(await tool('files_upload', {name: 'notes.docx', size: 6, convert: true}))).toBe('validation_error: Files keeps every file as its bytes, of its own type: leave convert out');
+		expect(refusal(await tool('files_upload', {id, version: first, size: 6, convert: true}))).toStartWith('validation_error: convert makes a new file into a Doc, Sheet or Slides file');
 
 		const started = unwrap(await tool('files_upload', {id, version: first, size: 6}));
 		expect((await put(lineOf(started, 'URL'), 'second')).status).toBe(200);

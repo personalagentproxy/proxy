@@ -373,6 +373,8 @@ describe('google', () => {
 			'tasks_complete',
 			'tasks_reopen',
 			'files_copy',
+			'files_upload',
+			'files_upload_done',
 			'files_versions',
 			'files_restore',
 			'files_undo',
@@ -465,11 +467,12 @@ describe('google', () => {
 			'kind',
 			'content',
 		]);
-		// What content takes, told after its label, so an agent finds it can upload a file's bytes.
+		// What content takes, told after its label, so an agent finds where a file's bytes go instead.
 		const properties = create?.inputSchema.properties ?? {};
 		expect(properties.content?.description).toStartWith('Content: a Document as Markdown');
-		expect(properties.content?.description).toContain('as its bytes in base64');
-		expect(properties.content?.description).toEndWith('at most 5 MB');
+		expect(properties.content?.description).toEndWith(
+			'goes up as its bytes with files_upload instead',
+		);
 		expect(properties.name?.description).toBe('Name');
 		expect(findTool(google, 'files_update')).toMatchObject({action: 'editFiles', risk: 'medium'});
 		const update = findTool(google, 'files_update');
@@ -492,6 +495,24 @@ describe('google', () => {
 		});
 		expect(copy?.inputSchema.required).toEqual(['id']);
 		expect(Object.keys(copy?.inputSchema.properties ?? {})).toEqual(['id', 'parent', 'name']);
+	});
+
+	test('uploading takes the same params as Files’ upload, and convert, needing Create files, as finishing it does', () => {
+		const files = findIntegration('files');
+		const upload = findTool(google, 'files_upload');
+		const nativeUpload = files && findTool(files, 'files_upload');
+
+		expect(upload).toMatchObject({kind: 'native', action: 'createFiles', readOnly: false});
+		expect(upload?.inputSchema.required).toEqual(['size']);
+		expect(Object.keys(upload?.inputSchema.properties ?? {})).toEqual([
+			...Object.keys(nativeUpload?.inputSchema.properties ?? {}),
+			'convert',
+		]);
+		expect(findTool(google, 'files_upload_done')).toMatchObject({
+			kind: 'native',
+			action: 'createFiles',
+			inputSchema: {required: ['upload']},
+		});
 	});
 
 	test('a file’s versions are read with Read files, and giving one back or undoing a change needs Edit files', () => {

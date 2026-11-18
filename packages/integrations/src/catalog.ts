@@ -926,13 +926,6 @@ const INVITED: Condition = {
 	values: ['Needs action', 'Accepted', 'Declined', 'Maybe'],
 };
 
-/**
- * The most a file uploaded to Drive may hold, in MB: what Drive takes in one multipart upload. Its
- * bytes come in the params as base64, a third larger, so the request carrying them is the tighter
- * limit: a script writes at most 2 MB, and a request over MCP or from a sandbox is at most 1 MB.
- */
-export const DRIVE_UPLOAD_MAX_MB = 5;
-
 // What a Drive record can be beside a place: a spreadsheet holds its tabs (Sheet), a tab its rows.
 const FILE_KINDS = ['Folder', 'Document', 'Spreadsheet', 'Presentation', 'Sheet', 'Row', 'File'];
 
@@ -946,8 +939,9 @@ const FILE_KINDS = ['Folder', 'Document', 'Spreadsheet', 'Presentation', 'Sheet'
 // Drive, Shared with me, Shared drives and Recent at the top, folders holding files, a spreadsheet
 // holding its tabs and a tab its rows. Documents read as Markdown, presentations as text, rows as
 // "Header: value" lines; new documents are written as Markdown and new spreadsheets as CSV, which
-// Drive converts, other new files, a PDF or a picture, as their bytes in base64, kept as they are,
-// and a file in Drive is copied into a folder by Drive itself (files_copy). A spreadsheet's ranges
+// Drive converts; a file of any size goes up as its bytes through a URL, Drive's own upload
+// session, straight to Drive (files_upload), and a file in Drive is copied into a folder by Drive
+// itself (files_copy). A spreadsheet's ranges
 // are read and written in A1 notation as CSV. Files are
 // moved to Trash, never deleted, and neither are events, contacts or tasks. Who is free is asked
 // of Google for the people named, and the people Gmail keeps under Other contacts are only read.
@@ -1368,16 +1362,16 @@ const google: Integration = {
 				{key: 'owner', label: 'Owner', type: 'text', system: true},
 				// A document as Markdown, a presentation as text, a spreadsheet's tabs one a line with their
 				// size, a row's values one "Header: value" a line, the headers from the tab's first row. A
-				// new document is written as Markdown, a new spreadsheet as CSV, and any other new file as
-				// its bytes in base64, or a data URL of them, the type its name's extension says, else the
-				// data URL's; its bytes aren't read back. Writing a document's content replaces all of it,
-				// dropping its comments and suggestions; a row's changes only the headers written
-				// differently. A presentation's and a spreadsheet's are only read.
+				// new document is written as Markdown and a new spreadsheet as CSV; any other new file goes
+				// up as its bytes with files_upload, and they aren't read back. Writing a document's content
+				// replaces all of it, dropping its comments and suggestions; a row's changes only the
+				// headers written differently. A presentation's and a spreadsheet's are only read.
 				{
 					key: 'content',
 					label: 'Content',
 					type: 'longtext',
-					description: `a Document as Markdown, a Spreadsheet as CSV, a row as "Header: value" lines; a new File, such as report.pdf or chart.png, as its bytes in base64, or a data URL of them where its name has no extension, at most ${DRIVE_UPLOAD_MAX_MB} MB`,
+					description:
+						'a Document as Markdown, a Spreadsheet as CSV, a row as "Header: value" lines; a new File, such as report.pdf or chart.png, goes up as its bytes with files_upload instead',
 				},
 			],
 		},
@@ -1537,8 +1531,11 @@ const google: Integration = {
 	],
 	// Copying a file names both the file and where the copy goes, which no one record's write does.
 	// Drive makes the copy itself, so a file of any size is copied without passing through here. A
-	// file's history, the versions Personal Agent Proxy keeps of it and the changes made through it,
-	// is read and given back through tools of their own too.
+	// file's bytes go up through a URL, Drive's own resumable upload session, which the agent sends
+	// them to however it can, so they never pass through here either; files_upload needs Add files
+	// for a new file and Edit files to write over one, as does finishing it, as Files' do. A file's
+	// history, the versions Personal Agent Proxy keeps of it and the changes made through it, is
+	// read and given back through tools of their own too.
 	tools: [
 		{
 			name: 'files_copy',
@@ -1564,10 +1561,76 @@ const google: Integration = {
 			},
 		},
 		{
+			name: 'files_upload',
+			title: 'Upload file',
+			description:
+				"Uploads a file of any size into Drive as its bytes: a PDF, a picture, a video, a docx. Answers with a URL, Drive's own upload session, that takes the file for an hour, and a line to run in a shell, as curl -X PUT --upload-file <path> '<url>'; no sign-in or header is needed, and the bytes go straight to Drive. Then call files_upload_done with the upload’s id: it checks what arrived and finishes the file. For a new file give name and size, and parent for a folder or shared drive; it keeps its own type, or with convert becomes a Doc, Sheet or Slides file, from a docx, xlsx or pptx, or Markdown or CSV. To write over a file, give its id, the version files_versions says it is at and size: a file of its own bytes takes any but Markdown or CSV, and a Doc, Sheet or Slides file only a docx, xlsx or pptx, which Drive converts into it. A copy is kept before a task first changes a file. Everything is checked before the URL is given: the folder, the name, the type and the version.",
+			action: 'createFiles',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					name: {
+						type: 'string',
+						description: 'A new file’s name, with its extension, as report.pdf',
+					},
+					parent: {
+						type: 'string',
+						description:
+							'The id of the folder or shared drive to put a new file in, as files_list gives it; left out, My Drive',
+					},
+					id: {
+						type: 'string',
+						description: 'The id of a file to write over, or its link, instead of name and parent',
+					},
+					version: {
+						type: 'string',
+						description: 'The version of the file id names, as files_versions says it is at now',
+					},
+					size: {
+						type: 'number',
+						description: 'The file’s size in bytes, as wc -c < <path> counts it',
+					},
+					type: {
+						type: 'string',
+						description:
+							'Its media type, as application/pdf, where its name’s extension doesn’t say',
+					},
+					sha256: {
+						type: 'string',
+						description:
+							'The file’s SHA-256 in hex, as sha256sum prints it, for done to check what arrived against',
+					},
+					convert: {
+						type: 'boolean',
+						description:
+							'Makes a new file a Doc, Sheet or Slides file: a docx or Markdown a Doc, an xlsx or CSV a Sheet, a pptx a Slides file',
+					},
+				},
+				required: ['size'],
+			},
+		},
+		{
+			name: 'files_upload_done',
+			title: 'Finish upload',
+			description:
+				'Finishes an upload, once its bytes were sent to the URL files_upload answered with: checks with Drive that their size, and their SHA-256 where you gave one, are what arrived, and answers with the file’s id, version and link. Bytes that aren’t what was said are taken out of Drive again: a new file moved to Trash, a file written over given back its revision before. Called again, it answers the same.',
+			action: 'createFiles',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					upload: {
+						type: 'string',
+						description: 'The upload’s id, as files_upload answered with it',
+					},
+				},
+				required: ['upload'],
+			},
+		},
+		{
 			name: 'files_versions',
 			title: 'List versions',
 			description:
-				'Lists the versions Personal Agent Proxy keeps of a file in Drive, newest first, and the changes made to it through Personal Agent Proxy: who made each, for which task, and whether a version is kept here or only as Drive’s own revision. A copy is kept before a task first changes a file. Answers the version ids files_restore takes and the change ids files_undo takes.',
+				'Lists the versions Personal Agent Proxy keeps of a file in Drive, newest first, and the changes made to it through Personal Agent Proxy: who made each, for which task, and whether a version is kept here or only as Drive’s own revision. A copy is kept before a task first changes a file. Answers the version ids files_restore takes, the change ids files_undo takes, and the version the file is at now in Drive, which files_upload takes to write over it.',
 			action: 'readFiles',
 			readOnly: true,
 			inputSchema: {

@@ -30,9 +30,10 @@ const uploadSchema = z.object({
 	size: z.number().int().nonnegative(),
 	type: z.string().min(1).optional(),
 	sha256: z.string().regex(SHA256, 'a SHA-256 is 64 hex digits').optional(),
+	convert: z.boolean().optional(),
 });
 
-const TAKES = 'size, with name (and parent) for a new file or id and version to write over one, and type and sha256 where wanted';
+const TAKES = 'size, with name (and parent) for a new file or id and version to write over one, and type, sha256 and convert where wanted';
 
 type UploadAsked = {target: UploadTarget; file: DeclaredFile};
 
@@ -46,14 +47,17 @@ function readUpload(params: Record<string, unknown>): Result<UploadAsked, ApiErr
 				return $(Err(ApiErr.validationError('files_upload writes over the file id names, where it is: leave name and parent out, or id to add a new file')));
 			}
 			if (parsed.version === undefined) {
-				return $(Err(ApiErr.validationError('To write over a file, give the version you read too, as files_read answers with it')));
+				return $(Err(ApiErr.validationError('To write over a file, give the version you read too')));
+			}
+			if (parsed.convert === true) {
+				return $(Err(ApiErr.validationError('convert makes a new file into a Doc, Sheet or Slides file; a file written over keeps its own kind: leave convert out')));
 			}
 			return {target: {kind: 'write', fileId: parsed.id, version: parsed.version}, file};
 		}
 		if (parsed.name === undefined) {
 			return $(Err(ApiErr.validationError('files_upload takes the new file’s name, or the id of a file to write over')));
 		}
-		return {target: {kind: 'create', parentId: parsed.parent ?? null, folders: [], name: parsed.name}, file};
+		return {target: {kind: 'create', parentId: parsed.parent ?? null, folders: [], name: parsed.name, convert: parsed.convert ?? false}, file};
 	});
 }
 
@@ -69,8 +73,9 @@ function ticketText(ticket: UploadTicket): string {
 		'',
 		`Send ${ticket.name}’s ${ticket.size} bytes to the URL, from a shell, as:`,
 		`curl -X PUT --upload-file <path> '${put.url}'`,
+		...(put.resumable ? ['It takes the file in parts too, each with its Content-Range, as a resumable upload.'] : []),
 		'',
-		`Then call files_upload_done with upload ${ticket.upload}: only that makes the file${ticket.target === 'write' ? '’s next version' : ''}. The URL takes one upload, until it expires.`,
+		`Then call files_upload_done with upload ${ticket.upload}, which checks what arrived and finishes the file${ticket.target === 'write' ? '’s next version' : ''}. The URL takes one upload, until it expires.`,
 	].join('\n');
 }
 

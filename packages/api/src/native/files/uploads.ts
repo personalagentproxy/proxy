@@ -37,6 +37,9 @@ export const filesUploads: DriveUploads = {
 			const backend = $(await requireBlobs());
 			const named = await Do<{name: string; fileId: string | null}, ApiError>(async ($$) => {
 				if (target.kind === 'create') {
+					if (target.convert) {
+						return $$(Err(ApiErr.validationError('Files keeps every file as its bytes, of its own type: leave convert out')));
+					}
 					const name = $$(requireFileName(target.name));
 					for (const folder of target.folders) {
 						$$(requireFileName(folder));
@@ -58,7 +61,7 @@ export const filesUploads: DriveUploads = {
 			});
 			const {name, fileId} = $(named);
 			const blob = $(await createFileBlob({orgId: run.connection.orgId, backendId: backend.id, key: newBlobKey(run.connection.orgId)}));
-			return {name, type: mediaType(name, file.type ?? undefined, 'bytes'), fileId, to: {kind: 'blob' as const, blobId: blob.id}};
+			return {name, type: mediaType(name, file.type ?? undefined, 'bytes'), fileId, to: {kind: 'blob' as const, blobId: blob.id}, before: null};
 		}),
 
 	arrived: (_run, upload) =>
@@ -69,6 +72,9 @@ export const filesUploads: DriveUploads = {
 			const blob = $(requirePresent($(await getFileBlob(upload.blobId)), ApiErr.notFound('blob', upload.blobId)));
 			return {size: blob.size, sha256: blob.sha256};
 		}),
+
+	// Nothing to take back: the file is only made at done, and the blob is left to the sweep of unused blobs.
+	discard: () => Promise.resolve(Ok(undefined)),
 
 	finish: (_run, upload, arrived) =>
 		Do(async ($) => {
@@ -95,5 +101,5 @@ export const filesUploads: DriveUploads = {
 		}),
 
 	// Nothing to let go of here: the blob is left to the sweep of unused blobs.
-	expire: () => Promise.resolve(Ok(undefined)),
+	expire: () => Promise.resolve(Ok('let-go' as const)),
 };

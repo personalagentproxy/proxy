@@ -3,15 +3,15 @@ import {randomUUID} from 'node:crypto';
 import type {Result} from 'ts-results-es';
 import {z} from 'zod';
 
-import {type ApiError, Do} from '@proxy/utils';
+import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 
-import {googleRequest, googleSession, googleStream, googleText, googleTransfer, googleUpload, googleWrite} from './google-client';
+import {googleDelete, googleRequest, googleSession, googleStream, googleText, googleTransfer, googleUpload, googleWrite} from './google-client';
 
 /**
  * The Drive v3 calls the `files` collection makes, and the reading of their answers. Every call
- * takes shared drives too. A document or a spreadsheet is uploaded as Markdown or CSV with the
- * Google type it is to become, and Drive converts it; any other file is uploaded as its bytes, with
- * its own type, and kept as it is.
+ * takes shared drives too. A document or a spreadsheet is made from Markdown or CSV with the
+ * Google type it is to become, and Drive converts it. A file's bytes go up through a resumable
+ * upload's session, opened here and sent to by whoever has the bytes (records/google-uploads.ts).
  */
 
 const DRIVE = 'https://www.googleapis.com/drive/v3';
@@ -152,9 +152,8 @@ function textType(type: string): string {
 	return `${type}; charset=UTF-8`;
 }
 
-// A file's metadata and its content, text or bytes, in one request, as Drive's multipart upload
-// takes them.
-function multipart(metadata: object, type: string, content: string | Uint8Array<ArrayBuffer>): {type: string; body: Blob} {
+// A file's metadata and its text in one request, as Drive's multipart upload takes them.
+function multipart(metadata: object, type: string, content: string): {type: string; body: Blob} {
 	const boundary = `proxy-${randomUUID()}`;
 	const head = [`--${boundary}`, 'Content-Type: application/json; charset=UTF-8', '', JSON.stringify(metadata), `--${boundary}`, `Content-Type: ${type}`, '', ''].join('\r\n');
 	return {type: `multipart/related; boundary=${boundary}`, body: new Blob([head, content, `\r\n--${boundary}--`])};
@@ -172,11 +171,6 @@ export function createFile(accessToken: string, file: NewFile, upload: Upload | 
 		return googleWrite(accessToken, 'POST', driveUrl('/files', WRITE_PARAMS), metadataOf(file), driveFileSchema);
 	}
 	return googleUpload(accessToken, 'POST', driveUrl('/files', {...WRITE_PARAMS, uploadType: 'multipart'}, UPLOAD), multipart(metadataOf(file), textType(upload.type), upload.body), driveFileSchema);
-}
-
-/** Uploads a file's bytes as they are, of the type it is made as, which is never one of Google's own, so nothing is converted. */
-export function uploadFile(accessToken: string, file: NewFile, bytes: Uint8Array<ArrayBuffer>): Promise<Result<DriveFile, ApiError>> {
-	return googleUpload(accessToken, 'POST', driveUrl('/files', {...WRITE_PARAMS, uploadType: 'multipart'}, UPLOAD), multipart(metadataOf(file), file.mimeType, bytes), driveFileSchema);
 }
 
 /** A copy of a file, made by Drive itself, in the folder given under the name given. */
@@ -217,10 +211,11 @@ export function isGoogleType(mimeType: string): boolean {
 	return mimeType.startsWith('application/vnd.google-apps.');
 }
 
-const STATE_FIELDS = 'id,name,mimeType,webViewLink,parents,headRevisionId,sha256Checksum,size';
+const STATE_FIELDS = 'id,name,mimeType,webViewLink,parents,headRevisionId,sha256Checksum,size,version';
 
 // `headRevisionId` and `sha256Checksum` only for a file with bytes of its own, not one of Google's
-// types; `size` as text, as Drive writes its 64-bit numbers.
+// types; `size` and `version` as text, as Drive writes its 64-bit numbers. `version` goes up with
+// every change to the file, its name too, which is how a Doc's, Sheet's or Slides file's is told.
 const fileStateSchema = z.object({
 	id: z.string(),
 	name: z.string(),
@@ -230,10 +225,23 @@ const fileStateSchema = z.object({
 	headRevisionId: z.string().optional(),
 	sha256Checksum: z.string().optional(),
 	size: z.string().optional(),
+	version: z.string().optional(),
 });
 
 /** A file as a change to it is recorded against: its revision, and what copying it needs. */
 export type DriveFileState = z.infer<typeof fileStateSchema>;
+
+/**
+ * The version a write over a file is checked against, as files_upload takes it: a file with bytes
+ * of its own has its head revision; a Doc, Sheet or Slides file its version number. None for a
+ * folder, which takes no bytes.
+ */
+export function driveVersion(file: DriveFileState): string | null {
+	if (file.mimeType === MIME_TYPES.folder) {
+		return null;
+	}
+	return (isGoogleType(file.mimeType) ? file.version : file.headRevisionId) ?? null;
+}
 
 /** A file's metadata with its head revision, checksum and size. */
 export function getFileState(accessToken: string, fileId: string): Promise<Result<DriveFileState, ApiError>> {
@@ -289,15 +297,51 @@ export function exportBytes(accessToken: string, fileId: string, mimeType: strin
 }
 
 /**
- * Puts bytes in place of all of a file's content, as its new revision, keeping its id: a file with
- * bytes of its own takes them as they are; a Doc, Sheet or Slides file takes a docx, xlsx or pptx
- * and converts it into what it is. Sent through a resumable upload's session, as Drive takes a file
- * of more than 5 MB, the bytes in one request as they come.
+ * Opens a resumable upload of bytes of `type`, `size` of them where that is known, in place of all
+ * of a file's content, as its new revision, keeping its id: a file with bytes of its own takes them
+ * as they are; a Doc, Sheet or Slides file takes a docx, xlsx or pptx and converts it into what it
+ * is. Answers the session's address, where the bytes go.
+ */
+export function openWriteSession(accessToken: string, fileId: string, content: {type: string; size: number | null}): Promise<Result<string, ApiError>> {
+	const url = driveUrl(`/files/${fileId}`, {uploadType: 'resumable', fields: STATE_FIELDS, supportsAllDrives: 'true'}, UPLOAD);
+	return googleSession(accessToken, 'PATCH', url, {...content, metadata: {}});
+}
+
+/**
+ * Puts bytes in place of all of a file's content, as `openWriteSession` takes them, sent through
+ * the session, as Drive takes a file of more than 5 MB, in one request as they come.
  */
 export function putContent(accessToken: string, fileId: string, content: {type: string; body: ReadableStream<Uint8Array>; size: number | null}): Promise<Result<DriveFileState, ApiError>> {
 	return Do(async ($) => {
-		const url = driveUrl(`/files/${fileId}`, {uploadType: 'resumable', fields: STATE_FIELDS, supportsAllDrives: 'true'}, UPLOAD);
-		const session = $(await googleSession(accessToken, 'PATCH', url, {type: content.type, size: content.size, metadata: {}}));
+		const session = $(await openWriteSession(accessToken, fileId, content));
 		return $(await googleTransfer(accessToken, 'PUT', new URL(session), content, fileStateSchema));
 	});
+}
+
+// ---- Uploads through a URL -----------------------------------------------------------------------
+
+const generatedIdsSchema = z.object({ids: z.array(z.string())});
+
+/** An id Drive reserves for a file not made yet, which a file made with it then has. */
+export function generateFileId(accessToken: string): Promise<Result<string, ApiError>> {
+	return Do(async ($) => {
+		const generated = $(await googleRequest(accessToken, driveUrl('/files/generateIds', {count: '1', space: 'drive', type: 'files'}), generatedIdsSchema));
+		return $(requirePresent(generated.ids[0], ApiErr.providerUnreachable(new Error('Google Drive reserved no id for a new file'))));
+	});
+}
+
+/**
+ * Opens a resumable upload of a new file, of bytes of `type`, `size` of them, under the id Drive
+ * reserved for it, in the folder given, as `file.mimeType`: the bytes' own type keeps them as they
+ * are, and a Google type converts them, as a docx into a Doc. Drive makes the file once the bytes
+ * are in. Answers the session's address, where the bytes go.
+ */
+export function openCreateSession(accessToken: string, file: NewFile & {id: string}, content: {type: string; size: number}): Promise<Result<string, ApiError>> {
+	const url = driveUrl('/files', {uploadType: 'resumable', fields: STATE_FIELDS, supportsAllDrives: 'true'}, UPLOAD);
+	return googleSession(accessToken, 'POST', url, {...content, metadata: {id: file.id, ...metadataOf(file)}});
+}
+
+/** Deletes one of a file's revisions for good: only a file with bytes of its own, and never its last. */
+export function deleteRevision(accessToken: string, fileId: string, revisionId: string): Promise<Result<void, ApiError>> {
+	return googleDelete(accessToken, driveUrl(`/files/${fileId}/revisions/${revisionId}`, {}));
 }

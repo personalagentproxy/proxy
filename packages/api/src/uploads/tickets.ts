@@ -37,10 +37,11 @@ export type UploadRun = Pick<NativeToolRun, 'caller' | 'connection' | 'entryId'>
 
 /**
  * What an upload makes: a new file in a folder, the top where `parentId` is null, inside the
- * `folders` made in it on the way at done, where a push to a path names folders that are missing;
- * or the next version of a file, by whoever read `version`.
+ * `folders` made in it on the way at done, where a push to a path names folders that are missing,
+ * and `convert`ed into the drive's own kind of file where the drive has one, as Google Drive makes
+ * a Doc of a docx; or the next version of a file, by whoever read `version`.
  */
-export type UploadTarget = {kind: 'create'; parentId: string | null; folders: string[]; name: string} | {kind: 'write'; fileId: string; version: string};
+export type UploadTarget = {kind: 'create'; parentId: string | null; folders: string[]; name: string; convert: boolean} | {kind: 'write'; fileId: string; version: string};
 
 /** What the caller says it will send: how many bytes, their SHA-256 in hex where it says, and their media type where it says. */
 export type DeclaredFile = {size: number; sha256: string | null; type: string | null};
@@ -48,13 +49,17 @@ export type DeclaredFile = {size: number; sha256: string | null; type: string | 
 /**
  * What a drive readied for an upload: the file's name and media type, the file's id where it is
  * known before the bytes, and where they go: a blob of the store here, made for them, through
- * Personal Agent Proxy's own URL; or a URL of the drive's own, which may take them in parts.
+ * Personal Agent Proxy's own URL; or a URL of the drive's own, which may take them in parts. And,
+ * for a write over a file of a drive elsewhere, which lands in the file before done, what its
+ * history needs to log it at done: the drive's revision of the file at the start, and the copy kept
+ * of it then (records/google-history.ts beginDriveChange); none for a drive kept here.
  */
 export type UploadStarted = {
 	name: string;
 	type: string;
 	fileId: string | null;
 	to: {kind: 'blob'; blobId: string} | {kind: 'session'; url: string; resumable: boolean};
+	before: {revision: string | null; version: string | null} | null;
 };
 
 /** What arrived of an upload: how many bytes, and their SHA-256 in hex where the drive says. */
@@ -74,13 +79,28 @@ export type DriveUploads = {
 	start: (run: UploadRun, target: UploadTarget, file: DeclaredFile) => Promise<Result<UploadStarted, ApiError>>;
 	/** What arrived of the upload so far; none where nothing has. */
 	arrived: (run: UploadRun, upload: FileUploadRow) => Promise<Result<UploadArrived | null, ApiError>>;
+	/**
+	 * Takes back what arrived for an upload refused at done, as bytes that aren't what was said,
+	 * where the drive took them into the file already: Google Drive has a file once its bytes are
+	 * in. Nothing for a drive whose file only done makes.
+	 */
+	discard: (run: UploadRun, upload: FileUploadRow, arrived: UploadArrived) => Promise<Result<void, ApiError>>;
 	/** Makes the file, or its next version, of what arrived, as the upload's agent's, for its task. */
 	finish: (run: UploadRun, upload: FileUploadRow, arrived: UploadArrived) => Promise<Result<UploadMade, ApiError>>;
 	/** Where the person opens the file the upload made. */
 	link: (run: UploadRun, upload: FileUploadRow, made: UploadMade) => Promise<Result<string, ApiError>>;
-	/** Lets go of what an upload nobody finished holds at the drive, as a session there. */
-	expire: (upload: FileUploadRow) => Promise<Result<void, ApiError>>;
+	/**
+	 * Lets go of what an upload past its hour holds at the drive, as a session there, or keeps it
+	 * open for done a while yet: an upload whose bytes are all in may still be finished for an hour
+	 * past its own (`UPLOAD_TTL_MS`), as a PUT to the URL here that ended in time is; past that,
+	 * what arrived is taken back, since only done makes a file. Answers whether it was let go,
+	 * which is when the upload is marked expired.
+	 */
+	expire: (upload: FileUploadRow, now: Date) => Promise<Result<Expiry, ApiError>>;
 };
+
+/** What a drive did with an upload past its hour: let it go, or kept it open for done a while yet. */
+export type Expiry = 'let-go' | 'kept';
 
 /** Where the bytes go: the URL, how to send them there, until when, and whether it takes them in parts (Content-Range). */
 export type UploadPut = {url: string; method: 'PUT'; headers: Record<string, string>; expiresAt: Date; resumable: boolean};
@@ -122,13 +142,16 @@ export function startUpload(run: UploadRun, uploads: DriveUploads, target: Uploa
 				parentId: target.kind === 'create' ? target.parentId : null,
 				name: started.name,
 				folders: target.kind === 'create' ? target.folders : [],
-				fileId: target.kind === 'write' ? target.fileId : started.fileId,
+				// The drive's own id of the file written over, where it reads one from a link.
+				fileId: started.fileId ?? (target.kind === 'write' ? target.fileId : null),
 				version: target.kind === 'write' ? target.version : null,
 				size: file.size,
 				sha256: file.sha256,
 				type: started.type,
 				blobId: started.to.kind === 'blob' ? started.to.blobId : null,
 				sessionUri,
+				beforeRevision: started.before?.revision ?? null,
+				beforeVersion: started.before?.version ?? null,
 				expiresAt,
 			}),
 		);
@@ -160,6 +183,10 @@ function settle(run: UploadRun, uploads: DriveUploads, upload: FileUploadRow, no
 				kind: 'waiting',
 				why: `Nothing has arrived for upload ${upload.id} yet: PUT the file to the URL files_upload answered with, as curl -X PUT --upload-file <path> '<url>', then call files_upload_done again.`,
 			};
+		}
+		const mismatch = arrived.size !== upload.size || (upload.sha256 !== null && arrived.sha256 !== null && arrived.sha256 !== upload.sha256);
+		if (mismatch) {
+			$(await uploads.discard(run, upload, arrived));
 		}
 		if (arrived.size !== upload.size) {
 			return {
@@ -224,12 +251,18 @@ export function finishUpload(run: UploadRun, uploads: DriveUploads, uploadId: st
 			return $(Err(ApiErr.validationError(value.why)));
 		}
 		if (value.kind === 'expired') {
-			$(await expireFileUpload(upload.id));
-			const letGo = await uploads.expire(upload);
+			const letGo = await uploads.expire(upload, now);
+			if (letGo.isOk() && letGo.value === 'let-go') {
+				$(await expireFileUpload(upload.id));
+				return $(Err(ApiErr.conflict(EXPIRED)));
+			}
+			// Left open: for the sweep to let go of, where the drive couldn't now, or for done, where the bytes came in just now.
+			$(await unlockFileUpload(upload.id));
 			if (letGo.isErr()) {
 				log.warn('An expired upload could not be let go of at its drive', {uploadId: upload.id, kind: letGo.error.kind});
+				return $(Err(ApiErr.conflict(EXPIRED)));
 			}
-			return $(Err(ApiErr.conflict(EXPIRED)));
+			return $(Err(ApiErr.conflict(`The file arrived just now for upload ${upload.id}: call files_upload_done again.`)));
 		}
 		if (value.kind === 'failed') {
 			$(await failFileUpload(upload.id, value.why));

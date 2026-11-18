@@ -421,7 +421,7 @@ describe('creating files', () => {
 			'Nothing can be made in Shared drives: make it in a folder, My Drive or a shared drive',
 			'Rows go in one of the spreadsheet’s tabs: open it and pick one as parent',
 			'A document holds nothing: make it in a folder',
-			'Say what to make as kind: Folder, Document, Spreadsheet or File',
+			'Say what to make as kind: Folder, Document or Spreadsheet',
 			'A new document needs a name',
 			'A folder has no content',
 		]);
@@ -429,74 +429,12 @@ describe('creating files', () => {
 	});
 });
 
-// Bytes no text is: a PDF's start, a NUL, bytes past ASCII and a line break Drive must keep as they are.
-const BYTES = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0x00, 0xff, 0x80, 0x0d, 0x0a, 0xe2]);
-
-describe('uploading files', () => {
-	test('a file is uploaded as its bytes are, of the type its name says, never converted, and opens as a file', async () => {
+describe('files of their own bytes', () => {
+	test('a new one goes up with files_upload, never in content', async () => {
 		const {filesConnector} = await import('./google-files');
-		const base64 = BYTES.toString('base64');
-		// Line breaks, as some encoders wrap base64, are left out.
-		const record = (await filesConnector.create(target, {name: 'Results.pdf', kind: 'File', content: `${base64.slice(0, 8)}\n${base64.slice(8)}`}, 'drive-0ATeamDrive')).unwrap();
+		const refused = await filesConnector.create(target, {name: 'Results.pdf', kind: 'File', content: 'JVBERi0='}, '1Projects');
 
-		const [upload] = writes();
-		expect([upload?.method, upload?.url.pathname]).toEqual(['POST', '/upload/drive/v3/files']);
-		expect(Object.fromEntries(upload?.url.searchParams ?? [])).toMatchObject({uploadType: 'multipart', supportsAllDrives: 'true'});
-		expect(upload?.type).toMatch(/^multipart\/related; boundary=/);
-		expect(uploadOf(upload as Request)).toEqual({metadata: {name: 'Results.pdf', mimeType: 'application/pdf', parents: ['0ATeamDrive']}, type: 'application/pdf', bytes: BYTES});
-		expect(writes()).toHaveLength(1);
-		expect(record).toMatchObject({id: '1New1', values: {name: 'Results.pdf', kind: 'File', content: ''}});
-		expect(record.hasChildren).toBeUndefined();
-	});
-
-	test('a data URL says the type of a file whose name doesn’t, a name’s extension winning; with neither, it is bytes', async () => {
-		const {filesConnector} = await import('./google-files');
-		const base64 = BYTES.toString('base64');
-		await filesConnector.create(target, {name: 'Scan 12', kind: 'File', content: `data:Image/PNG;base64,${base64}`}, '1Projects');
-		await filesConnector.create(target, {name: 'chart.png', kind: 'File', content: `data:application/pdf;name=x.pdf;base64,${base64}`}, 'root');
-		await filesConnector.create(target, {name: 'export', kind: 'File', content: base64}, '1Projects');
-
-		const uploads = writes().map((request) => uploadOf(request));
-		expect(uploads.map(({metadata}) => metadata)).toEqual([
-			{name: 'Scan 12', mimeType: 'image/png', parents: ['1Projects']},
-			{name: 'chart.png', mimeType: 'image/png', parents: ['root']},
-			{name: 'export', mimeType: 'application/octet-stream', parents: ['1Projects']},
-		]);
-		expect(uploads.every(({bytes}) => bytes.equals(BYTES))).toBe(true);
-	});
-
-	test('content that isn’t base64, none, too much, a name, type or place a file can’t have are turned down before anything is written', async () => {
-		const {filesConnector} = await import('./google-files');
-		const content = BYTES.toString('base64');
-		const refusals = await Promise.all([
-			filesConnector.create(target, {name: 'notes.txt', kind: 'File', content: 'Just some text.'}, '1Projects'),
-			filesConnector.create(target, {name: 'notes.txt', kind: 'File', content: 'abc'}, '1Projects'),
-			filesConnector.create(target, {name: 'notes.txt', kind: 'File', content: 'Zm9v-_8='}, '1Projects'),
-			filesConnector.create(target, {name: 'notes.txt', kind: 'File', content: ' \n'}, '1Projects'),
-			filesConnector.create(target, {name: 'notes.txt', kind: 'File', content: 'data:text/plain;base64,'}, '1Projects'),
-			filesConnector.create(target, {name: 'big.bin', kind: 'File', content: Buffer.alloc(6 * 1024 * 1024).toString('base64')}, '1Projects'),
-			filesConnector.create(target, {name: ' ', kind: 'File', content}, '1Projects'),
-			filesConnector.create(target, {name: 'Plan', kind: 'File', content: `data:application/vnd.google-apps.document;base64,${content}`}, '1Projects'),
-			filesConnector.create(target, {name: 'Paper', kind: 'File', content: `data:pdf;base64,${content}`}, '1Projects'),
-			filesConnector.create(target, {name: 'paper.pdf', kind: 'File', content}, 'recent'),
-			filesConnector.create(target, {name: 'paper.pdf', kind: 'File', content}, '1Plan'),
-			filesConnector.create(target, {name: 'paper.pdf', kind: 'File', content}, 'sheet-1Budget-0'),
-		]);
-
-		expect(refusals.map((result) => messageOf(result))).toEqual([
-			'A file’s content is its bytes as base64, padded with =, as btoa writes it, or a data URL of them',
-			'A file’s content is its bytes as base64, padded with =, as btoa writes it, or a data URL of them',
-			'A file’s content is its bytes as base64, padded with =, as btoa writes it, or a data URL of them',
-			'A new file needs its bytes in content, as base64',
-			'A new file needs its bytes in content, as base64',
-			'“big.bin” is too large to upload, at 6.0 MB: at most 5.0 MB',
-			'A new file needs a name, with its extension, such as report.pdf',
-			'A file uploaded keeps its own type: make a Document or a Spreadsheet to have Google’s',
-			'A data URL’s type is a media type, such as application/pdf, not “pdf”',
-			'Nothing can be made in Recent: make it in a folder, My Drive or a shared drive',
-			'A document holds nothing: make it in a folder',
-			'A tab holds rows: leave kind out, or make it Row',
-		]);
+		expect(messageOf(refused)).toBe('A file of its own bytes, such as a PDF or a picture, goes up with files_upload, which answers with a URL to send it to');
 		expect(writes()).toEqual([]);
 	});
 
@@ -508,7 +446,7 @@ describe('uploading files', () => {
 		expect(writes().map((request) => [request.method, request.url.pathname, JSON.parse(request.body)])).toEqual([['PATCH', '/drive/v3/files/1Paper', {name: 'Paper v2.pdf'}]]);
 
 		google.requests = [];
-		const refused = await filesConnector.update(target, '1Paper', {content: BYTES.toString('base64')});
+		const refused = await filesConnector.update(target, '1Paper', {content: 'JVBERi0='});
 		expect(messageOf(refused)).toBe('Only a document’s content can be written here; this file’s name can be changed');
 		expect(writes()).toEqual([]);
 	});

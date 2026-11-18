@@ -60,6 +60,8 @@ describe.skipIf(!databaseUrl)('uploads, against the database', () => {
 				type: 'application/pdf',
 				blobId: null,
 				sessionUri: null,
+				beforeRevision: null,
+				beforeVersion: null,
 				expiresAt,
 			}),
 		);

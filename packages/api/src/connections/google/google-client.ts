@@ -171,6 +171,42 @@ export function googleSession(accessToken: string, method: WriteMethod, url: URL
 	});
 }
 
+// A session's address is its own credential, as an upload's URL: what went wrong reaching it is
+// told without it, so no log ever holds it.
+function sessionError(error: FetchError): ApiError {
+	return googleError({...error, url: 'a Google Drive upload session'});
+}
+
+/**
+ * Where a resumable upload stands, asked of its session as Google has it asked, with nothing sent
+ * and `Content-Range: bytes * /<size>`: `complete` once Drive has every byte and made the file or
+ * its revision of them (200 or 201); `open` while it has some or none (308); `gone` for a session
+ * Drive no longer has, cancelled or past its week. The address needs no token. Asked of a session
+ * for an empty file, it ends the upload, as sending the empty file would.
+ */
+export function googleSessionStatus(sessionUri: string, size: number): Promise<Result<'complete' | 'open' | 'gone', ApiError>> {
+	return Do(async ($) => {
+		const init: RequestInit = {method: 'PUT', headers: {'content-range': `bytes */${size}`}, body: new Uint8Array(), redirect: 'manual'};
+		const allowStatus = (status: number) => [200, 201, 308, 404, 410].includes(status);
+		const response = $((await httpRequest(sessionUri, init, {parse: 'response', allowStatus, timeoutMs: TIMEOUT_MS})).mapErr(sessionError));
+		await Result.wrapAsync(() => response.body?.cancel() ?? Promise.resolve());
+		if (response.status === 308) {
+			return 'open';
+		}
+		return response.status === 404 || response.status === 410 ? 'gone' : 'complete';
+	});
+}
+
+/**
+ * Cancels a resumable upload, with a DELETE on its session, so Drive takes no more bytes at it;
+ * one Drive cancelled already, or no longer has, is as good (499, 404, 410).
+ */
+export async function googleSessionCancel(sessionUri: string): Promise<Result<void, ApiError>> {
+	const allowStatus = (status: number) => (status >= 200 && status < 300) || [404, 410, 499].includes(status);
+	const answer = await httpRequest(sessionUri, {method: 'DELETE'}, {allowStatus, timeoutMs: TIMEOUT_MS});
+	return answer.mapErr(sessionError);
+}
+
 /** A DELETE, whose answer is empty. */
 export async function googleDelete(accessToken: string, url: URL): Promise<Result<void, ApiError>> {
 	const answer = await httpRequest(url, {...authorized(accessToken), method: 'DELETE'}, {timeoutMs: TIMEOUT_MS});

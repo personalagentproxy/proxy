@@ -16,7 +16,7 @@ import {
 	listFileVersions,
 } from '@proxy/db/files';
 
-import {downloadRevision, fileIdOf, getFileState, isGoogleType, putContent, type DriveFileState} from '../connections/google/drive-api';
+import {downloadRevision, driveVersion, fileIdOf, getFileState, isGoogleType, putContent, type DriveFileState} from '../connections/google/drive-api';
 import {callGoogle} from '../connections/google/google-client';
 import {openContent} from '../native/files/content';
 import type {NativeToolRun, NativeToolRunner} from '../native/tool';
@@ -124,9 +124,12 @@ export const runFilesVersions: NativeToolRunner = (run) =>
 		const versionLines = $(versionsRead).map((version) => versionLine(version, changes));
 		const changeLines = changes.map(changeLine);
 		const link = file.webViewLink ? [`Link: ${file.webViewLink}`] : [];
+		const current = driveVersion(file);
+		const now = current === null ? [] : [`Version in Drive now: ${current}, which files_upload takes to write over it`];
 		return [
 			`“${file.name}”, as Personal Agent Proxy keeps its history. Drive’s own version history (File > Version history in Docs, Sheets and Slides) has every revision.`,
 			...link,
+			...now,
 			'',
 			versionLines.length === 0 ? 'No versions kept: a copy is kept before a task first changes the file.' : 'Versions, newest first; files_restore gives one back:',
 			...versionLines,

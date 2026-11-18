@@ -212,22 +212,20 @@ For Drive, Docs, Sheets and Slides:
 - **Create files** makes folders, documents and spreadsheets in My Drive, a folder or a shared
   drive, uploads other files, such as PDFs and pictures, copies files into them, and adds rows to a
   spreadsheet's tabs, and requires Read files. A document is written as Markdown and a spreadsheet
-  as CSV, and Google converts them as they are uploaded. Any other file is made with the kind File
-  and its bytes in base64, up to 5 MB, and kept as it is, never converted: its type is the one its
-  name's extension says, such as `report.pdf`, or, for a name without one, the type of a data URL
-  given instead, `data:image/png;base64,…`. The bytes travel in the request itself, so in practice
-  a request over MCP or from a sandbox carries at most 1 MB, about 750 KB of a file, and a script
-  writes at most 2 MB. Copying is done by Google, so a file of any size already in Drive is copied
-  into a folder, a shared drive or My Drive, under its own name or a new one; folders aren't
-  copied. A row is written as `Header: value` lines, under the headers of the tab's first row, and
-  goes after the last row holding anything, from column A.
+  as CSV, and Google converts them as they are uploaded. Any other file, of any size, goes up as
+  its bytes through a URL, straight to Drive, as under [Uploading through a URL](#uploading-through-a-url).
+  Copying is done by Google, so a file of any size already in Drive is copied into a folder, a
+  shared drive or My Drive, under its own name or a new one; folders aren't copied. A row is
+  written as `Header: value` lines, under the headers of the tab's first row, and goes after the
+  last row holding anything, from column A.
 - **Edit files** renames files and a spreadsheet's tabs, replaces a document's content, and changes
   rows, and requires Read files. A document's content is replaced whole with the Markdown written,
   which drops its comments and suggestions, and only when it is written differently from how it
   read, so renaming a document leaves its content alone. Shared drives aren't renamed or trashed. A row changes only in the values written differently,
   so a formula in another of its cells stays. A presentation's and a spreadsheet's content are only
-  read. It also gives a file an earlier version back, and undoes a change to a spreadsheet's
-  cells, as under [Version history](#version-history).
+  read. It also uploads a file's bytes over a file that is there, gives a file an earlier version
+  back, and undoes a change to a spreadsheet's cells, as under
+  [Uploading through a URL](#uploading-through-a-url) and [Version history](#version-history).
 - **Move files to Trash** moves files and folders to Drive's Trash, where Drive keeps them 30 days
   before deleting them, and requires Read files. Nothing is deleted for good.
 
@@ -237,6 +235,49 @@ A range without a tab is in the first one. Reading needs Read files and answers 
 Sheets shows them, as CSV, one row a line, 1000 rows at most.
 Writing needs Edit files and takes CSV the same way, each value as if typed into its cell, so
 `=SUM(B2:B9)` is a formula, and `""` empties a cell; it answers what the range holds afterwards.
+
+### Uploading through a URL
+
+A file of its own bytes, a PDF, a picture, a video, a docx, goes up to Drive through a URL, from
+wherever the agent runs, with a shell and `curl`, as it does [into Files](/connections/files#uploading-through-a-url).
+The URL is Drive's own resumable upload session, so the bytes go straight to Google and never
+through Personal Agent Proxy, and a file can be as large as Drive takes.
+
+1. The agent asks for an upload with `files_upload`, saying the file's name and the folder or
+   shared drive for a new file, My Drive if it names none, or the file and its version to write
+   over one, and the file's size in bytes, with its SHA-256 if it likes. Everything is checked
+   then, before any bytes are sent: that the agent may add files, or edit them to write over one;
+   that the folder is there; that the file is still at the version given; and what the bytes may
+   be, as below. Over a file, its copy is kept first, as under [Version history](#version-history),
+   since Drive writes the file as soon as the bytes are in.
+2. It is answered with the session's URL and a line to run as it is:
+   `curl -X PUT --upload-file report.pdf '<url>'`. The URL is the only key to the upload, so it
+   needs no sign-in, and it takes the file in parts too, as `pap files push` sends it. It takes
+   one file, no more bytes than were said, for one hour; then the session is cancelled. Bytes all
+   in by then can still be finished for an hour more; past that, what arrived is taken out of
+   Drive again, as below, since only `files_upload_done` makes a file.
+3. The agent calls `files_upload_done`, which asks Drive whether every byte is in, and checks the
+   size and SHA-256 Drive has against what was said. Bytes that aren't what was said are taken out
+   of Drive again: a new file goes to Trash, and the revision written over a file is deleted, so
+   the file holds what it did before. Otherwise the file is logged in its history as the agent's,
+   for the task it started the upload for, and the agent is answered with its id, version and link.
+
+A new file keeps its own type, as its name's extension says, such as `report.pdf`, or as the agent
+says where the name has none. With `convert`, it becomes one of Google's own instead: a docx or
+Markdown a Doc, an xlsx or CSV a Sheet, and a pptx a Slides file, named without the extension.
+Over a file that is there:
+
+- a file of its own bytes takes any bytes but Markdown or CSV;
+- a Doc, Sheet or Slides file takes only a docx, xlsx or pptx, which Drive converts into it,
+  keeping its id and link;
+- Markdown or CSV is never uploaded over a file, since a Doc or a Sheet would lose what it can't
+  hold, its formatting and formulas: the agent writes a Sheet's cells as a range, or makes a new
+  file.
+
+The version a write is checked against is Drive's head revision for a file of its own bytes, and
+Drive's version number for a Doc, Sheet or Slides file, which goes up with any change to it, its
+name too. `files_versions` says which version a file is at now. Drive keeps no bytes of a Doc,
+Sheet or Slides file, so what was converted can't be checked against the size or SHA-256 said.
 
 ### Version history
 
@@ -263,7 +304,8 @@ Writing a range or a row of a spreadsheet also keeps the cells it changes as the
 left them, formulas as formulas, up to 10,000 cells, so the change can be undone exactly.
 
 - **List versions**, `files_versions`, needs Read files: a file's versions, newest first, each
-  kept here or only in Drive, and the changes made to it, who made each and for which task.
+  kept here or only in Drive, and the changes made to it, who made each and for which task, with
+  the version the file is at now in Drive, which an upload over it gives.
 - **Restore version**, `files_restore`, needs Edit files: gives a version back as the file's
   newest revision, keeping its id and link. An uploaded file gets its bytes back; a Doc, Sheet or
   Slides file is converted back from its copy. A version kept only in Drive is downloaded from

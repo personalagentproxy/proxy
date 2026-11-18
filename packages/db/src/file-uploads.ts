@@ -37,6 +37,9 @@ export type FileUploadRow = {
 	blobId: string | null;
 	// Encrypted, as stored.
 	sessionUri: string | null;
+	// A write to a drive elsewhere: the drive's revision of the file at the start, and the copy kept of it then.
+	beforeRevision: string | null;
+	beforeVersion: string | null;
 	status: FileUploadStatus;
 	lockedAt: Date | null;
 	receivedAt: Date | null;
@@ -65,6 +68,8 @@ const uploadSelect = {
 	type: true,
 	blobId: true,
 	sessionUri: true,
+	beforeRevision: true,
+	beforeVersion: true,
 	status: true,
 	lockedAt: true,
 	receivedAt: true,
@@ -98,6 +103,8 @@ export function createFileUpload(data: {
 	type: string;
 	blobId: string | null;
 	sessionUri: string | null;
+	beforeRevision: string | null;
+	beforeVersion: string | null;
 	expiresAt: Date;
 }): Promise<Result<FileUploadRow, ApiError>> {
 	return wrapDb(async () =>

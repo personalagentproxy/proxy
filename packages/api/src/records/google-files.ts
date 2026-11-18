@@ -2,9 +2,7 @@ import {Err, Ok, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
-import {formatBytes} from '@proxy/utils/bytes';
 import type {FileChangeBy} from '@proxy/db/files';
-import {DRIVE_UPLOAD_MAX_MB} from '@proxy/integrations';
 
 import {
 	copyFile,
@@ -23,14 +21,12 @@ import {
 	PAGE_SIZE,
 	replaceContent,
 	updateFile,
-	uploadFile,
 	type DriveFile,
 	type FileParents,
 	type SharedDrive,
 } from '../connections/google/drive-api';
 import {callGoogle, TOO_LARGE_TO_READ} from '../connections/google/google-client';
 import {appendRow, cellRange, columnLetters, getRanges, getSheets, renameSheet, rowsRange, updateCells, type Sheet} from '../connections/google/sheets-api';
-import {isMediaType, mediaType} from '../native/files/names';
 import type {NativeToolRunner} from '../native/tool';
 import {requireFirstPage, type CommandRunner, type Crumb, type DataRecord, type ListQuery, type RecordPage, type RecordStore, type RecordTarget, type RecordValues} from './connector';
 import type {FileSearch, Matched, MatchedFile} from './capabilities';
@@ -49,11 +45,11 @@ import {readValueLines, valueLines} from './value-lines';
  * as "Header: value" lines, the headers from the tab's first row. Other files open as what Drive
  * knows of them, with a link.
  *
- * Folders, documents, spreadsheets and other files are made inside a folder, My Drive or a shared
- * drive: a document from Markdown and a spreadsheet from CSV, which Drive converts as it uploads
- * them, and any other file, a PDF or a picture, from its bytes in base64, uploaded as they are, of
- * the type its name says. A file already in Drive is copied into one by Drive itself
- * (`files_copy`), its bytes never passing through here. A row is made inside a tab, its
+ * Folders, documents and spreadsheets are made inside a folder, My Drive or a shared drive: a
+ * document from Markdown and a spreadsheet from CSV, which Drive converts as it uploads them. Any
+ * other file, a PDF or a picture, goes up as its bytes through a URL, straight to Drive
+ * (`files_upload`, google-uploads.ts), and a file already in Drive is copied into one by Drive
+ * itself (`files_copy`), the bytes passing through here neither way. A row is made inside a tab, its
  * "Header: value" lines put under the headers. Any file can be renamed, and a tab; a document's
  * content is replaced whole by uploading Markdown again, which drops its comments and suggestions;
  * a row changes only in the cells written differently. A presentation's and a spreadsheet's
@@ -556,77 +552,17 @@ const MADE: Partial<Record<string, {mimeType: string; upload: string | null}>> =
 	Spreadsheet: {mimeType: MIME_TYPES.spreadsheet, upload: 'text/csv'},
 };
 
-const KINDS_MADE = 'Folder, Document, Spreadsheet or File';
-
-// The most a file uploaded may hold (catalog.ts says why).
-const MAX_UPLOAD_BYTES = DRIVE_UPLOAD_MAX_MB * 1024 * 1024;
-
-// A file's bytes as a data URL, `data:application/pdf;base64,…`, which says their type beside them.
-const DATA_URL = /^data:([^;,]*)(?:;[^;,]*)*;base64,/i;
-
-// Base64 as btoa and every language's encoder write it: the standard letters, padded with = to a
-// length of four. The length is checked on its own, since a pattern counting in fours gives up on a
-// few megabytes.
-const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
-
-// Google's own types, which a file uploaded as it is never takes, since Drive would convert it.
-const GOOGLE_TYPE = 'application/vnd.google-apps.';
+const KINDS_MADE = 'Folder, Document or Spreadsheet';
 
 function refuse(message: string): Promise<Result<never, ApiError>> {
 	return Promise.resolve(Err(ApiErr.validationError(message)));
 }
 
-/**
- * A new file's bytes, from its content as base64 or as a data URL of them, line breaks left out,
- * up to the most uploaded, and the type they are uploaded as: the one the name's extension says,
- * else the data URL's, else bytes of no type in particular, never one of Google's own.
- */
-function readUpload(name: string, content: string): Result<{type: string; bytes: Uint8Array<ArrayBuffer>}, ApiError> {
-	const trimmed = content.trim();
-	const dataUrl = DATA_URL.exec(trimmed);
-	const said = dataUrl?.[1]?.trim().toLowerCase() ?? '';
-	if (said !== '' && !isMediaType(said)) {
-		return Err(ApiErr.validationError(`A data URL’s type is a media type, such as application/pdf, not “${said}”`));
-	}
-	const base64 = (dataUrl ? trimmed.slice(dataUrl[0].length) : trimmed).replace(/\s/g, '');
-	if (base64 === '') {
-		return Err(ApiErr.validationError('A new file needs its bytes in content, as base64'));
-	}
-	if (!BASE64.test(base64) || base64.length % 4 !== 0) {
-		return Err(ApiErr.validationError('A file’s content is its bytes as base64, padded with =, as btoa writes it, or a data URL of them'));
-	}
-	const size = Buffer.byteLength(base64, 'base64');
-	if (size > MAX_UPLOAD_BYTES) {
-		return Err(ApiErr.validationError(`“${name}” is too large to upload, at ${formatBytes(size)}: at most ${formatBytes(MAX_UPLOAD_BYTES)}`));
-	}
-	const type = mediaType(name, said, 'bytes');
-	if (type.startsWith(GOOGLE_TYPE)) {
-		return Err(ApiErr.validationError('A file uploaded keeps its own type: make a Document or a Spreadsheet to have Google’s'));
-	}
-	return Ok({type, bytes: Buffer.from(base64, 'base64')});
-}
-
-// Any file but Google's own, a PDF or a picture, uploaded as its bytes are, never converted, in
-// the folder with Drive's id `parentId`, answered as opening it would.
-function uploadIn(drive: Drive, parentId: string, values: RecordValues): Promise<Result<DataRecord, ApiError>> {
-	return Do(async ($) => {
-		const name = (values.name ?? '').trim();
-		if (name === '') {
-			return $(Err(ApiErr.validationError('A new file needs a name, with its extension, such as report.pdf')));
-		}
-		const {type, bytes} = $(readUpload(name, values.content ?? ''));
-		const editor = $(editorOf(drive));
-		const file = $(await uploadFile(drive.token, {name, mimeType: type, parent: parentId}, bytes));
-		await logDriveCreate(editor, file);
-		return $(await getRef(drive, {kind: 'file', fileId: file.id}));
-	});
-}
-
-// A folder, document, spreadsheet or other file, made in the folder with Drive's id `parentId`,
-// answered as opening it would.
+// A folder, document or spreadsheet, made in the folder with Drive's id `parentId`, answered as
+// opening it would. Any other file goes up as its bytes, with files_upload.
 function makeFile(drive: Drive, parentId: string, values: RecordValues): Promise<Result<DataRecord, ApiError>> {
 	if (values.kind === 'File') {
-		return uploadIn(drive, parentId, values);
+		return refuse('A file of its own bytes, such as a PDF or a picture, goes up with files_upload, which answers with a URL to send it to');
 	}
 	return Do(async ($) => {
 		const kind = values.kind ?? '';
@@ -699,7 +635,7 @@ function addRow(drive: Drive, ref: {fileId: string; sheetId: number}, values: Re
  * The Drive id of the folder a new file goes in, from the record it is made inside: My Drive's, a
  * shared drive's or a folder's. `spreadsheet` is what to say of a spreadsheet, which holds tabs.
  */
-function folderOf(drive: Drive, ref: FileRef, spreadsheet: string): Promise<Result<string, ApiError>> {
+function folderOf(token: string, ref: FileRef, spreadsheet: string): Promise<Result<string, ApiError>> {
 	if (ref.kind === 'place') {
 		if (ref.place.id !== MY_DRIVE.id) {
 			return refuse(`Nothing can be made in ${ref.place.name}: make it in a folder, My Drive or a shared drive`);
@@ -716,7 +652,7 @@ function folderOf(drive: Drive, ref: FileRef, spreadsheet: string): Promise<Resu
 		return refuse('A row holds nothing: add rows to its tab');
 	}
 	return Do(async ($) => {
-		const file = $(await getFile(drive.token, ref.fileId));
+		const file = $(await getFile(token, ref.fileId));
 		const kind = kindOf(file.mimeType);
 		if (kind === 'Spreadsheet') {
 			return $(Err(ApiErr.validationError(spreadsheet)));
@@ -728,12 +664,25 @@ function folderOf(drive: Drive, ref: FileRef, spreadsheet: string): Promise<Resu
 	});
 }
 
+/**
+ * The Drive id of the folder a file goes in, from the record id `parent`, as files_list gives it:
+ * a folder, a shared drive (`drive-<id>`) or My Drive (`root`), which it is where `parent` is
+ * null. Anything else is refused, `spreadsheet` saying what to do of a spreadsheet's id.
+ */
+export function folderNamed(token: string, parent: string | null, spreadsheet: string): Promise<Result<string, ApiError>> {
+	return Do(async ($) => {
+		const where = parent ?? MY_DRIVE.id;
+		const ref = $(requireRef(where));
+		return $((await folderOf(token, ref, spreadsheet)).mapErr(notFoundAs(where)));
+	});
+}
+
 function createIn(drive: Drive, ref: FileRef, values: RecordValues): Promise<Result<DataRecord, ApiError>> {
 	if (ref.kind === 'sheet') {
 		return addRow(drive, ref, values);
 	}
 	return Do(async ($) => {
-		const folderId = $(await folderOf(drive, ref, 'Rows go in one of the spreadsheet’s tabs: open it and pick one as parent'));
+		const folderId = $(await folderOf(drive.token, ref, 'Rows go in one of the spreadsheet’s tabs: open it and pick one as parent'));
 		return $(await makeFile(drive, folderId, values));
 	});
 }
@@ -919,9 +868,7 @@ type Copy = z.infer<typeof copySchema>;
 function copyInto(drive: Drive, copy: Copy): Promise<Result<string, ApiError>> {
 	return Do(async ($) => {
 		const source = $(await copiedFile(drive, copy.id));
-		const where = copy.parent || MY_DRIVE.id;
-		const ref = $(requireRef(where));
-		const folderId = $((await folderOf(drive, ref, 'A spreadsheet holds tabs: copy the file into a folder')).mapErr(notFoundAs(where)));
+		const folderId = $(await folderNamed(drive.token, copy.parent || null, 'A spreadsheet holds tabs: copy the file into a folder'));
 		const name = copy.name?.trim() || source.name;
 		const editor = $(editorOf(drive));
 		const made = $(await copyFile(drive.token, source.id, {name, parent: folderId}));
