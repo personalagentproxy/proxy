@@ -368,7 +368,8 @@ const MCP_STEPS: Partial<
 	'devin-cli': {
 		where: 'Run the command above in a terminal.',
 		command: (serverUrl) => `devin mcp add personal-agent-proxy ${serverUrl}`,
-		afterAdd: 'Run devin mcp login personal-agent-proxy to sign in with OAuth.',
+		afterAdd:
+			'Devin CLI opens the OAuth sign-in automatically. If it does not, run devin mcp login personal-agent-proxy.',
 	},
 	hermes: {
 		where: 'Run the command above in a terminal.',
