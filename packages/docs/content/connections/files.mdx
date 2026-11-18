@@ -134,11 +134,17 @@ drive and the sandbox as they are, a picture, a spreadsheet or an archive as muc
   `pap files push <file> <connection> <path>` sends any file to a path, making the folders on
   the way.
 
+A push is an [upload through a URL](#uploading-through-a-url), which `pap` makes for the agent:
+it reads the file's size and SHA-256 from the sandbox's disk, starts the upload with them, sends
+the file to the URL as it reads it, and finishes the upload, which makes the file only if what
+arrived is what was said. Everything about the push is checked before any of the file is sent, and
+the folders on the way are made only at the end, with the file.
+
 The rule of a write holds here too: a push over a file is taken where the file still holds the
 version that was pulled, and refused where it changed since, unless it is pushed with `--force`;
 the version before is kept either way. A pull is a read, a push to a new path an added file, and
 a push over a file an edit, each checked against what the agent may do with the drive and in the
-activity log as from a sandbox.
+activity log as from a sandbox, a push as its `files_upload` and `files_upload_done`.
 
 ## Where the bytes are
 

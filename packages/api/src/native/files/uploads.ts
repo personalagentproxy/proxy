@@ -2,7 +2,7 @@ import {Err, Ok} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 import {formatBytes} from '@proxy/utils/bytes';
-import {checkNewFile, createFile, createFileBlob, type FileChangeBy, getFile, getFileBlob, writeFile} from '@proxy/db/files';
+import {checkNewFile, createFile, createFileBlob, ensureFolder, type FileChangeBy, getFile, getFileBlob, writeFile} from '@proxy/db/files';
 import type {FileUploadRow} from '@proxy/db/file-uploads';
 
 import type {DriveUploads} from '../../uploads/tickets';
@@ -17,9 +17,10 @@ import {mediaType, requireFileName} from './names';
  * hashes them as they pass. Everything a write checks is checked at the start too, so a URL is
  * only handed out for a file that could be made: the folder, the name free in it, or the version
  * of the file written over; and the size, against the largest file the server takes. The file is
- * made at done, as the upload's agent's, for its task, and checked again then, as the drive may
- * have changed in the hour. A blob of an upload never finished is no version's, and so is taken by
- * the sweep of unused blobs (sweeper.ts).
+ * made at done, as the upload's agent's, for its task, with the folders on the way to it that a
+ * push to a path names and the drive lacks (`pap files push`, cli.ts), and checked again then, as
+ * the drive may have changed in the hour. A blob of an upload never finished is no version's, and
+ * so is taken by the sweep of unused blobs (sweeper.ts).
  */
 
 function changeOf(upload: FileUploadRow): FileChangeBy {
@@ -37,7 +38,11 @@ export const filesUploads: DriveUploads = {
 			const named = await Do<{name: string; fileId: string | null}, ApiError>(async ($$) => {
 				if (target.kind === 'create') {
 					const name = $$(requireFileName(target.name));
-					$$(await checkNewFile(connectionId, {parentId: target.parentId, name}));
+					for (const folder of target.folders) {
+						$$(requireFileName(folder));
+					}
+					// Where folders are to be made on the way, the first of them is what is new in the folder there.
+					$$(await checkNewFile(connectionId, {parentId: target.parentId, name: target.folders[0] ?? name}));
 					return {name, fileId: null};
 				}
 				const found = $$(await requireFile(connectionId, target.fileId));
@@ -69,11 +74,18 @@ export const filesUploads: DriveUploads = {
 		Do(async ($) => {
 			const broken = (what: string) => ApiErr.internalError(new Error(`Upload ${upload.id} to Files has no ${what}.`));
 			const content = {blobId: $(requirePresent(upload.blobId, broken('blob'))), size: arrived.size, type: upload.type};
-			const entry =
-				upload.target === 'create'
-					? $(await createFile(changeOf(upload), {parentId: upload.parentId, name: upload.name, content}))
-					: $(await writeFile(changeOf(upload), {fileId: $(requirePresent(upload.fileId, broken('file'))), ifVersion: $(requirePresent(upload.version, broken('version'))), content}));
-			return {fileId: entry.id, version: $(requirePresent(entry.head, broken('version made'))).id};
+			const change = changeOf(upload);
+			if (upload.target === 'write') {
+				const written = $(await writeFile(change, {fileId: $(requirePresent(upload.fileId, broken('file'))), ifVersion: $(requirePresent(upload.version, broken('version'))), content}));
+				return {fileId: written.id, version: $(requirePresent(written.head, broken('version made'))).id};
+			}
+			// The folders on the way, made where they are still missing, each the agent's as the file is.
+			let parentId = upload.parentId;
+			for (const name of upload.folders) {
+				parentId = $(await ensureFolder(change, {parentId, name})).id;
+			}
+			const made = $(await createFile(change, {parentId, name: upload.name, content}));
+			return {fileId: made.id, version: $(requirePresent(made.head, broken('version made'))).id};
 		}),
 
 	link: (run, upload, made) =>

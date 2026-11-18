@@ -22,8 +22,8 @@ export const CLI_CALL_PATH = '/api/cli/call';
 export const CLI_STATUS = {ok: 200, failed: 422, refused: 401} as const;
 
 /**
- * Where the files of a drive are reached by path, under `PAP_URL` (cli.ts): `<this>/<connection>/list`
- * and `<this>/<connection>/content`.
+ * Where the files of a drive are reached by path, under `PAP_URL` (cli.ts): `<this>/<connection>/list`,
+ * `<this>/<connection>/content`, and `<this>/<connection>/uploads` with `…/uploads/<upload>/done`.
  */
 export const CLI_FILES_PATH = '/api/cli/files';
 

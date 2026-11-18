@@ -26,6 +26,8 @@ export type FileUploadRow = {
 	target: FileUploadTarget;
 	parentId: string | null;
 	name: string;
+	// A new file's folders to make on the way, at done, the first in `parentId`.
+	folders: string[];
 	fileId: string | null;
 	version: string | null;
 	// In bytes; kept as a big integer, since a drive elsewhere takes files past 2 GB.
@@ -55,6 +57,7 @@ const uploadSelect = {
 	target: true,
 	parentId: true,
 	name: true,
+	folders: true,
 	fileId: true,
 	version: true,
 	size: true,
@@ -87,6 +90,7 @@ export function createFileUpload(data: {
 	target: FileUploadTarget;
 	parentId: string | null;
 	name: string;
+	folders: string[];
 	fileId: string | null;
 	version: string | null;
 	size: number;

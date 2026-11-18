@@ -53,7 +53,7 @@ function readUpload(params: Record<string, unknown>): Result<UploadAsked, ApiErr
 		if (parsed.name === undefined) {
 			return $(Err(ApiErr.validationError('files_upload takes the new file’s name, or the id of a file to write over')));
 		}
-		return {target: {kind: 'create', parentId: parsed.parent ?? null, name: parsed.name}, file};
+		return {target: {kind: 'create', parentId: parsed.parent ?? null, folders: [], name: parsed.name}, file};
 	});
 }
 

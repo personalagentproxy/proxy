@@ -1,6 +1,13 @@
 import {spawn} from 'node:child_process';
 import {once} from 'node:events';
-import {accessSync, constants as fsConstants, createWriteStream, statSync} from 'node:fs';
+import {createHash} from 'node:crypto';
+import {
+	accessSync,
+	constants as fsConstants,
+	createReadStream,
+	createWriteStream,
+	statSync,
+} from 'node:fs';
 import {chmod, mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {createServer, type IncomingMessage, type ServerResponse} from 'node:http';
 import {constants as osConstants, tmpdir} from 'node:os';
@@ -187,10 +194,57 @@ function isDirectory(path: string): boolean {
 	return Result.wrap(() => statSync(path).isDirectory()).unwrapOr(false);
 }
 
-function readBytes(path: string): Promise<Result<Uint8Array<ArrayBuffer>, Error>> {
-	return Result.wrapAsync<Uint8Array<ArrayBuffer>, Error>(
-		async () => new Uint8Array(await readFile(path)),
+function hashFile(path: string): Promise<Result<{size: number; sha256: string}, Error>> {
+	return Result.wrapAsync<{size: number; sha256: string}, Error>(async () => {
+		const hash = createHash('sha256');
+		let size = 0;
+		for await (const chunk of createReadStream(path)) {
+			if (chunk instanceof Buffer) {
+				hash.update(chunk);
+				size += chunk.byteLength;
+			}
+		}
+		return {size, sha256: hash.digest('hex')};
+	});
+}
+
+// Read as the reader asks for more, so a slow network keeps no more of the file in memory than it sends.
+function readStream(
+	path: string,
+	range?: {start: number; end: number},
+): ReadableStream<Uint8Array> {
+	if (range !== undefined && range.end <= range.start) {
+		return new ReadableStream<Uint8Array>({start: (controller) => controller.close()});
+	}
+	// Node's `end` is the last byte read, not the one after it.
+	const file = createReadStream(
+		path,
+		range === undefined ? {} : {start: range.start, end: range.end - 1},
 	);
+	const chunks = file[Symbol.asyncIterator]();
+	return new ReadableStream<Uint8Array>({
+		async pull(controller) {
+			const next = await chunks.next();
+			if (next.done) {
+				controller.close();
+				return;
+			}
+			if (next.value instanceof Buffer) {
+				controller.enqueue(
+					new Uint8Array(next.value.buffer, next.value.byteOffset, next.value.byteLength),
+				);
+			}
+		},
+		cancel() {
+			file.destroy();
+		},
+	});
+}
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((done) => {
+		setTimeout(done, ms);
+	});
 }
 
 // A file's text, or null where there is none; any other failure is one.
@@ -249,7 +303,9 @@ export function nodeIo(): Io {
 		removeDir,
 		absolutePath: (path) => resolve(path),
 		isDirectory,
-		readBytes,
+		hashFile,
+		readStream,
+		sleep,
 		readText,
 		saveStream,
 		serve,

@@ -60,10 +60,15 @@ export type CliCallFailure = {error: string; message: string};
  * - `GET …/list?path=`: what the folder holds (`cliFileListSchema`).
  * - `GET …/content?path=` or `?id=`, with `&version=` for an earlier version: the file's bytes,
  *   and which file they are in the `x-pap-file` header (`cliFileSchema`, URI-encoded JSON).
- * - `PUT …/content?path=`, its body the bytes, sent as `application/octet-stream`: a new file
- *   there, the folders on the way made where they are missing; or, where a file is there, its next
- *   version, by whoever names the version it holds (`&version=`), as the write tool takes it, or
- *   says `&force=1` to write over whatever it holds. Answers `cliPushedSchema`.
+ * - `POST …/uploads?path=&size=&sha256=`: starts an upload of a file to the path, its size in
+ *   bytes and its SHA-256 in hex said first, as files_upload does (@proxy/contracts/uploads): a
+ *   new file there, the folders on the way made at done where they are missing; or, where a file is
+ *   there, its next version, by whoever names the version it holds (`&version=`), as the write tool
+ *   takes it, or says `&force=1` to write over what it holds now. Answers `cliUploadStartedSchema`:
+ *   where to PUT the bytes, which needs no token; at a URL that is `resumable`, in parts, each with
+ *   its `Content-Range`, as Google Drive's resumable uploads take them.
+ * - `POST …/uploads/<upload>/done`: makes the file of the bytes that arrived, once they are
+ *   checked against what was said, as files_upload_done does. Answers `cliPushedSchema`.
  */
 export const cliFileSchema = z.object({
 	id: z.string(),
@@ -101,8 +106,25 @@ export const cliPullQuerySchema = z
 		message: 'Name the file by path or by id, one of them',
 	});
 
-export const cliPushQuerySchema = z.object({
+export const cliUploadQuerySchema = z.object({
 	path: z.string().min(1).max(2000),
+	size: z.coerce.number().int().nonnegative(),
+	sha256: z.string().regex(/^[0-9a-f]{64}$/),
 	version: z.string().min(1).optional(),
 	force: z.enum(['1']).optional(),
 });
+
+export const cliUploadStartedSchema = z.object({
+	/** The upload's id, which `…/uploads/<upload>/done` takes. */
+	upload: z.string(),
+	/** Where the bytes go: the URL with the headers to send there, until when, and whether it takes them in parts. */
+	put: z.object({
+		url: z.string(),
+		method: z.literal('PUT'),
+		headers: z.record(z.string(), z.string()),
+		expiresAt: z.string(),
+		resumable: z.boolean(),
+	}),
+});
+
+export type CliUploadStarted = z.infer<typeof cliUploadStartedSchema>;

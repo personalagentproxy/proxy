@@ -4,18 +4,30 @@ import type {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
 import {type ApiTool, FILES_INTEGRATION_ID, findTool, TOOLS_COLLECTION_ID} from '@proxy/integrations';
-import {CLI_FILE_HEADER, CLI_STATUS, type CliFile, type cliFileListSchema, cliListQuerySchema, cliPullQuerySchema, type cliPushedSchema, cliPushQuerySchema} from '@proxy/contracts/cli';
-import {createFile, ensureFolder, type FileChangeBy, type FileEntry, findPath, getFileVersion, listFolder, writeFile} from '@proxy/db/files';
+import {
+	CLI_FILE_HEADER,
+	CLI_STATUS,
+	type CliFile,
+	type cliFileListSchema,
+	cliListQuerySchema,
+	cliPullQuerySchema,
+	type cliPushedSchema,
+	cliUploadQuerySchema,
+	type CliUploadStarted,
+} from '@proxy/contracts/cli';
+import {type FileEntry, findPath, getFileVersion, listFolder} from '@proxy/db/files';
 
 import {actionsOf, gateRun, loadRunTarget, type RunTarget, type TaskCaller} from '../../agent-side/tools';
+import {apiIntegration} from '../../connections/integrations';
 import {unavailableActions} from '../../connections/unavailable';
 import {log as serverLog, serializeError} from '../../observability/log';
 import {agentErrorMessage} from '../../script/agent-host';
 import type {CliRequest} from '../../server/middleware/require-cli';
+import {type DeclaredFile, type DriveUploads, finishUpload, startUpload, type UploadRun, type UploadTicket} from '../../uploads/tickets';
 import {requireReadFile} from './attached';
-import {maxFileBytes, openContent, sendContent, storeContent, uploadBody} from './content';
-import {fileLink} from './links';
-import {mediaType, requireFileName} from './names';
+import {requireFile} from './connector';
+import {openContent, sendContent} from './content';
+import {requireFileName} from './names';
 import {pathOf} from './text';
 
 /**
@@ -23,21 +35,20 @@ import {pathOf} from './text';
  * folder, a file's bytes down, and a file's bytes up. What a tool can't do, its answer being
  * text, done through a tool's gate (agent-side/tools.ts gateRun): as the token's agent, for the
  * token's task, checked against what the agent may do with the drive as it is now, and written in
- * the activity log as the read, the new file or the write it is, coming in as `cli`; a change is in the drive's journal as the
- * agent's, for that task. A file written over is written by whoever names the version it holds,
- * as the write tool has it, unless the push says to write over whatever is there. A file the
- * person attached in the thread is read at that version whatever the agent may do in the
- * drive otherwise, as the read tool reads it (attached.ts).
+ * the activity log as the read or the upload it is, coming in as `cli`. A push is an upload, as
+ * files_upload and files_upload_done make one (uploads/tickets.ts): started by path, checked
+ * before any bytes are sent, the bytes sent to the URL it is answered with, and the file made at
+ * done, as the agent's, for that task, in the drive's journal. A file written over is written by
+ * whoever names the version it holds, as the write tool has it, unless the push says to write over
+ * what is there. A file the person attached in the thread is read at that version whatever the
+ * agent may do in the drive otherwise, as the read tool reads it (attached.ts).
  */
 
 // Reading a drive, which tells an agent what is in it.
 const READ_ACTION = 'readFiles';
 
-// A drive as the token's agent reaches it now, and who a change to it is made by.
-type Drive = RunTarget & {change: FileChangeBy};
-
 // The drive the address names, as the token's agent reaches it now.
-function open(request: CliRequest): Promise<Result<Drive, ApiError>> {
+function open(request: CliRequest): Promise<Result<RunTarget, ApiError>> {
 	return Do(async ($) => {
 		const caller: TaskCaller = {agent: request.cli.agent, via: 'cli', taskId: request.cli.taskId};
 		const connectionId = request.params.connectionId ?? '';
@@ -45,13 +56,12 @@ function open(request: CliRequest): Promise<Result<Drive, ApiError>> {
 		if (target.integration.id !== FILES_INTEGRATION_ID) {
 			return $(Err(ApiErr.validationError(`${connectionId} is not a drive: pap files works on a Files connection (pap connections lists yours).`)));
 		}
-		const change: FileChangeBy = {orgId: target.connection.orgId, connectionId: target.connection.id, by: {agentId: caller.agent.agentId, taskId: caller.taskId}};
-		return {...target, change};
+		return target;
 	});
 }
 
 // The drive's tool a request does what it does as, which it is checked and logged as (agent-side/tools.ts gateRun).
-function toolOf(drive: Drive, name: string): Result<ApiTool, ApiError> {
+function toolOf(drive: RunTarget, name: string): Result<ApiTool, ApiError> {
 	const tool = findTool(drive.integration, name);
 	if (tool?.kind !== 'native') {
 		return Err(ApiErr.notFound('tool', name));
@@ -172,16 +182,38 @@ export async function handleCliPullFileRoute(request: CliRequest, response: Resp
 	}
 }
 
-/** `PUT /api/cli/files/:connectionId/content?path=&version=&force=`: a new file at the path, or the next version of the one there. */
-export async function handleCliPushFileRoute(request: CliRequest, response: Response): Promise<void> {
-	const pushed = await Do<Pushed, ApiError>(async ($) => {
+// The drive's uploads (uploads/tickets.ts), which a push goes through as files_upload does.
+function uploadsOf(drive: RunTarget): Result<DriveUploads, ApiError> {
+	const uploads = apiIntegration(drive.integration.id)?.uploads;
+	if (uploads === undefined) {
+		return Err(ApiErr.validationError(`${drive.connection.id} takes no uploads: pap files push works on a Files connection.`));
+	}
+	return Ok(uploads);
+}
+
+// An upload started, as the CLI answers it.
+function startedOf(ticket: UploadTicket): CliUploadStarted {
+	return {upload: ticket.upload, put: {...ticket.put, expiresAt: ticket.put.expiresAt.toISOString()}};
+}
+
+/**
+ * `POST /api/cli/files/:connectionId/uploads?path=&size=&sha256=&version=&force=`: an upload of a
+ * new file to the path, or of the next version of the one there, checked as files_upload checks it
+ * and logged as one, before any bytes are sent; answered with where to send them.
+ */
+export async function handleCliStartUploadRoute(request: CliRequest, response: Response): Promise<void> {
+	const started = await Do<CliUploadStarted, ApiError>(async ($) => {
 		const drive = $(await open(request));
-		const {path, version, force} = $(parseSchema(cliPushQuerySchema, request.query));
+		const uploads = $(uploadsOf(drive));
+		const {path, size, sha256, version, force} = $(parseSchema(cliUploadQuerySchema, request.query));
 		const names = $(namesOf(path));
 		const at = names.join('/');
 		const name = $(requirePresent(names.at(-1), ApiErr.validationError('Give the path to push to, as Reports/q3.csv.')));
 		const {found, missing} = $(await findPath(drive.connection.id, names));
 		const there = missing.length === 0 ? (found.at(-1) ?? null) : null;
+		const file: DeclaredFile = {size, sha256, type: null};
+		const tool = $(toolOf(drive, 'files_upload'));
+		const runOf = (entryId: string): UploadRun => ({caller: drive.caller, connection: drive.connection, entryId});
 
 		// A write over what is there, or a new file: chosen by what is in the drive only for an agent
 		// that may read it, which knows what its paths are anyway. One that may not may change
@@ -195,11 +227,11 @@ export async function handleCliPushFileRoute(request: CliRequest, response: Resp
 		if (writes) {
 			const held = there?.head?.id ?? '';
 			const ifVersion = force === '1' ? held : version;
-			const params = {id: there?.id ?? '', path: at, version: ifVersion ?? null};
-			const entry = {collection: TOOLS_COLLECTION_ID, action: 'files_write', title: null, query: JSON.stringify(params)};
+			const params = {id: there?.id ?? '', path: at, version: ifVersion ?? null, size};
+			const entry = {collection: TOOLS_COLLECTION_ID, action: 'files_upload', title: null, query: JSON.stringify(params)};
 			return $(
-				await gateRun(drive, $(toolOf(drive, 'files_write')), params, entry, () =>
-					Do<Pushed, ApiError>(async ($$) => {
+				await gateRun(drive, tool, params, entry, (entryId) =>
+					Do<CliUploadStarted, ApiError>(async ($$) => {
 						if (there === null) {
 							return $$(Err(ApiErr.notFound('file', at, `There is no ${at} in this drive.`)));
 						}
@@ -214,35 +246,56 @@ export async function handleCliPushFileRoute(request: CliRequest, response: Resp
 								),
 							);
 						}
-						const stored = $$(await storeContent(drive.connection.orgId, $$(uploadBody(request)), maxFileBytes()));
-						const written = $$(
-							await writeFile(drive.change, {fileId: there.id, ifVersion: held, content: {blobId: stored.blobId, size: stored.size, type: mediaType(there.name, undefined, 'bytes')}}),
-						);
-						return {file: toCliFile(written, at), created: false, link: fileLink(drive.caller.agent.orgSlug, drive.connection.id, written)};
+						return startedOf($$(await startUpload(runOf(entryId), uploads, {kind: 'write', fileId: there.id, version: held}, file)));
 					}),
 				),
 			);
 		}
 
-		// A new file, in the folders of its path, made where they are missing.
-		const params = {path: at};
-		const entry = {collection: TOOLS_COLLECTION_ID, action: 'files_create', title: null, query: JSON.stringify(params)};
+		// A new file, in the folders of its path, made at done where they are missing.
+		const params = {path: at, size};
+		const entry = {collection: TOOLS_COLLECTION_ID, action: 'files_upload', title: null, query: JSON.stringify(params)};
 		return $(
-			await gateRun(drive, $(toolOf(drive, 'files_create')), params, entry, () =>
-				Do<Pushed, ApiError>(async ($$) => {
+			await gateRun(drive, tool, params, entry, (entryId) =>
+				Do<CliUploadStarted, ApiError>(async ($$) => {
 					// The deepest of the path that is there, short of the new file itself.
 					const reached = there === null ? found : found.slice(0, -1);
 					const inside = reached.at(-1) ?? null;
 					if (inside !== null && !inside.folder) {
 						return $$(Err(ApiErr.validationError(`${reached.map((one) => one.name).join('/')} is a file, so nothing goes inside it.`)));
 					}
-					const stored = $$(await storeContent(drive.connection.orgId, $$(uploadBody(request)), maxFileBytes()));
-					let parentId = inside?.id ?? null;
-					for (const folder of missing.slice(0, -1)) {
-						parentId = $$(await ensureFolder(drive.change, {parentId, name: folder})).id;
-					}
-					const made = $$(await createFile(drive.change, {parentId, name, content: {blobId: stored.blobId, size: stored.size, type: mediaType(name, undefined, 'bytes')}}));
-					return {file: toCliFile(made, at), created: true, link: fileLink(drive.caller.agent.orgSlug, drive.connection.id, made)};
+					const target = {kind: 'create' as const, parentId: inside?.id ?? null, folders: missing.slice(0, -1), name};
+					return startedOf($$(await startUpload(runOf(entryId), uploads, target, file)));
+				}),
+			),
+		);
+	});
+	if (started.isErr()) {
+		fail(response, started.error);
+		return;
+	}
+	response.status(CLI_STATUS.ok).json(started.value);
+}
+
+/**
+ * `POST /api/cli/files/:connectionId/uploads/:upload/done`: the file of an upload's bytes, once
+ * they arrived and are what was said, made as files_upload_done makes it and logged as one.
+ */
+export async function handleCliFinishUploadRoute(request: CliRequest, response: Response): Promise<void> {
+	const pushed = await Do<Pushed, ApiError>(async ($) => {
+		const drive = $(await open(request));
+		const uploads = $(uploadsOf(drive));
+		const params = {upload: request.params.upload ?? ''};
+		const entry = {collection: TOOLS_COLLECTION_ID, action: 'files_upload_done', title: null, query: JSON.stringify(params)};
+		return $(
+			await gateRun(drive, $(toolOf(drive, 'files_upload_done')), params, entry, (entryId) =>
+				Do<Pushed, ApiError>(async ($$) => {
+					const done = $$(await finishUpload({caller: drive.caller, connection: drive.connection, entryId}, uploads, params.upload));
+					const {fileId, version: versionId} = done.made;
+					const made = $$(await requireFile(drive.connection.id, fileId));
+					const version = $$(requirePresent($$(await getFileVersion(drive.connection.id, fileId, versionId)), ApiErr.notFound('version', versionId)));
+					const file: CliFile = {id: made.id, name: made.name, path: pathOf(made), folder: false, version: version.id, size: version.size, type: version.type};
+					return {file, created: done.created, link: done.link};
 				}),
 			),
 		);

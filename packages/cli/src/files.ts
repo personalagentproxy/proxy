@@ -15,12 +15,13 @@ import {
 	refused,
 	usage,
 } from './io';
+import {type Put, sendFile} from './send-file';
 
 /**
  * `pap files`: a drive's files by path, for code in a sandbox, which a tool can't move: a tool's
  * answer is text, and a file is bytes. `ls` lists a folder, `pull` brings a file's bytes into the
  * sandbox, and `push` sends a file's bytes to the drive, as a new file or as the next version of
- * the one that is there.
+ * the one that is there, through an upload as files_upload makes one (send-file.ts).
  *
  * A push over a file is made by whoever read what it holds, as the write tool has it. pap keeps
  * that for the agent: a pull notes, beside pap's own files in the home directory, which file each
@@ -113,11 +114,7 @@ async function failureOf(response: Response): Promise<Failure> {
 	return failed(`PAP answered ${response.status}. Try again.`);
 }
 
-function filesPath(
-	connection: string,
-	what: 'list' | 'content',
-	query: Record<string, string>,
-): string {
+function filesPath(connection: string, what: string, query: Record<string, string>): string {
 	const params = new URLSearchParams(query);
 	return `${CLI_FILES_PATH}/${encodeURIComponent(connection)}/${what}${params.size === 0 ? '' : `?${params.toString()}`}`;
 }
@@ -213,7 +210,35 @@ export function pullFile(parsed: Parsed, io: Io): Promise<Result<Json, Failure>>
 	});
 }
 
-/** `pap files push`: a file's bytes to the drive, back where it was pulled from or to a path. */
+// Where an upload's bytes go, as the start answered it.
+function putOf(answer: Json | undefined): Result<{upload: string; put: Put}, Failure> {
+	const put = isObject(answer) && isObject(answer.put) ? answer.put : undefined;
+	if (
+		!isObject(answer) ||
+		typeof answer.upload !== 'string' ||
+		put === undefined ||
+		typeof put.url !== 'string' ||
+		!isObject(put.headers)
+	) {
+		return Err(failed('PAP answered without where to send the file. Try again.'));
+	}
+	const headers = Object.fromEntries(
+		Object.entries(put.headers).flatMap(([name, value]) =>
+			typeof value === 'string' ? [[name, value]] : [],
+		),
+	);
+	return Ok({
+		upload: answer.upload,
+		put: {url: put.url, headers, resumable: put.resumable === true},
+	});
+}
+
+/**
+ * `pap files push`: a file's bytes to the drive, back where it was pulled from or to a path. An
+ * upload, as files_upload makes one: its size and SHA-256 read from disk first, the upload started
+ * with them, the bytes streamed to the URL it was answered with, and the file made by done, which
+ * checks what arrived against what was said.
+ */
 export function pushFile(parsed: Parsed, io: Io): Promise<Result<Json, Failure>> {
 	return Do(async ($) => {
 		const [given, connection, path] = parsed.positionals;
@@ -241,21 +266,29 @@ export function pushFile(parsed: Parsed, io: Io): Promise<Result<Json, Failure>>
 			pulled.path === target.path.replace(/^\/+/, '')
 				? pulled.version
 				: undefined;
-		const bytes = $(
-			(await io.readBytes(local)).mapErr((cause) =>
+		const {size, sha256} = $(
+			(await io.hashFile(local)).mapErr((cause) =>
 				failed(`Could not read ${given}: ${cause.message}.`),
 			),
 		);
+		const client = $(clientFrom(io));
 		const query = {
 			path: target.path,
+			size: String(size),
+			sha256,
 			...(parsed.switches.has('force') ? {force: '1'} : held === undefined ? {} : {version: held}),
 		};
+		const started = $(
+			await okOr(client, filesPath(target.connection, 'uploads', query), {method: 'POST'}),
+		);
+		const {upload, put} = $(putOf(await jsonOf(started)));
+		$(await sendFile(io, local, size, put));
 		const response = $(
-			await okOr($(clientFrom(io)), filesPath(target.connection, 'content', query), {
-				method: 'PUT',
-				headers: {'content-type': 'application/octet-stream'},
-				body: bytes,
-			}),
+			await okOr(
+				client,
+				filesPath(target.connection, `uploads/${encodeURIComponent(upload)}/done`, {}),
+				{method: 'POST'},
+			),
 		);
 		const answer = await jsonOf(response);
 		const file = isObject(answer) && isObject(answer.file) ? answer.file : undefined;

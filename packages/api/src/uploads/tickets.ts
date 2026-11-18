@@ -35,8 +35,12 @@ export const UPLOAD_TTL_MS = 60 * 60_000;
 /** Who uploads, for which task and how the call came in; and the activity log's entry of the call. */
 export type UploadRun = Pick<NativeToolRun, 'caller' | 'connection' | 'entryId'>;
 
-/** What an upload makes: a new file in a folder, the top where `parentId` is null, or the next version of a file, by whoever read `version`. */
-export type UploadTarget = {kind: 'create'; parentId: string | null; name: string} | {kind: 'write'; fileId: string; version: string};
+/**
+ * What an upload makes: a new file in a folder, the top where `parentId` is null, inside the
+ * `folders` made in it on the way at done, where a push to a path names folders that are missing;
+ * or the next version of a file, by whoever read `version`.
+ */
+export type UploadTarget = {kind: 'create'; parentId: string | null; folders: string[]; name: string} | {kind: 'write'; fileId: string; version: string};
 
 /** What the caller says it will send: how many bytes, their SHA-256 in hex where it says, and their media type where it says. */
 export type DeclaredFile = {size: number; sha256: string | null; type: string | null};
@@ -117,6 +121,7 @@ export function startUpload(run: UploadRun, uploads: DriveUploads, target: Uploa
 				target: target.kind,
 				parentId: target.kind === 'create' ? target.parentId : null,
 				name: started.name,
+				folders: target.kind === 'create' ? target.folders : [],
 				fileId: target.kind === 'write' ? target.fileId : started.fileId,
 				version: target.kind === 'write' ? target.version : null,
 				size: file.size,

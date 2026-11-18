@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 import {posix} from 'node:path';
 
 import {Err, Ok, type Result} from 'ts-results-es';
@@ -6,8 +7,10 @@ import type {Env, Handler, Io} from './io';
 
 /**
  * An `Io` for the tests, run.test.ts, git.test.ts, gh.test.ts and files.test.ts: what pap wrote,
- * the programs it ran and with what, the files it wrote, a disk of files for `pap files`, the servers it started and the directories it removed,
- * with `fetch` and the programs' exit code as the test makes them. Not part of the bundle.
+ * the programs it ran and with what, the files it wrote, a disk of files for `pap files` with what
+ * it streamed of them, the servers it started, the directories it removed and how long it waited,
+ * with `fetch` and the programs' exit code as the test makes them; it waits for nothing. Not part
+ * of the bundle.
  */
 
 export type FakeOptions = {
@@ -35,6 +38,9 @@ export function fakeIo(options: FakeOptions = {}) {
 	);
 	const servers: Array<{path: string; handler: Handler; closed: boolean}> = [];
 	const removed: string[] = [];
+	// What `pap files push` read of the disk as streams, and how long it waited between tries.
+	const read: Array<{path: string; start?: number; end?: number}> = [];
+	const slept: number[] = [];
 	const io: Io = {
 		env: options.env ?? {PAP_URL: 'https://app.example.com/', PAP_TOKEN: 'pap_token'},
 		readStdin: async () => options.stdin ?? '',
@@ -60,11 +66,28 @@ export function fakeIo(options: FakeOptions = {}) {
 		// pap is run in /work.
 		absolutePath: (path) => posix.resolve('/work', path),
 		isDirectory: (path) => (options.directories ?? []).includes(path.replace(/\/+$/, '')),
-		readBytes: async (path) => {
+		hashFile: async (path) => {
 			const bytes = disk.get(path);
 			return bytes === undefined
 				? Err(new Error(`ENOENT: no such file, open '${path}'`))
-				: Ok(bytes);
+				: Ok({size: bytes.byteLength, sha256: createHash('sha256').update(bytes).digest('hex')});
+		},
+		readStream: (path, range) => {
+			read.push(range === undefined ? {path} : {path, ...range});
+			const bytes = disk.get(path);
+			return new ReadableStream<Uint8Array>({
+				start(controller) {
+					if (bytes === undefined) {
+						controller.error(new Error(`ENOENT: no such file, open '${path}'`));
+						return;
+					}
+					controller.enqueue(range === undefined ? bytes : bytes.slice(range.start, range.end));
+					controller.close();
+				},
+			});
+		},
+		sleep: async (ms) => {
+			slept.push(ms);
 		},
 		readText: async (path) => {
 			const bytes = disk.get(path);
@@ -86,5 +109,5 @@ export function fakeIo(options: FakeOptions = {}) {
 			});
 		},
 	};
-	return {io, output, spawned, files, disk, servers, removed};
+	return {io, output, spawned, files, disk, servers, removed, read, slept};
 }

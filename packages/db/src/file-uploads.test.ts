@@ -52,6 +52,7 @@ describe.skipIf(!databaseUrl)('uploads, against the database', () => {
 				target: 'create',
 				parentId: null,
 				name: `upload-${made}.pdf`,
+				folders: [],
 				fileId: null,
 				version: null,
 				size,

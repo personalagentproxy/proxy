@@ -88,7 +88,7 @@ import {
 } from '../native/files/route';
 import {chatFiles} from '../native/files/chat';
 import {handleUploadBytesRoute} from '../native/files/upload-route';
-import {handleCliListFilesRoute, handleCliPullFileRoute, handleCliPushFileRoute} from '../native/files/cli';
+import {handleCliFinishUploadRoute, handleCliListFilesRoute, handleCliPullFileRoute, handleCliStartUploadRoute} from '../native/files/cli';
 import {handleCreateRecordRoute, handleDeleteRecordRoute, handleGetRecordRoute, handleListRecordsRoute, handleUpdateRecordRoute} from '../records/route';
 import {handleAgendaRoute, handleFindEventsRoute} from '../widgets/agenda';
 import {handleAnswerRoute} from '../widgets/answer';
@@ -317,11 +317,13 @@ export function createApiRouter(): express.Router {
 	// a process in a sandbox, not a browser, and the bearer token, which no browser sends on its
 	// own, is the guard, as for the MCP server. Nothing above is mounted on `/api/cli`.
 	router.post(CLI_CALL_PATH, withCliAuth('CLI call route', handleCliCallRoute));
-	// A drive's files by path, for `pap files`: bytes down and up, which a tool's answer can't carry
-	// (native/files/cli.ts). An upload's body is the file, which the JSON parser above leaves alone.
+	// A drive's files by path, for `pap files`: bytes down, which a tool's answer can't carry, and
+	// uploads started and finished by path, whose bytes go to the URL the start answers with
+	// (native/files/cli.ts).
 	router.get(`${CLI_FILES_PATH}/:connectionId/list`, withCliAuth('CLI list files route', handleCliListFilesRoute));
 	router.get(`${CLI_FILES_PATH}/:connectionId/content`, withCliAuth('CLI pull file route', handleCliPullFileRoute));
-	router.put(`${CLI_FILES_PATH}/:connectionId/content`, withCliAuth('CLI push file route', handleCliPushFileRoute));
+	router.post(`${CLI_FILES_PATH}/:connectionId/uploads`, withCliAuth('CLI start upload route', handleCliStartUploadRoute));
+	router.post(`${CLI_FILES_PATH}/:connectionId/uploads/:upload/done`, withCliAuth('CLI finish upload route', handleCliFinishUploadRoute));
 
 	// MCP clients such as Claude, ChatGPT and Poke: the MCP server, signed in with OAuth 2.1, where
 	// Personal Agent Proxy is its own authorization server. Clients find it from the MCP server's

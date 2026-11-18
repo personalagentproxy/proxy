@@ -794,6 +794,10 @@ model FileUpload {
   // A new file: the folder it goes in, none for the top, and its name; a write: the file's name.
   parentId     String?
   name         String
+  // A new file: the folders to make on the way, at done, each inside the one before it, the first
+  // in `parentId`, as a push to a path whose folders are missing (`pap files push`); none where
+  // the folder is there.
+  folders      String[]         @default([])
   // A write: the file written over, and the version it was read at. A new file: the file once
   // made, or the id the drive reserved for it at the start, as Google Drive does.
   fileId       String?
