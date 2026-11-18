@@ -2,7 +2,7 @@
 	"name": "desktop",
 	"productName": "Personal Agent Proxy",
 	"private": true,
-	"version": "0.0.5",
+	"version": "0.0.6",
 	"description": "Personal Agent Proxy",
 	"author": "Personal Agent Proxy <hello@personalagentproxy.com>",
 	"type": "module",
