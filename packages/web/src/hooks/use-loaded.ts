@@ -30,8 +30,8 @@ export function useLoaded<T>(): T {
 
 /**
  * What a loader answering `later` loaded, from the answer itself, as `useLoaded` reads its own
- * page's: for a part a page draws from another route's answer, which it may keep drawing after the
- * address has left that route, as Chat keeps a thread it closes while it slides shut.
+ * page's: for a part a page draws from another route's answer, as Chat draws the thread open beside
+ * its list of tasks in a column of its own.
  */
 export function useAnswer<T>(later: Promise<T | Redirected>): T {
 	const answer = use(later);

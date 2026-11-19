@@ -18,6 +18,7 @@ import {act, cleanup, fireEvent, render, screen, waitFor, within} from '@testing
 import {createMemoryRouter, RouterProvider} from 'react-router';
 import {HumanSide} from '@/components/human-side';
 import {pageSaysSafeToReload} from '@/hooks/use-reload-on-release';
+import {formatAgo} from '@/lib/format';
 import {ChatPage} from '@/pages/chat-page';
 import {THREAD_ROUTE} from '@/pages/chat-thread';
 import {FROM_COMMAND_BAR} from '@/lib/command-bar';
@@ -270,6 +271,24 @@ function rowHeads(container: HTMLElement): Element[] {
 	return [...container.querySelectorAll('a [data-slot="live-head"]')];
 }
 
+// What a row of a list that went is while it slides out (hooks/use-list-motion.ts): out of reach,
+// and no longer the list's.
+const GOING = '[aria-hidden="true"] *, script, style';
+
+// Opens a new task's box, floating over the page, from the button at the foot of the tasks, and
+// gives it once it has the keyboard's focus.
+async function openNewTask(): Promise<HTMLElement> {
+	const tasks = await screen.findByLabelText('Tasks');
+	await act(async () => {
+		fireEvent.click(
+			within(tasks.parentElement as HTMLElement).getByRole('button', {name: /New task/}),
+		);
+	});
+	const box = await screen.findByLabelText('Message');
+	await waitFor(() => expect(document.activeElement).toBe(box));
+	return box;
+}
+
 // Follows a link of the page, and waits for React to have drawn where it leads. A click's own
 // `act` ends at once: a render under it that reads the page's answer with `use` and isn't done by
 // then is dropped, and React, holding on to it as still to come, never draws that page.
@@ -295,7 +314,7 @@ function answering(answer: (input: string, init?: RequestInit) => Promise<Respon
 }
 
 describe('ChatPage', () => {
-	test('focuses the message input after a conversation is picked from the list', async () => {
+	test('opens a conversation picked from the list with no new task’s box over it', async () => {
 		let arrive = () => undefined;
 		const held = new Promise<void>((resolve) => {
 			arrive = () => {
@@ -305,33 +324,18 @@ describe('ChatPage', () => {
 		});
 		renderChatPage({answered: (personaId) => (personaId === 'finance' ? held : Promise.resolve())});
 
-		const initialBox = await screen.findByLabelText('Message');
-		expect(document.activeElement).not.toBe(initialBox);
+		await screen.findByText('What should General do?');
+		expect(screen.queryByLabelText('Message')).toBeNull();
 
 		await follow(screen.getByRole('link', {name: /Finance/}));
 		await screen.findByRole('status', {name: 'Loading'});
 		await act(async () => arrive());
 
 		await screen.findByText('What should Finance do?');
-		await waitFor(() => {
-			expect(document.activeElement).toBe(screen.getByLabelText('Message'));
-		});
+		expect(screen.queryByLabelText('Message')).toBeNull();
 	});
 
-	test('focuses the message input when the open conversation is picked again', async () => {
-		renderChatPage();
-
-		const box = await screen.findByLabelText('Message');
-		expect(document.activeElement).not.toBe(box);
-
-		await follow(screen.getByRole('link', {name: /General/}));
-
-		await waitFor(() => {
-			expect(document.activeElement).toBe(box);
-		});
-	});
-
-	test('focuses the message input of a conversation opened from the command bar', async () => {
+	test('opens a new task’s box, focused, over a conversation opened from the command bar', async () => {
 		renderChatPage({initial: {pathname: '/acme/chat/general', state: FROM_COMMAND_BAR}});
 
 		await waitFor(() => {
@@ -339,11 +343,11 @@ describe('ChatPage', () => {
 		});
 	});
 
-	test('focuses the message input when the command bar goes to another conversation', async () => {
+	test('opens a new task’s box when the command bar goes to another conversation', async () => {
 		const {router} = renderChatPage();
 
 		await screen.findByText('What should General do?');
-		expect(document.activeElement).not.toBe(screen.getByLabelText('Message'));
+		expect(screen.queryByLabelText('Message')).toBeNull();
 
 		await act(async () => {
 			await router.navigate('/acme/chat/finance', {state: FROM_COMMAND_BAR});
@@ -358,7 +362,7 @@ describe('ChatPage', () => {
 	test('does not focus or navigate for a modified conversation click', async () => {
 		renderChatPage();
 
-		await screen.findByLabelText('Message');
+		await screen.findByText('What should General do?');
 		const financeRow = screen.getByRole('link', {name: /Finance/});
 		financeRow.focus();
 		fireEvent.click(financeRow, {metaKey: true});
@@ -478,6 +482,43 @@ describe('ChatPage', () => {
 		expect(screen.queryByRole('status', {name: 'Loading'})).toBeNull();
 	});
 
+	test('opens the new agent dialog at the platform’s shortcut with Shift and N, not without Shift', async () => {
+		renderChatPage();
+		await screen.findByText('What should General do?');
+		const apple = /Mac|iPhone|iPad/.test(navigator.userAgent);
+		const press = (shiftKey: boolean) =>
+			act(async () => {
+				fireEvent.keyDown(document.body, {
+					key: shiftKey ? 'N' : 'n',
+					code: 'KeyN',
+					metaKey: apple,
+					ctrlKey: !apple,
+					shiftKey,
+				});
+			});
+
+		await press(false);
+		expect(screen.queryByRole('heading', {name: 'New agent'})).toBeNull();
+		// Without Shift, a new task's box; put away, the page is as it was.
+		const box = await screen.findByLabelText('Message');
+		await act(async () => {
+			fireEvent.keyDown(box, {key: 'Escape'});
+		});
+		await waitFor(() => expect(screen.queryByLabelText('Message')).toBeNull());
+
+		await press(true);
+		expect(await screen.findByRole('heading', {name: 'New agent'})).toBeDefined();
+	});
+
+	test('shows no shortcut on New task or New agent in a browser, which keeps them for its windows', async () => {
+		renderChatPage();
+		await screen.findByText('What should General do?');
+
+		for (const button of screen.getAllByRole('button', {name: /New (task|agent)/})) {
+			expect(button.textContent).toMatch(/^New (task|agent)$/);
+		}
+	});
+
 	test('edits a changeable agent from its right-click menu', async () => {
 		fetchMock.mockImplementation((_input, init) => {
 			if (init?.method === 'PUT') {
@@ -515,6 +556,7 @@ describe('ChatPage', () => {
 			return Promise.resolve(new Response(null, {status: 204}));
 		});
 		renderChatPage({open: 'finance'});
+		await openNewTask();
 
 		fireEvent.click(
 			await screen.findByRole('button', {name: 'Model: Claude Sonnet 5.5 on OpenRouter'}),
@@ -680,7 +722,7 @@ describe('ChatPage', () => {
 		expect(order()).toEqual(['Travel', 'Finance', 'General']);
 
 		// What the person says in the open chat puts General on top at once.
-		typeIn(screen.getByLabelText('Message'), 'Hi');
+		typeIn(await openNewTask(), 'Hi');
 		fireEvent.click(screen.getByRole('button', {name: 'Send'}));
 		await waitFor(() => expect(order()).toEqual(['General', 'Travel', 'Finance']));
 		expect(screen.getByRole('link', {name: /General/}).textContent).toContain('You: Hi');
@@ -810,7 +852,7 @@ describe('ChatPage', () => {
 		fireEvent.change(name, {target: {value: '  Dana’s pricing  '}});
 		fireEvent.keyDown(name, {key: 'Enter'});
 		await waitFor(() => expect(renamedTo()).toEqual(['Dana’s pricing']));
-		const chat = await screen.findByLabelText('Chat');
+		const chat = await screen.findByLabelText('Tasks');
 		expect(within(chat).getByRole('link', {name: 'Dana’s pricing'})).toBeTruthy();
 		expect(name.value).toBe('Dana’s pricing');
 		await act(async () => answer());
@@ -844,7 +886,7 @@ describe('ChatPage', () => {
 		).toHaveLength(0);
 	});
 
-	test('lists the threads, the one opened last at the end, each a row with where it stands, its title and the start of the latest answer, not what opened it', async () => {
+	test('lists the threads, the one opened last on top, each a row of one line with where it stands, its title and how long ago its last message came', async () => {
 		const asleep = thread('t3', {
 			title: 'Train tickets',
 			state: {kind: 'asleep', until: '2026-10-21T12:00:00Z'},
@@ -858,19 +900,19 @@ describe('ChatPage', () => {
 		});
 		renderChatPage({threads: [pricing, backup, asleep]});
 
-		const chat = await screen.findByLabelText('Chat');
+		const chat = await screen.findByLabelText('Tasks');
 		const links = within(chat).getAllByRole('link');
 		expect(links.map((link) => link.getAttribute('aria-label'))).toEqual([
-			'Pricing review with Dana',
-			'Morning check',
 			'Train tickets',
+			'Morning check',
+			'Pricing review with Dana',
 		]);
 		expect(links.map((link) => link.getAttribute('href'))).toEqual([
-			'/acme/chat/general/threads/t1',
-			'/acme/chat/general/threads/t2',
 			'/acme/chat/general/threads/t3',
+			'/acme/chat/general/threads/t2',
+			'/acme/chat/general/threads/t1',
 		]);
-		const [stopped, working, sleeping] = links.map((link) => link.parentElement as HTMLElement);
+		const [sleeping, working, stopped] = links.map((link) => link.parentElement as HTMLElement);
 		// In progress while at work or asleep; done once stopped needing nothing.
 		expect(within(stopped as HTMLElement).queryByText('In progress')).toBeNull();
 		expect(within(stopped as HTMLElement).getByText('Done')).toBeTruthy();
@@ -884,23 +926,25 @@ describe('ChatPage', () => {
 		expect(
 			within(working as HTMLElement).queryByText('Every weekday at 9:00, as you asked'),
 		).toBeNull();
-		expect(within(stopped as HTMLElement).getByText('Moved it to Thursday.')).toBeTruthy();
+		// One line: the latest answer is the thread's to show too.
+		expect(within(stopped as HTMLElement).queryByText('Moved it to Thursday.')).toBeNull();
 		expect(
-			within(sleeping as HTMLElement).getByText('Waiting for the fares to drop.'),
-		).toBeTruthy();
+			within(sleeping as HTMLElement).queryByText('Waiting for the fares to drop.'),
+		).toBeNull();
+		expect(within(sleeping as HTMLElement).getByText(formatAgo(asleep.lastMessageAt))).toBeTruthy();
 	});
 
 	test('reads the chat again while a thread of it is in progress, so one that stops says so', async () => {
 		let listed = [backup];
 		renderChatPage({listThreads: () => listed});
 
-		const chat = await screen.findByLabelText('Chat');
+		const chat = await screen.findByLabelText('Tasks');
 		expect(within(chat).getByText('In progress')).toBeTruthy();
 		listed = [{...backup, state: {kind: 'stopped'}, standing: 'done', latest: 'The backup ran.'}];
 		// The chat is read again within the 4 seconds it waits between reads.
 		await act(() => new Promise((resolve) => setTimeout(resolve, 4500)));
 		expect(within(chat).queryByText('In progress')).toBeNull();
-		expect(within(chat).getByText('The backup ran.')).toBeTruthy();
+		expect(within(chat).getByText('Done')).toBeTruthy();
 	}, 10000);
 
 	test('reads the chat again while where a thread that stopped stands is still being read, so it says it waits for the person once that is written', async () => {
@@ -913,12 +957,11 @@ describe('ChatPage', () => {
 			},
 		});
 
-		const chat = await screen.findByLabelText('Chat');
+		const chat = await screen.findByLabelText('Tasks');
 		expect(within(chat).getByText('Done')).toBeTruthy();
 		listed = [{...pricing, standing: 'waiting', summary: 'Asks which day suits Dana.'}];
 		await act(() => new Promise((resolve) => setTimeout(resolve, 4500)));
 		expect(within(chat).getByText('Waiting for you')).toBeTruthy();
-		expect(within(chat).getByText('Asks which day suits Dana.')).toBeTruthy();
 
 		// Written, there is nothing more to read it again for.
 		const read = reads;
@@ -926,7 +969,7 @@ describe('ChatPage', () => {
 		expect(reads).toBe(read);
 	}, 15000);
 
-	test('says where each thread stands in a sentence while it is current, in ink where it waits for the person, the start of the latest answer otherwise', async () => {
+	test('offers to mark done only a thread waiting for the person', async () => {
 		const waiting = thread('t4', {
 			title: 'Date filter on the activity log',
 			standing: 'waiting',
@@ -940,27 +983,15 @@ describe('ChatPage', () => {
 			lastMessageAt: '2026-10-21T10:07:00Z',
 			createdAt: '2026-10-21T10:07:00Z',
 		});
-		// Its summary stale, the page has none for it: the start of the latest answer stands in.
 		renderChatPage({threads: [pricing, backup, waiting]});
 
-		const chat = await screen.findByLabelText('Chat');
-		const [done, working, asking] = within(chat)
+		const chat = await screen.findByLabelText('Tasks');
+		const [asking, working, done] = within(chat)
 			.getAllByRole('link')
 			.map((link) => link.parentElement as HTMLElement);
 		expect(within(asking as HTMLElement).getByText('Waiting for you')).toBeTruthy();
-		expect(
-			within(asking as HTMLElement).getByText(
-				'Has a plan, and asks whether the date range should cover the CSV export too.',
-			).className,
-		).not.toContain('text-muted-foreground');
-		expect(
-			within(asking as HTMLElement).queryByText('I have a plan, and one question before I build.'),
-		).toBeNull();
 		expect(within(asking as HTMLElement).getByRole('button', {name: 'Mark done'})).toBeTruthy();
 		expect(within(done as HTMLElement).getByText('Done')).toBeTruthy();
-		expect(within(done as HTMLElement).getByText('Moved it to Thursday.').className).toContain(
-			'text-muted-foreground',
-		);
 		expect(within(done as HTMLElement).queryByRole('button', {name: 'Mark done'})).toBeNull();
 		expect(within(working as HTMLElement).getByText('In progress')).toBeTruthy();
 		expect(within(working as HTMLElement).queryByRole('button', {name: 'Mark done'})).toBeNull();
@@ -976,7 +1007,7 @@ describe('ChatPage', () => {
 			views: {t4: view(waiting, [said('m1', 'person', 'Move the pricing review')])},
 		});
 
-		const chat = await screen.findByLabelText('Chat');
+		const chat = await screen.findByLabelText('Tasks');
 		const button = within(chat).getByRole('button', {name: 'Mark done'});
 		await follow(button);
 
@@ -1008,7 +1039,7 @@ describe('ChatPage', () => {
 		);
 		renderChatPage({threads: [waiting]});
 
-		const chat = await screen.findByLabelText('Chat');
+		const chat = await screen.findByLabelText('Tasks');
 		await follow(within(chat).getByRole('button', {name: 'Mark done'}));
 
 		await waitFor(() => expect(within(chat).getByText('Waiting for you')).toBeTruthy());
@@ -1025,7 +1056,7 @@ describe('ChatPage', () => {
 		const waiting = thread('t4', {standing: 'waiting'});
 		renderChatPage({threads: [done, waiting]});
 
-		const chat = await screen.findByLabelText('Chat');
+		const chat = await screen.findByLabelText('Tasks');
 		// One archive button, on the thread that is done; the one waiting has the check.
 		expect(within(chat).getAllByRole('button', {name: 'Archive'})).toHaveLength(1);
 		expect(within(chat).getAllByRole('button', {name: 'Mark done'})).toHaveLength(1);
@@ -1033,7 +1064,7 @@ describe('ChatPage', () => {
 		await follow(within(chat).getByRole('button', {name: 'Archive'}));
 
 		expect(within(chat).queryByRole('link', {name: 'Quarterly numbers'})).toBeNull();
-		expect(within(chat).queryByText('Sent the numbers.')).toBeNull();
+		expect(within(chat).queryByText('Sent the numbers.', {ignore: GOING})).toBeNull();
 		expect(within(chat).getByRole('button', {name: 'Mark done'})).toBeTruthy();
 		await waitFor(() =>
 			expect(
@@ -1049,11 +1080,11 @@ describe('ChatPage', () => {
 		const waiting = thread('t4', {standing: 'waiting'});
 		renderChatPage({threads: [waiting]});
 
-		const chat = await screen.findByLabelText('Chat');
+		const chat = await screen.findByLabelText('Tasks');
 		await follow(within(chat).getByRole('button', {name: 'Mark done'}));
 		await follow(within(chat).getByRole('button', {name: 'Archive'}));
 
-		expect(within(chat).queryByText('Done')).toBeNull();
+		expect(within(chat).queryByText('Done', {ignore: GOING})).toBeNull();
 	});
 
 	test('where the server can’t archive a thread, it is back in the list, saying why', async () => {
@@ -1065,7 +1096,7 @@ describe('ChatPage', () => {
 		);
 		renderChatPage({threads: [done]});
 
-		const chat = await screen.findByLabelText('Chat');
+		const chat = await screen.findByLabelText('Tasks');
 		await follow(within(chat).getByRole('button', {name: 'Archive'}));
 
 		await waitFor(() =>
@@ -1126,7 +1157,7 @@ describe('ChatPage', () => {
 		test('ask first as a thread with them is marked done, and Back leaves it waiting', async () => {
 			renderChatPage({threads: [thread('t4', {standing: 'waiting', alerts: 2})]});
 
-			const chat = await screen.findByLabelText('Chat');
+			const chat = await screen.findByLabelText('Tasks');
 			await follow(within(chat).getByRole('button', {name: 'Mark done'}));
 
 			const dialog = await screen.findByRole('dialog');
@@ -1142,7 +1173,7 @@ describe('ChatPage', () => {
 		test('marked done keeping them, it is watching and they stay', async () => {
 			renderChatPage({threads: [thread('t4', {standing: 'waiting', alerts: 2})]});
 
-			const chat = await screen.findByLabelText('Chat');
+			const chat = await screen.findByLabelText('Tasks');
 			await follow(within(chat).getByRole('button', {name: 'Mark done'}));
 			await follow(
 				within(await screen.findByRole('dialog')).getByRole('button', {
@@ -1159,7 +1190,7 @@ describe('ChatPage', () => {
 		test('marked done cancelling them, it is done and the server cancels them', async () => {
 			renderChatPage({threads: [thread('t4', {standing: 'waiting', alerts: 1})]});
 
-			const chat = await screen.findByLabelText('Chat');
+			const chat = await screen.findByLabelText('Tasks');
 			await follow(within(chat).getByRole('button', {name: 'Mark done'}));
 			const dialog = await screen.findByRole('dialog');
 			expect(dialog.textContent).toContain('This thread is still watching 1 thing');
@@ -1177,7 +1208,7 @@ describe('ChatPage', () => {
 				initial: '/acme/chat/general/threads/t4',
 			});
 
-			const chat = await screen.findByLabelText('Chat');
+			const chat = await screen.findByLabelText('Tasks');
 			expect(within(chat).getByText('Watching')).toBeTruthy();
 			expect(within(chat).getByRole('button', {name: 'Archive'})).toBeTruthy();
 			expect(within(chat).queryByRole('button', {name: 'Mark done'})).toBeNull();
@@ -1190,7 +1221,7 @@ describe('ChatPage', () => {
 			const done = thread('t5', {title: 'Quarterly numbers', standing: 'done', alerts: 2});
 			renderChatPage({threads: [done]});
 
-			const chat = await screen.findByLabelText('Chat');
+			const chat = await screen.findByLabelText('Tasks');
 			await follow(within(chat).getByRole('button', {name: 'Archive'}));
 
 			const dialog = await screen.findByRole('dialog');
@@ -1213,19 +1244,10 @@ describe('ChatPage', () => {
 			await waitFor(() => expect(postedTo('/threads/t5/archive')).toBe(true));
 		});
 
-		test('a thread an alert opened has a bell by its title in the list', async () => {
-			renderChatPage({threads: [pricing, backup]});
-
-			const chat = await screen.findByLabelText('Chat');
-			const marks = within(chat).getAllByLabelText('Opened by an alert');
-			expect(marks).toHaveLength(1);
-			expect(marks[0]?.parentElement?.textContent).toBe('Morning check');
-		});
-
 		test('the chat’s own alerts, which open threads of their own, are a line at its end to the Alerts page showing them', async () => {
 			renderChatPage({threads: [pricing], chatAlerts: 2});
 
-			const chat = await screen.findByLabelText('Chat');
+			const chat = await screen.findByLabelText('Tasks');
 			const line = await within(chat).findByRole('link', {
 				name: 'Watching 2 things in the background',
 			});
@@ -1235,7 +1257,7 @@ describe('ChatPage', () => {
 		test('a chat without alerts of its own has no line for them', async () => {
 			renderChatPage({threads: [pricing]});
 
-			const chat = await screen.findByLabelText('Chat');
+			const chat = await screen.findByLabelText('Tasks');
 			await within(chat).findByRole('link', {name: pricing.title});
 			expect(within(chat).queryByText(/in the background/)).toBeNull();
 		});
@@ -1292,7 +1314,7 @@ describe('ChatPage', () => {
 
 			await waitFor(() => expect(screen.queryByLabelText('Thread')).toBeNull());
 			expect(
-				within(screen.getByLabelText('Chat')).queryByRole('link', {name: 'Quarterly numbers'}),
+				within(screen.getByLabelText('Tasks')).queryByRole('link', {name: 'Quarterly numbers'}),
 			).toBeNull();
 			await waitFor(() =>
 				expect(
@@ -1301,37 +1323,6 @@ describe('ChatPage', () => {
 					),
 				).toBe(true),
 			);
-		});
-
-		test('archived, slides shut where the person has not asked for less motion, out of reach until it is gone', async () => {
-			const motion = mock((query: string) => ({
-				matches: query === '(prefers-reduced-motion: no-preference)',
-			}));
-			Object.assign(globalThis, {matchMedia: motion});
-			try {
-				const done = thread('t5', {title: 'Quarterly numbers', standing: 'done'});
-				renderChatPage({
-					threads: [done],
-					views: {t5: view(done, [said('m1', 'person', 'Send me the quarterly numbers')])},
-					initial: '/acme/chat/general/threads/t5',
-				});
-
-				await screen.findByLabelText('Thread');
-				await follow(within(screen.getByRole('banner')).getByRole('button', {name: 'Archive'}));
-
-				// Still there as it slides, but out of reach, and no longer the address's.
-				const sliding = screen.getByLabelText('Thread').closest('[data-side-slide]');
-				expect(sliding?.hasAttribute('inert')).toBe(true);
-				expect(document.querySelector('[data-page]')?.hasAttribute('data-side-motion')).toBe(true);
-				expect(
-					within(screen.getByLabelText('Chat')).queryByRole('link', {name: 'Quarterly numbers'}),
-				).toBeNull();
-
-				await waitFor(() => expect(screen.queryByLabelText('Thread') === null).toBe(true));
-				expect(document.querySelector('[data-page]')?.hasAttribute('data-side-motion')).toBe(false);
-			} finally {
-				Reflect.deleteProperty(globalThis, 'matchMedia');
-			}
 		});
 
 		test('opens beside the chat, named in the title bar, lit in the list, with what was said in it and the box to reply in focused', async () => {
@@ -1351,11 +1342,11 @@ describe('ChatPage', () => {
 				screen.getByRole('link', {name: 'Morning check'}).getAttribute('aria-current'),
 			).toBeNull();
 			// Lit, where it is in the list.
-			expect(link.parentElement?.classList.contains('bg-muted')).toBe(true);
+			expect(link.parentElement?.classList.contains('bg-sidebar-accent')).toBe(true);
 			expect(
 				screen
 					.getByRole('link', {name: 'Morning check'})
-					.parentElement?.classList.contains('bg-muted'),
+					.parentElement?.classList.contains('bg-sidebar-accent'),
 			).toBe(false);
 			expect(within(screen.getByRole('banner')).getByText('Pricing review with Dana')).toBeTruthy();
 			expect(
@@ -1400,7 +1391,7 @@ describe('ChatPage', () => {
 			expect(within(banner).queryByRole('button', {name: 'Mark done'})).toBeNull();
 			expect(within(banner).queryByText('Waiting for you')).toBeNull();
 			expect(within(banner).queryByText('Done')).toBeNull();
-			const chat = screen.getByLabelText('Chat');
+			const chat = screen.getByLabelText('Tasks');
 			expect(within(chat).queryByText('Waiting for you')).toBeNull();
 			expect(within(chat).queryByRole('button', {name: 'Mark done'})).toBeNull();
 			await waitFor(() =>
@@ -1435,16 +1426,16 @@ describe('ChatPage', () => {
 				};
 			});
 			renderChatPage({threads: [pricing], threadAnswered: () => held});
-			const chat = await screen.findByLabelText('Chat');
+			const chat = await screen.findByLabelText('Tasks');
 
 			await follow(screen.getByRole('link', {name: 'Pricing review with Dana'}));
 			await screen.findByRole('status', {name: 'Loading'});
 			expect(within(screen.getByRole('banner')).getByText('Pricing review with Dana')).toBeTruthy();
-			expect(screen.getByLabelText('Chat')).toBe(chat);
+			expect(screen.getByLabelText('Tasks')).toBe(chat);
 
 			await act(async () => arrive());
 			await screen.findByLabelText('Thread');
-			expect(screen.getByLabelText('Chat')).toBe(chat);
+			expect(screen.getByLabelText('Tasks')).toBe(chat);
 		});
 
 		test('sends a reply to the thread, shown at once, the agent at work under it', async () => {
@@ -1549,112 +1540,59 @@ describe('ChatPage', () => {
 			fireEvent.drop(window, {dataTransfer: {types: ['Files'], files: [file]}});
 
 			await waitFor(() => expect(box.textContent).toBe('notes.txt '));
-			expect(screen.getByLabelText('Message').textContent).toBe('');
+			// No new task's box beside it to take them.
+			expect(screen.queryByLabelText('Message')).toBeNull();
 			const uploads = fetchMock.mock.calls
 				.filter(([url]) => url.includes('/attachments'))
 				.map(([url]) => url.split('?')[0]);
 			expect(uploads).toEqual(['/api/orgs/acme/chat/personas/general/threads/t1/attachments']);
 		});
 
-		test('takes the page’s width and gives it back, and closes back to the chat', async () => {
+		test('stays open, with no way to close it or give it the page’s width, Escape included', async () => {
 			renderChatPage({threads: [pricing], initial: '/acme/chat/general/threads/t1'});
 			await screen.findByLabelText('Thread');
-			const chatColumn = () => screen.getByLabelText('Chat').closest('[inert]');
-			expect(chatColumn()).toBeNull();
+			expect(screen.queryByRole('button', {name: 'Close'})).toBeNull();
+			expect(screen.queryByRole('button', {name: 'Expand'})).toBeNull();
 
-			fireEvent.click(screen.getByRole('button', {name: 'Expand'}));
-			expect(chatColumn()).not.toBeNull();
-			fireEvent.click(screen.getByRole('button', {name: 'Show the chat beside it'}));
-			expect(chatColumn()).toBeNull();
-
-			await follow(screen.getByRole('button', {name: 'Close'}));
-			await waitFor(() => expect(screen.queryByLabelText('Thread')).toBeNull());
-			expect(screen.getByLabelText('Chat')).toBeTruthy();
+			await act(async () => {
+				fireEvent.keyDown(document.body, {key: 'Escape'});
+			});
+			expect(screen.getByLabelText('Thread')).toBeTruthy();
 			expect(
 				screen.getByRole('link', {name: 'Pricing review with Dana'}).getAttribute('aria-current'),
-			).toBeNull();
+			).toBe('page');
 		});
 
-		test('Escape gives the chat back beside one with the page’s width, and closes one beside it', async () => {
+		test('stays open under a new task’s box, focused, from the New task button', async () => {
 			renderChatPage({threads: [pricing], initial: '/acme/chat/general/threads/t1'});
 			await screen.findByLabelText('Thread');
-			const chatColumn = () => screen.getByLabelText('Chat').closest('[inert]');
 
-			fireEvent.click(screen.getByRole('button', {name: 'Expand'}));
-			expect(chatColumn()).not.toBeNull();
-			await act(async () => {
-				fireEvent.keyDown(document.body, {key: 'Escape'});
-			});
+			await openNewTask();
+			expect(screen.getByRole('dialog', {name: 'New task for General'})).toBeTruthy();
 			expect(screen.getByLabelText('Thread')).toBeTruthy();
-			expect(chatColumn()).toBeNull();
-
-			await act(async () => {
-				fireEvent.keyDown(document.body, {key: 'Escape'});
-			});
-			await waitFor(() => expect(screen.queryByLabelText('Thread') === null).toBe(true));
-			expect(screen.getByLabelText('Chat')).toBeTruthy();
 		});
 
-		test('closes as the chat’s empty space is clicked, and stays open as a thread in it is', async () => {
+		test('stays open under a new task’s box, focused, at the platform’s shortcut with N', async () => {
 			renderChatPage({threads: [pricing], initial: '/acme/chat/general/threads/t1'});
 			await screen.findByLabelText('Thread');
-			const row = screen.getByRole('link', {name: 'Pricing review with Dana'});
 
-			fireEvent.click(row.parentElement as HTMLElement);
+			await act(async () => {
+				fireEvent.keyDown(document.body, {key: 'n', code: 'KeyN', ctrlKey: true, metaKey: true});
+			});
+			expect(screen.queryByLabelText('Message')).toBeNull();
+
+			const apple = /Mac|iPhone|iPad/.test(navigator.userAgent);
+			await act(async () => {
+				fireEvent.keyDown(document.body, {
+					key: 'n',
+					code: 'KeyN',
+					metaKey: apple,
+					ctrlKey: !apple,
+				});
+			});
+			const box = await screen.findByLabelText('Message');
+			await waitFor(() => expect(document.activeElement).toBe(box));
 			expect(screen.getByLabelText('Thread')).toBeTruthy();
-
-			await act(async () => {
-				fireEvent.click(within(screen.getByLabelText('Chat')).getByRole('log'));
-			});
-			await waitFor(() => expect(screen.queryByLabelText('Thread')).toBeNull());
-			expect(row.getAttribute('aria-current')).toBeNull();
-		});
-
-		test('stays open as the chat’s empty space is clicked to end a selection', async () => {
-			renderChatPage({threads: [pricing], initial: '/acme/chat/general/threads/t1'});
-			await screen.findByLabelText('Thread');
-			const selection = window.getSelection() as Selection;
-			selection.selectAllChildren(within(screen.getByLabelText('Chat')).getByRole('log'));
-
-			await act(async () => {
-				fireEvent.click(within(screen.getByLabelText('Chat')).getByRole('log'));
-			});
-			expect(screen.getByLabelText('Thread')).toBeTruthy();
-			selection.removeAllRanges();
-		});
-
-		test('Escape leaves one open with a reply typed in its box', async () => {
-			renderChatPage({threads: [pricing], initial: '/acme/chat/general/threads/t1'});
-			const box = await screen.findByLabelText('Reply');
-			box.focus();
-			box.textContent = 'Thursday works';
-
-			await act(async () => {
-				fireEvent.keyDown(box, {key: 'Escape'});
-			});
-			expect(screen.getByLabelText('Thread')).toBeTruthy();
-
-			box.textContent = '';
-			await act(async () => {
-				fireEvent.keyDown(box, {key: 'Escape'});
-			});
-			await waitFor(() => expect(screen.queryByLabelText('Thread') === null).toBe(true));
-		});
-
-		test('given the page’s width and closed, opens beside the chat again', async () => {
-			renderChatPage({threads: [pricing], initial: '/acme/chat/general/threads/t1'});
-			await screen.findByLabelText('Thread');
-			const chatColumn = () => screen.getByLabelText('Chat').closest('[inert]');
-
-			fireEvent.click(screen.getByRole('button', {name: 'Expand'}));
-			expect(chatColumn()).not.toBeNull();
-			await follow(screen.getByRole('button', {name: 'Close'}));
-			await waitFor(() => expect(screen.queryByLabelText('Thread')).toBeNull());
-
-			await follow(screen.getByRole('link', {name: 'Pricing review with Dana'}));
-			await screen.findByLabelText('Thread');
-			expect(chatColumn()).toBeNull();
-			expect(screen.getByRole('button', {name: 'Expand'})).toBeTruthy();
 		});
 
 		test('says where it is gone, the title bar waiting for no name', async () => {
@@ -1665,7 +1603,6 @@ describe('ChatPage', () => {
 			await waitFor(() => expect(within(bar).getByText('Thread')).toBeTruthy());
 			expect(bar.querySelector('[data-slot="skeleton"]')).toBeNull();
 			expect(container.querySelector('[data-slot="skeleton"]')).toBeNull();
-			expect(within(bar).getByRole('button', {name: 'Close'})).toBeTruthy();
 		});
 
 		test('shows the pictures an answer kept where its words put them, any other file it kept as a chip, and loads no picture from anywhere else', async () => {
@@ -1809,28 +1746,33 @@ describe('ChatPage', () => {
 			);
 		}
 
-		test('opens a thread with what is sent, shown at once at the chat’s end, rising into place, and keeps it as the server answers, without going to it', async () => {
+		test('opens a thread with what is sent, shown at once on top of the list, and opens it as the server answers, putting the box away', async () => {
 			const answeredOpen: ((response: Response) => void)[] = [];
 			answerSends(() => new Promise((resolve) => answeredOpen.push(resolve)));
-			renderChatPage({threads: [pricing]});
-			const chat = await screen.findByLabelText('Chat');
-			const box = screen.getByLabelText('Message');
+			const started = opened('Book the train');
+			renderChatPage({
+				threads: [pricing],
+				views: {
+					t1: pricingView,
+					't-new': view(started, [said('m1', 'person', 'Book the train')], true),
+				},
+			});
+			const chat = await screen.findByLabelText('Tasks');
+			const box = await openNewTask();
 
 			typeIn(box, 'Book the train ');
 			fireEvent.click(screen.getByRole('button', {name: 'Send'}));
 
 			const sent = await within(chat).findByText('Book the train');
+			const row = sent.closest('li') as HTMLElement;
 			expect(box.textContent).toBe('');
-			expect(sent.closest('[data-enter]')?.getAttribute('data-enter')).toBe('rise');
+			// Behind the box, out of reach while it is open.
+			expect(within(chat).getAllByRole('listitem', {hidden: true})[0]).toBe(row);
 			// The server has yet to open it: there is nowhere for it to lead.
-			expect(within(sent.closest('[data-enter]') as HTMLElement).queryByRole('link')).toBeNull();
-			expect(
-				within(sent.closest('[data-enter]') as HTMLElement).getByText('In progress'),
-			).toBeTruthy();
-			// What was there as the chat opened is simply there.
-			expect(within(chat).getByText('Pricing review with Dana').closest('[data-enter]')).toBeNull();
+			expect(within(row).queryByRole('link', {hidden: true})).toBeNull();
+			expect(within(row).getByText('In progress')).toBeTruthy();
 			// The list has it as the last thing said at once.
-			expect(screen.getByRole('link', {name: /General/}).textContent).toContain(
+			expect(screen.getByRole('link', {name: /General/, hidden: true}).textContent).toContain(
 				'You: Book the train',
 			);
 
@@ -1840,16 +1782,15 @@ describe('ChatPage', () => {
 			);
 			expect(posted?.[0]).toBe('/api/orgs/acme/chat/personas/general/threads');
 			await act(async () => {
-				answeredOpen[0]?.(Response.json({thread: opened('Book the train')}));
+				answeredOpen[0]?.(Response.json({thread: started}));
 			});
-			expect(within(chat).getByText('Book the train')).toBe(sent);
-			expect(screen.queryByLabelText('Thread')).toBeNull();
-			// Opened, it leads to the thread the server made, before the chat read again has it.
-			expect(
-				within(sent.closest('[data-enter]') as HTMLElement)
-					.getByRole('link', {name: 'Book the train'})
-					.getAttribute('href'),
-			).toBe('/acme/chat/general/threads/t-new');
+			// Opened, it leads to the thread the server made, before the chat read again has it, and is
+			// open, the box put away.
+			const link = await within(chat).findByRole('link', {name: 'Book the train'});
+			expect(link.getAttribute('href')).toBe('/acme/chat/general/threads/t-new');
+			await screen.findByLabelText('Thread');
+			expect(link.getAttribute('aria-current')).toBe('page');
+			expect(screen.queryByLabelText('Message')).toBeNull();
 		});
 
 		test('puts what was sent back in the box, and takes it out of the chat, where the send fails', async () => {
@@ -1857,15 +1798,15 @@ describe('ChatPage', () => {
 				Promise.resolve(Response.json({error: 'The agent is gone'}, {status: 500})),
 			);
 			renderChatPage({threads: [pricing]});
-			const chat = await screen.findByLabelText('Chat');
-			typeIn(screen.getByLabelText('Message'), 'Book the train');
+			const chat = await screen.findByLabelText('Tasks');
+			typeIn(await openNewTask(), 'Book the train');
 			fireEvent.click(screen.getByRole('button', {name: 'Send'}));
 
 			// The box is made again, holding what was sent.
 			await waitFor(() =>
 				expect(screen.getByLabelText('Message').textContent).toBe('Book the train'),
 			);
-			expect(within(chat).queryByText('Book the train')).toBeNull();
+			expect(within(chat).queryByText('Book the train', {ignore: GOING})).toBeNull();
 		});
 	});
 
@@ -1880,7 +1821,7 @@ describe('ChatPage', () => {
 		test('opens with what was typed and not sent, safe to reload', async () => {
 			renderChatPage({draft: 'Move the pricing review'});
 
-			const box = await screen.findByLabelText('Message');
+			const box = await openNewTask();
 			expect(box.textContent).toBe('Move the pricing review');
 			expect(pageSaysSafeToReload()).toBe(true);
 			expect(saves()).toEqual([]);
@@ -1888,7 +1829,7 @@ describe('ChatPage', () => {
 
 		test('saves what is typed a moment after the typing stops, once', async () => {
 			renderChatPage();
-			const box = await screen.findByLabelText('Message');
+			const box = await openNewTask();
 
 			typeIn(box, 'Move the');
 			typeIn(box, 'Move the pricing review');
@@ -1936,10 +1877,16 @@ describe('ChatPage', () => {
 			});
 		});
 
-		test('saves at once as another conversation opens, and lists it there as a draft', async () => {
+		test('saves at once as the box is put away, and lists it as a draft once another conversation opens', async () => {
 			renderChatPage();
-			const box = await screen.findByLabelText('Message');
+			const box = await openNewTask();
 			typeIn(box, 'Move the pricing review');
+
+			await act(async () => {
+				fireEvent.keyDown(box, {key: 'Escape'});
+			});
+			await waitFor(() => expect(screen.queryByLabelText('Message')).toBeNull());
+			expect(saves()).toEqual([{text: 'Move the pricing review'}]);
 
 			await follow(screen.getByRole('link', {name: /Finance/}));
 			await screen.findByText('What should Finance do?');
@@ -1959,12 +1906,13 @@ describe('ChatPage', () => {
 					{...finance, draft: 'Pay the invoice'},
 				],
 			});
-			const box = await screen.findByLabelText('Message');
+			const box = await openNewTask();
 
-			expect(screen.getByRole('link', {name: /Finance/}).textContent).toContain(
+			// Behind the box, out of reach while it is open.
+			expect(screen.getByRole('link', {name: /Finance/, hidden: true}).textContent).toContain(
 				'Draft: Pay the invoice',
 			);
-			const generalRow = screen.getByRole('link', {name: /General/});
+			const generalRow = screen.getByRole('link', {name: /General/, hidden: true});
 			expect(generalRow.textContent).not.toContain('Draft:');
 			expect(generalRow.textContent).toContain('How can I help?');
 
@@ -1985,7 +1933,7 @@ describe('ChatPage', () => {
 				);
 			});
 			renderChatPage();
-			const box = await screen.findByLabelText('Message');
+			const box = await openNewTask();
 
 			typeIn(box, 'Book the train');
 			fireEvent.click(screen.getByRole('button', {name: 'Send'}));
@@ -2033,13 +1981,13 @@ describe('ChatPage', () => {
 			renderChatPage({draftAttachments: [kept], experiments: withFiles});
 
 			// A chip by its name in the box the message is typed in, its size said on hover.
-			const box = await screen.findByLabelText('Message');
+			const box = await openNewTask();
 			await waitFor(() => expect(chipOf('pricing.md') === null).toBe(false));
 			// With a space after it, so the caret has text to be in.
 			expect(box.textContent).toBe('pricing.md ');
 			expect(chipOf('pricing.md')?.parentElement?.getAttribute('title')).toBe('pricing.md · 2 KB');
 			// The open chat keeps the last message in the sidebar; the file waits in the composer.
-			const generalRow = screen.getByRole('link', {name: /General/});
+			const generalRow = screen.getByRole('link', {name: /General/, hidden: true});
 			expect(generalRow.textContent).not.toContain('Draft:');
 
 			// A file alone is something to send.
@@ -2070,7 +2018,8 @@ describe('ChatPage', () => {
 				draftAttachments: [kept],
 				experiments: withFiles,
 			});
-			const chat = await screen.findByLabelText('Chat');
+			const chat = await screen.findByLabelText('Tasks');
+			await openNewTask();
 			await waitFor(() => expect(chipOf('pricing.md') === null).toBe(false));
 
 			fireEvent.click(screen.getByRole('button', {name: 'Send'}));
@@ -2079,7 +2028,7 @@ describe('ChatPage', () => {
 				expect(screen.getByLabelText('Message').textContent).toBe('Read pricing.md '),
 			);
 			expect(chipOf('pricing.md') === null).toBe(false);
-			expect(within(chat).queryByText(/Read/)).toBeNull();
+			expect(within(chat).queryByText(/Read/, {ignore: GOING})).toBeNull();
 			expect(calls().filter(([method]) => method === 'DELETE')).toEqual([]);
 		});
 
@@ -2088,7 +2037,7 @@ describe('ChatPage', () => {
 			const typed = `Does ${ATTACHMENT_MARK} match ${ATTACHMENT_MARK}?`;
 			renderChatPage({draft: typed, draftAttachments: [chart, kept], experiments: withFiles});
 
-			const box = await screen.findByLabelText('Message');
+			const box = await openNewTask();
 			await waitFor(() => expect(box.textContent).toBe('Does chart.png match pricing.md?'));
 			// Nothing was typed since it opened, so nothing is saved.
 			expect(pageSaysSafeToReload()).toBe(true);
@@ -2115,7 +2064,7 @@ describe('ChatPage', () => {
 				experiments: withFiles,
 			});
 
-			const box = await screen.findByLabelText('Message');
+			const box = await openNewTask();
 			await waitFor(() => expect(box.textContent).toBe('Look at pricing.md '));
 			expect(box.lastChild?.nodeType).toBe(Node.TEXT_NODE);
 			expect(pageSaysSafeToReload()).toBe(true);
@@ -2127,7 +2076,7 @@ describe('ChatPage', () => {
 				draftAttachments: [kept],
 				experiments: withFiles,
 			});
-			const box = await screen.findByLabelText('Message');
+			const box = await openNewTask();
 			await waitFor(() => expect(chipOf('pricing.md') === null).toBe(false));
 			const place = box.querySelector('[data-file]');
 
@@ -2144,7 +2093,7 @@ describe('ChatPage', () => {
 
 		test('saves what is typed around a file with which file each mark is', async () => {
 			renderChatPage({draftAttachments: [kept], experiments: withFiles});
-			const box = await screen.findByLabelText('Message');
+			const box = await openNewTask();
 			await waitFor(() => expect(chipOf('pricing.md') === null).toBe(false));
 
 			// Typed after the chip and the space it has after it, as a browser adds a word to the box.
@@ -2170,7 +2119,7 @@ describe('ChatPage', () => {
 		test('takes a file out of the input on the server too, by its cross or by deleting it from the text', async () => {
 			const chart = {...kept, fileId: 'file-2', name: 'chart.png', type: 'image/png'};
 			renderChatPage({draftAttachments: [kept, chart], experiments: withFiles});
-			const box = await screen.findByLabelText('Message');
+			const box = await openNewTask();
 			await waitFor(() => expect(chipOf('pricing.md') === null).toBe(false));
 
 			fireEvent.click(screen.getByRole('button', {name: 'Remove pricing.md'}));
@@ -2205,7 +2154,7 @@ describe('ChatPage', () => {
 				),
 			);
 			renderChatPage({experiments: withFiles});
-			const box = await screen.findByLabelText('Message');
+			const box = await openNewTask();
 			typeIn(box, 'See ');
 			const file = new File(['hello'], 'notes.txt', {type: 'text/plain'});
 			const dragged = {dataTransfer: {types: ['Files'], files: [file]}};
@@ -2282,7 +2231,7 @@ describe('ChatPage', () => {
 
 		test('takes no files where the organization has none: no paperclip, and a drop is left alone', async () => {
 			renderChatPage();
-			await screen.findByLabelText('Message');
+			await openNewTask();
 
 			fireEvent.dragEnter(window, {dataTransfer: {types: ['Files'], files: []}});
 
