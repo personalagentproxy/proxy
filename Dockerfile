@@ -46,6 +46,10 @@ RUN arch="$([ "$(uname -m)" = aarch64 ] && echo arm64 || echo x64)" \
 RUN bun --bun packages/db/node_modules/.bin/prisma generate --schema packages/db/prisma/schema.prisma
 
 COPY packages/api/src packages/api/src
+# Demo data for a talk, for now: the showcase seed, run from a shell on the service against its own
+# database (scripts/seed-showcase.ts). Taken out again once the talk is done.
+COPY packages/api/scripts/seed-showcase.ts packages/api/scripts/
+COPY packages/api/scripts/showcase packages/api/scripts/showcase
 COPY packages/api/tsconfig.json packages/api/
 COPY packages/backends/src packages/backends/src
 # The pap CLI's source, which the api bundles as it runs, to install in sandboxes (src/cli/bundle.ts).
