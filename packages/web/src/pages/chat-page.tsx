@@ -393,6 +393,9 @@ function ThreadTitle({title, onRename}: {title: string; onRename: (title: string
 			<input
 				aria-label="Thread name"
 				value={value}
+				// A field is twenty letters wide by its own, and as wide as the span at least: one
+				// letter leaves the span alone to size it, so a short name has no room after it.
+				size={1}
 				maxLength={200}
 				spellCheck={false}
 				onFocus={() => setEditing(true)}
