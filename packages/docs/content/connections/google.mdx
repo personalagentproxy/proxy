@@ -356,6 +356,37 @@ left them, formulas as formulas, up to 10,000 cells, so the change can be undone
   before a change, only while they still hold what it wrote; otherwise the agent is pointed to
   Restore version.
 
+### Files in a sandbox
+
+An agent that also runs commands in a [sandbox](/connections/sandboxes) moves files between Drive
+and the sandbox with `pap files`, as it does [with Files](/connections/files#files-in-a-sandbox).
+A path starts at one of Drive's own places: `My Drive/Reports/q3.pdf`,
+`Shared drives/Research/plan.docx`, or `Shared with me/brief.pdf`; `pap files ls <connection>`
+lists the three. Drive lets two files in a folder have the same name, so where a name matches
+more than one, `pap` says so and lists their ids, and the file is named with `--id`, which takes a
+file's link too.
+
+- `pap files pull` brings a file of its own bytes, a PDF or a picture, as it is, through Personal
+  Agent Proxy as Drive sends it. A Doc comes as Markdown, a Sheet as an xlsx and a Slides file as
+  a pptx, named with the extension, unless `--as` asks for another: a Doc as `md`, `docx`, `pdf`
+  or `txt`, a Sheet as `xlsx`, `csv` or `pdf`, a Slides file as `pptx`, `pdf` or `txt`. A Sheet as
+  CSV is its first tab, or the one `--tab` names. Google exports at most 10 MB of a file: past
+  that, the agent is told to pull a PDF, or something smaller, as one tab. `pap` notes the file's
+  id, the version it was at and what it was exported as.
+- `pap files push` sends a file back, as an [upload through a URL](#uploading-through-a-url) whose
+  bytes go straight to Drive, in parts, and pick up where they stopped if the connection drops. A
+  new file goes up as its bytes; with `--as doc`, `--as sheet` or `--as slides` a docx or Markdown
+  becomes a Doc, an xlsx or CSV a Sheet, and a pptx a Slides file. The folders on its way that
+  are missing are made first, as the agent's, and stay if the push is never finished. Over a file
+  that is there, the push names the version that was pulled, or is made with `--force`, and a
+  copy is kept first, as under [Version history](#version-history). A Doc, Sheet or Slides file
+  is only written over from a docx, xlsx or pptx, and Markdown or CSV never goes over a file: the
+  agent is pointed to `docs_edit` for a Doc's text, `ranges_write` for a Sheet's cells, or to push
+  it as a new file with `--as`.
+
+A pull is a read, a push to a new path an added file, and a push over a file an edit, each checked
+against what the agent may do and in the activity log as from a sandbox.
+
 For Contacts, agents see the account's contacts in Google Contacts, the most recently changed
 first, 50 to a page. A search is Google's, matching the start of a name, email address, phone
 number or company, and answers the first 30 it finds. Emails and phone numbers are comma-separated,

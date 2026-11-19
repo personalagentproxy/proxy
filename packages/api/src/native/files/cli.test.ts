@@ -183,7 +183,7 @@ describe.skipIf(!databaseUrl)('pap files, as a sandbox reaches a drive', () => {
 
 		const pulled = await pull({path: '/Reports/2026/q3.csv'});
 		expect(pulled.status).toBe(200);
-		expect(saidOf(pulled)).toEqual(made.file);
+		expect(saidOf(pulled)).toEqual({...made.file, format: null});
 		expect(await pulled.text()).toBe('date,amount\n2026-07-01,12\n');
 
 		// The changes are the agent's, for its task, in the drive's journal: the folders and the file.

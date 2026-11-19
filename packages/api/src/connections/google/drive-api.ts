@@ -211,7 +211,7 @@ export function isGoogleType(mimeType: string): boolean {
 	return mimeType.startsWith('application/vnd.google-apps.');
 }
 
-const STATE_FIELDS = 'id,name,mimeType,webViewLink,parents,headRevisionId,sha256Checksum,size,version';
+const STATE_FIELDS = 'id,name,mimeType,webViewLink,parents,driveId,modifiedTime,headRevisionId,sha256Checksum,size,version';
 
 // `headRevisionId` and `sha256Checksum` only for a file with bytes of its own, not one of Google's
 // types; `size` and `version` as text, as Drive writes its 64-bit numbers. `version` goes up with
@@ -222,6 +222,8 @@ const fileStateSchema = z.object({
 	mimeType: z.string(),
 	webViewLink: z.string().optional(),
 	parents: z.array(z.string()).optional(),
+	driveId: z.string().optional(),
+	modifiedTime: z.string().optional(),
 	headRevisionId: z.string().optional(),
 	sha256Checksum: z.string().optional(),
 	size: z.string().optional(),
@@ -246,6 +248,27 @@ export function driveVersion(file: DriveFileState): string | null {
 /** A file's metadata with its head revision, checksum and size. */
 export function getFileState(accessToken: string, fileId: string): Promise<Result<DriveFileState, ApiError>> {
 	return googleRequest(accessToken, driveUrl(`/files/${fileId}`, {fields: STATE_FIELDS, supportsAllDrives: 'true'}), fileStateSchema);
+}
+
+const fileStateListSchema = z.object({files: z.array(fileStateSchema), nextPageToken: z.string().optional()});
+
+/**
+ * One page of files matching `q`, each as `getFileState` reads one, with its version and size, as
+ * `pap files` lists a folder and finds a file by its path in it. `params` narrows the list, as
+ * `listFiles` takes them, and may ask for a larger page (`pageSize`, at most 1000).
+ */
+export async function listFileStates(accessToken: string, q: string, params: Record<string, string>, pageToken: string | null): Promise<Result<Page<DriveFileState>, ApiError>> {
+	const url = driveUrl('/files', {
+		q,
+		pageSize: String(PAGE_SIZE),
+		fields: `nextPageToken,files(${STATE_FIELDS})`,
+		supportsAllDrives: 'true',
+		includeItemsFromAllDrives: 'true',
+		...params,
+		...(pageToken ? {pageToken} : {}),
+	});
+	const list = await googleRequest(accessToken, url, fileStateListSchema);
+	return list.map(({files, nextPageToken}) => ({items: files, nextPage: nextPageToken ?? null}));
 }
 
 const revisionListSchema = z.object({revisions: z.array(z.object({id: z.string()})).optional(), nextPageToken: z.string().optional()});

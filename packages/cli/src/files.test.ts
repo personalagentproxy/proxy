@@ -195,7 +195,7 @@ describe('pap files', () => {
 		expect(asked).toEqual([
 			{
 				method: 'POST',
-				path: `/api/cli/files/drive-1/uploads?path=Reports%2Fq3.csv&size=5&sha256=${sha256('a,b\n1')}&version=v1`,
+				path: `/api/cli/files/drive-1/uploads?path=Reports%2Fq3.csv&size=5&sha256=${sha256('a,b\n1')}&file=q3.csv&version=v1`,
 				authorization: 'Bearer pap_token',
 				type: null,
 				length: null,
@@ -258,8 +258,8 @@ describe('pap files', () => {
 
 		const hash = sha256('png');
 		expect(asked.filter((one) => one.path.includes('/uploads?')).map((one) => one.path)).toEqual([
-			`/api/cli/files/drive-1/uploads?path=Reports%2Fchart.png&size=3&sha256=${hash}`,
-			`/api/cli/files/drive-1/uploads?path=Other%2Ffinal.png&size=3&sha256=${hash}&force=1`,
+			`/api/cli/files/drive-1/uploads?path=Reports%2Fchart.png&size=3&sha256=${hash}&file=chart.png`,
+			`/api/cli/files/drive-1/uploads?path=Other%2Ffinal.png&size=3&sha256=${hash}&file=chart.png&force=1`,
 		]);
 	});
 
@@ -315,6 +315,118 @@ describe('pap files', () => {
 		);
 		expect(await pap('files', 'push', 'gone.txt', 'drive-1', 'gone.txt')).toBe(1);
 		expect(output.err).toContain('Could not read gone.txt');
+		expect(asked).toEqual([]);
+	});
+
+	test('pull asks for a Google Doc, Sheet or Slides file as an export, writes it under the name the export has, and notes what it was exported as', async () => {
+		const plan = {
+			id: 'doc-1',
+			version: '42',
+			name: 'Launch plan.docx',
+			path: 'My Drive/Plans/Launch plan',
+		};
+		const {asked, output, text, notes, pap} = harness(
+			() =>
+				new Response('docx bytes', {
+					headers: {
+						'x-pap-file': encodeURIComponent(
+							JSON.stringify({...plan, folder: false, size: null, type: 'docx', format: 'docx'}),
+						),
+					},
+				}),
+		);
+
+		expect(
+			await pap('files', 'pull', 'google-1', 'My Drive/Plans/Launch plan', '--as', 'docx'),
+		).toBe(0);
+		expect(
+			await pap('files', 'pull', 'google-1', '--id', 'sheet-1', '--as', 'csv', '--tab', 'Q3'),
+		).toBe(0);
+
+		expect(asked.map((one) => one.path)).toEqual([
+			'/api/cli/files/google-1/content?path=My+Drive%2FPlans%2FLaunch+plan&as=docx',
+			'/api/cli/files/google-1/content?id=sheet-1&as=csv&tab=Q3',
+		]);
+		expect(text('/work/Launch plan.docx')).toBe('docx bytes');
+		expect(JSON.parse(output.out.split('\n')[0] ?? '')).toMatchObject({
+			file: '/work/Launch plan.docx',
+			version: '42',
+			format: 'docx',
+		});
+		expect(notes()['/work/Launch plan.docx']).toEqual({
+			connection: 'google-1',
+			id: 'doc-1',
+			version: '42',
+			path: 'My Drive/Plans/Launch plan',
+			format: 'docx',
+		});
+	});
+
+	test('pull and push take only the formats there are, as usage errors, asking nothing', async () => {
+		const {asked, output, pap} = harness(() => Response.json({}), {'/work/a.txt': 'a'});
+
+		expect(await pap('files', 'pull', 'google-1', 'My Drive/a', '--as', 'odt')).toBe(2);
+		expect(output.err).toBe('pap: --as takes md, docx, pdf, xlsx, csv, pptx, txt, not odt.\n');
+		expect(await pap('files', 'push', 'a.txt', 'google-1', 'My Drive/a', '--as', 'docx')).toBe(2);
+		expect(output.err).toContain('pap: --as takes doc, sheet, slides, not docx.');
+		expect(asked).toEqual([]);
+	});
+
+	test('push --as asks for a new file to be made a Doc, Sheet or Slides file, and --id writes over a file by its id, naming the version pulled of it', async () => {
+		const made = {
+			file: {
+				id: 'doc-2',
+				name: 'Notes',
+				path: 'My Drive/Notes',
+				folder: false,
+				version: '1',
+				size: null,
+				type: 'application/vnd.google-apps.document',
+			},
+			created: true,
+			link: 'https://docs.google.com/document/d/doc-2/edit',
+		};
+		const {asked, notes, pap} = harness(drive({done: made}), {
+			'/work/notes.md': '# Notes',
+			'/work/plan.docx': 'docx',
+			[NOTES]: JSON.stringify({
+				'/work/plan.docx': {
+					connection: 'google-1',
+					id: 'doc-1',
+					version: '42',
+					path: 'Shared with me/plan',
+					format: 'docx',
+				},
+			}),
+		});
+
+		expect(await pap('files', 'push', 'notes.md', 'google-1', 'My Drive/', '--as', 'doc')).toBe(0);
+		expect(await pap('files', 'push', 'plan.docx', '--id', 'doc-1')).toBe(0);
+		expect(await pap('files', 'push', 'plan.docx', 'google-1', '--id', 'doc-9')).toBe(0);
+		expect(await pap('files', 'push', 'plan.docx', 'google-1', 'My Drive/x', '--id', 'doc-1')).toBe(
+			2,
+		);
+
+		expect(asked.filter((one) => one.path.includes('/uploads?')).map((one) => one.path)).toEqual([
+			`/api/cli/files/google-1/uploads?path=My+Drive%2Fnotes.md&size=7&sha256=${sha256('# Notes')}&file=notes.md&as=doc`,
+			`/api/cli/files/google-1/uploads?id=doc-1&size=4&sha256=${sha256('docx')}&file=plan.docx&version=42`,
+			`/api/cli/files/google-1/uploads?id=doc-9&size=4&sha256=${sha256('docx')}&file=plan.docx`,
+		]);
+		expect(notes()['/work/notes.md']).toEqual({
+			connection: 'google-1',
+			id: 'doc-2',
+			version: '1',
+			path: 'My Drive/Notes',
+		});
+	});
+
+	test('push --id needs a connection where the file was never pulled', async () => {
+		const {asked, output, pap} = harness(() => Response.json({}), {'/work/new.pdf': 'x'});
+
+		expect(await pap('files', 'push', 'new.pdf', '--id', 'file-1')).toBe(2);
+		expect(output.err).toContain(
+			'new.pdf was not pulled with pap files pull, so say which connection it goes to',
+		);
 		expect(asked).toEqual([]);
 	});
 

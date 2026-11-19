@@ -315,7 +315,7 @@ function runNativeTool(integration: Integration, tool: ApiTool, run: NativeToolR
 
 // Whether the person allowed the run by what they did, whatever the agent's access: for one of
 // the integration's own tools whose module says so (native/tool.ts NativeToolAllowance).
-function allowedAnyway(integration: Integration, tool: ServerTool | ApiTool, run: NativeToolRun): Promise<Result<boolean, ApiError>> {
+function allowedAnyway(integration: Integration, tool: Tool, run: NativeToolRun): Promise<Result<boolean, ApiError>> {
 	const allowance = tool.kind === 'native' ? apiIntegration(integration.id)?.allowances?.[tool.name] : undefined;
 	if (!allowance) {
 		return Promise.resolve(Ok(false));
@@ -325,7 +325,7 @@ function allowedAnyway(integration: Integration, tool: ServerTool | ApiTool, run
 
 // The action a run needs: the one the integration's module says for its params, for one of its
 // own tools that has one (native/tool.ts NativeToolAction); else the tool's own.
-function actionOfRun(integration: Integration, tool: ServerTool | ApiTool, run: NativeToolRun): Promise<Result<string, ApiError>> {
+function actionOfRun(integration: Integration, tool: Tool, run: NativeToolRun): Promise<Result<string, ApiError>> {
 	const action = tool.kind === 'native' ? apiIntegration(integration.id)?.actions?.[tool.name] : undefined;
 	if (!action) {
 		return Promise.resolve(Ok(tool.action));
@@ -352,19 +352,13 @@ export type RunEntry = {collection: string; action: string; title: string | null
 
 /**
  * The gate of a tool with params of its own, and of what code in a sandbox does as one does
- * (native/files/cli.ts): `work` is done where the agent has the tool's action, or the one the
+ * (native/files/cli.ts), as a collection's read of a Google Drive's files: `work` is done where the agent has the tool's action, or the one the
  * integration's module says this run needs (native/tool.ts NativeToolAction), and the one it
  * needs beside it, or where the person allowed this very run by what they did, as by attaching
  * the file it reads. Logged as `entry`: refused, as denied, saying why; failed, with what went
  * wrong; or allowed. The entry's id is given before it is logged, so `work` can keep it.
  */
-export function gateRun<T>(
-	target: RunTarget,
-	tool: ServerTool | ApiTool,
-	params: Record<string, unknown>,
-	entry: RunEntry,
-	work: (entryId: string) => Promise<Result<T, ApiError>>,
-): Promise<Result<T, ApiError>> {
+export function gateRun<T>(target: RunTarget, tool: Tool, params: Record<string, unknown>, entry: RunEntry, work: (entryId: string) => Promise<Result<T, ApiError>>): Promise<Result<T, ApiError>> {
 	return Do(async ($) => {
 		const {caller, agent, connection, integration, startedAt} = target;
 		const entryId = randomUUID();

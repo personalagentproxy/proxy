@@ -138,12 +138,14 @@ function notFoundAs(recordId: string) {
  */
 type Drive = {token: string; myDriveId: () => Promise<Result<string, ApiError>>; change: FileChangeBy | null};
 
+function driveOf(token: string, change: FileChangeBy | null): Drive {
+	let myDriveId: Promise<Result<string, ApiError>> | null = null;
+	return {token, myDriveId: () => (myDriveId ??= getMyDriveId(token)), change};
+}
+
 function withDrive<T>(target: Pick<RecordTarget, 'connection' | 'by'>, run: (drive: Drive) => Promise<Result<T, ApiError>>): Promise<Result<T, ApiError>> {
 	const change = target.by ? changeBy(target.connection, target.by) : null;
-	return callGoogle(target.connection, (token) => {
-		let myDriveId: Promise<Result<string, ApiError>> | null = null;
-		return run({token, myDriveId: () => (myDriveId ??= getMyDriveId(token)), change});
-	});
+	return callGoogle(target.connection, (token) => run(driveOf(token, change)));
 }
 
 // Who a write is made as, through the file's history.
@@ -309,8 +311,16 @@ function crumbsAbove(drive: Drive, file: FileParents): Promise<Result<Crumb[], A
 }
 
 /** The trail to a file: the records above it, then the file. */
-function trailTo(drive: Drive, file: DriveFile): Promise<Result<Crumb[], ApiError>> {
+function trailTo(drive: Drive, file: FileParents): Promise<Result<Crumb[], ApiError>> {
 	return Do(async ($) => [...$(await crumbsAbove(drive, file)), {id: file.id, title: file.name}]);
+}
+
+/**
+ * Where a file is in Drive, as the names on its trail from the top: My Drive, or Shared drives and
+ * the drive's name, or Shared with me; then its folders, then the file. As `pap files` takes a path.
+ */
+export function pathInDrive(token: string, file: FileParents): Promise<Result<string[], ApiError>> {
+	return Do(async ($) => $(await trailTo(driveOf(token, null), file)).map((crumb) => crumb.title));
 }
 
 /**
