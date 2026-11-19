@@ -1,5 +1,3 @@
-import type {Experiment} from '@proxy/utils';
-
 import type {McpInputSchema, McpTool} from './mcp-tools';
 
 export type FieldType = 'text' | 'longtext' | 'email' | 'datetime' | 'date' | 'select';
@@ -181,9 +179,6 @@ export type Integration = {
 	// Says nothing of who signed in, or whose a key is: Exa and Parallel. Each sign-in or key is a
 	// connection of its own, which only its own page signs in to again or gives a new key.
 	anonymous?: true;
-	// The experiment an organization needs on to connect it: the catalog, the api's routes and the
-	// MCP server's instructions all leave it out without. Connections already made keep working.
-	experiment?: Experiment;
 	// Its tools of its own, beside what its collections give (`NativeTool`).
 	tools?: NativeTool[];
 };

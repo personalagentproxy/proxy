@@ -1,7 +1,6 @@
 import type {Connection} from '@proxy/contracts/connections';
-import {isOffered, type IntegrationId} from '@proxy/integrations';
+import {FILES_INTEGRATION_ID, type IntegrationId} from '@proxy/integrations';
 import {useState} from 'react';
-import type {Experiment} from '@proxy/utils';
 import {Badge} from '@proxy/ui/components/badge';
 import {pillButtonVariants} from '@proxy/ui/lib/pill-variants';
 import {cn} from '@proxy/ui/lib/utils';
@@ -42,12 +41,12 @@ const PLUS = cn(
 // can be connected again, for another mailbox, account or server. The vault is among them, though
 // it lives here and every member has one already: another is made on a form, as a server is
 // connected, and counts the ones made. One that needs what the server
-// doesn't have, such as Google without its client, is greyed out, saying what to set up. One behind
-// an experiment the organization doesn't have on isn't offered.
+// doesn't have, such as Google without its client, is greyed out, saying what to set up. Files
+// aren't offered where the server has no place for their bytes.
 export function IntegrationCatalog({
 	connections,
 	configured,
-	experiments,
+	files,
 	returnTo,
 	shared = false,
 	onConnectForm,
@@ -55,8 +54,8 @@ export function IntegrationCatalog({
 }: {
 	connections: Connection[];
 	configured: Configured;
-	// The experiments on for the organization.
-	experiments: Experiment[];
+	// Whether Files are offered in the organization (`Org.files`).
+	files: boolean;
 	returnTo?: 'welcome';
 	// A new connection is for every member of the organization rather than the person's own.
 	shared?: boolean;
@@ -71,7 +70,7 @@ export function IntegrationCatalog({
 	const available = INTEGRATIONS.filter(
 		(integration) =>
 			(!integration.native || (integration.made !== undefined && returnTo !== 'welcome')) &&
-			isOffered(integration, {experiments}),
+			(integration.id !== FILES_INTEGRATION_ID || files),
 	);
 	// The integration a key is being typed for, in the dialog.
 	const [keyFor, setKeyFor] = useState<IntegrationId | null>(null);

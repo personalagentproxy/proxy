@@ -1,7 +1,6 @@
 import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
 import type {IntegrationId} from '@proxy/integrations';
-import type {Experiment} from '@proxy/utils';
 import {useState, type ReactNode} from 'react';
 import {Link, useLoaderData, useNavigate, useRevalidator, useSearchParams} from 'react-router';
 import {setConnectionDefaults} from '@/client/connections-client';
@@ -43,7 +42,7 @@ type Step = 'connections' | IntegrationId | 'agent';
 // shown again.
 export function WelcomePage({step}: {step: Step}) {
 	const org = useOrgSlug();
-	const {agents, connections, configured, experiments} = useLoaderData<typeof welcomeLoader>();
+	const {agents, connections, configured, files} = useLoaderData<typeof welcomeLoader>();
 	const navigate = useNavigate();
 	const [finishing, setFinishing] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -77,7 +76,7 @@ export function WelcomePage({step}: {step: Step}) {
 					agentName={agentName}
 					connections={connections}
 					configured={configured}
-					experiments={experiments}
+					files={files}
 				/>
 			)}
 			{form === 'email' && <EmailStep onContinue={onContinue} />}
@@ -158,12 +157,12 @@ function ConnectionsStep({
 	agentName,
 	connections,
 	configured,
-	experiments,
+	files,
 }: {
 	agentName: string;
 	connections: Connection[];
 	configured: Configured;
-	experiments: Experiment[];
+	files: boolean;
 }) {
 	const org = useOrgSlug();
 	const navigate = useNavigate();
@@ -179,7 +178,7 @@ function ConnectionsStep({
 			<IntegrationCatalog
 				connections={connections}
 				configured={configured}
-				experiments={experiments}
+				files={files}
 				returnTo="welcome"
 				onConnectForm={(integrationId) => navigate(`/${org}/welcome/connections/${integrationId}`)}
 				onConnected={(connection) => navigate(`/${org}/welcome/connections/${connection.id}`)}

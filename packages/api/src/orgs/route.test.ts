@@ -52,6 +52,10 @@ const beforeDisconnectAll = mock();
 
 mock.module('../connections/disconnect', () => ({beforeDisconnectAll}));
 
+const filesOffered = mock();
+
+mock.module('../native/files/connections', () => ({filesOffered}));
+
 const info = mock();
 
 mock.module('../observability/log', () => ({
@@ -97,6 +101,7 @@ beforeEach(() => {
 	deleteOwnedOrganization.mockResolvedValue(Ok(true));
 	renameOrganization.mockResolvedValue(Ok(undefined));
 	beforeDisconnectAll.mockResolvedValue(undefined);
+	filesOffered.mockResolvedValue(true);
 	getUserByEmail.mockResolvedValue(Ok(null));
 	canSignUp.mockReturnValue(true);
 	createInvitation.mockImplementation(async (data: {email: string; expires: Date}) => Ok({id: 'inv-1', email: data.email, invitedBy: 'Alex', expires: data.expires, createdAt: new Date()}));
@@ -110,22 +115,29 @@ describe('handleListOrgsRoute', () => {
 		const {handleListOrgsRoute} = await import('./route');
 		const result = await handleListOrgsRoute(makeRequest());
 
-		expect(result.unwrap().orgs.map((org) => [org.slug, org.role, org.onboarded])).toEqual([
-			['alexs-workspace', 'owner', true],
-			['acme', 'owner', true],
+		expect(result.unwrap().orgs.map((org) => [org.slug, org.role, org.onboarded, org.files])).toEqual([
+			['alexs-workspace', 'owner', true, true],
+			['acme', 'owner', true, true],
 		]);
 	});
 });
 
 describe('handleGetOrgRoute', () => {
-	test('answers the organization in the address, with the person’s role and its experiments', async () => {
-		getMemberOrganization.mockResolvedValue(Ok({...membership('member'), experiments: ['openrouter']}));
+	test('answers the organization in the address, with the person’s role', async () => {
+		getMemberOrganization.mockResolvedValue(Ok(membership('member')));
 		listUserOrgs.mockResolvedValue(Ok([mine, {...acme, role: 'member' as const}]));
 		const {handleGetOrgRoute} = await import('./route');
 		const result = await handleGetOrgRoute(makeRequest());
 
 		expect(getMemberOrganization).toHaveBeenCalledWith('user-1', 'acme');
-		expect(result.unwrap()).toEqual({...acme, role: 'member', experiments: ['openrouter']});
+		expect(result.unwrap()).toEqual({...acme, role: 'member', files: true});
+	});
+
+	test('says Files aren’t offered where the server has no place for their bytes', async () => {
+		filesOffered.mockResolvedValue(false);
+		const {handleGetOrgRoute} = await import('./route');
+
+		expect((await handleGetOrgRoute(makeRequest())).unwrap().files).toBe(false);
 	});
 
 	test('one the person isn’t in is not found, as is one that doesn’t exist', async () => {
@@ -144,7 +156,7 @@ describe('handleCreateOrgRoute', () => {
 		const result = await handleCreateOrgRoute(makeRequest({}, {name: '  Lab '}));
 
 		expect(createOrganization).toHaveBeenCalledWith({userId: 'user-1', name: 'Lab'});
-		expect(result.unwrap()).toEqual({id: 'org-3', slug: 'lab', name: 'Lab', role: 'owner', onboarded: true, experiments: [], memberCount: 1, invitationCount: 0});
+		expect(result.unwrap()).toEqual({id: 'org-3', slug: 'lab', name: 'Lab', role: 'owner', onboarded: true, files: true, memberCount: 1, invitationCount: 0});
 	});
 
 	test('needs a name', async () => {

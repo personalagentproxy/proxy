@@ -137,7 +137,7 @@ function oldVaultLoader({params, request}: {params: {org?: string}; request: Req
 // one that has not been through the welcome flow goes there first. With who is signed in, the
 // organization and the organizations they are in, for the switcher and every page that says which
 // is open. The account is in none: the sidebar shows the one it was opened from (`?org=`), or
-// their first, with its experiments. A person without a time zone yet is given this browser's.
+// their first. A person without a time zone yet is given this browser's.
 async function humanLoader({
 	params,
 	request,
@@ -150,10 +150,7 @@ async function humanLoader({
 		const signedIn = unwrapLoaderResult(me);
 		const all = unwrapLoaderResult(orgs).orgs;
 		const from = new URL(request.url).searchParams.get('org');
-		const picked = all.find((one) => one.slug === from) ?? firstOrg(all);
-		// The list leaves each organization's experiments out: its own page says them, for the
-		// sidebar's and the command bar's Chat.
-		const org = unwrapLoaderResult(await getOrg(picked.slug));
+		const org = all.find((one) => one.slug === from) ?? firstOrg(all);
 		rememberBrowserTimeZone(signedIn.user.timeZone);
 		return {...signedIn, org, orgs: all};
 	}
@@ -298,7 +295,7 @@ const routes: RouteObject[] = [
 			},
 			// The vault's page before it was one of the connections.
 			{path: '/:org/vault', loader: oldVaultLoader, element: null},
-			// The built-in agents, behind the `harness` experiment: the api refuses it otherwise.
+			// The built-in agents.
 			{path: '/:org/chat', loader: chatIndexLoader, element: <ChatPage />},
 			{
 				path: '/:org/chat/:id',

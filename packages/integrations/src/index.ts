@@ -11,7 +11,6 @@ export {
 	findCollection,
 	findIntegration,
 	INTEGRATIONS,
-	isOffered,
 	LINEAR_PRIORITIES,
 	LINEAR_STATUS_TYPES,
 	SANDBOX_EXEC_DEFAULT_SECONDS,

@@ -10,7 +10,7 @@ import {
 import {type ModelChoice, ModelSwitcher} from '@/components/model-switcher';
 import {type AttachmentInput, takenFiles, useAttachments} from '@/hooks/use-attachments';
 import type {ChatDraft} from '@/hooks/use-chat-draft';
-import {useExperiments} from '@/hooks/use-experiment';
+import {useHuman} from '@/hooks/use-human';
 import {useReloadWhileHidden} from '@/hooks/use-reload-on-release';
 import {useWindowFileDrop} from '@/hooks/use-window-file-drop';
 import {ATTACHMENT_MARK} from '@proxy/utils/harness';
@@ -98,7 +98,7 @@ export function Composer({
 }: Props) {
 	// What goes with the next message: the files the person put in the box, where the
 	// organization has Files. Sent once none is still on its way up, with words, files, or both.
-	const attaches = useExperiments().includes('files');
+	const attaches = useHuman()?.org.files ?? false;
 	const attachments = useAttachments(input, keptFiles);
 	// The files in the box now, as a send that waited on the server finds them.
 	const pendingNow = useRef(attachments.pending);
