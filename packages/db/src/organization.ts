@@ -2,6 +2,8 @@ import {Prisma} from '@prisma/client';
 
 import {Err, Ok, type Result} from 'ts-results-es';
 
+import {BUILT_IN_AGENT_PROVIDER} from '@proxy/utils/agent-providers';
+
 import {
 	ApiErr,
 	type ApiError,
@@ -235,7 +237,15 @@ const MAX_SLUG_ATTEMPTS = 5;
  * A connection a membership is made with, the member's own, called by the organization's name.
  * Which ones, and what agents may do with them by default, is the api's to say.
  */
-export type StarterConnection = {integrationId: string; defaults: string[]};
+export type StarterConnection = {
+	integrationId: string;
+	defaults: string[];
+	/** What the organization's built-in agent alone is allowed with it, in its own settings: the Chat connection's. */
+	builtInGrants?: string[];
+};
+
+/** The login of the organization's built-in agent, made with it (the api's harness/built-in-agent.ts). */
+export type NewBuiltInAgent = {name: string; username: string; passwordHash: string};
 
 /** A person made with the organization they are to own, as at sign-up. */
 export type NewUser = {
@@ -247,14 +257,14 @@ export type NewUser = {
 	createdAt?: Date;
 };
 
-/** Makes the starter connections, with their defaults, for the member `userId` of the organization called `name`, in the transaction. */
+/** Makes the starter connections, with their defaults and what the organization's built-in agent is allowed with them, for the member `userId` of the organization called `name`, in the transaction. */
 export async function createStarterConnections(
 	tx: Prisma.TransactionClient,
 	connections: StarterConnection[],
 	data: {orgId: string; userId: string; name: string},
 ): Promise<void> {
 	for (const connection of connections) {
-		await tx.connection.create({
+		const made = await tx.connection.create({
 			data: {
 				orgId: data.orgId,
 				ownerUserId: data.userId,
@@ -262,12 +272,29 @@ export async function createStarterConnections(
 				account: data.name,
 				defaults: {create: connection.defaults.map((actionId) => ({actionId}))},
 			},
+			select: {id: true},
 		});
+		const grants = connection.builtInGrants ?? [];
+		if (grants.length > 0) {
+			const builtIn = await tx.agent.findFirstOrThrow({
+				where: {orgId: data.orgId, providerId: BUILT_IN_AGENT_PROVIDER.id, ownerUserId: null},
+				select: {id: true},
+				orderBy: {createdAt: 'asc'},
+			});
+			await tx.agentGrant.createMany({
+				data: grants.map((actionId) => ({
+					agentId: builtIn.id,
+					connectionId: made.id,
+					actionId,
+					allowed: true,
+				})),
+			});
+		}
 	}
 }
 
 /**
- * A new organization with its owner's membership and its starter connections, in one
+ * A new organization with its owner's membership, its built-in agent and its starter connections, in one
  * transaction: the owner a person there is, or one made with it, so no user exists without an
  * organization. Its slug is `slugSource`'s (buildBaseSlug), numbered where taken; picking is tried
  * again when a parallel creation took the same one.
@@ -277,11 +304,12 @@ export async function provisionOrganization(data: {
 	name: string;
 	slugSource: string;
 	onboardedAt: Date | null;
+	builtInAgent: NewBuiltInAgent;
 	connections: StarterConnection[];
 }): Promise<
 	Result<{org: {id: string; slug: string; name: string}; ownerUserId: string}, ApiError>
 > {
-	const {owner, name, onboardedAt, connections} = data;
+	const {owner, name, onboardedAt, builtInAgent, connections} = data;
 	const base = buildBaseSlug(data.slugSource);
 	for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt++) {
 		const result = await wrapDb(() =>
@@ -296,6 +324,16 @@ export async function provisionOrganization(data: {
 					select: {id: true, slug: true, name: true},
 				});
 				await tx.orgMember.create({data: {orgId: org.id, userId}});
+				await tx.agent.create({
+					data: {
+						orgId: org.id,
+						providerId: BUILT_IN_AGENT_PROVIDER.id,
+						ownerUserId: null,
+						createdById: null,
+						...builtInAgent,
+					},
+					select: {id: true},
+				});
 				await createStarterConnections(tx, connections, {orgId: org.id, userId, name});
 				return {org, ownerUserId: userId};
 			}),

@@ -8,10 +8,6 @@ const getAgentById = mock();
 
 mock.module('@proxy/db/agent', () => ({getAgentById}));
 
-// The member's own Chat connection, made as their connections are listed, is there already.
-const createMissingChatConnection = mock(async () => Ok(undefined));
-mock.module('@proxy/db/chat', () => ({createMissingChatConnection}));
-
 // A server with no sandbox backend, so no Sandboxes connection is made as the connections are listed.
 mock.module('../utils/env', () => ({env: {}}));
 

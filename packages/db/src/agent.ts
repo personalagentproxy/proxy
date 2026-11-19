@@ -66,31 +66,16 @@ export async function getAgentById(
 	return wrapDb(() => db.agent.findFirst({where: {id: agentId, orgId}, select: agentSelect}));
 }
 
-/**
- * The organization's one shared agent of a provider, such as its built-in login, made by nobody
- * in particular with what `make` gives where there is none yet: the organization's row is locked
- * meanwhile, so two first uses make one.
- */
-export async function ensureSharedAgent(
+/** The organization's one shared agent of a provider, such as its built-in login: the oldest, were there ever two. `Ok(null)` for none. */
+export async function getSharedAgent(
 	orgId: string,
 	providerId: string,
-	make: () => Promise<{name: string; username: string; passwordHash: string}>,
-): Promise<Result<AgentRow, ApiError>> {
+): Promise<Result<AgentRow | null, ApiError>> {
 	return wrapDb(() =>
-		db.$transaction(async (tx) => {
-			await tx.$queryRaw`SELECT "id" FROM "Organization" WHERE "id" = ${orgId} FOR UPDATE`;
-			const existing = await tx.agent.findFirst({
-				where: {orgId, providerId, ownerUserId: null},
-				select: agentSelect,
-				orderBy: {createdAt: 'asc'},
-			});
-			if (existing) {
-				return existing;
-			}
-			return tx.agent.create({
-				data: {orgId, providerId, ownerUserId: null, createdById: null, ...(await make())},
-				select: agentSelect,
-			});
+		db.agent.findFirst({
+			where: {orgId, providerId, ownerUserId: null},
+			select: agentSelect,
+			orderBy: {createdAt: 'asc'},
 		}),
 	);
 }

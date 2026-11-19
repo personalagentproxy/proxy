@@ -4,6 +4,7 @@ import type {ApiError} from '@proxy/utils';
 import {buildBaseSlug, provisionOrganization, type NewUser} from '@proxy/db/organization';
 import type {CreatedUser} from '@proxy/db/user';
 
+import {newBuiltInAgent} from '../harness/built-in-agent';
 import {notify} from '../observability/notify';
 import {MEMBER_CONNECTIONS} from './starter-connections';
 
@@ -41,6 +42,7 @@ export async function signUp(user: Omit<NewUser, 'termsAcceptedAt' | 'createdAt'
 		name,
 		slugSource,
 		onboardedAt: null,
+		builtInAgent: await newBuiltInAgent(),
 		connections: MEMBER_CONNECTIONS,
 	});
 	return made.map(({ownerUserId}) => {
@@ -56,6 +58,7 @@ export async function createOrganization(data: {userId: string; name: string}): 
 		name: data.name,
 		slugSource: data.name,
 		onboardedAt: new Date(),
+		builtInAgent: await newBuiltInAgent(),
 		connections: MEMBER_CONNECTIONS,
 	});
 	return made.map(({org}) => org);

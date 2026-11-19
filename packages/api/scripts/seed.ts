@@ -21,6 +21,7 @@ import {provisionOrganization} from '@proxy/db/organization';
 import {deleteUser} from '@proxy/db/user';
 import {createVaultEntry} from '@proxy/db/vault';
 
+import {newBuiltInAgent} from '../src/harness/built-in-agent';
 import {MEMBER_CONNECTIONS} from '../src/orgs/starter-connections';
 
 // Whose workspace it is: the demo person's, or with SEED_EMAIL another's, such as the dev user's
@@ -108,6 +109,7 @@ const provisioned = must(
 		name: ORG_NAME,
 		slugSource: WORKSPACE_SLUG,
 		onboardedAt: daysAgo(40),
+		builtInAgent: await newBuiltInAgent(),
 		connections: MEMBER_CONNECTIONS,
 	}),
 );

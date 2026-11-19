@@ -13,69 +13,6 @@ import {db} from '.';
  * (alerts.ts listMemberAlerts).
  */
 
-/**
- * The member's own Chat connection in an organization, made where they have none, once the
- * organization has the built-in agent the Chat page's personas act through (`providerId`), which
- * is when there can be a thread to read: called by the organization's name, as their vault is,
- * with nothing an agent may do by default, and `actions` allowed to the built-in agent alone, in
- * its own settings, where the member turns them off as for any agent. Once however many ask at
- * once: the second finds the first's.
- */
-export function createMissingChatConnection(data: {
-	orgId: string;
-	userId: string;
-	integrationId: string;
-	providerId: string;
-	actions: string[];
-}): Promise<Result<void, ApiError>> {
-	const {orgId, userId, integrationId, providerId, actions} = data;
-	const mine = {orgId, integrationId, ownerUserId: userId, name: null};
-	return wrapDb(async () => {
-		// Most ask where it is there already, or where the organization has not used Chat: they are
-		// answered without waiting on the lock.
-		if (await db.connection.findFirst({where: mine, select: {id: true}})) {
-			return;
-		}
-		if (
-			!(await db.agent.findFirst({
-				where: {orgId, providerId, ownerUserId: null},
-				select: {id: true},
-			}))
-		) {
-			return;
-		}
-		await db.$transaction(async (tx) => {
-			const locked = await tx.$queryRaw<
-				Array<{name: string}>
-			>`SELECT "name" FROM "Organization" WHERE "id" = ${orgId} FOR UPDATE`;
-			const [org] = locked;
-			if (!org) {
-				return;
-			}
-			const builtIn = await tx.agent.findFirst({
-				where: {orgId, providerId, ownerUserId: null},
-				select: {id: true},
-				orderBy: {createdAt: 'asc'},
-			});
-			if (!builtIn || (await tx.connection.findFirst({where: mine, select: {id: true}}))) {
-				return;
-			}
-			const made = await tx.connection.create({
-				data: {orgId, ownerUserId: userId, integrationId, account: org.name},
-				select: {id: true},
-			});
-			await tx.agentGrant.createMany({
-				data: actions.map((actionId) => ({
-					agentId: builtIn.id,
-					connectionId: made.id,
-					actionId,
-					allowed: true,
-				})),
-			});
-		});
-	});
-}
-
 /** Where a list of the member's threads is narrowed to: at work or asleep, waiting for them, watching with alerts that come to it, done, or archived by them. */
 export type ThreadStandingFilter = 'in_progress' | 'waiting' | 'watching' | 'done' | 'archived';
 
