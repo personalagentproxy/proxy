@@ -200,13 +200,13 @@ export function handleCreateVaultRoute(request: AuthenticatedRequest): Promise<R
 /**
  * `POST /api/orgs/:org/connections/files`: a new drive, `{name, shared}`, beside the person's
  * built-in one: theirs, for the files of a team or a project, shared as any connection. Agents
- * read and write it by default, as every drive. Only where Files are offered: the organization
- * has them on, and the server a place for their bytes.
+ * read and write it by default, as every drive. Only where Files are offered: the server has a
+ * place for their bytes.
  */
 export function handleCreateDriveRoute(request: AuthenticatedRequest): Promise<Result<Connection, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
-		if (!(await filesOffered(viewer))) {
+		if (!(await filesOffered())) {
 			return $(Err(ApiErr.forbidden()));
 		}
 		const {name, shared} = $(parseSchema(createDriveBodySchema, request.body));

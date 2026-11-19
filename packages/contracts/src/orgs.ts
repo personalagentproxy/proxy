@@ -1,4 +1,3 @@
-import {isExperiment} from '@proxy/utils';
 import {z} from 'zod';
 
 /**
@@ -16,8 +15,8 @@ export const orgSchema = z.object({
 	role: roleSchema,
 	/** Whether it has been through the welcome flow, or skipped it; the web app shows it until then. */
 	onboarded: z.boolean(),
-	/** The experiments on for it, for the web app's `useExperiments`; those it doesn't know are left out. */
-	experiments: z.array(z.string()).transform((ids) => ids.filter(isExperiment)),
+	/** Whether Files are offered in it: the server has a place for their bytes (FILES_DIR or FILES_S3_BUCKET). */
+	files: z.boolean(),
 	memberCount: z.number(),
 	/** Invitations not taken up yet. */
 	invitationCount: z.number(),
@@ -25,10 +24,7 @@ export const orgSchema = z.object({
 
 export type Org = z.infer<typeof orgSchema>;
 
-/**
- * `GET /api/orgs`: the person's organizations, the first one joined first. The experiments are
- * each organization's own page's to say (`GET /api/orgs/:org`); here they are left empty.
- */
+/** `GET /api/orgs`: the person's organizations, the first one joined first. */
 export const orgListSchema = z.object({orgs: z.array(orgSchema)});
 
 const MAX_NAME_LENGTH = 80;

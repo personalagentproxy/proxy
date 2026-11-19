@@ -9,7 +9,7 @@ export const testOrg: Org = {
 	name: 'Acme',
 	role: 'owner',
 	onboarded: true,
-	experiments: [],
+	files: false,
 	memberCount: 1,
 	invitationCount: 0,
 };

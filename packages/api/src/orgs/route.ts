@@ -3,7 +3,7 @@ import {randomBytes} from 'node:crypto';
 import {Err, type Result} from 'ts-results-es';
 import type {z} from 'zod';
 
-import {ApiErr, type ApiError, Do, type Experiment, parseSchema, requirePresent} from '@proxy/utils';
+import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
 import {type Invitation, inviteBodySchema, type Member, type memberListSchema, type Org, type orgListSchema, orgNameBodySchema} from '@proxy/contracts/orgs';
 import {listLeavingConnectionsWithCredential, listOrgConnectionsWithCredential} from '@proxy/db/connection';
 import {createInvitation, deleteInvitation, listInvitations, type InvitationRow} from '@proxy/db/invitation';
@@ -24,6 +24,7 @@ import {normalizeEmail} from '../auth/email-address';
 import {sendInvitation} from '../auth/mail';
 import {canSignUp, hashToken} from '../auth/session';
 import {beforeDisconnectAll} from '../connections/disconnect';
+import {filesOffered} from '../native/files/connections';
 import {log} from '../observability/log';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {env} from '../utils/env';
@@ -41,8 +42,8 @@ import {NAMED_AFTER_ORGANIZATION} from './starter-connections';
 // How long an invitation's link works.
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-function toOrg(row: UserOrgRow, experiments: Experiment[]): Org {
-	return {id: row.id, slug: row.slug, name: row.name, role: row.role, onboarded: row.onboarded, experiments, memberCount: row.memberCount, invitationCount: row.invitationCount};
+function toOrg(row: UserOrgRow, files: boolean): Org {
+	return {id: row.id, slug: row.slug, name: row.name, role: row.role, onboarded: row.onboarded, files, memberCount: row.memberCount, invitationCount: row.invitationCount};
 }
 
 function toMember(row: MemberRow): Member {
@@ -55,12 +56,12 @@ function toInvitation(row: InvitationRow): Invitation {
 
 /**
  * `GET /api/orgs`: the person's organizations, the first one joined first, for the switcher and
- * for where the app opens with no organization in its address. The experiments are each
- * organization's own page's to say (`GET /api/orgs/:org`); here they are left out.
+ * for where the app opens with no organization in its address.
  */
 export function handleListOrgsRoute(request: AuthenticatedRequest): Promise<Result<z.infer<typeof orgListSchema>, ApiError>> {
 	return Do(async ($) => {
-		return {orgs: $(await listUserOrgs(request.user.userId)).map((org) => toOrg(org, []))};
+		const files = await filesOffered();
+		return {orgs: $(await listUserOrgs(request.user.userId)).map((org) => toOrg(org, files))};
 	});
 }
 
@@ -74,7 +75,7 @@ export function handleGetOrgRoute(request: AuthenticatedRequest): Promise<Result
 				ApiErr.notFound('organization', viewer.slug),
 			),
 		);
-		return toOrg(row, viewer.experiments);
+		return toOrg(row, await filesOffered());
 	});
 }
 
@@ -83,7 +84,7 @@ export function handleCreateOrgRoute(request: AuthenticatedRequest): Promise<Res
 	return Do(async ($) => {
 		const {name} = $(parseSchema(orgNameBodySchema, request.body));
 		const org = $(await createOrganization({userId: request.user.userId, name}));
-		return {id: org.id, slug: org.slug, name: org.name, role: 'owner' as const, onboarded: true, experiments: [], memberCount: 1, invitationCount: 0};
+		return {id: org.id, slug: org.slug, name: org.name, role: 'owner' as const, onboarded: true, files: await filesOffered(), memberCount: 1, invitationCount: 0};
 	});
 }
 

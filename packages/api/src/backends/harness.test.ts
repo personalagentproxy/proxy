@@ -29,7 +29,7 @@ describe('which harness runs a thread', () => {
 	test('OpenRouter is offered an organization only with the openrouter experiment on, and a persona on it without is read as on Claude', () => {
 		expect(offeredTo(both, {experiments: ['openrouter']})).toEqual(both);
 		expect(offeredTo(both, {experiments: []})).toEqual({proxy: null, claudeAgentSdk: sdk});
-		expect(offeredTo(both, {experiments: ['files']})).toEqual({proxy: null, claudeAgentSdk: sdk});
+		expect(offeredTo(both, {experiments: ['moreSandboxes']})).toEqual({proxy: null, claudeAgentSdk: sdk});
 		expect(chosenFor(offeredTo(both, {experiments: []}), {harness: 'proxy', chatModel: 'claude'})).toEqual({harness: sdk, model: 'claude'});
 		expect(harnessFor(offeredTo(proxyOnly, {experiments: []}), {harness: 'proxy', chatModel: 'claude'}, null)).toEqual({harness: null, auth: null, why: NOT_SET_UP});
 	});

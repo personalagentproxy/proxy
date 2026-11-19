@@ -86,7 +86,7 @@ export function listAgentConnections(signedIn: SignedInAgent): Promise<Result<z.
 	return Do(async ($) => {
 		const agent = $(await requireAgent(signedIn));
 		$(await ensureSandboxConnection(agentViewer(signedIn)));
-		$(await ensureFilesConnection({...agentViewer(signedIn), experiments: signedIn.experiments}));
+		$(await ensureFilesConnection(agentViewer(signedIn)));
 		const connections = $(await listConnectionsWithCredential(agentViewer(signedIn))).flatMap((connection) => {
 			const integration = integrationOf(connection);
 			if (!integration) {

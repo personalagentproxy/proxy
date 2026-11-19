@@ -411,12 +411,12 @@ export async function welcomeLoader(args: OrgParams) {
 		listConnections(org),
 		getSignInMethods(),
 	]);
-	const {onboarded, experiments} = unwrapLoaderResult(named);
+	const {onboarded, files} = unwrapLoaderResult(named);
 	if (onboarded) {
 		throw redirect(`/${org}/connections`);
 	}
 	return {
-		experiments,
+		files,
 		agents: unwrapLoaderResult(agents).agents,
 		connections: unwrapLoaderResult(connections).connections,
 		configured: methods.map(({needs}) => needs).unwrapOr({google: true, plaid: true, github: true}),

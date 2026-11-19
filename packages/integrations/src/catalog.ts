@@ -1,5 +1,3 @@
-import {type Experiment, hasExperiment} from '@proxy/utils';
-
 import type {Collection, Condition, Integration} from './types';
 
 const INBOX: Condition = {field: 'folder', values: ['Inbox']};
@@ -1797,15 +1795,14 @@ export const FILES_TRASH_DAYS = 30;
 // an agent wrote over can be given back. The collection lists folders and opens files, as text
 // where they can be read as it; the writes are tools of the integration's own, since each names
 // who made the change and, to write over a file, the version that was read. A tool carries text:
-// the bytes of a file that isn't text go up and come down in the web app. Offered where the organization has the
-// experiment and the server a place for the bytes (FILES_DIR or FILES_S3_BUCKET).
+// the bytes of a file that isn't text go up and come down in the web app. Offered where the server
+// has a place for the bytes (FILES_DIR or FILES_S3_BUCKET).
 const files: Integration = {
 	id: FILES_INTEGRATION_ID,
 	name: 'Files',
 	description: 'Files and folders kept in Personal Agent Proxy, with every version of each',
 	native: true,
 	made: {one: 'drive', holds: 'files'},
-	experiment: 'files',
 	actions: [
 		{
 			id: 'readFiles',
@@ -2233,14 +2230,6 @@ export const INTEGRATIONS: Integration[] = [
 
 export function findIntegration(id: string): Integration | undefined {
 	return INTEGRATIONS.find((integration) => integration.id === id);
-}
-
-/** Whether an organization can connect the integration: it is behind no experiment, or one it has on. */
-export function isOffered(
-	integration: Pick<Integration, 'experiment'>,
-	holder: {experiments: Experiment[]},
-): boolean {
-	return !integration.experiment || hasExperiment(holder, integration.experiment);
 }
 
 export function findCollection<T extends {collections: Collection[]}>(

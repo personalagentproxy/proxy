@@ -12,9 +12,6 @@ export const EXPERIMENTS = {
 	// More sandboxes running at once: 10 rather than the sandbox backend's own limit, which is 2 on
 	// hosted Personal Agent Proxy's.
 	moreSandboxes: 'More sandboxes running',
-	// Files: a drive of folders and files for each member, kept in Personal Agent Proxy itself with
-	// every version of each, in the blob store the server is set up with.
-	files: 'Files',
 } as const satisfies Record<string, string>;
 
 export type Experiment = keyof typeof EXPERIMENTS;

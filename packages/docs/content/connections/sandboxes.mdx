@@ -12,15 +12,14 @@ it with everything in its home as it was, so an agent comes back to the work it 
 long sleep, what was installed outside the home, such as a package added with `sudo apt`, may be
 gone, and the sandbox has the tools it started with there again.
 
-You have a Sandboxes connection of your own in every organization that is offered them, as you
-have a vault: nobody else in the organization sees it or the sandboxes on it, and it can't be
-shared ([Organizations](/organizations)). Your own agents reach it; a shared agent has none.
+You have a Sandboxes connection of your own in every organization, as you have a vault: nobody
+else in the organization sees it or the sandboxes on it, and it can't be shared
+([Organizations](/organizations)). Your own agents reach it; a shared agent has none.
 
 <Callout>
-Sandboxes are being tried out with some organizations first, so they are only offered to an
-organization that has them turned on, and on a Personal Agent Proxy set up with a sandbox
-service (`SANDBOX_SERVICE_URL` under [Environment variables](/self-hosting/environment)). Hosted
-Personal Agent Proxy runs its own.
+Self-hosted, Sandboxes are only offered on a Personal Agent Proxy set up with a sandbox service
+(`SANDBOX_SERVICE_URL` under [Environment variables](/self-hosting/environment)). Hosted Personal
+Agent Proxy runs its own.
 </Callout>
 
 <Steps>
