@@ -16,8 +16,8 @@ const viewer = {orgId: 'org-1', userId: 'user-1', slug: 'acme', name: 'Acme', ro
 const requireViewer = mock(async () => Ok(viewer));
 mock.module('../utils/user-org', () => ({requireViewer}));
 
-const ensureBuiltInAgent = mock(async () => Ok({id: 'login-1'}));
-mock.module('./built-in-agent', () => ({ensureBuiltInAgent}));
+const getBuiltInAgent = mock(async () => Ok({id: 'login-1'}));
+mock.module('./built-in-agent', () => ({getBuiltInAgent}));
 
 const now = new Date('2026-10-21T10:00:00Z');
 const look = {nose: 0.48, noseOut: 0.35, eye: 27, eyeTheta: 55, eyeLat: 8, eyes: 2 as const};
@@ -247,7 +247,6 @@ describe('the chat routes', () => {
 
 		const made = await handleCreatePersonaRoute(request({}, {name: ' Finance ', look, color: 'blue'}));
 
-		expect(ensureBuiltInAgent).toHaveBeenCalledWith('org-1');
 		expect(store.createPersona).toHaveBeenCalledWith('org-1', 'user-1', {name: 'Finance', look, color: 'blue', harness: 'claude-agent-sdk', chatModel: 'sonnet'});
 		expect(made.unwrap().persona).toEqual({...personaResponse, id: 'persona-2'});
 	});
@@ -435,7 +434,7 @@ describe('the chat routes', () => {
 		store.getMemberChat.mockResolvedValue(Ok(null));
 		expect((await handleMarkReadRoute(request({personaId: 'persona-1'}, {entryId: 'e9'}))).unwrapErr().kind).toBe('not_found');
 		expect(store.ensureMemberChat).not.toHaveBeenCalled();
-		expect(ensureBuiltInAgent).not.toHaveBeenCalled();
+		expect(getBuiltInAgent).not.toHaveBeenCalled();
 
 		store.getPersona.mockResolvedValue(Ok(null));
 		expect((await handleMarkReadRoute(request({personaId: 'persona-9'}, {entryId: 'e9'}))).unwrapErr().kind).toBe('not_found');

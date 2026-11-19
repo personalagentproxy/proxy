@@ -35,7 +35,7 @@ import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {manages} from '../utils/manages';
 import type {AttachmentRef, ChatFiles} from './attachments';
 import {type OrgViewer, requireViewer} from '../utils/user-org';
-import {ensureBuiltInAgent} from './built-in-agent';
+import {getBuiltInAgent} from './built-in-agent';
 import {SHOWN_CALLS, threadOpening} from './thread-rules';
 import {STANDING_WITHIN_MS} from './thread-standing';
 import type {HarnessStore} from './store';
@@ -184,14 +184,14 @@ function requireManagedPersona(store: ChatStore, viewer: OrgViewer, request: Aut
 }
 
 // The viewer's chat with the persona, begun the first time, through the organization's built-in
-// login, made with it where there is none yet.
+// login.
 function ensureChat(store: ChatStore, viewer: OrgViewer, persona: PersonaRow): Promise<Result<ThreadRow, ApiError>> {
 	return Do(async ($) => {
 		const existing = $(await store.getMemberChat(persona.id, viewer.userId));
 		if (existing) {
 			return existing;
 		}
-		const login = $(await ensureBuiltInAgent(viewer.orgId));
+		const login = $(await getBuiltInAgent(viewer.orgId));
 		return $(await store.ensureMemberChat({orgId: viewer.orgId, agentId: login.id, personaId: persona.id, userId: viewer.userId}));
 	});
 }
@@ -231,12 +231,11 @@ function handleListAnswersRoute(store: ChatStore, request: AuthenticatedRequest)
 	});
 }
 
-/** `POST /api/orgs/:org/chat/personas` with `{name, look, color, harness?, chatModel?}`: a new persona, the viewer's own, and the organization's built-in login with it where there is none yet. */
+/** `POST /api/orgs/:org/chat/personas` with `{name, look, color, harness?, chatModel?}`: a new persona, the viewer's own. */
 function handleCreatePersonaRoute(store: ChatStore, harnesses: Harnesses, request: AuthenticatedRequest): Promise<Result<z.infer<typeof personaAnswerSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
 		const persona = $(readPersona(harnesses, viewer, request, null));
-		$(await ensureBuiltInAgent(viewer.orgId));
 		const made = $(await store.createPersona(viewer.orgId, viewer.userId, persona));
 		return {persona: toPersona(harnesses, viewer, made)};
 	});

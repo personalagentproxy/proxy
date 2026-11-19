@@ -28,7 +28,7 @@ import {ensureFirstPersona, ensureMemberChat} from '@proxy/db/harness';
 import {createStarterConnections, provisionOrganization, renameOrganization} from '@proxy/db/organization';
 import {createVaultEntry} from '@proxy/db/vault';
 
-import {ensureBuiltInAgent} from '../src/harness/built-in-agent';
+import {getBuiltInAgent, newBuiltInAgent} from '../src/harness/built-in-agent';
 import {dueText, matchText, SET_ALERT_TOOL} from '../src/harness/alerts';
 import {SCRIPT_TOOL} from '../src/mcp/tools';
 import {MEMBER_CONNECTIONS, NAMED_AFTER_ORGANIZATION} from '../src/orgs/starter-connections';
@@ -105,6 +105,7 @@ async function findOrMakeWorkspace(): Promise<{userId: string; orgId: string; or
 				name: "Konstantin's Workspace",
 				slugSource: 'konstantins-workspace',
 				onboardedAt: new Date(now - 30 * DAY),
+				builtInAgent: await newBuiltInAgent(),
 				connections: MEMBER_CONNECTIONS,
 			}),
 		);
@@ -189,7 +190,7 @@ if (!dryRun) {
 	await db.persona.updateMany({where: {orgId, ownerUserId: null, name: {notIn: Object.values(PERSONAS).map((persona) => persona.name)}, createdAt: {gt: MONTH_AGO}}, data: {createdAt: MONTH_AGO}});
 }
 const ownerOf = (spec: ConnectionSpec) => (spec.owner === 'arne' ? arneId : userId);
-const builtIn = must(await ensureBuiltInAgent(orgId));
+const builtIn = must(await getBuiltInAgent(orgId));
 const usernames = Object.values(AGENTS).map((agent) => agent.username);
 const personaNames: string[] = Object.values(PERSONAS).map((persona) => persona.name);
 const story = stories(now);

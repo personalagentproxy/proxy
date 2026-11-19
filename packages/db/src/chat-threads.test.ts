@@ -6,7 +6,8 @@ import {readyForInference} from '@proxy/utils/harness';
 
 import {db} from '.';
 import {completeSetAlert, fireAlert, listMemberAlerts} from './alerts';
-import {createMissingChatConnection, getOrgSlug, getThreadPlace, listMemberThreads} from './chat';
+import {getOrgSlug, getThreadPlace, listMemberThreads} from './chat';
+import {createStarterConnections} from './organization';
 import {
 	appendEntry,
 	archiveThread,
@@ -76,7 +77,7 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		const agent = await db.agent.create({
 			data: {
 				orgId,
-				providerId: 'built-in',
+				providerId: 'proxy',
 				name: 'Built in',
 				username: `chat-threads-test-${stamp}`,
 				passwordHash: '',
@@ -933,29 +934,22 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		await db.agentJob.updateMany({where: {threadId: second.id}, data: {status: 'done'}});
 	});
 
-	test('the member’s Chat connection is made once the organization has its built-in agent, which alone is given what it may do with it, and never twice', async () => {
-		const made = () =>
-			db.connection.findMany({
-				where: {orgId, integrationId: 'chat'},
-				select: {id: true, ownerUserId: true, account: true, name: true, defaults: true},
-			});
-		const ensure = (providerId: string) =>
-			createMissingChatConnection({
-				orgId,
-				userId,
-				integrationId: 'chat',
-				providerId,
-				actions: ['readThreads', 'readAlerts'],
-			});
-
-		// No agent of the provider yet: there is no Chat to have a connection of.
-		unwrap(await ensure('no-such-provider'));
-		expect(await made()).toEqual([]);
-
-		const [one, other] = await Promise.all([ensure('built-in'), ensure('built-in')]);
-		unwrap(one);
-		unwrap(other);
-		const connections = await made();
+	test('a member’s Chat connection, made with their membership, is given to the organization’s built-in agent alone', async () => {
+		await db.$transaction((tx) =>
+			createStarterConnections(
+				tx,
+				[{integrationId: 'chat', defaults: [], builtInGrants: ['readThreads', 'readAlerts']}],
+				{
+					orgId,
+					userId,
+					name: 'Chat threads test',
+				},
+			),
+		);
+		const connections = await db.connection.findMany({
+			where: {orgId, integrationId: 'chat'},
+			select: {id: true, ownerUserId: true, account: true, name: true, defaults: true},
+		});
 		expect(connections).toEqual([
 			{
 				id: expect.any(String),
@@ -965,9 +959,8 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 				defaults: [],
 			},
 		]);
-		const connectionId = connections[0]?.id ?? '';
 		const grants = await db.agentGrant.findMany({
-			where: {connectionId},
+			where: {connectionId: connections[0]?.id ?? ''},
 			select: {agentId: true, actionId: true, allowed: true},
 			orderBy: {actionId: 'asc'},
 		});
@@ -975,12 +968,6 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 			{agentId, actionId: 'readAlerts', allowed: true},
 			{agentId, actionId: 'readThreads', allowed: true},
 		]);
-
-		// What the member turned off since stays off: nothing is given again.
-		await db.agentGrant.deleteMany({where: {connectionId}});
-		unwrap(await ensure('built-in'));
-		expect(await made()).toHaveLength(1);
-		expect(await db.agentGrant.count({where: {connectionId}})).toBe(0);
 	});
 
 	test('the threads without a summary are every chat’s threads that have none, the oldest first, no chat among them', async () => {

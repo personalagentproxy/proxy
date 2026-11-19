@@ -2126,8 +2126,8 @@ export const CHAT_STANDINGS = {
 
 // Chat: the person's own threads with their agents on the Chat page, and the alerts set in them,
 // as records, so that an agent can be asked about the others: what waits for the person, what was
-// found in one, which alerts are set. Every member has one, theirs alone, as they have a vault,
-// made once the organization has used Chat. A thread is read, never written: whoever reads one
+// found in one, which alerts are set. Every member has one, theirs alone, made with their
+// membership as their vault is. A thread is read, never written: whoever reads one
 // points the person to it by its url, its page in Chat, and they go on there. An alert is seen and
 // cancelled; one is set in a thread, by its agent, since it comes back to that thread or opens new
 // ones in its chat.
