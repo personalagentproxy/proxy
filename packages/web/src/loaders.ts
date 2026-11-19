@@ -10,6 +10,7 @@ import {
 	listMcpClients,
 } from '@/client/agents-client';
 import {getConnection, listConnections} from '@/client/connections-client';
+import {getDriveFileHistory, listDriveHistory} from '@/client/drive-history-client';
 import {getFile, listFiles, listTrashedFiles} from '@/client/files-client';
 import {getGitHubInstallations} from '@/client/github-client';
 import {listAlerts} from '@/client/alerts-client';
@@ -141,11 +142,31 @@ export const connectionLoader = later(
 			]);
 			return {place, list: unwrapOrNull(list), shown: shown === null ? null : unwrapOrNull(shown)};
 		};
-		const [vaultEntries, sandboxes, github, files] = await Promise.all([
+		// A Google connection's page lists the files in Drive changed through Personal Agent Proxy,
+		// and shows one's history over them as its query says (`?file=`); Drive out of reach for that
+		// file is said over the list rather than failing the page.
+		const driveHistory = async () => {
+			if (found?.integrationId !== 'google') {
+				return null;
+			}
+			const file = new URL(args.request.url).searchParams.get('file');
+			const [list, shown] = await Promise.all([
+				listDriveHistory(org, found.id),
+				file === null ? null : getDriveFileHistory(org, found.id, file),
+			]);
+			return {
+				files: unwrapLoaderResult(list).files,
+				file,
+				shown: shown?.isOk() ? shown.value : null,
+				error: shown?.isErr() ? describeApiError(shown.error) : null,
+			};
+		};
+		const [vaultEntries, sandboxes, github, files, history] = await Promise.all([
 			kept(VAULT_INTEGRATION_ID, 'entries'),
 			kept(SANDBOX_INTEGRATION_ID, 'sandboxes'),
 			reached(),
 			drive(),
+			driveHistory(),
 		]);
 		return {
 			connection: found,
@@ -159,6 +180,7 @@ export const connectionLoader = later(
 			sandboxes,
 			github,
 			files,
+			history,
 		};
 	},
 );

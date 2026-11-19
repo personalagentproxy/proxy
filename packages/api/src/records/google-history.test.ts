@@ -468,6 +468,48 @@ describe.skipIf(!databaseUrl)('a Google Drive file’s history, against the data
 		expect(refusal(await tool('files_restore', {id: '1Huge', version: 'no-such-version'}))).toStartWith('not_found');
 	});
 
+	test('the web app’s routes read a file’s history, give a version back and undo a change, as the member’s', async () => {
+		const {db} = await import('@proxy/db');
+		await db.orgMember.create({data: {orgId, userId}});
+		const routes = await import('./google-history-route');
+		const request = (params: Record<string, string>, body?: object) =>
+			({user: {userId, email: 'dana@example.com'}, params: {org: `drive-history-test-${stamp}`, connectionId: connection.id, ...params}, body, query: {}}) as never;
+
+		const listed = unwrap(await routes.handleListDriveHistoryRoute(request({})));
+		expect(listed.files.map((file) => file.id).sort()).toEqual(['1Budget', '1Contract', '1Huge', '1Plan', '1Video']);
+		expect(listed.files[0]).toMatchObject({id: '1Video', name: 'Walkthrough.mp4', kind: 'restore', by: {kind: 'agent', name: 'Claude', task: {title: 'Tidy the contracts'}}});
+
+		// A Doc's version kept only in Drive is given back in Drive's own version history, not from here.
+		const huge = unwrap(await routes.handleGetDriveHistoryRoute(request({fileId: '1Huge'})));
+		expect(huge.file).toEqual({id: '1Huge', name: 'Huge notes', link: 'https://drive.google.com/open?id=1Huge', google: true});
+		expect(huge.versions).toEqual([
+			expect.objectContaining({kept: 'drive', size: null, restorable: false, origin: 'before', by: expect.objectContaining({kind: 'agent', task: {id: taskId, title: 'Tidy the contracts'}})}),
+		]);
+		expect(huge.changes.map((change) => change.kind)).toEqual(['write', 'trash']);
+
+		// The latest change of the Sheet's cells is files_undo's own, which put them back: undone in turn.
+		const budget = unwrap(await routes.handleGetDriveHistoryRoute(request({fileId: '1Budget'})));
+		const latest = budget.changes.find((change) => change.cells !== null);
+		expect(latest).toMatchObject({kind: 'edit', cells: {tab: 'Q1', range: 'B2:B3'}, by: {task: {id: otherTaskId}}});
+		expect(refusal(await routes.handleUndoDriveChangeRoute(request({fileId: '1Contract', changeId: latest?.id ?? ''})))).toStartWith('not_found');
+		unwrap(await routes.handleUndoDriveChangeRoute(request({fileId: '1Budget', changeId: latest?.id ?? ''})));
+		expect(state.grid[1]?.[1]).toEqual({numberValue: 1500});
+		expect(state.grid[2]?.[1]).toEqual({formulaValue: '=B2/2'});
+		const [undone] = await changesOf('1Budget');
+		expect(undone).toMatchObject({kind: 'edit', userId, agentId: null, taskId: null, user: {name: 'Dana'}});
+
+		// A member has no task: what the file holds is kept before the restore, unless the latest version holds it already.
+		const contract = unwrap(await routes.handleGetDriveHistoryRoute(request({fileId: '1Contract'})));
+		const kept = contract.versions.find((version) => version.kept === 'here' && version.origin === 'before');
+		expect(kept?.restorable).toBe(true);
+		unwrap(await routes.handleRestoreDriveVersionRoute(request({fileId: '1Contract'}, {version: kept?.id ?? ''})));
+		expect(head(state.files['1Contract'] as DriveFile).bytes.toString()).toBe('%PDF contract, first draft');
+		const [restore] = await changesOf('1Contract');
+		expect(restore).toMatchObject({kind: 'restore', userId, agentId: null, taskId: null});
+		expect(restore?.beforeVersion).not.toBeNull();
+		expect(refusal(await routes.handleRestoreDriveVersionRoute(request({fileId: '1Contract'}, {})))).toStartWith('parse_error');
+	});
+
 	test('a write Drive made is answered as made even where logging it fails', async () => {
 		const {changeDriveFile, loggedAs, logDriveCreate} = await import('./google-history');
 		const {putContent} = await import('../connections/google/drive-api');

@@ -5,7 +5,7 @@ import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
 import {formatBytes} from '@proxy/utils/bytes';
 import {getFileUpload} from '@proxy/db/file-uploads';
 
-import type {NativeToolAction, NativeToolRunner} from '../native/tool';
+import {readParams, type NativeToolAction, type NativeToolRunner} from '../native/tool';
 import {type DeclaredFile, type DriveUploads, finishUpload, startUpload, type UploadDone, type UploadTarget, type UploadTicket} from './tickets';
 
 /**
@@ -40,7 +40,7 @@ type UploadAsked = {target: UploadTarget; file: DeclaredFile};
 // What an upload makes, and what it is to be, from the tool's params.
 function readUpload(params: Record<string, unknown>): Result<UploadAsked, ApiError> {
 	return Do<UploadAsked, ApiError>(($): UploadAsked => {
-		const parsed = $(parseSchema(uploadSchema, params).mapErr((error) => ApiErr.validationError(`files_upload takes ${TAKES}${error.kind === 'parse_error' ? `: ${error.message}` : ''}`)));
+		const parsed = $(readParams(uploadSchema, 'files_upload', TAKES, params));
 		const file = {size: parsed.size, sha256: parsed.sha256?.toLowerCase() ?? null, type: parsed.type ?? null};
 		if (parsed.id !== undefined) {
 			if (parsed.name !== undefined || parsed.parent !== undefined) {

@@ -19,6 +19,7 @@ import {
 	getFileVersion,
 	getLatestFileVersion,
 	hasTaskCopied,
+	listChangedFiles,
 	listFileChanges,
 	listFileMakers,
 	listFileVersions,
@@ -794,6 +795,37 @@ describe.skipIf(!databaseUrl)('files, against the database', () => {
 		expect(
 			unwrap(await listFileChanges(elsewhereId, fileId, 1)).map((change) => change.kind),
 		).toEqual(['restore']);
+	});
+
+	test('lists the files a drive elsewhere has a history of, each by its latest change, the latest first', async () => {
+		const drive = await db.connection.create({
+			data: {orgId, integrationId: elsewhereIntegration, account: 'lee@example.com'},
+		});
+		const by: FileChangeBy = {orgId, connectionId: drive.id, by: {userId}};
+		expect(unwrap(await listChangedFiles(drive.id, 10))).toEqual([]);
+		const log = (fileId: string, name: string, kind: 'create' | 'edit' | 'move') =>
+			logFileChange(by, {fileId, name, kind}).then(unwrap);
+		await log('plan', 'Plan', 'create');
+		await log('budget', 'Budget', 'create');
+		await log('plan', 'Launch plan', 'move');
+		await log('notes', 'Notes', 'edit');
+
+		expect(
+			unwrap(await listChangedFiles(drive.id, 10)).map((change) => [
+				change.fileId,
+				change.name,
+				change.kind,
+				change.user?.name ?? null,
+			]),
+		).toEqual([
+			['notes', 'Notes', 'edit', 'Dana'],
+			['plan', 'Launch plan', 'move', 'Dana'],
+			['budget', 'Budget', 'create', 'Dana'],
+		]);
+		expect(unwrap(await listChangedFiles(drive.id, 2)).map((change) => change.fileId)).toEqual([
+			'notes',
+			'plan',
+		]);
 	});
 
 	test('keeps only an undo it can read, and reads one it doesn’t know as none', async () => {

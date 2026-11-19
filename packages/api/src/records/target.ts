@@ -9,7 +9,7 @@ import {integrationOf} from '../utils/connection-actions';
 import type {Connector, RecordTarget} from './connector';
 import {connectorFor} from './connectors';
 
-type LoadedConnection = {connection: RecordTarget['connection']; integration: Integration};
+export type LoadedConnection = {connection: RecordTarget['connection']; integration: Integration};
 
 function loaded(connection: RecordTarget['connection'] | null, connectionId: string): Result<LoadedConnection, ApiError> {
 	if (!connection) {

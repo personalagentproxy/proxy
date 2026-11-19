@@ -237,7 +237,7 @@ export function areaRange(area: Pick<CellArea, 'row' | 'column' | 'rows' | 'colu
 }
 
 /** An area in A1 notation with its tab: `'Q1 Sales'!B2:D4`. */
-export function tabRange(title: string, area: Pick<CellArea, 'row' | 'column' | 'rows' | 'columns'>): string {
+function tabRange(title: string, area: Pick<CellArea, 'row' | 'column' | 'rows' | 'columns'>): string {
 	return `${quotedTitle(title)}!${areaRange(area)}`;
 }
 

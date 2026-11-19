@@ -2,6 +2,7 @@ import {beforeEach, describe, expect, mock, spyOn, test} from 'bun:test';
 import {Err, Ok, type Result} from 'ts-results-es';
 
 import type {ApiError} from '@proxy/utils';
+import type {FileUndo} from '@proxy/db/file-undo';
 import {findCollection, findIntegration, type Collection} from '@proxy/integrations';
 
 const markCredentialRejected = mock(async () => Ok(true));
@@ -10,7 +11,7 @@ mock.module('@proxy/db/connection', () => ({markCredentialRejected, updateConnec
 // The history every write goes through (google-history.ts), kept in memory: each task has its copy
 // already, so no copy is taken here (google-history.test.ts takes them), and the changes logged are
 // kept to look at.
-type Logged = {kind: string; fileId: string; name: string; beforeName?: string | null; beforeRevision?: string | null; afterRevision?: string | null; undo?: unknown};
+type Logged = {kind: string; fileId: string; name: string; beforeName?: string | null; beforeRevision?: string | null; afterRevision?: string | null; undo?: FileUndo | null};
 const history = {logged: [] as Logged[], down: false};
 mock.module('@proxy/db/files', () => ({
 	hasTaskCopied: mock(async () => Ok(true)),

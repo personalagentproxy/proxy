@@ -2,6 +2,7 @@ import {beforeEach, describe, expect, mock, spyOn, test} from 'bun:test';
 import {Ok, type Result} from 'ts-results-es';
 
 import type {ApiError} from '@proxy/utils';
+import type {FileUndo} from '@proxy/db/file-undo';
 
 import type {DocumentRequest} from '../connections/google/docs-api';
 
@@ -10,7 +11,7 @@ mock.module('@proxy/db/connection', () => ({markCredentialRejected, updateConnec
 
 // The history every edit goes through (google-history.ts), kept in memory: whether the task has
 // its copy already, the versions kept and the changes logged, to look at.
-type Logged = {kind: string; fileId: string; name: string; beforeVersion?: string | null; beforeRevision?: string | null; afterRevision?: string | null; undo?: unknown};
+type Logged = {kind: string; fileId: string; name: string; beforeVersion?: string | null; beforeRevision?: string | null; afterRevision?: string | null; undo?: FileUndo | null};
 const history = {copied: true, kept: [] as {sourceRevision: string | null}[], logged: [] as Logged[]};
 mock.module('@proxy/db/files', () => ({
 	hasTaskCopied: mock(async () => Ok(history.copied)),
@@ -78,7 +79,15 @@ function run(params: Record<string, unknown>) {
 const IMAGE = Symbol('image');
 type Block = {paragraph: (string | typeof IMAGE)[]} | {table: string[][]} | {contents: string[]};
 
-type Element = Record<string, unknown> & {startIndex?: number; endIndex: number};
+type Run = {startIndex: number; endIndex: number; textRun?: {content: string; textStyle: Record<string, never>}; inlineObjectElement?: {inlineObjectId: string}};
+type Element = {
+	startIndex?: number;
+	endIndex: number;
+	sectionBreak?: Record<string, never>;
+	paragraph?: {elements: Run[]; paragraphStyle: {namedStyleType: string}};
+	table?: {rows: number; columns: number; tableRows: {tableCells: {content: Element[]}[]}[]};
+	tableOfContents?: {content: Element[]};
+};
 
 // The body as Docs answers it, each part at its place, counted in UTF-16 code units from the
 // section break at 0, and the same body as one string, one character a place, ￼ where none is text.

@@ -2,6 +2,7 @@ import {beforeEach, describe, expect, mock, spyOn, test} from 'bun:test';
 import {Ok, type Result} from 'ts-results-es';
 
 import type {ApiError} from '@proxy/utils';
+import type {JsonValue} from '@proxy/utils/harness';
 
 const markCredentialRejected = mock(async () => Ok(true));
 mock.module('@proxy/db/connection', () => ({markCredentialRejected, updateConnectionCredential: mock(), getConnectionCredential: mock(async () => Ok(null))}));
@@ -92,7 +93,7 @@ const SLIDES = [
 
 // The fake Slides and Drive: the presentation at its revision, the batches it took, and what the
 // history asks of Drive.
-const slides = {revision: 'rev-1', batches: [] as {requests: unknown[]; writeControl: {requiredRevisionId: string}}[]};
+const slides = {revision: 'rev-1', batches: [] as {requests: JsonValue[]; writeControl: {requiredRevisionId: string}}[]};
 const google = {requests: [] as {method: string; url: URL}[]};
 
 spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Request, init?: RequestInit) => {

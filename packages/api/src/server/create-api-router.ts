@@ -90,6 +90,7 @@ import {chatFiles} from '../native/files/chat';
 import {handleUploadBytesRoute} from '../native/files/upload-route';
 import {handleCliFinishUploadRoute, handleCliListFilesRoute, handleCliPullFileRoute, handleCliStartUploadRoute} from '../native/files/cli';
 import {handleCreateRecordRoute, handleDeleteRecordRoute, handleGetRecordRoute, handleListRecordsRoute, handleUpdateRecordRoute} from '../records/route';
+import {handleGetDriveHistoryRoute, handleListDriveHistoryRoute, handleRestoreDriveVersionRoute, handleUndoDriveChangeRoute} from '../records/google-history-route';
 import {handleAgendaRoute, handleFindEventsRoute} from '../widgets/agenda';
 import {handleAnswerRoute} from '../widgets/answer';
 import {handleBankAccountsRoute, handleBankTransactionsRoute} from '../widgets/bank';
@@ -230,6 +231,13 @@ export function createApiRouter(): express.Router {
 	org.post(`${files}/:fileId/trash`, withAuthResult('Trash file route', handleTrashFileRoute));
 	org.post(`${files}/:fileId/untrash`, withAuthResult('Untrash file route', handleUntrashFileRoute));
 	org.post(`${files}/:fileId/restore`, withAuthResult('Restore file version route', handleRestoreFileRoute));
+
+	// A Google connection's history of its files in Drive, for its page (records/google-history-route.ts).
+	const driveHistory = '/connections/:connectionId/drive-history';
+	org.get(driveHistory, withAuthResult('List Drive history route', handleListDriveHistoryRoute));
+	org.get(`${driveHistory}/:fileId`, withAuthResult('Get Drive file history route', handleGetDriveHistoryRoute));
+	org.post(`${driveHistory}/:fileId/restore`, withAuthResult('Restore Drive version route', handleRestoreDriveVersionRoute));
+	org.post(`${driveHistory}/:fileId/changes/:changeId/undo`, withAuthResult('Undo Drive change route', handleUndoDriveChangeRoute));
 
 	// A custom MCP server's logo, the icon of its site, for the person's pages and the agent's alike.
 	router.get('/api/favicons/:host', wrapAsyncRoute('Favicon route', handleFaviconRoute));

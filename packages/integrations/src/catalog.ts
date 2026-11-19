@@ -1347,9 +1347,9 @@ const google: Integration = {
 			],
 			fields: [
 				{key: 'name', label: 'Name', type: 'text'},
-				// What a record is, and what a new one is to be: a folder, document, spreadsheet or other
-				// file inside a folder or a place, or a row inside a tab, where it can be left out. It
-				// can't be changed.
+				// What a record is: a folder, document, spreadsheet or other file inside a folder or a
+				// place, or a row inside a tab. A new one is a folder, document or spreadsheet, or a row,
+				// where it can be left out; another file goes up with files_upload. It can't be changed.
 				{
 					key: 'kind',
 					label: 'Kind',
@@ -1661,7 +1661,7 @@ const google: Integration = {
 			name: 'files_restore',
 			title: 'Restore version',
 			description:
-				'Gives a file in Drive an earlier version back, from files_versions, as its newest revision, keeping its id and link: a PDF or a picture as its bytes were, a Doc, Sheet or Slides file converted back from the copy kept. What it held until now is kept as a version too. A Doc’s version kept only in Drive is given back in Drive’s own version history instead, as the refusal says.',
+				'Gives a file in Drive an earlier version back, from files_versions, as its newest revision, keeping its id and link: a PDF or a picture as its bytes were, a Doc, Sheet or Slides file converted back from the copy kept. What it held until now is kept as a version too. A Doc’s, Sheet’s or Slides file’s version kept only in Drive is given back in Drive’s own version history instead, as the refusal says.',
 			action: 'editFiles',
 			inputSchema: {
 				type: 'object',

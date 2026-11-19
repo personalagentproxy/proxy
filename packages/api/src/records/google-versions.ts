@@ -1,14 +1,16 @@
 import {Err, Ok, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
-import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
+import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 import {formatBytes} from '@proxy/utils/bytes';
 import {
+	type FileActor,
 	type FileChangeEntry,
 	type FileChangeRow,
 	type FileUndo,
 	type FileVersionEntry,
 	type FileVersionFound,
+	type FileVersionRow,
 	findFileVersion,
 	getFileChange,
 	isStored,
@@ -19,9 +21,9 @@ import {
 import {downloadRevision, driveVersion, fileIdOf, getFileState, isGoogleType, putContent, type DriveFileState} from '../connections/google/drive-api';
 import {callGoogle} from '../connections/google/google-client';
 import {openContent} from '../native/files/content';
-import type {NativeToolRun, NativeToolRunner} from '../native/tool';
+import {readParams, type NativeToolRunner} from '../native/tool';
 import {applyCellsUndo} from './google-cells';
-import {changeBy, changeDriveFile, type DriveChange, type DriveChangeEntry, type DriveEditor} from './google-history';
+import {changeBy, changeDriveFile, runActor, type DriveChange, type DriveChangeEntry, type DriveEditor} from './google-history';
 
 /**
  * The Google tools on a Drive file's history (google-history.ts): `files_versions` lists the
@@ -29,23 +31,19 @@ import {changeBy, changeDriveFile, type DriveChange, type DriveChangeEntry, type
  * here or only as Drive's own revision, and the changes made through it, who made each and for
  * which task; `files_restore` gives a version back as the file's newest revision in Drive, keeping
  * its id; `files_undo` applies a change's exact inverse, a Sheet's cells put back as they were.
- * A restore and an undo are changes of their own, logged and copied before as any other.
+ * A restore and an undo are changes of their own, logged and copied before as any other. The web
+ * app's routes on a Drive file's history (google-history-route.ts) read, restore and undo through
+ * the same functions, as the member.
  */
+
+/** A Google connection, as its history and its token are read by. */
+type DriveConnection = {id: string; orgId: string; credential: string | null};
 
 // How many of a file's changes `files_versions` lists, the latest.
 const CHANGES_LISTED = 50;
 
-// A tool's params read against its schema; what is wrong is said with the tool's own params named.
-function read<T>(schema: z.ZodType<T>, tool: string, takes: string, params: Record<string, unknown>): Result<T, ApiError> {
-	return parseSchema(schema, params).mapErr((error) => ApiErr.validationError(`${tool} takes ${takes}${error.kind === 'parse_error' ? `: ${error.message}` : ''}`));
-}
-
 function requireFileId(given: string): Result<string, ApiError> {
 	return requirePresent(fileIdOf(given), ApiErr.validationError('Say which file as id: its id, as files_list gives it, or its link'));
-}
-
-function editorOf(run: NativeToolRun, token: string): DriveEditor {
-	return {token, change: changeBy(run.connection, {agentId: run.caller.agent.agentId, taskId: run.caller.taskId})};
 }
 
 // Who made a change: the member, or the agent as its maker, with the task it was for.
@@ -111,17 +109,27 @@ function versionLine(version: FileVersionEntry, changes: FileChangeEntry[]): str
 	return `${version.id}: ${version.createdAt.toISOString()}, ${keptText(version)}${originText(version, changes)}`;
 }
 
+/** A Drive file's history as Personal Agent Proxy keeps it: the file as Drive has it now, its versions, newest first, and its latest changes. */
+export type DriveFileHistory = {file: DriveFileState; versions: FileVersionEntry[]; changes: FileChangeEntry[]};
+
+/** A Drive file's history, by its id or its link. */
+export function readDriveHistory(connection: DriveConnection, given: string): Promise<Result<DriveFileHistory, ApiError>> {
+	return Do(async ($) => {
+		const fileId = $(requireFileId(given));
+		const file = $(await callGoogle(connection, (token) => getFileState(token, fileId)));
+		const [versions, changes] = await Promise.all([listFileVersions(connection.id, file.id), listFileChanges(connection.id, file.id, CHANGES_LISTED)]);
+		return {file, versions: $(versions), changes: $(changes)};
+	});
+}
+
 const idSchema = z.object({id: z.string().min(1)});
 
 /** `files_versions`: the versions Personal Agent Proxy keeps of a Drive file, and the changes made to it through it. */
 export const runFilesVersions: NativeToolRunner = (run) =>
 	Do(async ($): Promise<string> => {
-		const {id} = $(read(idSchema, 'files_versions', 'id', run.params));
-		const fileId = $(requireFileId(id));
-		const file = $(await callGoogle(run.connection, (token) => getFileState(token, fileId)));
-		const [versionsRead, changesRead] = await Promise.all([listFileVersions(run.connection.id, file.id), listFileChanges(run.connection.id, file.id, CHANGES_LISTED)]);
-		const changes = $(changesRead);
-		const versionLines = $(versionsRead).map((version) => versionLine(version, changes));
+		const {id} = $(readParams(idSchema, 'files_versions', 'id', run.params));
+		const {file, versions, changes} = $(await readDriveHistory(run.connection, id));
+		const versionLines = versions.map((version) => versionLine(version, changes));
 		const changeLines = changes.map(changeLine);
 		const link = file.webViewLink ? [`Link: ${file.webViewLink}`] : [];
 		const current = driveVersion(file);
@@ -139,11 +147,18 @@ export const runFilesVersions: NativeToolRunner = (run) =>
 		].join('\n');
 	});
 
-// Whether a version can be given back from here: one with a copy can, and an uploaded file's kept
-// only as Drive's revision; a Doc's, Sheet's or Slides file's kept only in Drive is given back in
-// Drive's own version history, which Drive's API can't do.
+/**
+ * Whether a version can be given back from here: one with a copy can, and an uploaded file's kept
+ * only as Drive's revision; a Doc's, Sheet's or Slides file's kept only in Drive is given back in
+ * Drive's own version history, which Drive's API can't do.
+ */
+export function isRestorable(file: {mimeType: string}, version: FileVersionRow): boolean {
+	return version.blobId !== null || (!isGoogleType(file.mimeType) && version.sourceRevision !== null);
+}
+
+// A version that can be given back from here, or why not and where it can be instead.
 function requireRestorable(file: DriveFileState, version: FileVersionFound): Result<void, ApiError> {
-	if (version.blob !== null || (!isGoogleType(file.mimeType) && version.sourceRevision !== null)) {
+	if (isRestorable(file, version)) {
 		return Ok(undefined);
 	}
 	const when = version.createdAt.toISOString();
@@ -201,21 +216,30 @@ function restoreIn(editor: DriveEditor, fileId: string, version: FileVersionFoun
 	});
 }
 
+/**
+ * A version given back as the file's newest revision, keeping its id: an uploaded file's bytes as
+ * they were, a Doc's, Sheet's or Slides file's copy converted back into what it is. Logged as a
+ * restore by `by`.
+ */
+export function restoreDriveVersion(connection: DriveConnection, by: FileActor, given: string, versionId: string): Promise<Result<Restored & {version: FileVersionFound}, ApiError>> {
+	return Do(async ($) => {
+		const fileId = $(requireFileId(given));
+		const found = $(await findFileVersion(connection.id, fileId, versionId));
+		const version = $(requirePresent(found, ApiErr.notFound('version', versionId, 'That file has no such version: files_versions lists them')));
+		const restored = $(await callGoogle(connection, (token) => restoreIn({token, change: changeBy(connection, by)}, fileId, version)));
+		return {...restored, version};
+	});
+}
+
 const restoreSchema = z.object({id: z.string().min(1), version: z.string().min(1)});
 
-/**
- * `files_restore`: a version given back as the file's newest revision, keeping its id: an uploaded
- * file's bytes as they were, a Doc's, Sheet's or Slides file's copy converted back into what it is.
- */
+/** `files_restore`: a version given back as the file's newest revision, keeping its id (`restoreDriveVersion`). */
 export const runFilesRestore: NativeToolRunner = (run) =>
 	Do(async ($): Promise<string> => {
-		const params = $(read(restoreSchema, 'files_restore', 'id and version', run.params));
-		const fileId = $(requireFileId(params.id));
-		const found = $(await findFileVersion(run.connection.id, fileId, params.version));
-		const version = $(requirePresent(found, ApiErr.notFound('version', params.version, 'That file has no such version: files_versions lists them')));
-		const restored = $(await callGoogle(run.connection, (token) => restoreIn(editorOf(run, token), fileId, version)));
+		const params = $(readParams(restoreSchema, 'files_restore', 'id and version', run.params));
+		const restored = $(await restoreDriveVersion(run.connection, runActor(run), params.id, params.version));
 		const link = restored.file.webViewLink ? [`Link: ${restored.file.webViewLink}`] : [];
-		return [`“${restored.file.name}” holds what version ${version.id} held again, as its newest revision in Drive; ${keptBeforeText(restored)}.`, ...link].join('\n');
+		return [`“${restored.file.name}” holds what version ${restored.version.id} held again, as its newest revision in Drive; ${keptBeforeText(restored)}.`, ...link].join('\n');
 	});
 
 // A change's cells put back, logged as an edit whose undo is the undo's own inverse.
@@ -228,19 +252,34 @@ function undoCells(editor: DriveEditor, change: FileChangeRow, undo: FileUndo): 
 	);
 }
 
-const undoSchema = z.object({change: z.string().min(1)});
+/** A change undone: the change, and the cells it put back. */
+type Undone = {change: FileChangeRow; undo: FileUndo};
 
-/** `files_undo`: a change's exact inverse applied, where it has one and nothing changed it since. */
-export const runFilesUndo: NativeToolRunner = (run) =>
-	Do(async ($): Promise<string> => {
-		const {change: changeId} = $(read(undoSchema, 'files_undo', 'change', run.params));
-		const found = $(await getFileChange(run.connection.id, changeId));
-		const change = $(requirePresent(found, ApiErr.notFound('change', changeId, 'This connection made no such change: files_versions lists a file’s changes')));
+/**
+ * A change's exact inverse applied, where it has one and nothing changed it since, logged as an
+ * edit by `by`; with `fileId`, only a change of that file.
+ */
+export function undoDriveChange(connection: DriveConnection, by: FileActor, changeId: string, fileId?: string): Promise<Result<Undone, ApiError>> {
+	return Do(async ($) => {
+		const found = $(await getFileChange(connection.id, changeId));
+		const missing = ApiErr.notFound('change', changeId, 'This connection made no such change: files_versions lists a file’s changes');
+		const change = $(requirePresent(found !== null && (fileId === undefined || found.fileId === fileId) ? found : null, missing));
 		const {undo} = change;
 		if (undo === null) {
 			const from = change.beforeVersion === null ? '' : `, ${change.beforeVersion},`;
 			return $(Err(ApiErr.validationError(`That change has no exact undo: give back the version from before it${from} with files_restore instead (files_versions lists them)`)));
 		}
-		$(await callGoogle(run.connection, (token) => undoCells(editorOf(run, token), change, undo)));
+		$(await callGoogle(connection, (token) => undoCells({token, change: changeBy(connection, by)}, change, undo)));
+		return {change, undo};
+	});
+}
+
+const undoSchema = z.object({change: z.string().min(1)});
+
+/** `files_undo`: a change's exact inverse applied, where it has one and nothing changed it since (`undoDriveChange`). */
+export const runFilesUndo: NativeToolRunner = (run) =>
+	Do(async ($): Promise<string> => {
+		const {change: changeId} = $(readParams(undoSchema, 'files_undo', 'change', run.params));
+		const {change, undo} = $(await undoDriveChange(run.connection, runActor(run), changeId));
 		return `Put cells ${undo.range} of “${undo.tab}” in “${change.name}” back as they were before change ${change.id}. The undo is a change of its own, which files_undo can undo in turn (files_versions lists it).`;
 	});

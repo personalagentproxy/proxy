@@ -6,8 +6,8 @@ import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 import {getDocument, updateDocument, type DocumentRequest, type StructuralElement, type TextStyle} from '../connections/google/docs-api';
 import {fileIdOf} from '../connections/google/drive-api';
 import {callGoogle} from '../connections/google/google-client';
-import type {NativeToolRun, NativeToolRunner} from '../native/tool';
-import {changeBy, changeDriveFile, loggedAs, type DriveEditor} from './google-history';
+import {readParams, type NativeToolRunner} from '../native/tool';
+import {changeDriveFile, loggedAs, type DriveEditor, runEditor} from './google-history';
 
 /**
  * A Google Doc's text, read and edited in place through the Docs API, rather than replaced whole
@@ -82,21 +82,8 @@ function placesOf(text: string, find: string): number[] {
 	return places;
 }
 
-// A tool's params read against its schema; what is wrong is said with the tool's own params named.
-function read<T>(schema: z.ZodType<T>, tool: string, takes: string, params: Record<string, unknown>): Result<T, ApiError> {
-	const parsed = schema.safeParse(params);
-	if (!parsed.success) {
-		return Err(ApiErr.validationError(`${tool} takes ${takes}:\n${z.prettifyError(parsed.error)}`));
-	}
-	return Ok(parsed.data);
-}
-
 function requireDocId(given: string): Result<string, ApiError> {
 	return requirePresent(fileIdOf(given), ApiErr.validationError('Say which document as id: its id, as files_list gives it, or its link'));
-}
-
-function editorOf(run: NativeToolRun, token: string): DriveEditor {
-	return {token, change: changeBy(run.connection, {agentId: run.caller.agent.agentId, taskId: run.caller.taskId})};
 }
 
 function linkOf(documentId: string): string {
@@ -108,7 +95,7 @@ const idSchema = z.object({id: z.string().min(1)});
 /** `docs_read`: a Doc's text, as `docs_edit` finds text in it, and the revision it was read at. */
 export const runDocsRead: NativeToolRunner = (run) =>
 	Do(async ($): Promise<string> => {
-		const {id} = $(read(idSchema, 'docs_read', 'id', run.params));
+		const {id} = $(readParams(idSchema, 'docs_read', 'id', run.params));
 		const documentId = $(requireDocId(id));
 		const document = $(await callGoogle(run.connection, (token) => getDocument(token, documentId)));
 		const text = readableText(bodyOf(document.content));
@@ -332,13 +319,13 @@ function editDocument(editor: DriveEditor, documentId: string, revision: string,
 /** `docs_edit`: edits made to a Doc's text, each at the one place its find appears, only to the revision the agent read. */
 export const runDocsEdit: NativeToolRunner = (run) =>
 	Do(async ($): Promise<string> => {
-		const params = $(read(docsEditSchema, 'docs_edit', `id, revision and edits, each ${EDIT_TAKES}`, run.params));
+		const params = $(readParams(docsEditSchema, 'docs_edit', `id, revision and edits, each ${EDIT_TAKES}`, run.params));
 		const documentId = $(requireDocId(params.id));
 		const edits: Edit[] = [];
 		for (const [index, given] of params.edits.entries()) {
 			edits.push($(editOf(given, index)));
 		}
-		const edited = $(await callGoogle(run.connection, (token) => editDocument(editorOf(run, token), documentId, params.revision, edits)));
+		const edited = $(await callGoogle(run.connection, (token) => editDocument(runEditor(run, token), documentId, params.revision, edits)));
 		const count = edits.length === 1 ? 'the edit' : `all ${edits.length} edits`;
 		const next =
 			edited.revision === null ? 'Read it again with docs_read for its new revision before editing it again.' : `It is at revision ${edited.revision} now, which docs_edit takes for more edits.`;

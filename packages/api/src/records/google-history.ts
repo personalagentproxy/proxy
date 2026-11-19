@@ -19,6 +19,7 @@ import {
 import {blobBackend} from '../backends/backends';
 import {downloadFile, exportBytes, getFileState, isGoogleType, keepRevision, latestRevision, MIME_TYPES, OFFICE_TYPES, type DriveFileState} from '../connections/google/drive-api';
 import {storeContent, type StoredContent} from '../native/files/content';
+import type {NativeToolRun} from '../native/tool';
 import {log} from '../observability/log';
 import {env} from '../utils/env';
 
@@ -50,6 +51,16 @@ export type DriveEditor = {token: string; change: FileChangeBy};
 /** The change log's entry for a write to one of a Google connection's files, by whoever makes it. */
 export function changeBy(connection: {id: string; orgId: string}, by: FileActor): FileChangeBy {
 	return {orgId: connection.orgId, connectionId: connection.id, by};
+}
+
+/** Who a tool's run changes a file as: the agent, for its task. */
+export function runActor(run: Pick<NativeToolRun, 'caller'>): FileActor {
+	return {agentId: run.caller.agent.agentId, taskId: run.caller.taskId};
+}
+
+/** A tool's run as the one changing a Drive file, with the connection's token. */
+export function runEditor(run: Pick<NativeToolRun, 'caller' | 'connection'>, token: string): DriveEditor {
+	return {token, change: changeBy(run.connection, runActor(run))};
 }
 
 /** A change about to be made to a file, as its log needs it: plain values, to be kept between the calls of a change made in two. */
@@ -98,7 +109,7 @@ export function sizeOf(file: Pick<DriveFileState, 'size'>): number | null {
  * Doc's, Sheet's or Slides file's revisions. Null for a folder, and for one of Google's types Drive
  * keeps no revisions of, as a form.
  */
-export function revisionOf(token: string, file: DriveFileState): Promise<Result<string | null, ApiError>> {
+function revisionOf(token: string, file: DriveFileState): Promise<Result<string | null, ApiError>> {
 	if (!isGoogleType(file.mimeType)) {
 		return Promise.resolve(Ok(file.headRevisionId ?? null));
 	}

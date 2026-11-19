@@ -1,6 +1,7 @@
-import type {Result} from 'ts-results-es';
+import {Err, Ok, type Result} from 'ts-results-es';
+import {z} from 'zod';
 
-import type {ApiError} from '@proxy/utils';
+import {ApiErr, type ApiError} from '@proxy/utils';
 import type {ConnectionRow} from '@proxy/db/connection';
 
 import type {TaskCaller} from '../agent-side/tools';
@@ -22,6 +23,18 @@ import type {TaskCaller} from '../agent-side/tools';
 export type NativeToolRun = {caller: TaskCaller; connection: ConnectionRow & {credential: string | null}; params: Record<string, unknown>; entryId?: string};
 
 export type NativeToolRunner = (run: NativeToolRun) => Promise<Result<string, ApiError>>;
+
+/**
+ * A run's params read against the tool's own schema; what is wrong is said with the tool's own
+ * params named (`takes`), and each of its problems on a line.
+ */
+export function readParams<T>(schema: z.ZodType<T>, tool: string, takes: string, params: Record<string, unknown>): Result<T, ApiError> {
+	const parsed = schema.safeParse(params);
+	if (!parsed.success) {
+		return Err(ApiErr.validationError(`${tool} takes ${takes}:\n${z.prettifyError(parsed.error)}`));
+	}
+	return Ok(parsed.data);
+}
 
 /**
  * Whether a run of one of the integration's own tools is one the person allowed by what they did,

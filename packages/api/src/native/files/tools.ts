@@ -1,7 +1,7 @@
-import {Err, type Result} from 'ts-results-es';
+import {Err} from 'ts-results-es';
 import {z} from 'zod';
 
-import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
+import {ApiErr, Do, requirePresent} from '@proxy/utils';
 import {formatBytes} from '@proxy/utils/bytes';
 import {
 	createFile,
@@ -21,7 +21,7 @@ import {
 	writeFile,
 } from '@proxy/db/files';
 
-import type {NativeToolRun, NativeToolRunner} from '../tool';
+import {readParams, type NativeToolRun, type NativeToolRunner} from '../tool';
 import {requireReadFile} from './attached';
 import {requireFile} from './connector';
 import {maxFileBytes, storeText} from './content';
@@ -43,11 +43,6 @@ function changeOf({caller, connection}: NativeToolRun): FileChangeBy {
 	return {orgId: connection.orgId, connectionId: connection.id, by: {agentId: caller.agent.agentId, taskId: caller.taskId}};
 }
 
-// A tool's params read against its schema; what is wrong is said with the tool's own params named.
-function read<T>(schema: z.ZodType<T>, tool: string, takes: string, params: Record<string, unknown>): Result<T, ApiError> {
-	return parseSchema(schema, params).mapErr((error) => ApiErr.validationError(`${tool} takes ${takes}${error.kind === 'parse_error' ? `: ${error.message}` : ''}`));
-}
-
 // A file as a write answers it: what the next call on it needs.
 function described(run: NativeToolRun, entry: FileEntry, said: string): string {
 	const lines = [said, `Id: ${entry.id}`];
@@ -63,7 +58,7 @@ const createSchema = z.object({name: z.string(), parent: z.string().min(1).optio
 /** `files_create`: a new file holding the text given, or a folder. */
 export const runFilesCreate: NativeToolRunner = (run) =>
 	Do(async ($): Promise<string> => {
-		const {name: raw, parent = null, content, folder = false} = $(read(createSchema, 'files_create', 'name, and parent, content and folder where wanted', run.params));
+		const {name: raw, parent = null, content, folder = false} = $(readParams(createSchema, 'files_create', 'name, and parent, content and folder where wanted', run.params));
 		const name = $(requireFileName(raw));
 		if (folder) {
 			if (content !== undefined) {
@@ -82,7 +77,7 @@ const writeSchema = z.object({id: z.string().min(1), version: z.string().min(1),
 /** `files_write`: text written over a file, by whoever read the version it holds. */
 export const runFilesWrite: NativeToolRunner = (run) =>
 	Do(async ($): Promise<string> => {
-		const {id, version, content} = $(read(writeSchema, 'files_write', 'id, version and content', run.params));
+		const {id, version, content} = $(readParams(writeSchema, 'files_write', 'id, version and content', run.params));
 		const file = $(await requireFile(run.connection.id, id));
 		// Refused before the content is stored, as the write itself refuses it once it is.
 		if (file.head?.id !== version) {
@@ -102,7 +97,7 @@ const readSchema = z.object({id: z.string().min(1), version: z.string().min(1).o
 /** `files_read`: a file's text, a stretch at a time, as it is now or as an earlier version had it. */
 export const runFilesRead: NativeToolRunner = (run) =>
 	Do(async ($): Promise<string> => {
-		const {id, version: asked, from = 0} = $(read(readSchema, 'files_read', 'id, and version and from where wanted', run.params));
+		const {id, version: asked, from = 0} = $(readParams(readSchema, 'files_read', 'id, and version and from where wanted', run.params));
 		const file = $(await requireReadFile(run.caller, run.connection.id, id, asked));
 		if (file.folder) {
 			return $(Err(ApiErr.validationError(`${file.name} is a folder: files_list with it as parent lists what is inside`)));
@@ -139,7 +134,7 @@ const idSchema = z.object({id: z.string().min(1)});
 /** `files_versions`: a file's versions, newest first, with who made each. */
 export const runFilesVersions: NativeToolRunner = (run) =>
 	Do(async ($): Promise<string> => {
-		const {id} = $(read(idSchema, 'files_versions', 'id', run.params));
+		const {id} = $(readParams(idSchema, 'files_versions', 'id', run.params));
 		const file = $(await requireFile(run.connection.id, id));
 		if (file.folder) {
 			return $(Err(ApiErr.validationError(`${file.name} is a folder, which has no versions`)));
@@ -157,7 +152,7 @@ const restoreSchema = z.object({id: z.string().min(1), version: z.string().min(1
 /** `files_restore`: an earlier version given back, as the file's next. */
 export const runFilesRestore: NativeToolRunner = (run) =>
 	Do(async ($): Promise<string> => {
-		const {id, version} = $(read(restoreSchema, 'files_restore', 'id and version', run.params));
+		const {id, version} = $(readParams(restoreSchema, 'files_restore', 'id and version', run.params));
 		const restored = $(await restoreFileVersion(changeOf(run), {fileId: id, versionId: version}));
 		return described(run, restored, `${restored.name} holds what version ${version} held, as a new version.`);
 	});
@@ -170,7 +165,7 @@ const moveSchema = z.object({id: z.string().min(1), name: z.string().optional(),
 /** `files_move`: a file or folder renamed, moved to another folder, or both. */
 export const runFilesMove: NativeToolRunner = (run) =>
 	Do(async ($): Promise<string> => {
-		const {id, name: raw, parent} = $(read(moveSchema, 'files_move', 'id, and name or parent, or both', run.params));
+		const {id, name: raw, parent} = $(readParams(moveSchema, 'files_move', 'id, and name or parent, or both', run.params));
 		if (raw === undefined && parent === undefined) {
 			return $(Err(ApiErr.validationError('files_move takes a new name, a parent to move into, or both')));
 		}
@@ -183,7 +178,7 @@ export const runFilesMove: NativeToolRunner = (run) =>
 /** `files_trash`: a file or folder put in the trash. */
 export const runFilesTrash: NativeToolRunner = (run) =>
 	Do(async ($): Promise<string> => {
-		const {id} = $(read(idSchema, 'files_trash', 'id', run.params));
+		const {id} = $(readParams(idSchema, 'files_trash', 'id', run.params));
 		const trashed = $(await trashFile(changeOf(run), id));
 		return `Moved ${trashed.name} to the trash. files_untrash with its id, ${trashed.id}, takes it out.`;
 	});
@@ -191,7 +186,7 @@ export const runFilesTrash: NativeToolRunner = (run) =>
 /** `files_untrash`: what was put in the trash taken out, back where it was. */
 export const runFilesUntrash: NativeToolRunner = (run) =>
 	Do(async ($): Promise<string> => {
-		const {id} = $(read(idSchema, 'files_untrash', 'id', run.params));
+		const {id} = $(readParams(idSchema, 'files_untrash', 'id', run.params));
 		const back = $(await untrashFile(changeOf(run), id));
 		const found = $(requirePresent($(await getFile(run.connection.id, back.id)), ApiErr.notFound('file', id)));
 		return described(run, found, `Took ${pathOf(found)} out of the trash.`);

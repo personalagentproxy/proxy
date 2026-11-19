@@ -1233,10 +1233,35 @@ export function listFileVersions(
 
 /** One change of a file's journal with who made it: the member, or the agent as its maker and the task it was for. */
 export type FileChangeEntry = FileChangeRow & {
-	user: {name: string | null; email: string} | null;
+	user: {name: string | null; email: string; image: string | null} | null;
 	maker: FileMaker | null;
 	task: {id: string; title: string} | null;
 };
+
+// Changes as the journal lists them, each with who made it.
+async function withAuthors(
+	rows: Prisma.FileChangeGetPayload<{select: typeof changeSelect}>[],
+): Promise<FileChangeEntry[]> {
+	const userIds = [
+		...new Set(rows.flatMap((change) => (change.userId === null ? [] : [change.userId]))),
+	];
+	const [users, {makerOf, taskOf}] = await Promise.all([
+		db.user.findMany({
+			where: {id: {in: userIds}},
+			select: {id: true, name: true, email: true, image: true},
+		}),
+		makersOf(rows),
+	]);
+	return rows.map((row) => {
+		const user = users.find((candidate) => candidate.id === row.userId);
+		return {
+			...changeRow(row),
+			user: user ? {name: user.name, email: user.email, image: user.image} : null,
+			maker: makerOf(row),
+			task: taskOf(row),
+		};
+	});
+}
 
 /**
  * A file's changes, newest first, at most `limit`, each with who made it: for a drive elsewhere,
@@ -1254,25 +1279,45 @@ export function listFileChanges(
 			orderBy: [{createdAt: 'desc'}, {id: 'desc'}],
 			take: limit,
 		});
-		const userIds = [
-			...new Set(rows.flatMap((change) => (change.userId === null ? [] : [change.userId]))),
-		];
-		const [users, {makerOf, taskOf}] = await Promise.all([
-			db.user.findMany({
-				where: {id: {in: userIds}},
-				select: {id: true, name: true, email: true},
-			}),
-			makersOf(rows),
-		]);
-		return rows.map((row) => {
-			const user = users.find((candidate) => candidate.id === row.userId);
-			return {
-				...changeRow(row),
-				user: user ? {name: user.name, email: user.email} : null,
-				maker: makerOf(row),
-				task: taskOf(row),
-			};
+		return withAuthors(rows);
+	});
+}
+
+/**
+ * The latest change of each of a drive's files that has any, the most recently changed file first,
+ * at most `limit` files: the files a drive elsewhere has a history of here, each as it was called
+ * then.
+ */
+export function listChangedFiles(
+	connectionId: string,
+	limit: number,
+): Promise<Result<FileChangeEntry[], ApiError>> {
+	return wrapDb(async () => {
+		const latest = await db.fileChange.groupBy({
+			by: ['fileId'],
+			where: {connectionId},
+			_max: {createdAt: true},
+			orderBy: {_max: {createdAt: 'desc'}},
+			take: limit,
 		});
+		if (latest.length === 0) {
+			return [];
+		}
+		const rows = await db.fileChange.findMany({
+			where: {
+				connectionId,
+				OR: latest.flatMap(({fileId, _max}) =>
+					_max.createdAt === null ? [] : [{fileId, createdAt: _max.createdAt}],
+				),
+			},
+			select: changeSelect,
+			orderBy: [{createdAt: 'desc'}, {id: 'desc'}],
+		});
+		// Two changes of a file at the same moment: the one listed first, as listFileChanges lists them.
+		const first = rows.filter(
+			(row, index) => rows.findIndex((other) => other.fileId === row.fileId) === index,
+		);
+		return withAuthors(first);
 	});
 }
 

@@ -6,8 +6,8 @@ import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 import {fileIdOf} from '../connections/google/drive-api';
 import {callGoogle} from '../connections/google/google-client';
 import {addSheet, appendDimension, columnIndex, columnLetters, deleteDimension, deleteSheet, getSheets, insertDimension, type Dimension, type Sheet} from '../connections/google/sheets-api';
-import type {NativeToolRun, NativeToolRunner} from '../native/tool';
-import {changeBy, changeDriveFile, type DriveChangeEntry, type DriveEditor} from './google-history';
+import {readParams, type NativeToolRunner} from '../native/tool';
+import {changeDriveFile, type DriveChangeEntry, type DriveEditor, runEditor} from './google-history';
 
 /**
  * A spreadsheet's structure, changed through the Sheets API: `sheets_rows` inserts or deletes rows
@@ -17,21 +17,8 @@ import {changeBy, changeDriveFile, type DriveChangeEntry, type DriveEditor} from
  * copy kept before the task's first change to the spreadsheet (files_restore).
  */
 
-// A tool's params read against its schema; what is wrong is said with the tool's own params named.
-function read<T>(schema: z.ZodType<T>, tool: string, takes: string, params: Record<string, unknown>): Result<T, ApiError> {
-	const parsed = schema.safeParse(params);
-	if (!parsed.success) {
-		return Err(ApiErr.validationError(`${tool} takes ${takes}:\n${z.prettifyError(parsed.error)}`));
-	}
-	return Ok(parsed.data);
-}
-
 function requireSpreadsheet(given: string): Result<string, ApiError> {
 	return requirePresent(fileIdOf(given), ApiErr.validationError('Say which spreadsheet as spreadsheet: its id, as files_list gives it, or its link'));
-}
-
-function editorOf(run: NativeToolRun, token: string): DriveEditor {
-	return {token, change: changeBy(run.connection, {agentId: run.caller.agent.agentId, taskId: run.caller.taskId})};
 }
 
 const NO_UNDO = 'It has no exact undo: files_versions lists the version kept from before this task’s first change to the spreadsheet, which files_restore gives back, with what this took away.';
@@ -151,10 +138,10 @@ function changeRows(editor: DriveEditor, spreadsheetId: string, title: string, c
 /** `sheets_rows`: rows or columns of a tab inserted or deleted. */
 export const runSheetsRows: NativeToolRunner = (run) =>
 	Do(async ($): Promise<string> => {
-		const params = $(read(rowsSchema, 'sheets_rows', 'spreadsheet, tab, one of insert or delete, each a start and a count, and dimension', run.params));
+		const params = $(readParams(rowsSchema, 'sheets_rows', 'spreadsheet, tab, one of insert or delete, each a start and a count, and dimension', run.params));
 		const spreadsheetId = $(requireSpreadsheet(params.spreadsheet));
 		const change = $(insertOrDelete(params));
-		return $(await callGoogle(run.connection, (token) => changeRows(editorOf(run, token), spreadsheetId, params.tab, change)));
+		return $(await callGoogle(run.connection, (token) => changeRows(runEditor(run, token), spreadsheetId, params.tab, change)));
 	});
 
 // ---- Tabs ----------------------------------------------------------------------------------------
@@ -190,7 +177,7 @@ function deleteTab(editor: DriveEditor, spreadsheetId: string, title: string): P
 /** `sheets_tabs`: a tab added to a spreadsheet, or one deleted. */
 export const runSheetsTabs: NativeToolRunner = (run) =>
 	Do(async ($): Promise<string> => {
-		const params = $(read(tabsSchema, 'sheets_tabs', 'spreadsheet, and one of add or delete, a tab’s title', run.params));
+		const params = $(readParams(tabsSchema, 'sheets_tabs', 'spreadsheet, and one of add or delete, a tab’s title', run.params));
 		const spreadsheetId = $(requireSpreadsheet(params.spreadsheet));
 		const {add, delete: remove} = params;
 		if ((add === undefined) === (remove === undefined)) {
@@ -198,7 +185,7 @@ export const runSheetsTabs: NativeToolRunner = (run) =>
 		}
 		return $(
 			await callGoogle(run.connection, (token) => {
-				const editor = editorOf(run, token);
+				const editor = runEditor(run, token);
 				return add === undefined ? deleteTab(editor, spreadsheetId, remove ?? '') : addTab(editor, spreadsheetId, add);
 			}),
 		);

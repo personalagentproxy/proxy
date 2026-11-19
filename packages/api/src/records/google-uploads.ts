@@ -25,7 +25,7 @@ import {log} from '../observability/log';
 import {type DeclaredFile, type DriveUploads, UPLOAD_TTL_MS, type UploadArrived, type UploadRun, type UploadStarted, type UploadTarget} from '../uploads/tickets';
 import {decryptSecret} from '../utils/secret-crypto';
 import {folderNamed} from './google-files';
-import {beginDriveChange, changeBy, type DriveChange, type DriveEditor, logDriveChange, logDriveCreate} from './google-history';
+import {beginDriveChange, changeBy, type DriveChange, type DriveEditor, logDriveChange, logDriveCreate, runEditor} from './google-history';
 
 /**
  * Uploads into Google Drive (uploads/tickets.ts): the URL is Drive's own resumable upload session,
@@ -76,10 +76,6 @@ const CONVERTED_EXTENSION = /\.(docx|xlsx|pptx|md|markdown|csv)$/i;
 
 const GOOGLE_TYPE_REFUSAL =
 	'A file uploaded is its own bytes, of their own type, never one of Google’s: to make a Doc, Sheet or Slides file, upload a docx, xlsx or pptx, or Markdown or CSV, with convert';
-
-function editorOf(run: UploadRun, token: string): DriveEditor {
-	return {token, change: changeBy(run.connection, {agentId: run.caller.agent.agentId, taskId: run.caller.taskId})};
-}
 
 // The upload's own agent and task, which done logs the file as, whoever finishes it.
 function uploaderOf(run: UploadRun, upload: FileUploadRow, token: string): DriveEditor {
@@ -265,7 +261,7 @@ export const googleUploads: DriveUploads = {
 			if (target.kind === 'create') {
 				return startCreate(token, target, file);
 			}
-			return startWrite(editorOf(run, token), target, file);
+			return startWrite(runEditor(run, token), target, file);
 		}),
 
 	arrived: (run, upload) =>

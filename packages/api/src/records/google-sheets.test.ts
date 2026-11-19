@@ -2,13 +2,15 @@ import {beforeEach, describe, expect, mock, spyOn, test} from 'bun:test';
 import {Ok, type Result} from 'ts-results-es';
 
 import type {ApiError} from '@proxy/utils';
+import type {JsonValue} from '@proxy/utils/harness';
+import type {FileUndo} from '@proxy/db/file-undo';
 
 const markCredentialRejected = mock(async () => Ok(true));
 mock.module('@proxy/db/connection', () => ({markCredentialRejected, updateConnectionCredential: mock(), getConnectionCredential: mock(async () => Ok(null))}));
 
 // The history every change goes through (google-history.ts), kept in memory: each task has its
 // copy already, and the changes logged are kept to look at.
-type Logged = {kind: string; fileId: string; name: string; beforeRevision?: string | null; afterRevision?: string | null; undo?: unknown};
+type Logged = {kind: string; fileId: string; name: string; beforeRevision?: string | null; afterRevision?: string | null; undo?: FileUndo | null};
 const history = {logged: [] as Logged[]};
 mock.module('@proxy/db/files', () => ({
 	hasTaskCopied: mock(async () => Ok(true)),
@@ -68,7 +70,7 @@ function run(params: Record<string, unknown>) {
 // The fake Sheets and Drive: the spreadsheet's tabs, the structural changes it took, and what
 // the history asks of Drive, the spreadsheet as a file and its latest revision.
 type Tab = {sheetId: number; title: string; rowCount: number; columnCount: number};
-const sheets = {tabs: [] as Tab[], requests: [] as Record<string, unknown>[]};
+const sheets = {tabs: [] as Tab[], requests: [] as JsonValue[]};
 const google = {requests: [] as {method: string; url: URL}[]};
 
 const TABS: Tab[] = [
