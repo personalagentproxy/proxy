@@ -194,8 +194,10 @@ export function AppShell({
 	useFollowRedirect();
 	const page = useRef<HTMLDivElement>(null);
 	const contentColumn = useRef<HTMLDivElement>(null);
+	// Its own key: the width the chat's wider column was dragged to before it became a second
+	// sidebar, under `proxy-content-width`, would open it far wider than the navigation.
 	const {width: storedContentWidth, setWidth: setContentWidth} =
-		useStoredWidth('proxy-content-width');
+		useStoredWidth('proxy-list-width');
 	const heading = loadsTitle ? <span ref={setTitleSlot} className="contents" /> : title;
 	// Each address has its own content, and its own failure, unless the page says what it is.
 	const key = contentKey ?? pathname;
