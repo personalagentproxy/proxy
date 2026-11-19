@@ -10,7 +10,6 @@
 		"dev": "NODE_ENV=development bun run --watch src/index.ts",
 		"start": "bun run src/index.ts",
 		"seed": "bun --env-file=../../.env scripts/seed.ts",
-		"seed:showcase": "bun --env-file=../../.env scripts/seed-showcase.ts",
 		"summarize-threads": "bun scripts/summarize-threads.ts",
 		"title-threads": "bun scripts/title-threads.ts",
 		"test": "bun test --isolate",
