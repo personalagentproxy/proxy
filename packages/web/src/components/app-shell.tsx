@@ -67,14 +67,14 @@ export type Side = {
 
 // The content's width while a side stands beside it, the side taking the rest of the page's
 // (`cqw`, the page being the container): as wide as the person dragged the line between them, on
-// this device (`--content-width`), or as wide as the navigation until they do, as a second
-// sidebar, but never so wide that the side has less than `SIDE_ROOM` beside it. The side's cell of
-// the title bar is as wide as its column, so the line between the two cells falls in the same place
-// in the title bar and under it.
+// this device (`--content-width`), or, until they do, as wide as the navigation starts out (ui's
+// sidebar.tsx), as a second sidebar resized apart from it; but never so wide that the side has
+// less than `SIDE_ROOM` beside it. The side's cell of the title bar is as wide as its column, so
+// the line between the two cells falls in the same place in the title bar and under it.
 const CONTENT_MIN = 192;
 const SIDE_ROOM = 420;
 const SIDE_DEFAULTS =
-	'@container [--content-width:var(--sidebar-width)] [--side-room:420px] [--content-split:min(var(--content-width),_100cqw_-_var(--side-room))] [--side-width:calc(100cqw_-_var(--content-split))]';
+	'@container [--content-width:16rem] [--side-room:420px] [--content-split:min(var(--content-width),_100cqw_-_var(--side-room))] [--side-width:calc(100cqw_-_var(--content-split))]';
 
 // Where in the header the content puts what only it knows, once loaded: the title and its
 // actions. Null until the frame has drawn them, and where it has none.
@@ -196,8 +196,7 @@ export function AppShell({
 	const contentColumn = useRef<HTMLDivElement>(null);
 	// Its own key: the width the chat's wider column was dragged to before it became a second
 	// sidebar, under `proxy-content-width`, would open it far wider than the navigation.
-	const {width: storedContentWidth, setWidth: setContentWidth} =
-		useStoredWidth('proxy-list-width');
+	const {width: storedContentWidth, setWidth: setContentWidth} = useStoredWidth('proxy-list-width');
 	const heading = loadsTitle ? <span ref={setTitleSlot} className="contents" /> : title;
 	// Each address has its own content, and its own failure, unless the page says what it is.
 	const key = contentKey ?? pathname;
