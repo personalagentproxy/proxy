@@ -52,13 +52,9 @@ type Props = {
 	// What is typed, as it is typed, and what waits in the box, the files' names where nothing is.
 	onTyped?: (text: string) => void;
 	onWaiting?: (waiting: string) => void;
-	// An agent is being made, changed or deleted in a dialog.
+	// Something is over the box in a dialog: an agent made, changed or deleted, or a new task's box
+	// over a thread's.
 	managing: boolean;
-	// Whether files dropped anywhere on the window come here: not to the chat's box while a thread
-	// is open beside it, whose box takes them.
-	takesDrops?: boolean;
-	// What something beside the box failed with, said where its own failures are.
-	otherError?: string | null;
 	// Whether the box should take the keyboard's focus, once it can.
 	focusRequested: boolean;
 	onFocused: () => void;
@@ -94,8 +90,6 @@ export function Composer({
 	onTyped,
 	onWaiting,
 	managing,
-	takesDrops = true,
-	otherError = null,
 	focusRequested,
 	onFocused,
 	onSend,
@@ -194,7 +188,7 @@ export function Composer({
 	const failedUpload = failedFile ? `${failedFile.name}: ${failedFile.error ?? ''}` : null;
 	const sendable = !attachments.uploading && (words !== '' || placed.length > 0);
 	// Files dropped anywhere on the window are attached, unless a dialog is open over the page.
-	const dropping = useWindowFileDrop(attaches && takesDrops && !managing, attachments.add);
+	const dropping = useWindowFileDrop(attaches && !managing, attachments.add);
 
 	// The message leaves the box at once, its files with it. Where the send fails, it comes back,
 	// before anything typed since; where it doesn't, what was typed since is kept as the draft,
@@ -237,7 +231,7 @@ export function Composer({
 		onSent?.();
 	};
 
-	const shownError = error ?? attachments.refused ?? failedUpload ?? otherError;
+	const shownError = error ?? attachments.refused ?? failedUpload;
 
 	return (
 		<form

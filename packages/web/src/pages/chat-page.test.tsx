@@ -275,6 +275,20 @@ function rowHeads(container: HTMLElement): Element[] {
 // and no longer the list's.
 const GOING = '[aria-hidden="true"] *, script, style';
 
+// Opens a new task's box, floating over the page, from the button at the foot of the tasks, and
+// gives it once it has the keyboard's focus.
+async function openNewTask(): Promise<HTMLElement> {
+	const tasks = await screen.findByLabelText('Tasks');
+	await act(async () => {
+		fireEvent.click(
+			within(tasks.parentElement as HTMLElement).getByRole('button', {name: /New task/}),
+		);
+	});
+	const box = await screen.findByLabelText('Message');
+	await waitFor(() => expect(document.activeElement).toBe(box));
+	return box;
+}
+
 // Follows a link of the page, and waits for React to have drawn where it leads. A click's own
 // `act` ends at once: a render under it that reads the page's answer with `use` and isn't done by
 // then is dropped, and React, holding on to it as still to come, never draws that page.
@@ -300,7 +314,7 @@ function answering(answer: (input: string, init?: RequestInit) => Promise<Respon
 }
 
 describe('ChatPage', () => {
-	test('focuses the message input after a conversation is picked from the list', async () => {
+	test('opens a conversation picked from the list with no new task’s box over it', async () => {
 		let arrive = () => undefined;
 		const held = new Promise<void>((resolve) => {
 			arrive = () => {
@@ -310,33 +324,18 @@ describe('ChatPage', () => {
 		});
 		renderChatPage({answered: (personaId) => (personaId === 'finance' ? held : Promise.resolve())});
 
-		const initialBox = await screen.findByLabelText('Message');
-		expect(document.activeElement).not.toBe(initialBox);
+		await screen.findByText('What should General do?');
+		expect(screen.queryByLabelText('Message')).toBeNull();
 
 		await follow(screen.getByRole('link', {name: /Finance/}));
 		await screen.findByRole('status', {name: 'Loading'});
 		await act(async () => arrive());
 
 		await screen.findByText('What should Finance do?');
-		await waitFor(() => {
-			expect(document.activeElement).toBe(screen.getByLabelText('Message'));
-		});
+		expect(screen.queryByLabelText('Message')).toBeNull();
 	});
 
-	test('focuses the message input when the open conversation is picked again', async () => {
-		renderChatPage();
-
-		const box = await screen.findByLabelText('Message');
-		expect(document.activeElement).not.toBe(box);
-
-		await follow(screen.getByRole('link', {name: /General/}));
-
-		await waitFor(() => {
-			expect(document.activeElement).toBe(box);
-		});
-	});
-
-	test('focuses the message input of a conversation opened from the command bar', async () => {
+	test('opens a new task’s box, focused, over a conversation opened from the command bar', async () => {
 		renderChatPage({initial: {pathname: '/acme/chat/general', state: FROM_COMMAND_BAR}});
 
 		await waitFor(() => {
@@ -344,11 +343,11 @@ describe('ChatPage', () => {
 		});
 	});
 
-	test('focuses the message input when the command bar goes to another conversation', async () => {
+	test('opens a new task’s box when the command bar goes to another conversation', async () => {
 		const {router} = renderChatPage();
 
 		await screen.findByText('What should General do?');
-		expect(document.activeElement).not.toBe(screen.getByLabelText('Message'));
+		expect(screen.queryByLabelText('Message')).toBeNull();
 
 		await act(async () => {
 			await router.navigate('/acme/chat/finance', {state: FROM_COMMAND_BAR});
@@ -363,7 +362,7 @@ describe('ChatPage', () => {
 	test('does not focus or navigate for a modified conversation click', async () => {
 		renderChatPage();
 
-		await screen.findByLabelText('Message');
+		await screen.findByText('What should General do?');
 		const financeRow = screen.getByRole('link', {name: /Finance/});
 		financeRow.focus();
 		fireEvent.click(financeRow, {metaKey: true});
@@ -485,7 +484,7 @@ describe('ChatPage', () => {
 
 	test('opens the new agent dialog at the platform’s shortcut with Shift and N, not without Shift', async () => {
 		renderChatPage();
-		await screen.findByLabelText('Message');
+		await screen.findByText('What should General do?');
 		const apple = /Mac|iPhone|iPad/.test(navigator.userAgent);
 		const press = (shiftKey: boolean) =>
 			act(async () => {
@@ -500,9 +499,24 @@ describe('ChatPage', () => {
 
 		await press(false);
 		expect(screen.queryByRole('heading', {name: 'New agent'})).toBeNull();
+		// Without Shift, a new task's box; put away, the page is as it was.
+		const box = await screen.findByLabelText('Message');
+		await act(async () => {
+			fireEvent.keyDown(box, {key: 'Escape'});
+		});
+		await waitFor(() => expect(screen.queryByLabelText('Message')).toBeNull());
 
 		await press(true);
 		expect(await screen.findByRole('heading', {name: 'New agent'})).toBeDefined();
+	});
+
+	test('shows no shortcut on New task or New agent in a browser, which keeps them for its windows', async () => {
+		renderChatPage();
+		await screen.findByText('What should General do?');
+
+		for (const button of screen.getAllByRole('button', {name: /New (task|agent)/})) {
+			expect(button.textContent).toMatch(/^New (task|agent)$/);
+		}
 	});
 
 	test('edits a changeable agent from its right-click menu', async () => {
@@ -542,6 +556,7 @@ describe('ChatPage', () => {
 			return Promise.resolve(new Response(null, {status: 204}));
 		});
 		renderChatPage({open: 'finance'});
+		await openNewTask();
 
 		fireEvent.click(
 			await screen.findByRole('button', {name: 'Model: Claude Sonnet 5.5 on OpenRouter'}),
@@ -707,7 +722,7 @@ describe('ChatPage', () => {
 		expect(order()).toEqual(['Travel', 'Finance', 'General']);
 
 		// What the person says in the open chat puts General on top at once.
-		typeIn(screen.getByLabelText('Message'), 'Hi');
+		typeIn(await openNewTask(), 'Hi');
 		fireEvent.click(screen.getByRole('button', {name: 'Send'}));
 		await waitFor(() => expect(order()).toEqual(['General', 'Travel', 'Finance']));
 		expect(screen.getByRole('link', {name: /General/}).textContent).toContain('You: Hi');
@@ -1548,26 +1563,23 @@ describe('ChatPage', () => {
 			).toBe('page');
 		});
 
-		test('gives its place to a new task’s box, focused, from the New task button', async () => {
+		test('stays open under a new task’s box, focused, from the New task button', async () => {
 			renderChatPage({threads: [pricing], initial: '/acme/chat/general/threads/t1'});
 			await screen.findByLabelText('Thread');
 
-			await follow(screen.getByRole('button', {name: /New task/}));
-			await waitFor(() => expect(screen.queryByLabelText('Thread')).toBeNull());
-			const box = await screen.findByLabelText('Message');
-			await waitFor(() => expect(document.activeElement).toBe(box));
-			expect(within(screen.getByRole('banner')).getByText('New task')).toBeTruthy();
-			expect(screen.getByRole('link', {name: 'Pricing review with Dana'})).toBeTruthy();
+			await openNewTask();
+			expect(screen.getByRole('dialog', {name: 'New task for General'})).toBeTruthy();
+			expect(screen.getByLabelText('Thread')).toBeTruthy();
 		});
 
-		test('gives its place to a new task’s box, focused, at the platform’s shortcut with N', async () => {
+		test('stays open under a new task’s box, focused, at the platform’s shortcut with N', async () => {
 			renderChatPage({threads: [pricing], initial: '/acme/chat/general/threads/t1'});
 			await screen.findByLabelText('Thread');
 
 			await act(async () => {
 				fireEvent.keyDown(document.body, {key: 'n', code: 'KeyN', ctrlKey: true, metaKey: true});
 			});
-			expect(screen.getByLabelText('Thread')).toBeTruthy();
+			expect(screen.queryByLabelText('Message')).toBeNull();
 
 			const apple = /Mac|iPhone|iPad/.test(navigator.userAgent);
 			await act(async () => {
@@ -1578,9 +1590,9 @@ describe('ChatPage', () => {
 					ctrlKey: !apple,
 				});
 			});
-			await waitFor(() => expect(screen.queryByLabelText('Thread')).toBeNull());
 			const box = await screen.findByLabelText('Message');
 			await waitFor(() => expect(document.activeElement).toBe(box));
+			expect(screen.getByLabelText('Thread')).toBeTruthy();
 		});
 
 		test('says where it is gone, the title bar waiting for no name', async () => {
@@ -1734,7 +1746,7 @@ describe('ChatPage', () => {
 			);
 		}
 
-		test('opens a thread with what is sent, shown at once on top of the list, and opens it in the box’s place as the server answers', async () => {
+		test('opens a thread with what is sent, shown at once on top of the list, and opens it as the server answers, putting the box away', async () => {
 			const answeredOpen: ((response: Response) => void)[] = [];
 			answerSends(() => new Promise((resolve) => answeredOpen.push(resolve)));
 			const started = opened('Book the train');
@@ -1746,7 +1758,7 @@ describe('ChatPage', () => {
 				},
 			});
 			const chat = await screen.findByLabelText('Tasks');
-			const box = screen.getByLabelText('Message');
+			const box = await openNewTask();
 
 			typeIn(box, 'Book the train ');
 			fireEvent.click(screen.getByRole('button', {name: 'Send'}));
@@ -1754,12 +1766,13 @@ describe('ChatPage', () => {
 			const sent = await within(chat).findByText('Book the train');
 			const row = sent.closest('li') as HTMLElement;
 			expect(box.textContent).toBe('');
-			expect(within(chat).getAllByRole('listitem')[0]).toBe(row);
+			// Behind the box, out of reach while it is open.
+			expect(within(chat).getAllByRole('listitem', {hidden: true})[0]).toBe(row);
 			// The server has yet to open it: there is nowhere for it to lead.
-			expect(within(row).queryByRole('link')).toBeNull();
+			expect(within(row).queryByRole('link', {hidden: true})).toBeNull();
 			expect(within(row).getByText('In progress')).toBeTruthy();
 			// The list has it as the last thing said at once.
-			expect(screen.getByRole('link', {name: /General/}).textContent).toContain(
+			expect(screen.getByRole('link', {name: /General/, hidden: true}).textContent).toContain(
 				'You: Book the train',
 			);
 
@@ -1771,8 +1784,8 @@ describe('ChatPage', () => {
 			await act(async () => {
 				answeredOpen[0]?.(Response.json({thread: started}));
 			});
-			// Opened, it leads to the thread the server made, before the chat read again has it, and
-			// is open in the box's place.
+			// Opened, it leads to the thread the server made, before the chat read again has it, and is
+			// open, the box put away.
 			const link = await within(chat).findByRole('link', {name: 'Book the train'});
 			expect(link.getAttribute('href')).toBe('/acme/chat/general/threads/t-new');
 			await screen.findByLabelText('Thread');
@@ -1786,7 +1799,7 @@ describe('ChatPage', () => {
 			);
 			renderChatPage({threads: [pricing]});
 			const chat = await screen.findByLabelText('Tasks');
-			typeIn(screen.getByLabelText('Message'), 'Book the train');
+			typeIn(await openNewTask(), 'Book the train');
 			fireEvent.click(screen.getByRole('button', {name: 'Send'}));
 
 			// The box is made again, holding what was sent.
@@ -1808,7 +1821,7 @@ describe('ChatPage', () => {
 		test('opens with what was typed and not sent, safe to reload', async () => {
 			renderChatPage({draft: 'Move the pricing review'});
 
-			const box = await screen.findByLabelText('Message');
+			const box = await openNewTask();
 			expect(box.textContent).toBe('Move the pricing review');
 			expect(pageSaysSafeToReload()).toBe(true);
 			expect(saves()).toEqual([]);
@@ -1816,7 +1829,7 @@ describe('ChatPage', () => {
 
 		test('saves what is typed a moment after the typing stops, once', async () => {
 			renderChatPage();
-			const box = await screen.findByLabelText('Message');
+			const box = await openNewTask();
 
 			typeIn(box, 'Move the');
 			typeIn(box, 'Move the pricing review');
@@ -1864,10 +1877,16 @@ describe('ChatPage', () => {
 			});
 		});
 
-		test('saves at once as another conversation opens, and lists it there as a draft', async () => {
+		test('saves at once as the box is put away, and lists it as a draft once another conversation opens', async () => {
 			renderChatPage();
-			const box = await screen.findByLabelText('Message');
+			const box = await openNewTask();
 			typeIn(box, 'Move the pricing review');
+
+			await act(async () => {
+				fireEvent.keyDown(box, {key: 'Escape'});
+			});
+			await waitFor(() => expect(screen.queryByLabelText('Message')).toBeNull());
+			expect(saves()).toEqual([{text: 'Move the pricing review'}]);
 
 			await follow(screen.getByRole('link', {name: /Finance/}));
 			await screen.findByText('What should Finance do?');
@@ -1887,12 +1906,13 @@ describe('ChatPage', () => {
 					{...finance, draft: 'Pay the invoice'},
 				],
 			});
-			const box = await screen.findByLabelText('Message');
+			const box = await openNewTask();
 
-			expect(screen.getByRole('link', {name: /Finance/}).textContent).toContain(
+			// Behind the box, out of reach while it is open.
+			expect(screen.getByRole('link', {name: /Finance/, hidden: true}).textContent).toContain(
 				'Draft: Pay the invoice',
 			);
-			const generalRow = screen.getByRole('link', {name: /General/});
+			const generalRow = screen.getByRole('link', {name: /General/, hidden: true});
 			expect(generalRow.textContent).not.toContain('Draft:');
 			expect(generalRow.textContent).toContain('How can I help?');
 
@@ -1913,7 +1933,7 @@ describe('ChatPage', () => {
 				);
 			});
 			renderChatPage();
-			const box = await screen.findByLabelText('Message');
+			const box = await openNewTask();
 
 			typeIn(box, 'Book the train');
 			fireEvent.click(screen.getByRole('button', {name: 'Send'}));
@@ -1961,13 +1981,13 @@ describe('ChatPage', () => {
 			renderChatPage({draftAttachments: [kept], experiments: withFiles});
 
 			// A chip by its name in the box the message is typed in, its size said on hover.
-			const box = await screen.findByLabelText('Message');
+			const box = await openNewTask();
 			await waitFor(() => expect(chipOf('pricing.md') === null).toBe(false));
 			// With a space after it, so the caret has text to be in.
 			expect(box.textContent).toBe('pricing.md ');
 			expect(chipOf('pricing.md')?.parentElement?.getAttribute('title')).toBe('pricing.md · 2 KB');
 			// The open chat keeps the last message in the sidebar; the file waits in the composer.
-			const generalRow = screen.getByRole('link', {name: /General/});
+			const generalRow = screen.getByRole('link', {name: /General/, hidden: true});
 			expect(generalRow.textContent).not.toContain('Draft:');
 
 			// A file alone is something to send.
@@ -1999,6 +2019,7 @@ describe('ChatPage', () => {
 				experiments: withFiles,
 			});
 			const chat = await screen.findByLabelText('Tasks');
+			await openNewTask();
 			await waitFor(() => expect(chipOf('pricing.md') === null).toBe(false));
 
 			fireEvent.click(screen.getByRole('button', {name: 'Send'}));
@@ -2016,7 +2037,7 @@ describe('ChatPage', () => {
 			const typed = `Does ${ATTACHMENT_MARK} match ${ATTACHMENT_MARK}?`;
 			renderChatPage({draft: typed, draftAttachments: [chart, kept], experiments: withFiles});
 
-			const box = await screen.findByLabelText('Message');
+			const box = await openNewTask();
 			await waitFor(() => expect(box.textContent).toBe('Does chart.png match pricing.md?'));
 			// Nothing was typed since it opened, so nothing is saved.
 			expect(pageSaysSafeToReload()).toBe(true);
@@ -2043,7 +2064,7 @@ describe('ChatPage', () => {
 				experiments: withFiles,
 			});
 
-			const box = await screen.findByLabelText('Message');
+			const box = await openNewTask();
 			await waitFor(() => expect(box.textContent).toBe('Look at pricing.md '));
 			expect(box.lastChild?.nodeType).toBe(Node.TEXT_NODE);
 			expect(pageSaysSafeToReload()).toBe(true);
@@ -2055,7 +2076,7 @@ describe('ChatPage', () => {
 				draftAttachments: [kept],
 				experiments: withFiles,
 			});
-			const box = await screen.findByLabelText('Message');
+			const box = await openNewTask();
 			await waitFor(() => expect(chipOf('pricing.md') === null).toBe(false));
 			const place = box.querySelector('[data-file]');
 
@@ -2072,7 +2093,7 @@ describe('ChatPage', () => {
 
 		test('saves what is typed around a file with which file each mark is', async () => {
 			renderChatPage({draftAttachments: [kept], experiments: withFiles});
-			const box = await screen.findByLabelText('Message');
+			const box = await openNewTask();
 			await waitFor(() => expect(chipOf('pricing.md') === null).toBe(false));
 
 			// Typed after the chip and the space it has after it, as a browser adds a word to the box.
@@ -2098,7 +2119,7 @@ describe('ChatPage', () => {
 		test('takes a file out of the input on the server too, by its cross or by deleting it from the text', async () => {
 			const chart = {...kept, fileId: 'file-2', name: 'chart.png', type: 'image/png'};
 			renderChatPage({draftAttachments: [kept, chart], experiments: withFiles});
-			const box = await screen.findByLabelText('Message');
+			const box = await openNewTask();
 			await waitFor(() => expect(chipOf('pricing.md') === null).toBe(false));
 
 			fireEvent.click(screen.getByRole('button', {name: 'Remove pricing.md'}));
@@ -2133,7 +2154,7 @@ describe('ChatPage', () => {
 				),
 			);
 			renderChatPage({experiments: withFiles});
-			const box = await screen.findByLabelText('Message');
+			const box = await openNewTask();
 			typeIn(box, 'See ');
 			const file = new File(['hello'], 'notes.txt', {type: 'text/plain'});
 			const dragged = {dataTransfer: {types: ['Files'], files: [file]}};
@@ -2210,7 +2231,7 @@ describe('ChatPage', () => {
 
 		test('takes no files where the organization has none: no paperclip, and a drop is left alone', async () => {
 			renderChatPage();
-			await screen.findByLabelText('Message');
+			await openNewTask();
 
 			fireEvent.dragEnter(window, {dataTransfer: {types: ['Files'], files: []}});
 

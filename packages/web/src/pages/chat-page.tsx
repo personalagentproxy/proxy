@@ -19,7 +19,6 @@ import {
 	useRef,
 	useState,
 } from 'react';
-import {createPortal} from 'react-dom';
 import {Link, useLocation, useNavigate, useParams, useRouteLoaderData} from 'react-router';
 import {
 	archiveThread,
@@ -52,6 +51,7 @@ import {
 	ThreadStatusIcon,
 } from '@/components/chat/thread-parts';
 import {ConfirmDialog} from '@/components/confirm-dialog';
+import {Dialog, DialogContent, DialogTitle} from '@proxy/ui/components/dialog';
 import {LiveHead} from '@/components/head';
 import {IconButton} from '@/components/icon-button';
 import {PersonaDialog} from '@/components/persona-dialog';
@@ -73,7 +73,9 @@ import {useUnread} from '@/hooks/use-unread';
 import {rowDraftPreview} from '@/lib/chat-sidebar-preview';
 import {formatAgo} from '@/lib/format';
 import {describeApiError, describeFetchError} from '@/lib/loader-utils';
+import {isDesktopApp} from '@/lib/desktop';
 import {isShortcut} from '@/lib/platform';
+import type {Shortcut} from '@/components/shortcut-hint';
 import type {chatLoader} from '@/loaders';
 import {OpenThread, THREAD_ROUTE, type ThreadContext, type ThreadLoad} from '@/pages/chat-thread';
 import {
@@ -82,6 +84,12 @@ import {
 	ContextMenuItem,
 	ContextMenuTrigger,
 } from '@proxy/ui/components/context-menu';
+
+// A shortcut with N, as its button shows it: only in the desktop app, since a browser keeps Cmd+N
+// and Cmd+Shift+N for its own windows, and the page never hears them.
+function windowShortcut(shortcut: Shortcut): Shortcut | undefined {
+	return isDesktopApp() ? shortcut : undefined;
+}
 
 // How often the chat is read again while a thread of it is in progress, so one that stops, or
 // answers, shows within a moment; and how long after the last read the page coming back into view
@@ -148,7 +156,6 @@ function PersonaList({
 	current,
 	shown,
 	recallDraft,
-	onOpen,
 	onNew,
 	onEdit,
 	onDelete,
@@ -157,7 +164,6 @@ function PersonaList({
 	current: string;
 	shown: Shown | null;
 	recallDraft: (personaId: string) => string | null;
-	onOpen: (personaId: string) => void;
 	onNew: () => void;
 	onEdit: (persona: ChatPersona) => void;
 	onDelete: (persona: ChatPersona) => void;
@@ -209,18 +215,6 @@ function PersonaList({
 								// A chat opens on the thread it last had open, this one's on the one open.
 								to={personaChatPath(org, persona.id)}
 								aria-current={lit ? 'page' : undefined}
-								onClick={(event) => {
-									if (
-										event.button !== 0 ||
-										event.metaKey ||
-										event.ctrlKey ||
-										event.shiftKey ||
-										event.altKey
-									) {
-										return;
-									}
-									onOpen(persona.id);
-								}}
 								className={cn(
 									'flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
 									lit && 'bg-sidebar-accent text-sidebar-accent-foreground',
@@ -311,7 +305,7 @@ function PersonaList({
 			<div className="flex shrink-0 p-2">
 				<AddButton
 					label="New agent"
-					shortcut={{letter: 'n', shift: true}}
+					shortcut={windowShortcut({letter: 'n', shift: true})}
 					variant="ghost"
 					onClick={onNew}
 					className="w-full"
@@ -410,22 +404,12 @@ function ThreadTitle({title, onRename}: {title: string; onRename: (title: string
 
 // On a narrow window, where the list of tasks and the task open can't stand side by side, the way
 // from the task back to the list.
-function BackToList({
-	to,
-	onClick,
-}: {to: string; onClick?: never} | {onClick: () => void; to?: never}) {
-	const label = 'Back to the tasks';
+function BackToList({to}: {to: string}) {
 	return (
 		<span className="flex lg:hidden">
-			{to !== undefined ? (
-				<IconButton label={label} to={to}>
-					<ChevronLeftIcon className="size-4" />
-				</IconButton>
-			) : (
-				<IconButton label={label} onClick={onClick}>
-					<ChevronLeftIcon className="size-4" />
-				</IconButton>
-			)}
+			<IconButton label="Back to the tasks" to={to}>
+				<ChevronLeftIcon className="size-4" />
+			</IconButton>
 		</span>
 	);
 }
@@ -549,22 +533,16 @@ export function ChatPage() {
 	const listed = useLastLoaded<typeof chatLoader>();
 	const list = listed.answer ?? rememberedPersonaList(org);
 	const personas = list?.personas ?? null;
-	const name = personas?.find((persona) => persona.id === current)?.name;
+	const persona = personas?.find((candidate) => candidate.id === current);
+	const name = persona?.name;
 	const [shownSaid, setShownSaid] = useState<ShownSaid | null>(null);
 	const [shownDraft, setShownDraft] = useState<ShownDraft | null>(null);
 	const [shownThreads, setShownThreads] = useState<ChatThread[]>([]);
 	// The thread open beside the chat, as it shows it, while the address names it.
 	const [shownAnyThread, setShownThread] = useState<ThreadView | null>(null);
 	const shownThread = shownAnyThread?.thread.id === threadId ? shownAnyThread : null;
-	// On a narrow window, where the list of tasks and the new task's box can't stand side by side,
-	// the chat whose new task the person asked for, which shows its box in the list's place; until
-	// they go back to the list or a thread opens.
+	// The chat whose new task's box floats over the page, by its id, until it is sent or put away.
 	const [composingFor, setComposingFor] = useState<string | null>(null);
-	if (composingFor !== null && threadId !== undefined) {
-		setComposingFor(null);
-	}
-	// Where the box of a new task goes: the side's column, while no thread is open in it.
-	const [newTaskSlot, setNewTaskSlot] = useState<HTMLElement | null>(null);
 	// Whether the address names a thread the chat doesn't have, as the thread's place says.
 	const [threadMissing, setThreadMissing] = useState(false);
 	// The thread open in this chat, kept so opening the chat again goes back to it; none where it
@@ -703,23 +681,18 @@ export function ChatPage() {
 		},
 		[archive],
 	);
-	// A chat picked in the list, or in the command bar, focuses its box once that chat has loaded.
-	// Nothing is requested on an ordinary page load, so it does not steal focus or open a phone's
-	// keyboard just because the Chat page was visited.
+	// A chat picked in the command bar opens with a new task's box. Nothing opens on an ordinary
+	// page load, so it does not steal focus or open a phone's keyboard just because the Chat page was
+	// visited.
 	const location = useLocation();
 	const fromBar = location.state === FROM_COMMAND_BAR;
-	const [focusRequestedFor, setFocusRequestedFor] = useState<string | null>(
-		fromBar ? current : null,
-	);
-	// The bar can go to a chat while the page is up, as from another one.
-	const [arrival, setArrival] = useState(location.key);
+	const [arrival, setArrival] = useState<string | null>(null);
 	if (arrival !== location.key) {
 		setArrival(location.key);
-		if (fromBar) {
-			setFocusRequestedFor(current);
+		if (fromBar && threadId === undefined) {
+			setComposingFor(current);
 		}
 	}
-	const focused = useCallback(() => setFocusRequestedFor(null), [setFocusRequestedFor]);
 	// What was typed in each chat while the page was open, fresher than the list, which is read as
 	// another opens, perhaps before the save of what was typed in the last has landed.
 	const drafts = useRef(new Map<string, string>());
@@ -801,18 +774,14 @@ export function ChatPage() {
 		}
 	}, [openArchived, navigate, chatTo]);
 	const managing = editing !== null || deleting !== null;
-	// A new task: the box that starts one in the thread's place, with the keyboard's focus.
-	const newTask = useCallback(() => {
-		setComposingFor(current);
-		setFocusRequestedFor(current);
-		if (threadId !== undefined) {
-			void navigate(chatTo);
-		}
-	}, [current, threadId, navigate, chatTo]);
+	const composing = composingFor === current && current !== '';
+	// A new task: its box, floating over the page, with the keyboard's focus.
+	const newTask = useCallback(() => setComposingFor(current), [current]);
+	const putAwayNewTask = useCallback(() => setComposingFor(null), []);
 	// Cmd+N on a Mac, Ctrl+N elsewhere, starts one from anywhere on the page, and with Shift held
 	// too, makes a new agent; but not under a dialog.
 	useEffect(() => {
-		if (managing) {
+		if (managing || composing) {
 			return;
 		}
 		const onKeyDown = (event: KeyboardEvent) => {
@@ -831,24 +800,20 @@ export function ChatPage() {
 		};
 		window.addEventListener('keydown', onKeyDown);
 		return () => window.removeEventListener('keydown', onKeyDown);
-	}, [managing, current, newTask]);
+	}, [managing, composing, current, newTask]);
 	const context: ThreadContext = {
 		harnesses: list?.harnesses ?? [],
-		managing,
+		// Under the new task's box, the thread's takes nothing dropped on the window.
+		managing: managing || composing,
 		onShown: setShownThread,
 		onMissing: setThreadMissing,
 	};
 	const side: Side =
 		threadId === undefined
 			? {
-					narrow: composingFor === current ? 'side' : 'content',
-					header: (
-						<>
-							<BackToList onClick={() => setComposingFor(null)} />
-							<span className="truncate text-sm font-medium">New task</span>
-						</>
-					),
-					content: <div ref={setNewTaskSlot} className="flex min-h-0 flex-1 flex-col" />,
+					narrow: 'content',
+					header: null,
+					content: persona !== undefined && <NoTaskOpen persona={persona} onNewTask={newTask} />,
 				}
 			: {
 					narrow: 'side',
@@ -895,7 +860,6 @@ export function ChatPage() {
 				current={current}
 				shown={shown}
 				recallDraft={recallDraft}
-				onOpen={setFocusRequestedFor}
 				onNew={() => setEditing('new')}
 				onEdit={setEditing}
 				onDelete={setDeleting}
@@ -932,11 +896,10 @@ export function ChatPage() {
 					isArchived={isArchived}
 					onArchive={requestArchive}
 					onNewTask={newTask}
-					newTaskSlot={threadId === undefined ? newTaskSlot : null}
+					composing={composing}
+					onPutAwayNewTask={putAwayNewTask}
 					managing={managing}
 					listError={error}
-					focusRequested={focusRequestedFor === current}
-					onFocused={focused}
 				/>
 			</AppShell>
 			{editing !== null && (
@@ -1013,17 +976,15 @@ type Opened = {
 	// Whether the person archived a thread on the page, which the list leaves out, and archiving one.
 	isArchived: (thread: ChatThread) => boolean;
 	onArchive: (thread: ChatThread) => void;
-	// Starts a new task, its box in the thread's place.
+	// Starts a new task: its box floats over the page while `composing`, until put away.
 	onNewTask: () => void;
-	// Where the box that starts a new task goes, while no thread is open; null while one is.
-	newTaskSlot: HTMLElement | null;
+	composing: boolean;
+	onPutAwayNewTask: () => void;
 	// An agent is being made, changed or deleted in a dialog.
 	managing: boolean;
-	// What deleting an agent from the list failed with.
+	// What marking a thread done, archiving or renaming it, or deleting an agent failed with, said
+	// over the list.
 	listError: string | null;
-	// Whether this chat was explicitly picked in the list and should take keyboard focus.
-	focusRequested: boolean;
-	onFocused: () => void;
 };
 
 // The chat the address names, once loaded: started over when the address names another agent.
@@ -1149,11 +1110,10 @@ const Chat = memo(function Chat({
 	isArchived,
 	onArchive,
 	onNewTask,
-	newTaskSlot,
+	composing,
+	onPutAwayNewTask,
 	managing,
 	listError,
-	focusRequested,
-	onFocused,
 }: Opened & {loaded: ChatThreads; harnesses: ChatHarness[]}) {
 	const org = useOrgSlug();
 	const navigate = useNavigate();
@@ -1285,10 +1245,11 @@ const Chat = memo(function Chat({
 	const openSent = useCallback(() => {
 		const id = sent.current;
 		sent.current = null;
+		onPutAwayNewTask();
 		if (id !== null) {
 			void navigate(`/${org}/chat/${personaId}/threads/${id}`);
 		}
-	}, [navigate, org, personaId]);
+	}, [navigate, org, personaId, onPutAwayNewTask]);
 
 	return (
 		<>
@@ -1297,6 +1258,7 @@ const Chat = memo(function Chat({
 				aria-label="Tasks"
 				className="relative flex min-h-0 flex-1 flex-col overflow-y-auto p-2"
 			>
+				{listError !== null && <p className="px-2 pb-2 text-sm text-destructive">{listError}</p>}
 				{threads.length === 0 && (
 					<span className="px-2 py-1.5 text-sm text-muted-foreground">No tasks yet.</span>
 				)}
@@ -1332,50 +1294,69 @@ const Chat = memo(function Chat({
 			<div className="flex shrink-0 p-2">
 				<AddButton
 					label="New task"
-					shortcut={{letter: 'n'}}
+					shortcut={windowShortcut({letter: 'n'})}
 					variant="ghost"
 					onClick={onNewTask}
 					className="w-full"
 				/>
 			</div>
-			{newTaskSlot !== null &&
-				createPortal(
-					<>
-						<div className="page-column flex min-h-0 flex-1 flex-col items-center justify-center gap-2 overflow-y-auto py-12 text-center">
-							<LiveHead look={current.look} color={current.color} size={64} />
-							<p className="text-lg font-medium">What should {current.name} do?</p>
-							<p className="max-w-md text-sm text-muted-foreground">
-								This conversation is yours alone. Each message starts a task of its own, where{' '}
-								{current.name} works on it and answers you. It can use what is shared with everyone
-								and what you connected yourself, as far as its access allows. Everything it does is
-								in the activity log.
-							</p>
-						</div>
-						<ChatComposer
-							persona={current}
-							kept={loaded.draft ?? ''}
-							keptFiles={loaded.draftAttachments}
-							harnesses={harnesses}
-							recallDraft={recallDraft}
-							rememberDraft={rememberDraft}
-							onShownDraft={onShownDraft}
-							managing={managing}
-							listError={listError}
-							focusRequested={focusRequested}
-							onFocused={onFocused}
-							onSend={send}
-							onSent={openSent}
-						/>
-					</>,
-					newTaskSlot,
-				)}
+			{/* Put away, what was typed in it is kept as the chat's draft, for the next time. */}
+			<Dialog
+				open={composing}
+				onOpenChange={(open) => {
+					if (!open) {
+						onPutAwayNewTask();
+					}
+				}}
+			>
+				<DialogContent
+					showCloseButton={false}
+					className="top-[14vh] translate-y-0 gap-0 bg-transparent p-0 ring-0 sm:max-w-2xl"
+				>
+					<DialogTitle className="sr-only">New task for {current.name}</DialogTitle>
+					<ChatComposer
+						persona={current}
+						kept={loaded.draft ?? ''}
+						keptFiles={loaded.draftAttachments}
+						harnesses={harnesses}
+						recallDraft={recallDraft}
+						rememberDraft={rememberDraft}
+						onShownDraft={onShownDraft}
+						managing={managing}
+						onSend={send}
+						onSent={openSent}
+					/>
+				</DialogContent>
+			</Dialog>
 		</>
 	);
 });
 
-// The box of a new task, which opens a thread with every message: what is typed in it is kept on
-// the server as the chat's draft, and so are the files put in it, so it opens as it was left, on
-// any device.
+// In the place of a thread, where none is open: the agent, what its tasks are, and the way to start
+// one.
+function NoTaskOpen({persona, onNewTask}: {persona: ChatPersona; onNewTask: () => void}) {
+	return (
+		<div className="page-column flex min-h-0 flex-1 flex-col items-center justify-center gap-2 overflow-y-auto py-12 text-center">
+			<LiveHead look={persona.look} color={persona.color} size={64} />
+			<p className="text-lg font-medium">What should {persona.name} do?</p>
+			<p className="max-w-md text-sm text-muted-foreground">
+				This conversation is yours alone. In each task, {persona.name} works on what you asked and
+				answers you. It can use what is shared with everyone and what you connected yourself, as far
+				as its access allows. Everything it does is in the activity log.
+			</p>
+			<div className="pt-2">
+				<AddButton label="New task" shortcut={windowShortcut({letter: 'n'})} onClick={onNewTask} />
+			</div>
+		</div>
+	);
+}
+
+// Nothing to do once the box has the focus it asked for.
+function keepNothing() {}
+
+// The box of a new task, floating over the page, with the keyboard's focus as it opens, which
+// opens a thread with every message: what is typed in it is kept on the server as the chat's draft,
+// and so are the files put in it, so it opens as it was left, on any device.
 function ChatComposer({
 	persona,
 	kept,
@@ -1385,21 +1366,9 @@ function ChatComposer({
 	rememberDraft,
 	onShownDraft,
 	managing,
-	listError,
-	focusRequested,
-	onFocused,
 	onSend,
 	onSent,
-}: Pick<
-	Opened,
-	| 'recallDraft'
-	| 'rememberDraft'
-	| 'onShownDraft'
-	| 'managing'
-	| 'listError'
-	| 'focusRequested'
-	| 'onFocused'
-> & {
+}: Pick<Opened, 'recallDraft' | 'rememberDraft' | 'onShownDraft' | 'managing'> & {
 	persona: ChatPersona;
 	// The draft the server keeps, as the chat opened, and the files in its box.
 	kept: string;
@@ -1478,12 +1447,11 @@ function ChatComposer({
 			onTyped={onTyped}
 			onWaiting={onWaiting}
 			managing={managing}
-			otherError={listError}
-			focusRequested={focusRequested}
-			onFocused={onFocused}
+			focusRequested
+			onFocused={keepNothing}
 			onSend={onSend}
 			onSent={onSent}
-			className="page-column mx-auto max-w-4xl"
+			className="p-0 **:data-[slot=input-group]:shadow-lg **:data-[slot=input-group-control]:min-h-28"
 		/>
 	);
 }
