@@ -69,6 +69,8 @@ type Props = {
 		files: ChatAttachment[],
 		settle: () => Promise<void>,
 	) => Promise<string | null>;
+	// Once a send has gone and the box is done with it, its draft forgotten.
+	onSent?: () => void;
 	className?: string;
 };
 
@@ -97,6 +99,7 @@ export function Composer({
 	focusRequested,
 	onFocused,
 	onSend,
+	onSent,
 	className,
 }: Props) {
 	// What goes with the next message: the files the person put in the box, where the
@@ -231,6 +234,7 @@ export function Composer({
 		if (typedNow.current.text !== '') {
 			kept?.typed(typedNow.current.text, typedNow.current.files);
 		}
+		onSent?.();
 	};
 
 	const shownError = error ?? attachments.refused ?? failedUpload ?? otherError;

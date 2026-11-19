@@ -179,7 +179,7 @@ export type ThreadLoad = Later<LoadedBy<typeof chatThreadLoader>>['later'];
 /**
  * The thread the address names, beside its chat, once loaded: started over when the address names
  * another. The Chat page draws it from what the thread's route loads, rather than in the route's
- * place, so it can keep it as it was while it slides shut once the address has left it.
+ * place, in the column beside its list of tasks (app-shell.tsx's `Side`).
  */
 export function OpenThread({later, ...context}: ThreadContext & {later: ThreadLoad}) {
 	const {thread} = useAnswer(later);
@@ -371,8 +371,7 @@ function Thread({
 		[org, personaId, threadId],
 	);
 
-	// Laid out as the chat is, beside it or with the page's width: its column as wide at most, and
-	// as far in from the edges.
+	// Laid out as a new task's box is: its column as wide at most, and as far in from the edges.
 	const column = 'page-column mx-auto max-w-4xl';
 
 	return (

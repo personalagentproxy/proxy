@@ -1,6 +1,6 @@
 // Whether the browser runs on an Apple system, whose shortcuts use the Command key where others
 // use Control.
-function isApple(): boolean {
+export function isApple(): boolean {
 	return /Mac|iPhone|iPad/.test(navigator.userAgent);
 }
 
@@ -15,13 +15,11 @@ function letterOf(event: KeyboardEvent): string {
 	return event.code.slice('Key'.length).toLowerCase();
 }
 
-/** Whether a key press is the platform's shortcut with `key`: Cmd on a Mac, Ctrl elsewhere, and nothing else held. */
-export function isShortcut(event: KeyboardEvent, key: string): boolean {
+/**
+ * Whether a key press is the platform's shortcut with `key`: Cmd on a Mac, Ctrl elsewhere, Shift
+ * as well where `shift`, and nothing else held.
+ */
+export function isShortcut(event: KeyboardEvent, key: string, shift = false): boolean {
 	const held = isApple() ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
-	return held && !event.altKey && !event.shiftKey && letterOf(event) === key;
-}
-
-/** A shortcut as the platform writes it: "⌘K" on a Mac, "Ctrl K" elsewhere. */
-export function shortcutLabel(key: string): string {
-	return isApple() ? `⌘${key.toUpperCase()}` : `Ctrl ${key.toUpperCase()}`;
+	return held && !event.altKey && event.shiftKey === shift && letterOf(event) === key;
 }

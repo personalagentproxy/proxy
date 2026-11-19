@@ -27,12 +27,12 @@ import {
 	useSidebar,
 } from '@proxy/ui/components/sidebar';
 import {cn} from '@proxy/ui/lib/utils';
+import {ShortcutHint} from '@/components/shortcut-hint';
 import {useCommandPalette} from '@/hooks/use-command-palette';
 import {useHuman} from '@/hooks/use-human';
 import {useOrgSlug} from '@/hooks/use-org';
 import {useUnread} from '@/hooks/use-unread';
 import {accountPath} from '@/lib/orgs';
-import {shortcutLabel} from '@/lib/platform';
 
 type Destination = {to: string; label: string; icon: LucideIcon};
 
@@ -120,9 +120,7 @@ export function AppSidebar() {
 													<SearchIcon />
 													<span>Search</span>
 													{/* The command bar's shortcut. */}
-													<span aria-hidden className="ml-auto text-xs text-muted-foreground">
-														{shortcutLabel('k')}
-													</span>
+													<ShortcutHint letter="k" className="ml-auto" />
 												</SidebarMenuButton>
 											</SidebarMenuItem>
 										)}
