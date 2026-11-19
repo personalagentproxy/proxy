@@ -77,7 +77,7 @@ type DriveFile = {
 	tooLarge?: boolean;
 };
 
-type Session = {fileId: string; create: {name: string; mimeType: string; parents: string[]} | null; size: number; state: 'open' | 'complete'};
+type Session = {fileId: string; create: {name: string; mimeType: string; parents: string[]} | null};
 
 type State = {files: Record<string, DriveFile>; sessions: Record<string, Session>};
 
@@ -180,28 +180,27 @@ function openSession(session: Session): Response {
 	return new Response(null, {status: 200, headers: {location: `${SESSIONS}${id}`}});
 }
 
+// The bytes sent to a session, which Personal Agent Proxy opens at done, in one PUT: the file made, or its new revision.
 function toSession(request: Request, session: Session): Response {
-	if (request.headers['content-range'] === `bytes */${session.size}` && request.body.length === 0) {
-		return session.state === 'complete' ? Response.json({id: session.fileId}) : new Response(null, {status: 308});
-	}
-	session.state = 'complete';
 	if (session.create) {
 		const googleType = session.create.mimeType.startsWith('application/vnd.google-apps.');
-		state.files[session.fileId] = {
+		const made: DriveFile = {
 			id: session.fileId,
 			...session.create,
 			revisions: [{id: `${session.fileId}-r1`, bytes: googleType ? Buffer.from('converted') : request.body}],
 			version: 1,
 			trashed: false,
 		};
-		return Response.json({id: session.fileId});
+		state.files[session.fileId] = made;
+		return Response.json(stateOf(made));
 	}
 	const existing = state.files[session.fileId];
-	if (existing) {
-		existing.revisions.push({id: `${existing.id}-r${existing.revisions.length + 1}`, bytes: request.body});
-		existing.version += 1;
+	if (!existing) {
+		return notFound();
 	}
-	return Response.json({id: session.fileId});
+	existing.revisions.push({id: `${existing.id}-r${existing.revisions.length + 1}`, bytes: request.body});
+	existing.version += 1;
+	return Response.json(stateOf(existing));
 }
 
 function sheets(request: Request): Response {
@@ -257,7 +256,12 @@ function answer(request: Request): Response {
 	}
 	if (method === 'POST' && path === '/upload/drive/v3/files') {
 		const {id, name, mimeType, parents} = JSON.parse(request.body.toString());
-		return openSession({fileId: id, create: {name, mimeType, parents}, size: Number(request.headers['x-upload-content-length']), state: 'open'});
+		// As Drive: a reserved id is taken only for a file kept as its bytes, not one it converts.
+		if (id !== undefined && String(mimeType).startsWith('application/vnd.google-apps.')) {
+			return Response.json({error: {code: 400, message: 'Generated IDs are not supported for Docs Editors formats.', errors: [{reason: 'badRequest'}]}}, {status: 400});
+		}
+		generated += id === undefined ? 1 : 0;
+		return openSession({fileId: id ?? `1Made${generated}`, create: {name, mimeType, parents}});
 	}
 	const [, id = '', rest = ''] = /^\/(?:upload\/)?drive\/v3\/files\/([^/]+)(.*)$/.exec(path) ?? [];
 	if (id === 'root' || id === MY_DRIVE) {
@@ -268,7 +272,7 @@ function answer(request: Request): Response {
 		return notFound();
 	}
 	if (method === 'PATCH' && path.startsWith('/upload/')) {
-		return openSession({fileId: id, create: null, size: Number(request.headers['x-upload-content-length']), state: 'open'});
+		return openSession({fileId: id, create: null});
 	}
 	if (rest === '/export') {
 		if (file.tooLarge) {
@@ -352,15 +356,15 @@ describe.skipIf(!databaseUrl)('pap files, on a Google connection', () => {
 		return pap(`/files/${connectionId}/uploads?${params.toString()}`, {method: 'POST'});
 	}
 
-	// A push as `pap files push` makes it: started, the bytes sent to Drive's session, and done.
+	// A push as `pap files push` makes it: started, the bytes sent to Personal Agent Proxy's URL, and done.
 	async function push(query: Record<string, string>, content: string): Promise<Response> {
 		const started = await start(query, content);
 		if (started.status !== 200) {
 			return started;
 		}
 		const {upload, put} = await started.json();
-		expect(put.resumable).toBe(true);
-		expect((await fetch(put.url, {method: 'PUT', body: content})).status).toBe(200);
+		expect(put.url).toStartWith('https://app.example.com/api/uploads/');
+		expect((await fetch(put.url.replace('https://app.example.com', origin), {method: 'PUT', body: content})).status).toBe(200);
 		return pap(`/files/${connectionId}/uploads/${upload}/done`, {method: 'POST'});
 	}
 
@@ -415,6 +419,9 @@ describe.skipIf(!databaseUrl)('pap files, on a Google connection', () => {
 		app.get('/files/:connectionId/content', guarded(handleCliPullFileRoute));
 		app.post('/files/:connectionId/uploads', guarded(handleCliStartUploadRoute));
 		app.post('/files/:connectionId/uploads/:upload/done', guarded(handleCliFinishUploadRoute));
+		const {UPLOADS_PATH} = await import('@proxy/contracts/uploads');
+		const {handleUploadBytesRoute} = await import('../native/files/upload-route');
+		app.put(`${UPLOADS_PATH}/:secret`, (request, response) => void handleUploadBytesRoute(request, response));
 		server = app.listen(0);
 		origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 	});
@@ -556,8 +563,8 @@ describe.skipIf(!databaseUrl)('pap files, on a Google connection', () => {
 	});
 
 	test('with --as, makes a Doc of Markdown or a Sheet of CSV, named without the extension; refuses what it can’t make one of', async () => {
-		const started = await start({path: 'My Drive/Reports/Retro.md', file: 'Retro.md', as: 'doc'}, '# Retro');
-		expect(started.status).toBe(200);
+		const pushed = await push({path: 'My Drive/Reports/Retro.md', file: 'Retro.md', as: 'doc'}, '# Retro');
+		expect(pushed.status).toBe(200);
 		const session = google.requests.find((request) => request.url.pathname === '/upload/drive/v3/files');
 		expect(JSON.parse(session?.body.toString() ?? '{}')).toMatchObject({name: 'Retro', mimeType: MIME.document, parents: ['1Reports']});
 		expect(session?.headers['x-upload-content-type']).toBe('text/markdown');

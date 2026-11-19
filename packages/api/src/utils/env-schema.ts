@@ -163,7 +163,7 @@ export const envSchema = z.object({
 	// A file's size is kept in a 32-bit column, so a file is under 2 GB.
 	FILES_MAX_MB: documented(z.coerce.number().int().positive().max(2047).default(100), {
 		group: 'Connections',
-		description: 'The largest file Files takes, in megabytes: at most 2047.',
+		description: 'The largest file Files takes, and the largest uploaded to Google Drive through a URL, which is kept here on its way, in megabytes: at most 2047.',
 	}),
 	DRIVE_COPY_MAX_MB: documented(z.coerce.number().int().positive().max(2047).default(25), {
 		group: 'Connections',

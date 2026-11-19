@@ -939,9 +939,9 @@ const FILE_KINDS = ['Folder', 'Document', 'Spreadsheet', 'Presentation', 'Sheet'
 // Drive, Shared with me, Shared drives and Recent at the top, folders holding files, a spreadsheet
 // holding its tabs and a tab its rows. Documents read as Markdown, presentations as text, rows as
 // "Header: value" lines; new documents are written as Markdown and new spreadsheets as CSV, which
-// Drive converts; a file of any size goes up as its bytes through a URL, Drive's own upload
-// session, straight to Drive (files_upload), and a file in Drive is copied into a folder by Drive
-// itself (files_copy). A spreadsheet's ranges
+// Drive converts; a larger file goes up as its bytes through a URL, to Personal Agent Proxy first
+// and on to Drive once finished (files_upload), and a file in Drive is copied into a folder by
+// Drive itself (files_copy). A spreadsheet's ranges
 // are read and written in A1 notation as CSV. Files are
 // moved to Trash, never deleted, and neither are events, contacts or tasks. Who is free is asked
 // of Google for the people named, and the people Gmail keeps under Other contacts are only read.
@@ -1544,8 +1544,8 @@ const google: Integration = {
 	],
 	// Copying a file names both the file and where the copy goes, which no one record's write does.
 	// Drive makes the copy itself, so a file of any size is copied without passing through here. A
-	// file's bytes go up through a URL, Drive's own resumable upload session, which the agent sends
-	// them to however it can, so they never pass through here either; files_upload needs Add files
+	// file's bytes go up through a URL of Personal Agent Proxy's own, which the agent sends them to
+	// however it can, and on to Drive only once files_upload_done finds them as said; files_upload needs Add files
 	// for a new file and Edit files to write over one, as does finishing it, as Files' do. A file's
 	// history, the versions Personal Agent Proxy keeps of it and the changes made through it, is
 	// read and given back through tools of their own too. A Doc's and a Slides file's text is read
@@ -1580,7 +1580,7 @@ const google: Integration = {
 			name: 'files_upload',
 			title: 'Upload file',
 			description:
-				"Uploads a file of any size into Drive as its bytes: a PDF, a picture, a video, a docx. Answers with a URL, Drive's own upload session, that takes the file for an hour, and a line to run in a shell, as curl -X PUT --upload-file <path> '<url>'; no sign-in or header is needed, and the bytes go straight to Drive. Then call files_upload_done with the upload’s id: it checks what arrived and finishes the file. For a new file give name and size, and parent for a folder or shared drive; it keeps its own type, or with convert becomes a Doc, Sheet or Slides file, from a docx, xlsx or pptx, or Markdown or CSV. To write over a file, give its id, the version files_versions says it is at and size: a file of its own bytes takes any but Markdown or CSV, and a Doc, Sheet or Slides file only a docx, xlsx or pptx, which Drive converts into it. A copy is kept before a task first changes a file. Everything is checked before the URL is given: the folder, the name, the type and the version.",
+				"Uploads a file into Drive as its bytes: a PDF, a picture, a video, a docx. Answers with a URL that takes the file for an hour, and a line to run in a shell, as curl -X PUT --upload-file <path> '<url>'; no sign-in or header is needed. Then call files_upload_done with the upload’s id: it checks what arrived and only then puts the file in Drive, so nothing reaches Drive before it. For a new file give name and size, and parent for a folder or shared drive; it keeps its own type, or with convert becomes a Doc, Sheet or Slides file, from a docx, xlsx or pptx, or Markdown or CSV. To write over a file, give its id, the version files_versions says it is at and size: a file of its own bytes takes any but Markdown or CSV, and a Doc, Sheet or Slides file only a docx, xlsx or pptx, which Drive converts into it. A copy is kept before a task first changes a file. Everything is checked before the URL is given: the folder, the name, the type and the version.",
 			action: 'createFiles',
 			inputSchema: {
 				type: 'object',

@@ -8,9 +8,8 @@ import type {Env, Handler, Io} from './io';
 /**
  * An `Io` for the tests, run.test.ts, git.test.ts, gh.test.ts and files.test.ts: what pap wrote,
  * the programs it ran and with what, the files it wrote, a disk of files for `pap files` with what
- * it streamed of them, the servers it started, the directories it removed and how long it waited,
- * with `fetch` and the programs' exit code as the test makes them; it waits for nothing. Not part
- * of the bundle.
+ * it streamed of them, the servers it started and the directories it removed, with `fetch` and
+ * the programs' exit code as the test makes them. Not part of the bundle.
  */
 
 export type FakeOptions = {
@@ -38,9 +37,8 @@ export function fakeIo(options: FakeOptions = {}) {
 	);
 	const servers: Array<{path: string; handler: Handler; closed: boolean}> = [];
 	const removed: string[] = [];
-	// What `pap files push` read of the disk as streams, and how long it waited between tries.
-	const read: Array<{path: string; start?: number; end?: number}> = [];
-	const slept: number[] = [];
+	// What `pap files push` read of the disk as streams.
+	const read: string[] = [];
 	const io: Io = {
 		env: options.env ?? {PAP_URL: 'https://app.example.com/', PAP_TOKEN: 'pap_token'},
 		readStdin: async () => options.stdin ?? '',
@@ -72,8 +70,8 @@ export function fakeIo(options: FakeOptions = {}) {
 				? Err(new Error(`ENOENT: no such file, open '${path}'`))
 				: Ok({size: bytes.byteLength, sha256: createHash('sha256').update(bytes).digest('hex')});
 		},
-		readStream: (path, range) => {
-			read.push(range === undefined ? {path} : {path, ...range});
+		readStream: (path) => {
+			read.push(path);
 			const bytes = disk.get(path);
 			return new ReadableStream<Uint8Array>({
 				start(controller) {
@@ -81,13 +79,10 @@ export function fakeIo(options: FakeOptions = {}) {
 						controller.error(new Error(`ENOENT: no such file, open '${path}'`));
 						return;
 					}
-					controller.enqueue(range === undefined ? bytes : bytes.slice(range.start, range.end));
+					controller.enqueue(bytes);
 					controller.close();
 				},
 			});
-		},
-		sleep: async (ms) => {
-			slept.push(ms);
 		},
 		readText: async (path) => {
 			const bytes = disk.get(path);
@@ -109,5 +104,5 @@ export function fakeIo(options: FakeOptions = {}) {
 			});
 		},
 	};
-	return {io, output, spawned, files, disk, servers, removed, read, slept};
+	return {io, output, spawned, files, disk, servers, removed, read};
 }

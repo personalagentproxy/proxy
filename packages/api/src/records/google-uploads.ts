@@ -1,57 +1,35 @@
 import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
-import {getConnectionCredential} from '@proxy/db/connection';
+import type {FileBlobRow} from '@proxy/db/files';
 import type {FileUploadRow} from '@proxy/db/file-uploads';
 
-import {
-	deleteRevision,
-	driveVersion,
-	fileIdOf,
-	generateFileId,
-	getFile,
-	getFileState,
-	isGoogleType,
-	MIME_TYPES,
-	OFFICE_TYPES,
-	openCreateSession,
-	openWriteSession,
-	updateFile,
-	type DriveFileState,
-} from '../connections/google/drive-api';
-import {callGoogle, googleSessionCancel, googleSessionStatus} from '../connections/google/google-client';
+import {createContent, driveVersion, fileIdOf, generateFileId, getFile, getFileState, isGoogleType, MIME_TYPES, OFFICE_TYPES, putContent, type DriveFileState} from '../connections/google/drive-api';
+import {callGoogle} from '../connections/google/google-client';
+import {openContent} from '../native/files/content';
 import {mediaType} from '../native/files/names';
-import {log} from '../observability/log';
-import {type DeclaredFile, type DriveUploads, UPLOAD_TTL_MS, type UploadArrived, type UploadRun, type UploadStarted, type UploadTarget} from '../uploads/tickets';
-import {decryptSecret} from '../utils/secret-crypto';
+import type {DeclaredFile, DriveUploads, UploadMade, UploadRun, UploadStarted, UploadTarget} from '../uploads/tickets';
 import {folderNamed} from './google-files';
-import {beginDriveChange, changeBy, type DriveChange, type DriveEditor, logDriveChange, logDriveCreate, runEditor} from './google-history';
+import {changeBy, changeDriveFile, type DriveEditor, logDriveCreate, loggedAs} from './google-history';
 
 /**
- * Uploads into Google Drive (uploads/tickets.ts): the URL is Drive's own resumable upload session,
- * opened at the start with the connection's token, so the bytes go straight to Drive and never
- * through here; whoever has them sends them in one PUT, or in parts, as `pap files push` does. The
- * session's address is its own credential, kept encrypted on the upload and never logged. Past the
- * upload's hour, a session the bytes are still coming to is cancelled; one they are all in is kept
- * for done an hour more, as an upload here whose PUT ended in time is, and then what arrived is
- * taken back out of Drive, since only done makes a file.
+ * Uploads into Google Drive (uploads/tickets.ts): the bytes come to Personal Agent Proxy's own URL
+ * first, into a blob of the store, as every upload's do, and only done sends them on to Drive, so
+ * nothing is in Drive before done, and an upload never finished, or whose bytes aren't what was
+ * said, leaves nothing there.
  *
- * A new file is uploaded as its bytes, of their own type, under an id Drive reserves for it at the
- * start, into a folder, a shared drive or My Drive (google-files.ts `folderNamed`); with `convert`,
- * a docx or Markdown becomes a Doc, an xlsx or CSV a Sheet, and a pptx a Slides file. Over a file
- * that is there, a file with bytes of its own takes any bytes but Markdown or CSV, and a Doc, Sheet
- * or Slides file only the docx, xlsx or pptx Drive converts into it, so nothing it holds is lost to
- * a format that can't hold it. A write is checked against the version read, the head revision of a
- * file with bytes of its own or the version number of one of Google's, and the task's copy of the
- * file is kept before the session is opened (google-history.ts beginDriveChange), since Drive
- * writes the file as soon as the bytes are in.
- *
- * Done asks the session whether every byte is in, then compares Drive's size and SHA-256 of the
- * file with what was said: Drive keeps no bytes of a Doc, Sheet or Slides file, so what was
- * converted is taken as said. Bytes that aren't what was said are taken back out of Drive, a new
- * file moved to Trash and a revision written over a file deleted, so the one before is the file's
- * again. What was said is logged in the file's history as the agent's, for its task: a file made,
- * or a write with Drive's revisions before and after it.
+ * A new file is uploaded as its bytes, of their own type, into a folder, a shared drive or My
+ * Drive (google-files.ts `folderNamed`), under an id Drive reserves for it at the start, so a done
+ * asked again after Drive made the file finds it rather than making it twice; with `convert`, a
+ * docx or Markdown becomes a Doc, an xlsx or CSV a Sheet, and a pptx a Slides file, which Drive
+ * makes under an id of its own, as it reserves none for them. Over a file
+ * that is there, a file with bytes of its own takes any bytes but Markdown or CSV, and a Doc,
+ * Sheet or Slides file only the docx, xlsx or pptx Drive converts into it, so nothing it holds is
+ * lost to a format that can't hold it. A write is checked against the version read, the head
+ * revision of a file with bytes of its own or the version number of one of Google's, at the start
+ * and again at done, just before the bytes go, and is made through the file's history
+ * (google-history.ts `changeDriveFile`), which keeps the task's copy first and logs the write as
+ * the agent's, for its task, with Drive's revisions before and after it.
  */
 
 const MARKDOWN = 'text/markdown';
@@ -73,6 +51,8 @@ const CONVERTED: Partial<Record<string, string>> = {
 
 // The extensions of what is converted, which the file Drive makes of it goes without, as Drive's own import does.
 const CONVERTED_EXTENSION = /\.(docx|xlsx|pptx|md|markdown|csv)$/i;
+
+const SPREADSHEET_PARENT = 'A spreadsheet holds tabs: upload the file into a folder';
 
 const GOOGLE_TYPE_REFUSAL =
 	'A file uploaded is its own bytes, of their own type, never one of Google’s: to make a Doc, Sheet or Slides file, upload a docx, xlsx or pptx, or Markdown or CSV, with convert';
@@ -99,28 +79,6 @@ function converted(name: string, type: string): Result<{name: string; mimeType: 
 	}
 	const bare = name.replace(CONVERTED_EXTENSION, '').trim();
 	return Ok({name: bare === '' ? name : bare, mimeType});
-}
-
-// A new file: into a folder that is there, as its bytes or converted, under the id Drive reserves for it.
-function startCreate(token: string, target: Extract<UploadTarget, {kind: 'create'}>, file: DeclaredFile): Promise<Result<UploadStarted, ApiError>> {
-	return Do(async ($) => {
-		if (target.folders.length > 0) {
-			return $(Err(ApiErr.validationError('An upload into Google Drive goes into a folder that is there: make the folders first, with files_create')));
-		}
-		const given = target.name.trim();
-		if (given === '') {
-			return $(Err(ApiErr.validationError('A new file needs a name, with its extension, as report.pdf')));
-		}
-		const type = mediaType(given, file.type ?? undefined, 'bytes');
-		if (isGoogleType(type)) {
-			return $(Err(ApiErr.validationError(GOOGLE_TYPE_REFUSAL)));
-		}
-		const made = target.convert ? $(converted(given, type)) : {name: given, mimeType: type};
-		const folderId = $(await folderNamed(token, target.parentId, 'A spreadsheet holds tabs: upload the file into a folder'));
-		const id = $(await generateFileId(token));
-		const url = $(await openCreateSession(token, {id, name: made.name, mimeType: made.mimeType, parent: folderId}, {type, size: file.size}));
-		return {name: made.name, type, fileId: id, to: {kind: 'session' as const, url, resumable: true}, before: null};
-	});
 }
 
 // Why Markdown or CSV is never uploaded over a file that is there, and what to do instead.
@@ -158,26 +116,46 @@ function bytesOver(file: DriveFileState, said: string | null): Result<string, Ap
 	return Ok(type);
 }
 
-// Over a file that is there, at the version read: the task's copy kept first, as Drive writes the
-// file once the bytes are in.
-function startWrite(editor: DriveEditor, target: Extract<UploadTarget, {kind: 'write'}>, file: DeclaredFile): Promise<Result<UploadStarted, ApiError>> {
+// A new file: into a folder that is there, as its bytes or converted, under an id Drive reserves for it.
+function startCreate(token: string, target: Extract<UploadTarget, {kind: 'create'}>, file: DeclaredFile): Promise<Result<UploadStarted, ApiError>> {
+	return Do(async ($) => {
+		if (target.folders.length > 0) {
+			return $(Err(ApiErr.validationError('An upload into Google Drive goes into a folder that is there: make the folders first, with files_create')));
+		}
+		const given = target.name.trim();
+		if (given === '') {
+			return $(Err(ApiErr.validationError('A new file needs a name, with its extension, as report.pdf')));
+		}
+		const type = mediaType(given, file.type ?? undefined, 'bytes');
+		if (isGoogleType(type)) {
+			return $(Err(ApiErr.validationError(GOOGLE_TYPE_REFUSAL)));
+		}
+		const made = target.convert ? $(converted(given, type)) : {name: given, mimeType: type};
+		$(await folderNamed(token, target.parentId, SPREADSHEET_PARENT));
+		// Drive takes a reserved id only for a file kept as its bytes, not one it converts.
+		const id = target.convert ? null : $(await generateFileId(token));
+		return {name: made.name, type, fileId: id};
+	});
+}
+
+// Why a file's version moved on since it was read, and what to do.
+function changedSince(file: DriveFileState, read: string): ApiError {
+	const now = driveVersion(file);
+	return ApiErr.conflict(
+		`“${file.name}” changed since version ${read}: it is at ${now ?? 'none'} now. Look at it again, then upload what you make of it with the version files_versions says it is at.`,
+	);
+}
+
+// Over a file that is there, of bytes it takes, at the version read.
+function startWrite(token: string, target: Extract<UploadTarget, {kind: 'write'}>, file: DeclaredFile): Promise<Result<UploadStarted, ApiError>> {
 	return Do(async ($) => {
 		const fileId = $(requirePresent(fileIdOf(target.fileId), ApiErr.validationError('Say which file to write over as id: its id, as files_list gives it, or its link')));
-		const state = $(await getFileState(editor.token, fileId));
+		const state = $(await getFileState(token, fileId));
 		const type = $(bytesOver(state, file.type));
-		const version = driveVersion(state);
-		if (version !== target.version) {
-			return $(
-				Err(
-					ApiErr.conflict(
-						`“${state.name}” changed since version ${target.version}: it is at ${version ?? 'none'} now. Look at it again, then upload what you make of it with the version files_versions says it is at.`,
-					),
-				),
-			);
+		if (driveVersion(state) !== target.version) {
+			return $(Err(changedSince(state, target.version)));
 		}
-		const change = $(await beginDriveChange(editor, state.id, {content: true}));
-		const url = $(await openWriteSession(editor.token, state.id, {type, size: file.size}));
-		return {name: state.name, type, fileId: state.id, to: {kind: 'session' as const, url, resumable: true}, before: {revision: change.beforeRevision, version: change.beforeVersion}};
+		return {name: state.name, type, fileId: state.id};
 	});
 }
 
@@ -185,74 +163,60 @@ function requireFileId(upload: FileUploadRow): Result<string, ApiError> {
 	return requirePresent(upload.fileId, broken(upload, 'file'));
 }
 
-// The session's address, kept encrypted on the upload.
-function sessionOf(upload: FileUploadRow): Result<string, ApiError> {
-	return Do<string, ApiError>(($) => $(decryptSecret($(requirePresent(upload.sessionUri, broken(upload, 'session'))))));
+function requireVersion(upload: FileUploadRow, file: DriveFileState): Result<string, ApiError> {
+	return requirePresent(driveVersion(file), broken(upload, 'version in Drive'));
 }
 
-// What Drive has of an upload whose bytes are all in: the file's size and SHA-256, or, for what it
-// converted into one of Google's types, which keep no bytes, what was said.
-function measured(token: string, upload: FileUploadRow): Promise<Result<UploadArrived, ApiError>> {
+// The file a done before made under the id reserved for it, and couldn't say so; none where there
+// is no such file, or no id was reserved, as for a file Drive converts.
+function madeBefore(token: string, upload: FileUploadRow): Promise<Result<DriveFileState | null, ApiError>> {
 	return Do(async ($) => {
-		const file = $(await getFileState(token, $(requireFileId(upload))));
-		if (isGoogleType(file.mimeType)) {
-			return {size: upload.size, sha256: null};
+		if (upload.fileId === null) {
+			return null;
 		}
-		const size = Number(file.size);
-		return {size: Number.isSafeInteger(size) ? size : upload.size, sha256: file.sha256Checksum ?? null};
+		const there = await getFileState(token, upload.fileId);
+		if (there.isErr() && there.error.kind === 'not_found') {
+			return null;
+		}
+		return $(there);
 	});
 }
 
-/**
- * Takes what arrived for an upload back out of Drive, as only done makes a file: a new file made of
- * the bytes, nobody's file yet and never logged as made, moved to Trash; the revision they made
- * over a file deleted, only while it is still the head and holds them, so the one before is the
- * file's again. A Doc's, Sheet's or Slides file's revisions can't be deleted, so one written over
- * keeps what was converted into it, and the task's copy from the start is what gives it back.
- */
-function takeBack(token: string, upload: FileUploadRow, arrived: UploadArrived): Promise<Result<void, ApiError>> {
+// A new file made of the blob, under the id reserved for it where there is one; found, where a
+// done before made it already.
+function finishCreate(editor: DriveEditor, upload: FileUploadRow, blob: FileBlobRow): Promise<Result<UploadMade, ApiError>> {
 	return Do(async ($) => {
-		const fileId = $(requireFileId(upload));
-		const found = await getFileState(token, fileId);
-		if (found.isErr() && found.error.kind === 'not_found') {
-			return;
+		const there = $(await madeBefore(editor.token, upload));
+		if (there !== null) {
+			return {fileId: there.id, version: $(requireVersion(upload, there))};
 		}
-		const file = $(found);
-		if (upload.target === 'create') {
-			$(await updateFile(token, fileId, {trashed: true}));
-			return;
-		}
-		const head = file.headRevisionId;
-		if (isGoogleType(file.mimeType) || head === undefined || head === upload.version || file.sha256Checksum !== arrived.sha256) {
-			return;
-		}
-		$(await deleteRevision(token, fileId, head));
+		const parent = $(await folderNamed(editor.token, upload.parentId, SPREADSHEET_PARENT));
+		const mimeType = upload.convert ? $(requirePresent(CONVERTED[upload.type], broken(upload, 'kind to convert into'))) : upload.type;
+		const body = $(await openContent(blob));
+		const made = $(await createContent(editor.token, {id: upload.fileId, name: upload.name, mimeType, parent}, {type: upload.type, body, size: blob.size}));
+		await logDriveCreate(editor, made);
+		return {fileId: made.id, version: $(requireVersion(upload, made))};
 	});
 }
 
-// An upload whose bytes came in but that nobody finished in time, taken back out of Drive with the
-// connection's token, as the sweep has no run to take it from. One that can't be, for good, as a
-// connection signed out or a file no longer there, is let go all the same, and said in the log; one
-// Google can't be reached for now is asked again at the next sweep.
-function takeBackUnfinished(upload: FileUploadRow): Promise<Result<void, ApiError>> {
+// The blob put in place of what the file holds, as its new revision, still at the version read.
+function finishWrite(editor: DriveEditor, upload: FileUploadRow, blob: FileBlobRow): Promise<Result<UploadMade, ApiError>> {
 	return Do(async ($) => {
-		const credential = $(await getConnectionCredential(upload.connectionId));
-		const taken = await callGoogle({id: upload.connectionId, credential}, (token) =>
-			Do(async ($$) => {
-				return $$(await takeBack(token, upload, $$(await measured(token, upload))));
-			}),
+		const state = $(await getFileState(editor.token, $(requireFileId(upload))));
+		const read = $(requirePresent(upload.version, broken(upload, 'version read')));
+		if (driveVersion(state) !== read) {
+			return $(Err(changedSince(state, read)));
+		}
+		const written = $(
+			await changeDriveFile(editor, state.id, {content: true}, () =>
+				Do(async ($$) => {
+					const body = $$(await openContent(blob));
+					return $$(await loggedAs({kind: 'write'}, putContent(editor.token, state.id, {type: upload.type, body, size: blob.size})));
+				}),
+			),
 		);
-		if (taken.isErr() && taken.error.kind !== 'provider_unreachable') {
-			log.warn('An unfinished upload’s bytes could not be taken back out of Google Drive', {uploadId: upload.id, kind: taken.error.kind});
-			return;
-		}
-		$(taken);
+		return {fileId: written.id, version: $(requireVersion(upload, written))};
 	});
-}
-
-// The write as its history logs it, from what the start kept on the upload.
-function changeOf(upload: FileUploadRow, file: DriveFileState): DriveChange {
-	return {fileId: file.id, name: upload.name, mimeType: file.mimeType, beforeRevision: upload.beforeRevision, beforeVersion: upload.beforeVersion};
 }
 
 export const googleUploads: DriveUploads = {
@@ -261,36 +225,17 @@ export const googleUploads: DriveUploads = {
 			if (target.kind === 'create') {
 				return startCreate(token, target, file);
 			}
-			return startWrite(runEditor(run, token), target, file);
+			return startWrite(token, target, file);
 		}),
 
-	arrived: (run, upload) =>
-		callGoogle(run.connection, (token) =>
-			Do(async ($) => {
-				// Some of the bytes in, or none, or a session Drive no longer has: nothing is in the file yet.
-				if ($(await googleSessionStatus($(sessionOf(upload)), upload.size)) !== 'complete') {
-					return null;
-				}
-				return $(await measured(token, upload));
-			}),
-		),
-
-	discard: (run, upload, arrived) => callGoogle(run.connection, (token) => takeBack(token, upload, arrived)),
-
-	finish: (run, upload) =>
-		callGoogle(run.connection, (token) =>
-			Do(async ($) => {
-				const file = $(await getFileState(token, $(requireFileId(upload))));
-				const version = $(requirePresent(driveVersion(file), broken(upload, 'version in Drive')));
-				const editor = uploaderOf(run, upload, token);
-				if (upload.target === 'create') {
-					await logDriveCreate(editor, file);
-					return {fileId: file.id, version};
-				}
-				await logDriveChange(editor, changeOf(upload, file), {kind: 'write'});
-				return {fileId: file.id, version};
-			}),
-		),
+	finish: (run, upload, blob) =>
+		callGoogle(run.connection, (token) => {
+			const editor = uploaderOf(run, upload, token);
+			if (upload.target === 'create') {
+				return finishCreate(editor, upload, blob);
+			}
+			return finishWrite(editor, upload, blob);
+		}),
 
 	link: (run, _upload, made) =>
 		callGoogle(run.connection, (token) =>
@@ -299,25 +244,4 @@ export const googleUploads: DriveUploads = {
 				return file.webViewLink ?? `https://drive.google.com/open?id=${made.fileId}`;
 			}),
 		),
-
-	expire: (upload, now) =>
-		Do(async ($) => {
-			if (upload.sessionUri === null) {
-				return 'let-go' as const;
-			}
-			const session = $(sessionOf(upload));
-			const stands = $(await googleSessionStatus(session, upload.size));
-			if (stands === 'gone') {
-				return 'let-go' as const;
-			}
-			if (stands === 'open') {
-				$(await googleSessionCancel(session));
-				return 'let-go' as const;
-			}
-			if (now.getTime() < upload.expiresAt.getTime() + UPLOAD_TTL_MS) {
-				return 'kept' as const;
-			}
-			$(await takeBackUnfinished(upload));
-			return 'let-go' as const;
-		}),
 };

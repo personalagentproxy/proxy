@@ -44,10 +44,10 @@ import {googleUploads} from './google-uploads';
  * Its version is Drive's: the head revision of a file with bytes, a Doc's, Sheet's or Slides file's
  * version number, which goes up with each change.
  *
- * A push is an upload into Drive (google-uploads.ts), its bytes sent straight to Drive's session.
- * A new file goes up as its bytes, or, asked to, is made a Doc, Sheet or Slides file of a docx,
- * Markdown, xlsx, CSV or pptx; the folders on its way that are missing are made first, as the
- * session needs the folder it goes in, logged as the agent's. Over a file, the version pulled is
+ * A push is an upload into Drive (google-uploads.ts), its bytes sent to Personal Agent Proxy's
+ * URL and on to Drive at done. A new file goes up as its bytes, or, asked to, is made a Doc, Sheet
+ * or Slides file of a docx, Markdown, xlsx, CSV or pptx; the folders on its way that are missing
+ * are made first, logged as the agent's. Over a file, the version pulled is
  * named, or the push says to write over it, and the task's copy is kept first (google-history.ts).
  * Markdown and CSV never go over a file that is there, since a Doc or a Sheet would lose what they
  * can't hold: the refusal says what to do instead.

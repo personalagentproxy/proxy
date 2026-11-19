@@ -88,7 +88,6 @@ function drive(answers: {done?: Record<string, unknown>; bytes?: () => Response}
 					method: 'PUT',
 					headers: {},
 					expiresAt: '2026-11-18T13:00:00.000Z',
-					resumable: false,
 				},
 			});
 		}

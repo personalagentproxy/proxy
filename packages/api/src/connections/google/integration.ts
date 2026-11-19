@@ -23,7 +23,7 @@ import {unavailableGoogleConnectionActions} from './unavailable';
  * A Google account, signed in to with the app's own Google client, fetched live from Google's APIs
  * with the connection's tokens, one collection or more per product, each described in its own file.
  * Copying a file in Drive is a tool of its own, since it names both the file and where the copy
- * goes, and so are uploading a file's bytes through a URL, straight to Drive (google-uploads.ts),
+ * goes, and so are uploading a file's bytes through a URL, on to Drive at done (google-uploads.ts),
  * a Drive file's versions, restoring one and undoing a change (google-versions.ts), and editing a
  * Doc's or a Slides file's text in place (google-docs.ts, google-slides.ts) or a spreadsheet's
  * rows, columns and tabs (google-sheets.ts). Its Drive is reached by path from a sandbox too, with

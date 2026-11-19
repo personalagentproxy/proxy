@@ -28,18 +28,14 @@ export type FileUploadRow = {
 	name: string;
 	// A new file's folders to make on the way, at done, the first in `parentId`.
 	folders: string[];
+	convert: boolean;
 	fileId: string | null;
 	version: string | null;
-	// In bytes; kept as a big integer, since a drive elsewhere takes files past 2 GB.
+	// In bytes; kept as a big integer, as the column is.
 	size: number;
 	sha256: string | null;
 	type: string;
-	blobId: string | null;
-	// Encrypted, as stored.
-	sessionUri: string | null;
-	// A write to a drive elsewhere: the drive's revision of the file at the start, and the copy kept of it then.
-	beforeRevision: string | null;
-	beforeVersion: string | null;
+	blobId: string;
 	status: FileUploadStatus;
 	lockedAt: Date | null;
 	receivedAt: Date | null;
@@ -61,15 +57,13 @@ const uploadSelect = {
 	parentId: true,
 	name: true,
 	folders: true,
+	convert: true,
 	fileId: true,
 	version: true,
 	size: true,
 	sha256: true,
 	type: true,
 	blobId: true,
-	sessionUri: true,
-	beforeRevision: true,
-	beforeVersion: true,
 	status: true,
 	lockedAt: true,
 	receivedAt: true,
@@ -91,20 +85,18 @@ export function createFileUpload(data: {
 	taskId: string;
 	via: AuditVia;
 	entryId: string | null;
-	secretHash: string | null;
+	secretHash: string;
 	target: FileUploadTarget;
 	parentId: string | null;
 	name: string;
 	folders: string[];
+	convert: boolean;
 	fileId: string | null;
 	version: string | null;
 	size: number;
 	sha256: string | null;
 	type: string;
-	blobId: string | null;
-	sessionUri: string | null;
-	beforeRevision: string | null;
-	beforeVersion: string | null;
+	blobId: string;
 	expiresAt: Date;
 }): Promise<Result<FileUploadRow, ApiError>> {
 	return wrapDb(async () =>
@@ -207,16 +199,15 @@ export function expireFileUpload(id: string): Promise<Result<boolean, ApiError>>
 }
 
 /**
- * The open uploads to let go, oldest first, with their connection's integration: those past
- * `expiresAt` that nothing is coming in for and that hold no bytes, and every one past
- * `expiresAt` by `graceMs` or more, whatever it holds or whoever has it, as one whose bytes came in
- * but that no files_upload_done finished.
+ * The open uploads to let go, oldest first: those past `expiresAt` that nothing is coming in for
+ * and that hold no bytes, and every one past `expiresAt` by `graceMs` or more, whatever it holds or
+ * whoever has it, as one whose bytes came in but that no files_upload_done finished.
  */
 export function listExpiredFileUploads(data: {
 	now: Date;
 	graceMs: number;
 	limit: number;
-}): Promise<Result<Array<FileUploadRow & {integrationId: string}>, ApiError>> {
+}): Promise<Result<FileUploadRow[], ApiError>> {
 	return wrapDb(async () => {
 		const rows = await db.fileUpload.findMany({
 			where: {
@@ -226,13 +217,10 @@ export function listExpiredFileUploads(data: {
 					{expiresAt: {lt: new Date(data.now.getTime() - data.graceMs)}},
 				],
 			},
-			select: {...uploadSelect, connection: {select: {integrationId: true}}},
+			select: uploadSelect,
 			orderBy: {expiresAt: 'asc'},
 			take: data.limit,
 		});
-		return rows.map(({connection, ...row}) => ({
-			...toRow(row),
-			integrationId: connection.integrationId,
-		}));
+		return rows.map(toRow);
 	});
 }

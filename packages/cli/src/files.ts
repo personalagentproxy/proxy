@@ -276,7 +276,7 @@ function putOf(answer: Json | undefined): Result<{upload: string; put: Put}, Fai
 	);
 	return Ok({
 		upload: answer.upload,
-		put: {url: put.url, headers, resumable: put.resumable === true},
+		put: {url: put.url, headers},
 	});
 }
 

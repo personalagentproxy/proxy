@@ -209,18 +209,8 @@ function hashFile(path: string): Promise<Result<{size: number; sha256: string}, 
 }
 
 // Read as the reader asks for more, so a slow network keeps no more of the file in memory than it sends.
-function readStream(
-	path: string,
-	range?: {start: number; end: number},
-): ReadableStream<Uint8Array> {
-	if (range !== undefined && range.end <= range.start) {
-		return new ReadableStream<Uint8Array>({start: (controller) => controller.close()});
-	}
-	// Node's `end` is the last byte read, not the one after it.
-	const file = createReadStream(
-		path,
-		range === undefined ? {} : {start: range.start, end: range.end - 1},
-	);
+function readStream(path: string): ReadableStream<Uint8Array> {
+	const file = createReadStream(path);
 	const chunks = file[Symbol.asyncIterator]();
 	return new ReadableStream<Uint8Array>({
 		async pull(controller) {
@@ -238,12 +228,6 @@ function readStream(
 		cancel() {
 			file.destroy();
 		},
-	});
-}
-
-function sleep(ms: number): Promise<void> {
-	return new Promise((done) => {
-		setTimeout(done, ms);
 	});
 }
 
@@ -305,7 +289,6 @@ export function nodeIo(): Io {
 		isDirectory,
 		hashFile,
 		readStream,
-		sleep,
 		readText,
 		saveStream,
 		serve,

@@ -11,10 +11,10 @@ import {hashUploadSecret} from '../../uploads/tickets';
 import {fillBlob, requestBytes, type StoredContent} from './content';
 
 /**
- * `PUT /api/uploads/:secret` (@proxy/contracts/uploads): the bytes of an upload into a drive of
- * Files, at the URL files_upload answered with (uploads/tickets.ts). The secret in the address is
- * the one credential, so the route has no session, no token and no origin check, and is open to
- * any origin; it is known only by its hash, and neither it nor the address is ever logged (the
+ * `PUT /api/uploads/:secret` (@proxy/contracts/uploads): the bytes of an upload into a drive, of
+ * Files or Google Drive alike, at the URL files_upload answered with (uploads/tickets.ts). The
+ * secret in the address is the one credential, so the route has no session, no token and no
+ * origin check, and is open to any origin; it is known only by its hash, and neither it nor the address is ever logged (the
  * request logger writes the route's pattern). The body is read as it comes, whatever its type,
  * into the blob made for the upload at its start, counted and hashed as it passes; more bytes than
  * the upload said are refused as they come. One PUT takes an upload; one that fails partway lets
@@ -45,9 +45,6 @@ function receive(request: Request): Promise<Result<UploadReceived, Refusal>> {
 		const secret = request.params.secret ?? '';
 		const upload = $(requirePresent($((await findFileUploadBySecret(hashUploadSecret(secret))).mapErr(fromApiError)), UNKNOWN));
 		const next = `Call files_upload_done with upload ${upload.id} to make the file.`;
-		if (upload.blobId === null) {
-			return $(Err(UNKNOWN));
-		}
 		if (upload.status === 'expired' || (upload.status === 'open' && upload.receivedAt === null && upload.expiresAt <= new Date())) {
 			return $(Err(refused(410, 'expired', 'This URL took bytes for an hour, and the hour is up. Start again with files_upload.')));
 		}
@@ -61,7 +58,7 @@ function receive(request: Request): Promise<Result<UploadReceived, Refusal>> {
 			return $(Err(refused(409, 'conflict', `The file for upload ${upload.id} is being sent to this URL already. Wait for that PUT to answer.`)));
 		}
 		const filled = await Do<StoredContent, ApiError>(async ($$) => {
-			const blob = $$(requirePresent($$(await getFileBlob(upload.blobId ?? '')), UNKNOWN_BLOB));
+			const blob = $$(requirePresent($$(await getFileBlob(upload.blobId)), UNKNOWN_BLOB));
 			const tooLarge = `More than the ${upload.size} bytes upload ${upload.id} was started for came. Send the file it was started for, or start again with files_upload and the file’s size in bytes.`;
 			return $$(await fillBlob(blob, $$(requestBytes(request)), upload.size, tooLarge));
 		});

@@ -168,7 +168,7 @@ describe.skipIf(!databaseUrl)('pap files, as a sandbox reaches a drive', () => {
 		const started = await start('Reports/2026/q3.csv', content);
 		expect(started.status).toBe(200);
 		const {upload, put} = await started.json();
-		expect(put).toMatchObject({method: 'PUT', headers: {}, resumable: false});
+		expect(put).toMatchObject({method: 'PUT', headers: {}});
 		expect(put.url).toStartWith(`${APP_URL}/api/uploads/`);
 		expect((await send(put.url, content)).status).toBe(200);
 		// Nothing is made before done, not even the folders on the way.

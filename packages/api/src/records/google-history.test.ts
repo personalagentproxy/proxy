@@ -366,17 +366,6 @@ describe.skipIf(!databaseUrl)('a Google Drive file’s history, against the data
 		expect(google.requests.filter((request) => request.method === 'PATCH' && request.url.pathname.includes('/revisions/'))).toEqual([]);
 	});
 
-	test('a change begun in one call is logged in another, as an upload over a file is', async () => {
-		const {beginDriveChange, logDriveChange} = await import('./google-history');
-		const begun = unwrap(await beginDriveChange(await editor(otherTaskId), '1Plan', {content: true}));
-		expect(begun).toMatchObject({fileId: '1Plan', name: 'Launch plan', mimeType: MIME.document, beforeRevision: '1Plan-r2'});
-		state.files['1Plan']?.revisions.push({id: '1Plan-r3', bytes: Buffer.from('docx, uploaded'), keepForever: false});
-
-		const logged = await logDriveChange(await editor(otherTaskId), JSON.parse(JSON.stringify(begun)), {kind: 'write'});
-		expect(logged).toMatchObject({kind: 'write', beforeVersion: begun.beforeVersion, beforeRevision: '1Plan-r2', afterRevision: '1Plan-r3', taskId: otherTaskId});
-		expect(begun.beforeVersion).not.toBeNull();
-	});
-
 	test('a range written keeps its cells for an exact undo, which files_undo applies only while they hold what it wrote', async () => {
 		const {rangesConnector} = await import('./google-ranges');
 		const {findCollection, findIntegration} = await import('@proxy/integrations');

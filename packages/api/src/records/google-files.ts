@@ -47,9 +47,9 @@ import {readValueLines, valueLines} from './value-lines';
  *
  * Folders, documents and spreadsheets are made inside a folder, My Drive or a shared drive: a
  * document from Markdown and a spreadsheet from CSV, which Drive converts as it uploads them. Any
- * other file, a PDF or a picture, goes up as its bytes through a URL, straight to Drive
+ * other file, a PDF or a picture, goes up as its bytes through a URL, on to Drive once finished
  * (`files_upload`, google-uploads.ts), and a file already in Drive is copied into one by Drive
- * itself (`files_copy`), the bytes passing through here neither way. A row is made inside a tab, its
+ * itself (`files_copy`), its bytes never passing through here. A row is made inside a tab, its
  * "Header: value" lines put under the headers. Any file can be renamed, and a tab; a document's
  * content is replaced whole by uploading Markdown again, which drops its comments and suggestions;
  * a row changes only in the cells written differently. A presentation's and a spreadsheet's

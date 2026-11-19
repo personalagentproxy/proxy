@@ -173,7 +173,8 @@ spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Requ
 	if (path === '/v1/documents/1Plan:batchUpdate') {
 		const batch = JSON.parse(body);
 		if (batch.writeControl?.requiredRevisionId !== docs.revision) {
-			return Response.json({error: {code: 400, message: 'The required revision ID does not match the latest revision.', status: 'FAILED_PRECONDITION'}}, {status: 400});
+			// As Google answers it.
+			return Response.json({error: {code: 400, message: "The required revision ID 'rev-1' does not match the latest revision.", status: 'INVALID_ARGUMENT'}}, {status: 400});
 		}
 		docs.batches.push(batch);
 		docs.revision = `rev-${docs.batches.length + 1}`;

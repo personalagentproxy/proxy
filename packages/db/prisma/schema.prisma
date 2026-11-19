@@ -772,62 +772,55 @@ enum FileUploadStatus {
 
 // An upload into a drive, through a URL rather than a tool's params: a call checks everything
 // about the file first, the agent's access, the folder, the name and the size, and is answered
-// with a URL that takes the bytes for an hour; then files_upload_done checks what arrived and makes
-// the file, as the agent's, for the task that started it. The URL is Personal Agent Proxy's own
-// for a drive kept here, its secret the one credential, and the drive's own elsewhere, as Google
-// Drive's resumable session. Plain ids for who started it, as the activity log has them; it goes
-// with its connection. Expired by the sweep (api uploads/sweeper.ts).
+// with a URL of Personal Agent Proxy's own that takes the bytes for an hour, its secret the one
+// credential, into a blob of the store; then files_upload_done checks what arrived and makes the
+// file of it, in the drive, as the agent's, for the task that started it. Nothing reaches the drive
+// before done, on every kind of drive. Plain ids for who started it, as the activity log has them;
+// it goes with its connection. Expired by the sweep (api uploads/sweeper.ts).
 model FileUpload {
-  id             String           @id @default(cuid())
-  orgId          String
-  connectionId   String
+  id           String           @id @default(cuid())
+  orgId        String
+  connectionId String
   // Who started it and for which of its tasks (AgentTask), and how the call came in.
-  agentId        String
-  taskId         String
-  via            AuditVia
+  agentId      String
+  taskId       String
+  via          AuditVia
   // The activity log's entry of the call that started it (AuditEntry).
-  entryId        String?
-  // The SHA-256 of the secret in the URL Personal Agent Proxy serves for it, never the secret;
-  // none where the URL is the drive's own.
-  secretHash     String?          @unique
-  target         FileUploadTarget
+  entryId      String?
+  // The SHA-256 of the secret in the URL that takes the bytes, never the secret.
+  secretHash   String           @unique
+  target       FileUploadTarget
   // A new file: the folder it goes in, none for the top, and its name; a write: the file's name.
-  parentId       String?
-  name           String
+  parentId     String?
+  name         String
   // A new file: the folders to make on the way, at done, each inside the one before it, the first
   // in `parentId`, as a push to a path whose folders are missing (`pap files push`); none where
   // the folder is there.
-  folders        String[]         @default([])
+  folders      String[]         @default([])
+  // A new file: made into the drive's own kind of file, as Google Drive makes a Doc of a docx.
+  convert      Boolean          @default(false)
   // A write: the file written over, and the version it was read at. A new file: the file once
   // made, or the id the drive reserved for it at the start, as Google Drive does.
-  fileId         String?
-  version        String?
+  fileId       String?
+  version      String?
   // What the caller said it would send: how many bytes, their SHA-256 where it said, and their
   // media type, as said or as the name tells.
-  size           BigInt
-  sha256         String?
-  type           String
-  // A drive kept here: the blob the bytes go into (FileBlob), made at the start, so the sweep of
-  // unused blobs takes it where the upload is never finished.
-  blobId         String?
-  // A drive elsewhere: the URL of the drive's own upload session, encrypted with ENCRYPTION_KEY,
-  // as connections' credentials are, and cancelled when the upload expires.
-  sessionUri     String?
-  // A write to a drive elsewhere, whose bytes land in the file before done: the drive's revision
-  // of the file at the start, and the version Personal Agent Proxy kept of it then, its copy for
-  // the task (FileVersion), none where the task had one already; done logs the write with them.
-  beforeRevision String?
-  beforeVersion  String?
-  status         FileUploadStatus @default(open)
+  size         BigInt
+  sha256       String?
+  type         String
+  // The blob the bytes go into (FileBlob), made at the start, so the sweep of unused blobs takes it
+  // where the upload is never finished, or once the drive elsewhere has the file.
+  blobId       String
+  status       FileUploadStatus @default(open)
   // When a PUT or a files_upload_done took it to work on, so no other does at once; cleared when
-  // it ends. And when its bytes were all in, through the URL served here.
-  lockedAt       DateTime?
-  receivedAt     DateTime?
+  // it ends. And when its bytes were all in.
+  lockedAt     DateTime?
+  receivedAt   DateTime?
   // Done: the file's version it made. Failed: why, said again to every files_upload_done.
-  afterVersion   String?
-  failure        String?
+  afterVersion String?
+  failure      String?
   // An hour from the start: no bytes are taken after it.
-  expiresAt      DateTime
+  expiresAt    DateTime
 
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt

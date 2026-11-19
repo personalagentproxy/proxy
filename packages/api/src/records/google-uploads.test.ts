@@ -1,28 +1,33 @@
 import {afterAll, beforeAll, beforeEach, describe, expect, mock, spyOn, test} from 'bun:test';
 import {createHash} from 'node:crypto';
 import {mkdtempSync} from 'node:fs';
+import type {Server} from 'node:http';
+import type {AddressInfo} from 'node:net';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 
+import express from 'express';
 import {Ok, type Result} from 'ts-results-es';
 
 import type {ApiError} from '@proxy/utils';
 
 // Uploads into Google Drive through a URL, end to end: files_upload and files_upload_done on a
-// Google connection, Drive's resumable sessions they open and ask, the history they log and the
-// sweep that cancels what nobody finished, against the local database, with Drive faked. Run with
-// the database up and the environment loaded, `bun --env-file=../../.env test --isolate
-// src/records/google-uploads.test.ts` from this package. Without DATABASE_URL, as `bun run test`
-// runs, there is nothing to run against, and this is skipped. Everything made here is one
-// organization's, deleted at the end.
+// Google connection, the bytes PUT to Personal Agent Proxy's own URL and sent on to Drive only at
+// done, the history they log, and the sweep that lets go of what nobody finished, against the
+// local database, with Drive faked. Run with the database up and the environment loaded,
+// `bun --env-file=../../.env test --isolate src/records/google-uploads.test.ts` from this package.
+// Without DATABASE_URL, as `bun run test` runs, there is nothing to run against, and this is
+// skipped. Everything made here is one organization's, deleted at the end.
 const databaseUrl = process.env.DATABASE_URL;
+
+const APP_URL = 'https://app.example.com';
 
 const blobs = mkdtempSync(join(tmpdir(), 'proxy-drive-uploads-test-'));
 
 mock.module('../utils/env', () => ({
 	env: {
 		NODE_ENV: 'production',
-		APP_URL: 'https://app.example.com',
+		APP_URL,
 		GOOGLE_CLIENT_ID: 'client-1',
 		GOOGLE_CLIENT_SECRET: 'secret-1',
 		FILES_DIR: blobs,
@@ -71,8 +76,8 @@ function sha256(text: string): string {
 // export of it, and Drive's version number, which goes up with every change.
 type DriveFile = {id: string; name: string; mimeType: string; parents: string[]; revisions: {id: string; bytes: Buffer}[]; version: number; trashed: boolean};
 
-// A resumable upload's session: what it makes, and whether every byte is in, or it was cancelled.
-type Session = {fileId: string; create: {name: string; mimeType: string; parents: string[]} | null; size: number; state: 'open' | 'complete' | 'cancelled'};
+// A resumable upload's session, which Personal Agent Proxy opens at done: what it makes.
+type Session = {fileId: string; create: {name: string; mimeType: string; parents: string[]} | null};
 
 type State = {files: Record<string, DriveFile>; sessions: Record<string, Session>};
 
@@ -137,37 +142,27 @@ function openSession(session: Session): Response {
 	return new Response(null, {status: 200, headers: {location: `${SESSIONS}${id}`}});
 }
 
-// The bytes, or a question of how many arrived, sent to a session.
+// The bytes sent to a session, in one PUT: the file made, or its new revision.
 function toSession(request: Request, session: Session): Response {
-	if (request.method === 'DELETE') {
-		session.state = 'cancelled';
-		return new Response(null, {status: 499});
-	}
-	if (session.state === 'cancelled') {
-		return notFound();
-	}
-	const asked = request.headers['content-range'] === `bytes */${session.size}` && request.body.length === 0;
-	if (asked) {
-		return session.state === 'complete' ? Response.json({id: session.fileId}) : new Response(null, {status: 308});
-	}
-	session.state = 'complete';
-	const existing = state.files[session.fileId];
 	if (session.create) {
 		const googleType = session.create.mimeType.startsWith('application/vnd.google-apps.');
-		state.files[session.fileId] = {
+		const made: DriveFile = {
 			id: session.fileId,
 			...session.create,
 			revisions: [{id: `${session.fileId}-r1`, bytes: googleType ? Buffer.from('converted') : request.body}],
 			version: 1,
 			trashed: false,
 		};
-		return Response.json({id: session.fileId});
+		state.files[session.fileId] = made;
+		return Response.json(stateOf(made));
 	}
-	if (existing) {
-		existing.revisions.push({id: `${existing.id}-r${existing.revisions.length + 1}`, bytes: request.body});
-		existing.version += 1;
+	const existing = state.files[session.fileId];
+	if (!existing) {
+		return notFound();
 	}
-	return Response.json({id: session.fileId});
+	existing.revisions.push({id: `${existing.id}-r${existing.revisions.length + 1}`, bytes: request.body});
+	existing.version += 1;
+	return Response.json(stateOf(existing));
 }
 
 function answer(request: Request): Response {
@@ -184,7 +179,12 @@ function answer(request: Request): Response {
 	}
 	if (method === 'POST' && path === '/upload/drive/v3/files') {
 		const {id, name, mimeType, parents} = JSON.parse(request.body.toString());
-		return openSession({fileId: id, create: {name, mimeType, parents}, size: Number(request.headers['x-upload-content-length']), state: 'open'});
+		// As Drive: a reserved id is taken only for a file kept as its bytes, not one it converts.
+		if (id !== undefined && String(mimeType).startsWith('application/vnd.google-apps.')) {
+			return Response.json({error: {code: 400, message: 'Generated IDs are not supported for Docs Editors formats.', errors: [{reason: 'badRequest'}]}}, {status: 400});
+		}
+		generated += id === undefined ? 1 : 0;
+		return openSession({fileId: id ?? `1Made${generated}`, create: {name, mimeType, parents}});
 	}
 	const [, id = '', rest = ''] = /^\/(?:upload\/)?drive\/v3\/files\/([^/]+)(.*)$/.exec(path) ?? [];
 	const file = state.files[id];
@@ -192,18 +192,13 @@ function answer(request: Request): Response {
 		return notFound();
 	}
 	if (method === 'PATCH' && path.startsWith('/upload/')) {
-		return openSession({fileId: id, create: null, size: Number(request.headers['x-upload-content-length']), state: 'open'});
+		return openSession({fileId: id, create: null});
 	}
 	if (rest === '/export') {
 		return new Response(new Uint8Array(head(file).bytes));
 	}
 	if (rest === '/revisions') {
 		return Response.json({revisions: file.revisions.map((revision) => ({id: revision.id}))});
-	}
-	const revision = /^\/revisions\/(.+)$/.exec(rest)?.[1];
-	if (revision && method === 'DELETE') {
-		file.revisions = file.revisions.filter((candidate) => candidate.id !== revision);
-		return new Response(null, {status: 204});
 	}
 	if (method === 'PATCH') {
 		Object.assign(file, JSON.parse(request.body.toString()));
@@ -215,8 +210,15 @@ function answer(request: Request): Response {
 	return Response.json(stateOf(file));
 }
 
+// Personal Agent Proxy's own upload route, served here, is reached as it is; everything else is Google.
+const realFetch = globalThis.fetch;
+let origin = '';
+
 spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Request, init?: RequestInit) => {
 	const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
+	if (origin !== '' && url.origin === origin) {
+		return realFetch(url, init);
+	}
 	const headers = new Headers(init?.headers);
 	const body = init?.body ? Buffer.from(await new Response(init.body).arrayBuffer()) : Buffer.from('');
 	const request = {method: init?.method ?? 'GET', url, headers: Object.fromEntries(headers), body};
@@ -236,9 +238,9 @@ function lineOf(text: string, label: string): string {
 	return new RegExp(`^${label}: (.+)$`, 'm').exec(text)?.[1] ?? '';
 }
 
-// The bytes sent to a session's URL, as curl -X PUT --upload-file sends them.
+// The bytes sent to an upload's URL, as curl -X PUT --upload-file sends them.
 async function put(url: string, bytes: string): Promise<number> {
-	return (await fetch(url, {method: 'PUT', body: bytes})).status;
+	return (await fetch(url.replace(APP_URL, origin), {method: 'PUT', body: bytes})).status;
 }
 
 beforeEach(() => {
@@ -253,6 +255,7 @@ describe.skipIf(!databaseUrl)('uploads into Google Drive, through a URL', () => 
 	let agentId = '';
 	let taskId = '';
 	let connection: {id: string; orgId: string; credential: string};
+	let server: Server | undefined;
 
 	const CREDENTIAL = {accessToken: 'access-1', refreshToken: 'refresh-1', expiresAt: new Date(Date.now() + 3_600_000).toISOString(), scopes: [], email: 'dana@example.com'};
 
@@ -281,6 +284,11 @@ describe.skipIf(!databaseUrl)('uploads into Google Drive, through a URL', () => 
 		return unwrap(await listFileVersions(connection.id, fileId));
 	}
 
+	// What was sent to Drive's upload endpoints: the sessions opened and the bytes sent to them.
+	function uploadsToDrive(): Request[] {
+		return google.requests.filter((request) => request.url.pathname.startsWith('/upload/'));
+	}
+
 	beforeAll(async () => {
 		const {db} = await import('@proxy/db');
 		const user = await db.user.create({data: {email: `drive-uploads-test-${stamp}@example.test`, name: 'Dana'}});
@@ -291,9 +299,17 @@ describe.skipIf(!databaseUrl)('uploads into Google Drive, through a URL', () => 
 		connection = {id: made.id, orgId, credential: made.credential ?? ''};
 		agentId = (await db.agent.create({data: {orgId, providerId: 'claude', name: 'Claude', username: `drive-uploads-test-${stamp}`, passwordHash: ''}})).id;
 		taskId = (await db.agentTask.create({data: {orgId, agentId, title: 'File the results', goal: 'File', via: 'mcp'}})).id;
+
+		const {UPLOADS_PATH} = await import('@proxy/contracts/uploads');
+		const {handleUploadBytesRoute} = await import('../native/files/upload-route');
+		const app = express();
+		app.put(`${UPLOADS_PATH}/:secret`, (request, response) => void handleUploadBytesRoute(request, response));
+		server = app.listen(0);
+		origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 	});
 
 	afterAll(async () => {
+		server?.close();
 		const {db} = await import('@proxy/db');
 		if (orgId !== '') {
 			await db.organization.delete({where: {id: orgId}});
@@ -304,94 +320,115 @@ describe.skipIf(!databaseUrl)('uploads into Google Drive, through a URL', () => 
 		}
 	});
 
-	test('a new file goes straight to Drive at its session’s URL, under an id reserved at the start, and done logs it as made', async () => {
+	test('a new file’s bytes come to Personal Agent Proxy’s URL, and only done makes the file in Drive, under the id reserved at the start', async () => {
 		const bytes = '%PDF results';
 		const ticket = unwrap(await tool('files_upload', {name: 'Results.pdf', parent: 'drive-0ATeamDrive', size: bytes.length, sha256: sha256(bytes)}));
 		const url = lineOf(ticket, 'URL');
 		const id = lineOf(ticket, 'Upload');
 
-		expect(url).toBe(`${SESSIONS}s1`);
+		expect(url).toStartWith(`${APP_URL}/api/uploads/`);
 		expect(ticket).toContain(`curl -X PUT --upload-file <path> '${url}'`);
-		expect(ticket).toContain('It takes the file in parts too');
-		expect(asked()).toEqual(['GET /drive/v3/files/generateIds', 'POST /upload/drive/v3/files']);
-		const [, start] = google.requests;
-		expect(JSON.parse(start?.body.toString() ?? '{}')).toEqual({id: '1Gen1', name: 'Results.pdf', mimeType: 'application/pdf', parents: ['0ATeamDrive']});
-		expect([start?.url.searchParams.get('uploadType'), start?.url.searchParams.get('supportsAllDrives'), start?.headers['x-upload-content-length'], start?.headers['x-upload-content-type']]).toEqual([
-			'resumable',
-			'true',
-			String(bytes.length),
-			'application/pdf',
-		]);
-		// The session's address is kept only encrypted, and Personal Agent Proxy serves no URL of its own for it.
-		expect(await uploadOf(id)).toMatchObject({sessionUri: `enc:${url}`, secretHash: null, fileId: '1Gen1', status: 'open'});
+		expect(asked()).toEqual(['GET /drive/v3/files/generateIds']);
+		expect(await uploadOf(id)).toMatchObject({fileId: '1Gen1', status: 'open'});
 
 		expect(refusal(await tool('files_upload_done', {upload: id}))).toStartWith(`validation_error: Nothing has arrived for upload ${id} yet`);
 		expect(await put(url, bytes)).toBe(200);
+		expect(state.files['1Gen1']).toBeUndefined();
+		expect(uploadsToDrive()).toEqual([]);
+
 		google.requests = [];
 		const done = unwrap(await tool('files_upload_done', {upload: id}));
-
 		expect(done).toBe(['Added Results.pdf.', 'Id: 1Gen1', 'Version: 1Gen1-r1', 'Size: 12 B', 'Link: https://drive.google.com/open?id=1Gen1'].join('\n'));
-		// The session is asked with nothing sent and no token, as its address is its own credential.
-		const [question] = google.requests;
-		expect([question?.method, question?.headers['content-range'], question?.headers.authorization, question?.body.length]).toEqual(['PUT', `bytes */${bytes.length}`, undefined, 0]);
+		const [start, sent] = uploadsToDrive();
+		expect(JSON.parse(start?.body.toString() ?? '{}')).toEqual({id: '1Gen1', name: 'Results.pdf', mimeType: 'application/pdf', parents: ['0ATeamDrive']});
+		expect([start?.headers['x-upload-content-length'], start?.headers['x-upload-content-type']]).toEqual([String(bytes.length), 'application/pdf']);
+		expect(sent?.body.toString()).toBe(bytes);
+		expect(state.files['1Gen1']?.parents).toEqual(['0ATeamDrive']);
 		expect((await changesOf('1Gen1')).map((change) => [change.kind, change.afterRevision, change.taskId])).toEqual([['create', '1Gen1-r1', taskId]]);
+
+		// Asked again, it answers as it did, and sends nothing more to Drive.
+		google.requests = [];
 		expect(unwrap(await tool('files_upload_done', {upload: id}))).toBe(done);
+		expect(uploadsToDrive()).toEqual([]);
 		expect(await uploadOf(id)).toMatchObject({status: 'done', afterVersion: '1Gen1-r1'});
 	});
 
-	test('with convert, a docx becomes a Doc named without its extension, and what Drive converted is taken as said', async () => {
+	test('with convert, a docx becomes a Doc named without its extension, under an id Drive gives it, as it reserves none for what it converts', async () => {
 		const ticket = unwrap(await tool('files_upload', {name: 'Q3 review.docx', parent: '1Projects', size: 9, convert: true}));
-		const {fileId} = await uploadOf(lineOf(ticket, 'Upload'));
-		const [, , start] = google.requests;
-		expect(JSON.parse(start?.body.toString() ?? '{}')).toEqual({id: fileId, name: 'Q3 review', mimeType: MIME.document, parents: ['1Projects']});
-		expect(start?.headers['x-upload-content-type']).toBe(MIME.docx);
+		expect(await uploadOf(lineOf(ticket, 'Upload'))).toMatchObject({fileId: null, convert: true});
+		expect(google.requests.filter((request) => request.url.pathname.endsWith('/generateIds'))).toEqual([]);
+		expect(uploadsToDrive()).toEqual([]);
 
 		expect(await put(lineOf(ticket, 'URL'), 'docx 9 b.')).toBe(200);
 		const done = unwrap(await tool('files_upload_done', {upload: lineOf(ticket, 'Upload')}));
-		expect(lineOf(done, 'Id')).toBe(fileId ?? '');
+		const [start] = uploadsToDrive();
+		expect(JSON.parse(start?.body.toString() ?? '{}')).toEqual({name: 'Q3 review', mimeType: MIME.document, parents: ['1Projects']});
+		expect(start?.headers['x-upload-content-type']).toBe(MIME.docx);
+		const id = lineOf(done, 'Id');
 		expect(lineOf(done, 'Version')).toBe('1');
-		expect(state.files[fileId ?? '']?.mimeType).toBe(MIME.document);
+		expect(state.files[id]?.mimeType).toBe(MIME.document);
+		expect((await uploadOf(lineOf(ticket, 'Upload'))).fileId).toBe(id);
+		expect((await changesOf(id)).map((change) => change.kind)).toEqual(['create']);
 	});
 
-	test('over a file, the version read is checked and the task’s copy kept before the session is opened, and done logs the write between Drive’s revisions', async () => {
+	test('over a file, the version read is checked at the start, and at done the task’s copy is kept, the bytes sent and the write logged between Drive’s revisions', async () => {
 		const stale = await tool('files_upload', {id: '1Contract', version: '1Contract-r0', size: 4});
 		expect(refusal(stale)).toBe(
 			'conflict: “Contract.pdf” changed since version 1Contract-r0: it is at 1Contract-r1 now. Look at it again, then upload what you make of it with the version files_versions says it is at.',
 		);
 		expect(asked()).toEqual(['GET /drive/v3/files/1Contract']);
-		expect(unwrap(await tool('files_versions', {id: '1Contract'}))).toContain('Version in Drive now: 1Contract-r1, which files_upload takes to write over it');
 
 		google.requests = [];
 		const bytes = '%PDF second draft';
 		const ticket = unwrap(await tool('files_upload', {id: 'https://drive.google.com/file/d/1Contract/view', version: '1Contract-r1', size: bytes.length, sha256: sha256(bytes)}));
+		// Nothing is copied, and nothing goes to Drive, until done.
+		expect(asked()).toEqual(['GET /drive/v3/files/1Contract']);
+		expect(await uploadOf(lineOf(ticket, 'Upload'))).toMatchObject({target: 'write', fileId: '1Contract', version: '1Contract-r1'});
+
+		expect(await put(lineOf(ticket, 'URL'), bytes)).toBe(200);
+		expect(state.files['1Contract']?.revisions.map((revision) => revision.id)).toEqual(['1Contract-r1']);
+		google.requests = [];
+		const done = unwrap(await tool('files_upload_done', {upload: lineOf(ticket, 'Upload')}));
+		expect(done).toStartWith('Wrote Contract.pdf. The version before is kept.\nId: 1Contract\nVersion: 1Contract-r2');
 		const download = asked().indexOf('GET /drive/v3/files/1Contract?alt=media');
 		expect(download).toBeGreaterThan(-1);
 		expect(asked().indexOf('PATCH /upload/drive/v3/files/1Contract')).toBeGreaterThan(download);
+		expect(state.files['1Contract']?.revisions.at(-1)?.bytes.toString()).toBe(bytes);
 		const [copy] = await versionsOf('1Contract');
 		expect(copy).toMatchObject({sourceRevision: '1Contract-r1', type: 'application/pdf'});
-		expect(await uploadOf(lineOf(ticket, 'Upload'))).toMatchObject({target: 'write', fileId: '1Contract', version: '1Contract-r1', beforeRevision: '1Contract-r1', beforeVersion: copy?.id});
-
-		expect(await put(lineOf(ticket, 'URL'), bytes)).toBe(200);
-		const done = unwrap(await tool('files_upload_done', {upload: lineOf(ticket, 'Upload')}));
-		expect(done).toStartWith('Wrote Contract.pdf. The version before is kept.\nId: 1Contract\nVersion: 1Contract-r2');
 		expect((await changesOf('1Contract')).map((change) => [change.kind, change.beforeVersion, change.beforeRevision, change.afterRevision])).toEqual([
 			['write', copy?.id ?? null, '1Contract-r1', '1Contract-r2'],
 		]);
 	});
 
+	test('a file changed in Drive between the start and done is not written over: done refuses, for good, and sends nothing', async () => {
+		const ticket = unwrap(await tool('files_upload', {id: '1Contract', version: '1Contract-r1', size: 5}));
+		expect(await put(lineOf(ticket, 'URL'), 'later')).toBe(200);
+		state.files['1Contract']?.revisions.push({id: '1Contract-r2', bytes: Buffer.from('%PDF edited by Dana')});
+		const logged = (await changesOf('1Contract')).length;
+
+		google.requests = [];
+		expect(refusal(await tool('files_upload_done', {upload: lineOf(ticket, 'Upload')}))).toStartWith('conflict: “Contract.pdf” changed since version 1Contract-r1: it is at 1Contract-r2 now.');
+		expect(uploadsToDrive()).toEqual([]);
+		expect(state.files['1Contract']?.revisions.map((revision) => revision.id)).toEqual(['1Contract-r1', '1Contract-r2']);
+		expect(await changesOf('1Contract')).toHaveLength(logged);
+		expect((await uploadOf(lineOf(ticket, 'Upload'))).status).toBe('failed');
+	});
+
 	test('a Doc is written over from a docx, checked against Drive’s version number, and converted by Drive', async () => {
 		const ticket = unwrap(await tool('files_upload', {id: '1Plan', version: '7', size: 4}));
-		const session = google.requests.find((request) => request.method === 'PATCH');
-		expect([session?.url.pathname, session?.headers['x-upload-content-type'], session?.body.toString()]).toEqual(['/upload/drive/v3/files/1Plan', MIME.docx, '{}']);
-
 		expect(await put(lineOf(ticket, 'URL'), 'docx')).toBe(200);
 		const done = unwrap(await tool('files_upload_done', {upload: lineOf(ticket, 'Upload')}));
+
+		const [session, sent] = uploadsToDrive();
+		expect([session?.method, session?.url.pathname, session?.headers['x-upload-content-type'], session?.body.toString()]).toEqual(['PATCH', '/upload/drive/v3/files/1Plan', MIME.docx, '{}']);
+		expect(sent?.body.toString()).toBe('docx');
 		expect(lineOf(done, 'Version')).toBe('8');
 		const [write] = await changesOf('1Plan');
 		expect(write).toMatchObject({kind: 'write', beforeRevision: '1Plan-r1', afterRevision: '1Plan-r2'});
 	});
 
-	test('Markdown or CSV over a file, anything but its own Office file over a Doc or a Sheet, Google’s types and what convert can’t make are refused before any session', async () => {
+	test('Markdown or CSV over a file, anything but its own Office file over a Doc or a Sheet, Google’s types, what convert can’t make and a file too large are refused at the start', async () => {
 		const refusals = await Promise.all([
 			tool('files_upload', {id: '1Notes', version: '1Notes-r1', size: 4}),
 			tool('files_upload', {id: '1Contract', version: '1Contract-r1', size: 4, type: 'text/markdown'}),
@@ -403,6 +440,7 @@ describe.skipIf(!databaseUrl)('uploads into Google Drive, through a URL', () => 
 			tool('files_upload', {name: 'scan.pdf', size: 4, convert: true}),
 			tool('files_upload', {name: 'scan.pdf', parent: '1Budget', size: 4}),
 			tool('files_upload', {name: 'scan.pdf', parent: 'recent', size: 4}),
+			tool('files_upload', {name: 'huge.zip', size: 101 * 1024 * 1024}),
 		]);
 
 		expect(refusals.map(refusal)).toEqual([
@@ -416,102 +454,73 @@ describe.skipIf(!databaseUrl)('uploads into Google Drive, through a URL', () => 
 			'validation_error: convert makes a Doc of a docx or Markdown, a Sheet of an xlsx or CSV, and a Slides file of a pptx, and this is application/pdf: leave convert out to keep it as it is',
 			'validation_error: A spreadsheet holds tabs: upload the file into a folder',
 			'validation_error: Nothing can be made in Recent: make it in a folder, My Drive or a shared drive',
+			`validation_error: A file is at most 100.0 MB on this server, ${100 * 1024 * 1024} bytes, and this one is ${101 * 1024 * 1024}.`,
 		]);
-		expect(google.requests.filter((request) => request.url.pathname.startsWith('/upload/'))).toEqual([]);
+		expect(uploadsToDrive()).toEqual([]);
 		expect(google.requests.filter((request) => request.url.pathname.endsWith('/generateIds'))).toEqual([]);
 	});
 
-	test('bytes that aren’t what was said are taken back out of Drive: a new file moved to Trash, a revision over a file deleted', async () => {
+	test('bytes that aren’t what was said never reach Drive: nothing is made, and nothing written over', async () => {
 		const made = unwrap(await tool('files_upload', {name: 'chart.png', size: 5, sha256: sha256('chart')}));
 		expect(await put(lineOf(made, 'URL'), 'graph')).toBe(200);
 		expect(refusal(await tool('files_upload_done', {upload: lineOf(made, 'Upload')}))).toStartWith(`conflict: The bytes that arrived for chart.png have the SHA-256 ${sha256('graph')}`);
 		const {fileId} = await uploadOf(lineOf(made, 'Upload'));
-		expect(state.files[fileId ?? '']?.trashed).toBe(true);
-		expect(await changesOf(fileId ?? '')).toEqual([]);
+		expect(state.files[fileId ?? '']).toBeUndefined();
 
-		const logged = (await changesOf('1Contract')).length;
-		const over = unwrap(await tool('files_upload', {id: '1Contract', version: '1Contract-r1', size: 5, sha256: sha256('right')}));
-		expect(await put(lineOf(over, 'URL'), 'wrong')).toBe(200);
-		expect(state.files['1Contract']?.revisions.map((revision) => revision.id)).toEqual(['1Contract-r1', '1Contract-r2']);
-		expect(refusal(await tool('files_upload_done', {upload: lineOf(over, 'Upload')}))).toStartWith('conflict: The bytes that arrived for Contract.pdf');
+		const over = unwrap(await tool('files_upload', {id: '1Contract', version: '1Contract-r1', size: 6}));
+		expect(await put(lineOf(over, 'URL'), 'short')).toBe(200);
+		expect(refusal(await tool('files_upload_done', {upload: lineOf(over, 'Upload')}))).toStartWith('conflict: Contract.pdf was to be 6 bytes, and 5 arrived');
 		expect(state.files['1Contract']?.revisions.map((revision) => revision.id)).toEqual(['1Contract-r1']);
-		expect(await changesOf('1Contract')).toHaveLength(logged);
-		// Refused for good: asked again, it says so, and takes nothing more back.
+		expect(uploadsToDrive()).toEqual([]);
+
+		// Refused for good: asked again, it says so, and asks nothing of Drive.
 		google.requests = [];
-		expect(refusal(await tool('files_upload_done', {upload: lineOf(over, 'Upload')}))).toStartWith('conflict: The bytes that arrived for Contract.pdf');
+		expect(refusal(await tool('files_upload_done', {upload: lineOf(over, 'Upload')}))).toStartWith('conflict: Contract.pdf was to be 6 bytes');
 		expect(google.requests).toEqual([]);
 	});
 
-	// The session an upload's URL is of, in the fake Drive.
-	function sessionOf(ticket: string): Session | undefined {
-		return state.sessions[new URL(lineOf(ticket, 'URL')).searchParams.get('upload_id') ?? ''];
-	}
+	test('a done asked again after Drive made the file finds it under its reserved id, and doesn’t make it twice', async () => {
+		const ticket = unwrap(await tool('files_upload', {name: 'twice.pdf', size: 4}));
+		expect(await put(lineOf(ticket, 'URL'), 'once')).toBe(200);
+		const {fileId} = await uploadOf(lineOf(ticket, 'Upload'));
+		const id = fileId ?? '';
+		// As a done before that sent the bytes and then couldn't say so.
+		state.files[id] = {id, name: 'twice.pdf', mimeType: 'application/pdf', parents: ['root'], revisions: [{id: `${id}-r1`, bytes: Buffer.from('once')}], version: 1, trashed: false};
+
+		google.requests = [];
+		const done = unwrap(await tool('files_upload_done', {upload: lineOf(ticket, 'Upload')}));
+		expect(lineOf(done, 'Version')).toBe(`${id}-r1`);
+		expect(uploadsToDrive()).toEqual([]);
+	});
 
 	async function pastItsHour(ticket: string, by = 1000) {
 		const {db} = await import('@proxy/db');
 		await db.fileUpload.update({where: {id: lineOf(ticket, 'Upload')}, data: {expiresAt: new Date(Date.now() - by)}});
 	}
 
-	test('past its hour, the sweep cancels a session the bytes are still coming to, with a DELETE at its address and no token, and lets go of one Drive no longer has', async () => {
-		const {sweepUploads} = await import('../uploads/sweeper');
-		const uploading = unwrap(await tool('files_upload', {name: 'late.pdf', size: 4}));
-		const gone = unwrap(await tool('files_upload', {name: 'gone.pdf', size: 4}));
-		const lost = sessionOf(gone);
-		if (lost) {
-			lost.state = 'cancelled';
-		}
-		await pastItsHour(uploading);
-		await pastItsHour(gone);
-		google.requests = [];
-
-		await sweepUploads();
-		const cancels = google.requests.filter((request) => request.method === 'DELETE');
-		expect(cancels.map((request) => [request.url.href, request.headers.authorization])).toEqual([[lineOf(uploading, 'URL'), undefined]]);
-		expect(sessionOf(uploading)?.state).toBe('cancelled');
-		expect((await uploadOf(lineOf(uploading, 'Upload'))).status).toBe('expired');
-		expect((await uploadOf(lineOf(gone, 'Upload'))).status).toBe('expired');
-		expect(refusal(await tool('files_upload_done', {upload: lineOf(uploading, 'Upload')}))).toStartWith('conflict: This upload expired');
-	});
-
-	test('bytes all in by the hour are kept for done an hour more, which finishes them as in time', async () => {
-		const {sweepUploads} = await import('../uploads/sweeper');
-		const ticket = unwrap(await tool('files_upload', {name: 'slow.pdf', size: 4, sha256: sha256('slow')}));
-		expect(await put(lineOf(ticket, 'URL'), 'slow')).toBe(200);
-		await pastItsHour(ticket);
-		google.requests = [];
-
-		await sweepUploads();
-		expect(google.requests.filter((request) => request.method !== 'PUT')).toEqual([]);
-		expect(sessionOf(ticket)?.state).toBe('complete');
-		expect((await uploadOf(lineOf(ticket, 'Upload'))).status).toBe('open');
-
-		const done = unwrap(await tool('files_upload_done', {upload: lineOf(ticket, 'Upload')}));
-		const {fileId} = await uploadOf(lineOf(ticket, 'Upload'));
-		expect(done).toStartWith(`Added slow.pdf.\nId: ${fileId}`);
-		expect(state.files[fileId ?? '']?.trashed).toBe(false);
-		expect((await changesOf(fileId ?? '')).map((change) => change.kind)).toEqual(['create']);
-	});
-
-	test('bytes nobody finished an hour past the upload’s own are taken back out of Drive, as only done makes a file', async () => {
+	test('the sweep lets go of what nobody finished, and asks nothing of Drive, which has none of it', async () => {
 		const {sweepUploads} = await import('../uploads/sweeper');
 		const HOURS = 2 * 60 * 60_000;
-		const made = unwrap(await tool('files_upload', {name: 'forgotten.pdf', size: 4}));
-		expect(await put(lineOf(made, 'URL'), 'lost')).toBe(200);
-		const logged = (await changesOf('1Contract')).length;
-		const over = unwrap(await tool('files_upload', {id: '1Contract', version: '1Contract-r1', size: 5}));
-		expect(await put(lineOf(over, 'URL'), 'later')).toBe(200);
-		expect(state.files['1Contract']?.revisions.map((revision) => revision.id)).toEqual(['1Contract-r1', '1Contract-r2']);
-		await pastItsHour(made, HOURS);
-		await pastItsHour(over, HOURS);
+		const idle = unwrap(await tool('files_upload', {name: 'late.pdf', size: 4}));
+		const forgotten = unwrap(await tool('files_upload', {id: '1Contract', version: '1Contract-r1', size: 5}));
+		expect(await put(lineOf(forgotten, 'URL'), 'later')).toBe(200);
+		const kept = unwrap(await tool('files_upload', {name: 'slow.pdf', size: 4}));
+		expect(await put(lineOf(kept, 'URL'), 'slow')).toBe(200);
+		await pastItsHour(idle);
+		await pastItsHour(forgotten, HOURS);
+		await pastItsHour(kept);
 
+		google.requests = [];
 		await sweepUploads();
-		const {fileId} = await uploadOf(lineOf(made, 'Upload'));
-		expect(state.files[fileId ?? '']?.trashed).toBe(true);
+		expect(google.requests).toEqual([]);
+		expect((await uploadOf(lineOf(idle, 'Upload'))).status).toBe('expired');
+		expect((await uploadOf(lineOf(forgotten, 'Upload'))).status).toBe('expired');
 		expect(state.files['1Contract']?.revisions.map((revision) => revision.id)).toEqual(['1Contract-r1']);
-		expect((await uploadOf(lineOf(made, 'Upload'))).status).toBe('expired');
-		expect((await uploadOf(lineOf(over, 'Upload'))).status).toBe('expired');
-		expect(await changesOf(fileId ?? '')).toEqual([]);
-		expect(await changesOf('1Contract')).toHaveLength(logged);
-		expect(refusal(await tool('files_upload_done', {upload: lineOf(made, 'Upload')}))).toStartWith('conflict: This upload expired');
+		expect(refusal(await tool('files_upload_done', {upload: lineOf(idle, 'Upload')}))).toStartWith('conflict: This upload expired');
+
+		// Bytes all in by the hour are kept for done an hour more, which finishes them as in time.
+		expect((await uploadOf(lineOf(kept, 'Upload'))).status).toBe('open');
+		const done = unwrap(await tool('files_upload_done', {upload: lineOf(kept, 'Upload')}));
+		expect(done).toStartWith('Added slow.pdf.');
 	});
 });

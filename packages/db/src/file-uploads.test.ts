@@ -53,15 +53,13 @@ describe.skipIf(!databaseUrl)('uploads, against the database', () => {
 				parentId: null,
 				name: `upload-${made}.pdf`,
 				folders: [],
+				convert: false,
 				fileId: null,
 				version: null,
 				size,
 				sha256: null,
 				type: 'application/pdf',
-				blobId: null,
-				sessionUri: null,
-				beforeRevision: null,
-				beforeVersion: null,
+				blobId: `blob-${stamp}-${made}`,
 				expiresAt,
 			}),
 		);
@@ -143,6 +141,5 @@ describe.skipIf(!databaseUrl)('uploads, against the database', () => {
 			(found) => found.connectionId === connectionId,
 		);
 		expect(listed.map((found) => found.id).toSorted()).toEqual([idle.id, forgotten.id].toSorted());
-		expect(listed.every((found) => found.integrationId === `uploads-test-${stamp}`)).toBe(true);
 	});
 });

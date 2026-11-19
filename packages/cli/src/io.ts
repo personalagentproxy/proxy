@@ -4,7 +4,7 @@ import type {Result} from 'ts-results-es';
  * What a command works with, so the commands never touch the process: the environment, stdin,
  * stdout and stderr, fetch, for `pap git` and `pap gh`, running another program, files, and an
  * HTTP server on a unix socket, and for `pap files`, reading and writing the files it moves, as
- * streams, and waiting between tries. node-io.ts gives Node's; the tests give their own. Also the
+ * streams. node-io.ts gives Node's; the tests give their own. Also the
  * exit codes, and a failure: the code to exit with and one line saying what to do.
  */
 
@@ -44,13 +44,8 @@ export type Io = {
 	isDirectory: (path: string) => boolean;
 	/** A file's size and its SHA-256 in hex, read through as a stream, never whole. */
 	hashFile: (path: string) => Promise<Result<{size: number; sha256: string}, Error>>;
-	/**
-	 * A file's bytes as a stream, read from disk as they are asked for: all of them, or from `start`
-	 * up to `end`, not including it. A file that can't be read fails the stream.
-	 */
-	readStream: (path: string, range?: {start: number; end: number}) => ReadableStream<Uint8Array>;
-	/** Waits, as before trying again. */
-	sleep: (ms: number) => Promise<void>;
+	/** A file's bytes as a stream, read from disk as they are asked for. A file that can't be read fails the stream. */
+	readStream: (path: string) => ReadableStream<Uint8Array>;
 	/** A file's text; null where there is no such file. */
 	readText: (path: string) => Promise<Result<string | null, Error>>;
 	/** Writes what `body` gives to the file at `path`, as it comes, making the directories on the way; how many bytes it wrote. */

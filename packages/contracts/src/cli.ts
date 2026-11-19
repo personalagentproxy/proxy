@@ -77,9 +77,8 @@ export type CliCallFailure = {error: string; message: string};
  *   takes it, or says `&force=1` to write over what it holds now. `&id=` in place of the path
  *   writes over the file of that id. `&file=` is the local file's name, whose extension says what
  *   its bytes are, and `&as=` makes a new file in Google Drive a Doc, Sheet or Slides file.
- *   Answers `cliUploadStartedSchema`: where to PUT the bytes, which needs no token; at a URL that
- *   is `resumable`, in parts, each with its `Content-Range`, as Google Drive's resumable uploads
- *   take them.
+ *   Answers `cliUploadStartedSchema`: where to PUT the bytes, in one request, which needs no
+ *   token.
  * - `POST …/uploads/<upload>/done`: makes the file of the bytes that arrived, once they are
  *   checked against what was said, as files_upload_done does. Answers `cliPushedSchema`.
  */
@@ -152,13 +151,12 @@ export const cliUploadQuerySchema = z
 export const cliUploadStartedSchema = z.object({
 	/** The upload's id, which `…/uploads/<upload>/done` takes. */
 	upload: z.string(),
-	/** Where the bytes go: the URL with the headers to send there, until when, and whether it takes them in parts. */
+	/** Where the bytes go: the URL with the headers to send there, and until when. */
 	put: z.object({
 		url: z.string(),
 		method: z.literal('PUT'),
 		headers: z.record(z.string(), z.string()),
 		expiresAt: z.string(),
-		resumable: z.boolean(),
 	}),
 });
 

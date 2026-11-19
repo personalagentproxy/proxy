@@ -1,5 +1,5 @@
--- Uploads into a drive through a URL: what a call said it would send, where the bytes go (a blob
--- of the store here, or the drive's own upload session, encrypted), and where the upload stands.
+-- Uploads into a drive through a URL: what a call said it would send, the blob of the store here
+-- its bytes go into on their way to the drive, and where the upload stands.
 
 -- CreateEnum
 CREATE TYPE "FileUploadTarget" AS ENUM ('create', 'write');
@@ -16,17 +16,18 @@ CREATE TABLE "FileUpload" (
     "taskId" TEXT NOT NULL,
     "via" "AuditVia" NOT NULL,
     "entryId" TEXT,
-    "secretHash" TEXT,
+    "secretHash" TEXT NOT NULL,
     "target" "FileUploadTarget" NOT NULL,
     "parentId" TEXT,
     "name" TEXT NOT NULL,
+    "folders" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "convert" BOOLEAN NOT NULL DEFAULT false,
     "fileId" TEXT,
     "version" TEXT,
     "size" BIGINT NOT NULL,
     "sha256" TEXT,
     "type" TEXT NOT NULL,
-    "blobId" TEXT,
-    "sessionUri" TEXT,
+    "blobId" TEXT NOT NULL,
     "status" "FileUploadStatus" NOT NULL DEFAULT 'open',
     "lockedAt" TIMESTAMP(3),
     "receivedAt" TIMESTAMP(3),

@@ -73,7 +73,6 @@ function ticketText(ticket: UploadTicket): string {
 		'',
 		`Send ${ticket.name}’s ${ticket.size} bytes to the URL, from a shell, as:`,
 		`curl -X PUT --upload-file <path> '${put.url}'`,
-		...(put.resumable ? ['It takes the file in parts too, each with its Content-Range, as a resumable upload.'] : []),
 		'',
 		`Then call files_upload_done with upload ${ticket.upload}, which checks what arrived and finishes the file${ticket.target === 'write' ? '’s next version' : ''}. The URL takes one upload, until it expires.`,
 	].join('\n');

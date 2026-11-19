@@ -214,8 +214,8 @@ For Drive, Docs, Sheets and Slides:
 - **Create files** makes folders, documents and spreadsheets in My Drive, a folder or a shared
   drive, uploads other files, such as PDFs and pictures, copies files into them, and adds rows to a
   spreadsheet's tabs, and requires Read files. A document is written as Markdown and a spreadsheet
-  as CSV, and Google converts them as they are uploaded. Any other file, of any size, goes up as
-  its bytes through a URL, straight to Drive, as under [Uploading through a URL](#uploading-through-a-url).
+  as CSV, and Google converts them as they are uploaded. Any other file goes up as its bytes
+  through a URL, as under [Uploading through a URL](#uploading-through-a-url).
   Copying is done by Google, so a file of any size already in Drive is copied into a folder, a
   shared drive or My Drive, under its own name or a new one; folders aren't copied. A row is
   written as `Header: value` lines, under the headers of the tab's first row, and goes after the
@@ -279,27 +279,27 @@ gives back what they took away.
 
 A file of its own bytes, a PDF, a picture, a video, a docx, goes up to Drive through a URL, from
 wherever the agent runs, with a shell and `curl`, as it does [into Files](/connections/files#uploading-through-a-url).
-The URL is Drive's own resumable upload session, so the bytes go straight to Google and never
-through Personal Agent Proxy, and a file can be as large as Drive takes.
+The URL is Personal Agent Proxy's own: the bytes are kept there until the upload is finished, and
+only then sent on to Drive, so nothing reaches Drive that wasn't checked first. A file can be as
+large as the server takes, 100 MB unless its `FILES_MAX_MB` says otherwise.
 
 1. The agent asks for an upload with `files_upload`, saying the file's name and the folder or
    shared drive for a new file, My Drive if it names none, or the file and its version to write
    over one, and the file's size in bytes, with its SHA-256 if it likes. Everything is checked
    then, before any bytes are sent: that the agent may add files, or edit them to write over one;
    that the folder is there; that the file is still at the version given; and what the bytes may
-   be, as below. Over a file, its copy is kept first, as under [Version history](#version-history),
-   since Drive writes the file as soon as the bytes are in.
-2. It is answered with the session's URL and a line to run as it is:
+   be, as below.
+2. It is answered with the URL and a line to run as it is:
    `curl -X PUT --upload-file report.pdf '<url>'`. The URL is the only key to the upload, so it
-   needs no sign-in, and it takes the file in parts too, as `pap files push` sends it. It takes
-   one file, no more bytes than were said, for one hour; then the session is cancelled. Bytes all
-   in by then can still be finished for an hour more; past that, what arrived is taken out of
-   Drive again, as below, since only `files_upload_done` makes a file.
-3. The agent calls `files_upload_done`, which asks Drive whether every byte is in, and checks the
-   size and SHA-256 Drive has against what was said. Bytes that aren't what was said are taken out
-   of Drive again: a new file goes to Trash, and the revision written over a file is deleted, so
-   the file holds what it did before. Otherwise the file is logged in its history as the agent's,
-   for the task it started the upload for, and the agent is answered with its id, version and link.
+   needs no sign-in. It takes one file, no more bytes than were said, for one hour. Bytes all in
+   by then can still be finished for an hour more.
+3. The agent calls `files_upload_done`, which checks the size, and the SHA-256 if one was given,
+   against what arrived. Bytes that aren't what was said are refused, and nothing reaches Drive.
+   Otherwise the file in Drive is checked again: a file written over must still be at the version
+   given, or the upload is refused and the file left as it is. Then its copy is kept, as under
+   [Version history](#version-history), the bytes are sent on to Drive, and the file is logged in
+   its history as the agent's, for the task it started the upload for. The agent is answered with
+   its id, version and link.
 
 A new file keeps its own type, as its name's extension says, such as `report.pdf`, or as the agent
 says where the name has none. With `convert`, it becomes one of Google's own instead: a docx or
@@ -315,8 +315,7 @@ Over a file that is there:
 
 The version a write is checked against is Drive's head revision for a file of its own bytes, and
 Drive's version number for a Doc, Sheet or Slides file, which goes up with any change to it, its
-name too. `files_versions` says which version a file is at now. Drive keeps no bytes of a Doc,
-Sheet or Slides file, so what was converted can't be checked against the size or SHA-256 said.
+name too. `files_versions` says which version a file is at now.
 
 ### Version history
 
@@ -381,8 +380,7 @@ file's link too.
   CSV is its first tab, or the one `--tab` names. Google exports at most 10 MB of a file: past
   that, the agent is told to pull a PDF, or something smaller, as one tab. `pap` notes the file's
   id, the version it was at and what it was exported as.
-- `pap files push` sends a file back, as an [upload through a URL](#uploading-through-a-url) whose
-  bytes go straight to Drive, in parts, and pick up where they stopped if the connection drops. A
+- `pap files push` sends a file back, as an [upload through a URL](#uploading-through-a-url). A
   new file goes up as its bytes; with `--as doc`, `--as sheet` or `--as slides` a docx or Markdown
   becomes a Doc, an xlsx or CSV a Sheet, and a pptx a Slides file. The folders on its way that
   are missing are made first, as the agent's, and stay if the push is never finished. Over a file

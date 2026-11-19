@@ -38,10 +38,8 @@ import {env} from '../utils/env';
  * has no task: a copy is kept before each of their changes, unless the latest version holds what
  * the file holds now. A rename or a move to Trash leaves the content alone and takes no copy.
  *
- * A write made in one call is `changeDriveFile`; one that starts in one call and ends in another,
- * as an upload over a file does, takes its copy with `beginDriveChange` at the start and logs with
- * `logDriveChange` at the end. A copy that can't be kept refuses the write before anything is
- * written; once Drive has the write, it is answered as done even where logging it fails, which is
+ * A write goes through `changeDriveFile`, a file made through `logDriveCreate`. A copy that
+ * can't be kept refuses the write before anything is written; once Drive has the write, it is answered as done even where logging it fails, which is
  * then logged on the server.
  */
 
@@ -63,7 +61,7 @@ export function runEditor(run: Pick<NativeToolRun, 'caller' | 'connection'>, tok
 	return {token, change: changeBy(run.connection, runActor(run))};
 }
 
-/** A change about to be made to a file, as its log needs it: plain values, to be kept between the calls of a change made in two. */
+/** A change about to be made to a file, as its log needs it. */
 export type DriveChange = {
 	fileId: string;
 	/** The file's name before the change. */
@@ -212,12 +210,10 @@ function keepCopy(editor: DriveEditor, file: DriveFileState, revision: string | 
 	});
 }
 
-/**
- * Begins a change to a file in Drive: reads its revision, and, for a change to what it holds,
- * keeps its copy where the task has none yet. What it answers is what `logDriveChange` logs the
- * change with once it is made.
- */
-export function beginDriveChange(editor: DriveEditor, fileId: string, scope: ChangeScope): Promise<Result<DriveChange, ApiError>> {
+// Begins a change to a file in Drive: reads its revision, and, for a change to what it holds,
+// keeps its copy where the task has none yet. What it answers is what the change is logged with
+// once it is made.
+function beginDriveChange(editor: DriveEditor, fileId: string, scope: ChangeScope): Promise<Result<DriveChange, ApiError>> {
 	return Do(async ($) => {
 		const file = $(await getFileState(editor.token, fileId));
 		const beforeRevision = $(await revisionOf(editor.token, file));
@@ -261,19 +257,18 @@ function logChange(editor: DriveEditor, change: DriveChange, entry: DriveChangeE
 	});
 }
 
-/**
- * Logs a change begun with `beginDriveChange` once it is made in Drive, with Drive's revision of
- * the file after it. It never fails what it follows: a change that can't be logged is logged on
- * the server instead, and answered as null.
- */
-export function logDriveChange(editor: DriveEditor, change: DriveChange, entry: DriveChangeEntry): Promise<FileChangeRow | null> {
+// Logs a change begun with `beginDriveChange` once it is made in Drive, with Drive's revision of
+// the file after it. It never fails what it follows: a change that can't be logged is logged on
+// the server instead, and answered as null.
+function logDriveChange(editor: DriveEditor, change: DriveChange, entry: DriveChangeEntry): Promise<FileChangeRow | null> {
 	return logged(editor, change.fileId, entry.kind, logChange(editor, change, entry));
 }
 
 /**
  * A write to one file in Drive, made in one call, through its history: begun, so the task's copy
  * is kept first where the write changes what the file holds, and refused where that fails; made by
- * `write`, which answers what it did and how to log it; and logged, as `logDriveChange` logs.
+ * `write`, which answers what it did and how to log it; and logged, never failing the write once
+ * Drive has it.
  */
 export function changeDriveFile<T>(
 	editor: DriveEditor,
@@ -305,7 +300,7 @@ function logCreate(editor: DriveEditor, made: {id: string}): Promise<Result<File
 
 /**
  * Logs a file made in Drive, folders and copies too, as made by whoever made it; what a task made
- * needs no copy before it changes it. As `logDriveChange`, it never fails the making of the file.
+ * needs no copy before it changes it. It never fails the making of the file.
  */
 export function logDriveCreate(editor: DriveEditor, made: {id: string}): Promise<FileChangeRow | null> {
 	return logged(editor, made.id, 'create', logCreate(editor, made));
