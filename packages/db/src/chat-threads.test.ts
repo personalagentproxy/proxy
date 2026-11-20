@@ -40,9 +40,8 @@ import {
 	type ThreadRow,
 } from './harness';
 
-// A chat's threads, against the local database, as harness.test.ts runs: with it up and the
-// environment loaded, `bun --env-file=../../.env test src/chat-threads.test.ts` from this package;
-// skipped without DATABASE_URL. Everything made here is one organization's, deleted at the end. The
+// A chat's threads, against a database, as harness.test.ts runs: with `bun run test:db` from the
+// repository's root; skipped without DATABASE_URL. Everything made here is one organization's, deleted at the end. The
 // agent is woken as the api wakes it (@proxy/utils/harness readyForInference). A job is claimed
 // here by its thread rather than as the worker claims the next one due, so that nothing another
 // test left queued is taken.

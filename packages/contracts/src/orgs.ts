@@ -15,8 +15,6 @@ export const orgSchema = z.object({
 	role: roleSchema,
 	/** Whether it has been through the welcome flow, or skipped it; the web app shows it until then. */
 	onboarded: z.boolean(),
-	/** Whether Files are offered in it: the server has a place for their bytes (FILES_DIR or FILES_S3_BUCKET). */
-	files: z.boolean(),
 	memberCount: z.number(),
 	/** Invitations not taken up yet. */
 	invitationCount: z.number(),

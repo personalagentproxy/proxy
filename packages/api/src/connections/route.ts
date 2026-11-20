@@ -19,7 +19,6 @@ import {FILES_DEFAULT_ACTIONS, FILES_INTEGRATION_ID, VAULT_DEFAULT_ACTIONS, VAUL
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {isBuiltIn, parseActionChanges, requireIntegration} from '../utils/connection-actions';
 import {requireViewer} from '../utils/user-org';
-import {ensureFilesConnection, filesOffered} from '../native/files/connections';
 import {NAMED_AFTER_ORGANIZATION} from '../orgs/starter-connections';
 import {ensureSandboxConnection} from '../native/sandbox/connections';
 import {respond, respondAll} from './connection-response';
@@ -33,7 +32,6 @@ export function handleListConnectionsRoute(request: AuthenticatedRequest): Promi
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
 		$(await ensureSandboxConnection(viewer));
-		$(await ensureFilesConnection(viewer));
 		return {connections: $(await respondAll($(await listConnectionsWithCredential(viewer))))};
 	});
 }
@@ -200,15 +198,11 @@ export function handleCreateVaultRoute(request: AuthenticatedRequest): Promise<R
 /**
  * `POST /api/orgs/:org/connections/files`: a new drive, `{name, shared}`, beside the person's
  * built-in one: theirs, for the files of a team or a project, shared as any connection. Agents
- * read and write it by default, as every drive. Only where Files are offered: the server has a
- * place for their bytes.
+ * read and write it by default, as every drive.
  */
 export function handleCreateDriveRoute(request: AuthenticatedRequest): Promise<Result<Connection, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
-		if (!(await filesOffered())) {
-			return $(Err(ApiErr.forbidden()));
-		}
 		const {name, shared} = $(parseSchema(createDriveBodySchema, request.body));
 		const row = $(
 			await createConnection({

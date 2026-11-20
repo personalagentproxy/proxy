@@ -66,32 +66,20 @@ export function sandboxBackend(): Promise<SandboxBackend | null> {
 	return chosen;
 }
 
-let chosenBlobs: Promise<BlobBackend | null> | undefined;
+let chosenBlobs: Promise<BlobBackend> | undefined;
 
-async function chooseBlobBackend(): Promise<BlobBackend | null> {
+async function chooseBlobBackend(): Promise<BlobBackend> {
 	const {env} = await import('../utils/env');
-	if (env.FILES_S3_BUCKET !== undefined) {
-		if (!env.FILES_S3_ACCESS_KEY_ID || !env.FILES_S3_SECRET_ACCESS_KEY) {
-			log.error('FILES_S3_BUCKET needs FILES_S3_ACCESS_KEY_ID and FILES_S3_SECRET_ACCESS_KEY beside it; Files are off');
-			return null;
-		}
-		return s3BlobBackend({
-			bucket: env.FILES_S3_BUCKET,
-			accessKeyId: env.FILES_S3_ACCESS_KEY_ID,
-			secretAccessKey: env.FILES_S3_SECRET_ACCESS_KEY,
-			endpoint: env.FILES_S3_ENDPOINT,
-			region: env.FILES_S3_REGION,
-			prefix: env.FILES_S3_PREFIX,
-		});
+	const store = env.FILES_STORE;
+	if (store.kind === 's3') {
+		const {kind: _kind, ...bucket} = store;
+		return s3BlobBackend(bucket);
 	}
-	if (env.FILES_DIR !== undefined) {
-		return diskBlobBackend(env.FILES_DIR);
-	}
-	return null;
+	return diskBlobBackend(store.dir);
 }
 
-/** The server's blob backend, where the bytes of Files are kept, or null where Files are off. */
-export function blobBackend(): Promise<BlobBackend | null> {
+/** The server's blob backend, where the bytes of Files and of uploads are kept, which every server has (FILES_DIR or FILES_S3_BUCKET). */
+export function blobBackend(): Promise<BlobBackend> {
 	chosenBlobs ??= chooseBlobBackend();
 	return chosenBlobs;
 }

@@ -372,6 +372,19 @@ describe('google', () => {
 			'tasks_update',
 			'tasks_complete',
 			'tasks_reopen',
+			'files_copy',
+			'files_upload',
+			'files_upload_done',
+			'files_versions',
+			'files_version_read',
+			'files_restore',
+			'files_undo',
+			'docs_read',
+			'docs_edit',
+			'sheets_rows',
+			'sheets_tabs',
+			'slides_read',
+			'slides_edit',
 		]);
 	});
 
@@ -461,6 +474,13 @@ describe('google', () => {
 			'kind',
 			'content',
 		]);
+		// What content takes, told after its label, so an agent finds where a file's bytes go instead.
+		const properties = create?.inputSchema.properties ?? {};
+		expect(properties.content?.description).toStartWith('Content: a new Document as Markdown');
+		expect(properties.content?.description).toEndWith(
+			'goes up as its bytes with files_upload instead',
+		);
+		expect(properties.name?.description).toBe('Name');
 		expect(findTool(google, 'files_update')).toMatchObject({action: 'editFiles', risk: 'medium'});
 		const update = findTool(google, 'files_update');
 		expect(update?.kind === 'update' ? update.where?.values : null).not.toContain('Place');
@@ -471,7 +491,52 @@ describe('google', () => {
 		});
 	});
 
-	test('reading a range is a read, writing one needs Edit files', () => {
+	test('copying a file is a tool of its own, needing Create files, naming the file and where the copy goes', () => {
+		const copy = findTool(google, 'files_copy');
+
+		expect(copy).toMatchObject({
+			kind: 'native',
+			action: 'createFiles',
+			risk: 'medium',
+			readOnly: false,
+		});
+		expect(copy?.inputSchema.required).toEqual(['id']);
+		expect(Object.keys(copy?.inputSchema.properties ?? {})).toEqual(['id', 'parent', 'name']);
+	});
+
+	test('uploading takes the same params as Files’ upload, and convert, needing Create files, as finishing it does', () => {
+		const files = findIntegration('files');
+		const upload = findTool(google, 'files_upload');
+		const nativeUpload = files && findTool(files, 'files_upload');
+
+		expect(upload).toMatchObject({kind: 'native', action: 'createFiles', readOnly: false});
+		expect(upload?.inputSchema.required).toEqual(['size']);
+		expect(Object.keys(upload?.inputSchema.properties ?? {})).toEqual([
+			...Object.keys(nativeUpload?.inputSchema.properties ?? {}),
+			'convert',
+		]);
+		expect(findTool(google, 'files_upload_done')).toMatchObject({
+			kind: 'native',
+			action: 'createFiles',
+			inputSchema: {required: ['upload']},
+		});
+	});
+
+	test('a file’s versions are read with Read files, and giving one back or undoing a change needs Edit files', () => {
+		expect(
+			['files_versions', 'files_version_read', 'files_restore', 'files_undo'].map((name) => {
+				const tool = findTool(google, name);
+				return [name, tool?.kind, tool?.action, tool?.readOnly, tool?.inputSchema.required];
+			}),
+		).toEqual([
+			['files_versions', 'native', 'readFiles', true, ['id']],
+			['files_version_read', 'native', 'readFiles', true, ['id', 'version']],
+			['files_restore', 'native', 'editFiles', false, ['id', 'version']],
+			['files_undo', 'native', 'editFiles', false, ['change']],
+		]);
+	});
+
+	test('reading a range is a read, writing one needs Edit files, and either answers formulas where asked', () => {
 		expect(findTool(google, 'ranges_read')).toMatchObject({
 			action: 'readFiles',
 			readOnly: true,
@@ -482,6 +547,29 @@ describe('google', () => {
 			'spreadsheet',
 			'range',
 			'values',
+			'formulas',
+		]);
+		expect(findTool(google, 'ranges_read')?.inputSchema.properties?.formulas).toMatchObject({
+			enum: ['Yes', 'No'],
+			description: expect.stringMatching(/^Formulas: Yes answers each cell’s formula/),
+		});
+	});
+
+	test('a document’s and a presentation’s text is read with Read files, and editing it, or a spreadsheet’s rows and tabs, needs Edit files', () => {
+		expect(
+			['docs_read', 'docs_edit', 'sheets_rows', 'sheets_tabs', 'slides_read', 'slides_edit'].map(
+				(name) => {
+					const tool = findTool(google, name);
+					return [name, tool?.kind, tool?.action, tool?.readOnly, tool?.inputSchema.required];
+				},
+			),
+		).toEqual([
+			['docs_read', 'native', 'readFiles', true, ['id']],
+			['docs_edit', 'native', 'editFiles', false, ['id', 'revision', 'edits']],
+			['sheets_rows', 'native', 'editFiles', false, ['spreadsheet', 'tab']],
+			['sheets_tabs', 'native', 'editFiles', false, ['spreadsheet']],
+			['slides_read', 'native', 'readFiles', true, ['id']],
+			['slides_edit', 'native', 'editFiles', false, ['id', 'revision', 'replace']],
 		]);
 	});
 

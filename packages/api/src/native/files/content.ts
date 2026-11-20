@@ -5,8 +5,7 @@ import {pipeline} from 'node:stream/promises';
 import type {Request, Response} from 'express';
 import {Err, Result} from 'ts-results-es';
 
-import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
-import type {BlobBackend} from '@proxy/backends/blob/backend';
+import {ApiErr, type ApiError, Do} from '@proxy/utils';
 import {completeFileBlob, createFileBlob, type FileBlobRow} from '@proxy/db/files';
 
 import {blobBackend} from '../../backends/backends';
@@ -21,15 +20,6 @@ import {env} from '../../utils/env';
  * the largest a file may be is refused as it comes, not after.
  */
 
-const NO_STORE = 'This server keeps no files: it has no FILES_DIR or FILES_S3_BUCKET.';
-
-/** The blob store, or unavailable where the server has none. */
-export function requireBlobs(): Promise<Result<BlobBackend, ApiError>> {
-	return Do(async ($) => {
-		return $(requirePresent(await blobBackend(), ApiErr.unavailable(NO_STORE)));
-	});
-}
-
 /** The largest file taken, in bytes, as the server is set up. */
 export function maxFileBytes(): number {
 	return env.FILES_MAX_MB * 1024 * 1024;
@@ -42,11 +32,36 @@ function megabytes(bytes: number): string {
 /** A blob stored, for a version to point at. */
 export type StoredContent = {blobId: string; size: number; sha256: string};
 
+/** A new blob's key in the store: under its organization, and nothing else's. */
+export function newBlobKey(orgId: string): string {
+	return `${orgId}/${randomBytes(16).toString('hex')}`;
+}
+
 /** Stores what `body` gives as a new blob of the organization's; a validation error where it is over `maxBytes`. */
 export function storeContent(orgId: string, body: ReadableStream<Uint8Array>, maxBytes: number): Promise<Result<StoredContent, ApiError>> {
 	return Do(async ($) => {
-		const backend = $(await requireBlobs());
-		const blob = $(await createFileBlob({orgId, backendId: backend.id, key: `${orgId}/${randomBytes(16).toString('hex')}`}));
+		const backend = await blobBackend();
+		const blob = $(await createFileBlob({orgId, backendId: backend.id, key: newBlobKey(orgId)}));
+		return $(await fillBlob(blob, body, maxBytes));
+	});
+}
+
+/**
+ * Stores what `body` gives in a blob whose row is made, as an upload's is at its start, and
+ * completes the row; a validation error, saying `tooLarge`, where it is over `maxBytes`. A blob
+ * filled again holds what was sent last, as after an upload that failed partway is sent again.
+ */
+export function fillBlob(
+	blob: Pick<FileBlobRow, 'id' | 'backendId' | 'key'>,
+	body: ReadableStream<Uint8Array>,
+	maxBytes: number,
+	tooLarge = `A file is at most ${megabytes(maxBytes)}.`,
+): Promise<Result<StoredContent, ApiError>> {
+	return Do(async ($) => {
+		const backend = await blobBackend();
+		if (backend.id !== blob.backendId) {
+			return $(Err(ApiErr.unavailable('This upload was started for a store this server no longer uses: start it again.')));
+		}
 		const hasher = new Bun.CryptoHasher('sha256');
 		let size = 0;
 		const counted = body.pipeThrough(
@@ -64,7 +79,7 @@ export function storeContent(orgId: string, body: ReadableStream<Uint8Array>, ma
 		);
 		const put = await backend.put(blob.key, counted);
 		if (put.isErr() && size > maxBytes) {
-			return $(Err(ApiErr.validationError(`A file is at most ${megabytes(maxBytes)}.`)));
+			return $(Err(ApiErr.validationError(tooLarge)));
 		}
 		$(put);
 		const stored = $(await completeFileBlob(blob.id, {size, sha256: hasher.digest('hex')}));
@@ -87,7 +102,7 @@ export function storeText(orgId: string, text: string, maxBytes: number): Promis
 /** A blob's bytes, from the store that took them. */
 export function openContent(blob: Pick<FileBlobRow, 'backendId' | 'key'>): Promise<Result<ReadableStream<Uint8Array>, ApiError>> {
 	return Do(async ($) => {
-		const backend = $(await requireBlobs());
+		const backend = await blobBackend();
 		if (backend.id !== blob.backendId) {
 			return $(Err(ApiErr.unavailable('This file’s content is in a store this server no longer uses.')));
 		}
@@ -115,6 +130,14 @@ export function uploadBody(request: Request): Result<ReadableStream<Uint8Array>,
 	if (!request.is(UPLOAD_TYPE)) {
 		return Err(ApiErr.validationError(`An upload’s body is the file, sent as ${UPLOAD_TYPE}`));
 	}
+	return requestBytes(request);
+}
+
+/**
+ * A request's body as a stream of its bytes, read as they come, whatever its type says: for a
+ * route mounted where no parser reads a body first, as an upload's URL is (upload-route.ts).
+ */
+export function requestBytes(request: Request): Result<ReadableStream<Uint8Array>, ApiError> {
 	const chunks = request[Symbol.asyncIterator]();
 	return Result.wrap(
 		() =>

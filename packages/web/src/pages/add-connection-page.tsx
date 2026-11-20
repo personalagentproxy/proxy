@@ -2,7 +2,6 @@ import {useNavigate, useSearchParams} from 'react-router';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {IntegrationCatalog, SignInFailed} from '@/components/integration-catalog';
 import {SharePicker} from '@/components/share-choice';
-import {useHuman} from '@/hooks/use-human';
 import {useLoaded} from '@/hooks/use-loaded';
 import {useShareChoice} from '@/hooks/use-share-choice';
 import type {addConnectionLoader} from '@/loaders';
@@ -26,7 +25,6 @@ function AddConnection() {
 	const {connections, configured} = useLoaded<typeof addConnectionLoader>();
 	const navigate = useNavigate();
 	const [params] = useSearchParams();
-	const files = useHuman()?.org.files ?? false;
 	const {shared, query} = useShareChoice();
 
 	return (
@@ -36,7 +34,6 @@ function AddConnection() {
 			<IntegrationCatalog
 				connections={connections}
 				configured={configured}
-				files={files}
 				shared={shared}
 				onConnectForm={(integrationId) =>
 					navigate(`/${org}/connections/new/${integrationId}${query}`)

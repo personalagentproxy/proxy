@@ -101,14 +101,14 @@ const FILES_COMMANDS: Record<string, Command> = {
 		usage: PULL,
 		summary: 'a file into the sandbox',
 		help: FILES_HELP,
-		flags: {id: 'value', version: 'value'},
+		flags: {id: 'value', version: 'value', as: 'value', tab: 'value'},
 		run: pullFile,
 	}),
 	push: jsonCommand('files push', {
 		usage: PUSH,
 		summary: 'a file to the drive',
 		help: FILES_HELP,
-		flags: {force: 'switch'},
+		flags: {force: 'switch', id: 'value', as: 'value'},
 		run: pushFile,
 	}),
 };

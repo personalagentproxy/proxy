@@ -3,6 +3,7 @@ import {z} from 'zod';
 
 import {CLI_CALL_PATH, CLI_FILES_PATH, CLI_STATUS, type CliCallFailure} from '@proxy/contracts/cli';
 import {CLI_GITHUB_API_PATH, CLI_GITHUB_GIT_PATH, CLI_GITHUB_IDENTITY_PATH} from '@proxy/contracts/cli-github';
+import {UPLOADS_PATH} from '@proxy/contracts/uploads';
 
 import {handleActivityTimelineRoute, handleListActivityRoute, handleTaskRunRoute} from '../activity/route';
 import {handleAgentLoginRoute, handleAgentLogoutRoute} from '../agent-auth/session';
@@ -86,8 +87,10 @@ import {
 	handleWriteFileRoute,
 } from '../native/files/route';
 import {chatFiles} from '../native/files/chat';
-import {handleCliListFilesRoute, handleCliPullFileRoute, handleCliPushFileRoute} from '../native/files/cli';
+import {handleUploadBytesRoute} from '../native/files/upload-route';
+import {handleCliFinishUploadRoute, handleCliListFilesRoute, handleCliPullFileRoute, handleCliStartUploadRoute} from '../native/files/cli';
 import {handleCreateRecordRoute, handleDeleteRecordRoute, handleGetRecordRoute, handleListRecordsRoute, handleUpdateRecordRoute} from '../records/route';
+import {handleGetDriveHistoryRoute, handleListDriveHistoryRoute, handleRestoreDriveVersionRoute, handleUndoDriveChangeRoute} from '../records/google-history-route';
 import {handleAgendaRoute, handleFindEventsRoute} from '../widgets/agenda';
 import {handleAnswerRoute} from '../widgets/answer';
 import {handleBankAccountsRoute, handleBankTransactionsRoute} from '../widgets/bank';
@@ -119,6 +122,13 @@ export function createApiRouter(): express.Router {
 	router.get(CLI_GITHUB_IDENTITY_PATH, withCliAuth('CLI GitHub identity route', handleGitHubIdentityRoute));
 	router.use(CLI_GITHUB_GIT_PATH, withCliRelay('CLI GitHub git route', handleGitHubGitRoute));
 	router.use(CLI_GITHUB_API_PATH, withCliRelay('CLI GitHub API route', handleGitHubApiRoute));
+
+	// An upload's bytes, at the URL files_upload answered with (native/files/upload-route.ts): from
+	// anything that has the URL, a model's curl or a page in a browser, so open to any origin, with
+	// the secret in the address as the one credential. Before the JSON parser, so a body is the
+	// file whatever type it is sent as.
+	router.use(UPLOADS_PATH, allowAnyOrigin);
+	router.put(`${UPLOADS_PATH}/:secret`, wrapAsyncRoute('Upload bytes route', handleUploadBytesRoute));
 
 	router.use(express.json({limit: BODY_LIMIT}));
 
@@ -222,6 +232,13 @@ export function createApiRouter(): express.Router {
 	org.post(`${files}/:fileId/untrash`, withAuthResult('Untrash file route', handleUntrashFileRoute));
 	org.post(`${files}/:fileId/restore`, withAuthResult('Restore file version route', handleRestoreFileRoute));
 
+	// A Google connection's history of its files in Drive, for its page (records/google-history-route.ts).
+	const driveHistory = '/connections/:connectionId/drive-history';
+	org.get(driveHistory, withAuthResult('List Drive history route', handleListDriveHistoryRoute));
+	org.get(`${driveHistory}/:fileId`, withAuthResult('Get Drive file history route', handleGetDriveHistoryRoute));
+	org.post(`${driveHistory}/:fileId/restore`, withAuthResult('Restore Drive version route', handleRestoreDriveVersionRoute));
+	org.post(`${driveHistory}/:fileId/changes/:changeId/undo`, withAuthResult('Undo Drive change route', handleUndoDriveChangeRoute));
+
 	// A custom MCP server's logo, the icon of its site, for the person's pages and the agent's alike.
 	router.get('/api/favicons/:host', wrapAsyncRoute('Favicon route', handleFaviconRoute));
 
@@ -308,11 +325,13 @@ export function createApiRouter(): express.Router {
 	// a process in a sandbox, not a browser, and the bearer token, which no browser sends on its
 	// own, is the guard, as for the MCP server. Nothing above is mounted on `/api/cli`.
 	router.post(CLI_CALL_PATH, withCliAuth('CLI call route', handleCliCallRoute));
-	// A drive's files by path, for `pap files`: bytes down and up, which a tool's answer can't carry
-	// (native/files/cli.ts). An upload's body is the file, which the JSON parser above leaves alone.
+	// A drive's files by path, for `pap files`: bytes down, which a tool's answer can't carry, and
+	// uploads started and finished by path, whose bytes go to the URL the start answers with
+	// (native/files/cli.ts).
 	router.get(`${CLI_FILES_PATH}/:connectionId/list`, withCliAuth('CLI list files route', handleCliListFilesRoute));
 	router.get(`${CLI_FILES_PATH}/:connectionId/content`, withCliAuth('CLI pull file route', handleCliPullFileRoute));
-	router.put(`${CLI_FILES_PATH}/:connectionId/content`, withCliAuth('CLI push file route', handleCliPushFileRoute));
+	router.post(`${CLI_FILES_PATH}/:connectionId/uploads`, withCliAuth('CLI start upload route', handleCliStartUploadRoute));
+	router.post(`${CLI_FILES_PATH}/:connectionId/uploads/:upload/done`, withCliAuth('CLI finish upload route', handleCliFinishUploadRoute));
 
 	// MCP clients such as Claude, ChatGPT and Poke: the MCP server, signed in with OAuth 2.1, where
 	// Personal Agent Proxy is its own authorization server. Clients find it from the MCP server's

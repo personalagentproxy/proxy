@@ -88,6 +88,23 @@ export type FileList = z.infer<typeof fileListSchema>;
 const versionTaskSchema = z.object({id: z.string(), title: z.string()}).nullable();
 
 /**
+ * Who made a version or a change, as far as the journal has it: a member, or an agent as the
+ * file's makers are drawn, with the task it was for.
+ */
+export const fileAuthorSchema = z.discriminatedUnion('kind', [
+	z.object({
+		kind: z.literal('person'),
+		name: z.string(),
+		email: z.string(),
+		image: z.string().nullable(),
+	}),
+	personaMakerSchema.extend({task: versionTaskSchema}),
+	agentMakerSchema.extend({task: versionTaskSchema}),
+]);
+
+export type FileAuthor = z.infer<typeof fileAuthorSchema>;
+
+/**
  * One of a file's versions: what the file was called and held then, when it was made, and by whom
  * as far as it is known: a member, or an agent as the file's makers are drawn, with the task it
  * was for; and whether it gave an earlier version back.
@@ -101,18 +118,7 @@ export const fileVersionSchema = z.object({
 	at: z.string(),
 	/** The one the file holds now. */
 	current: z.boolean(),
-	by: z
-		.discriminatedUnion('kind', [
-			z.object({
-				kind: z.literal('person'),
-				name: z.string(),
-				email: z.string(),
-				image: z.string().nullable(),
-			}),
-			personaMakerSchema.extend({task: versionTaskSchema}),
-			agentMakerSchema.extend({task: versionTaskSchema}),
-		])
-		.nullable(),
+	by: fileAuthorSchema.nullable(),
 	restored: z.boolean(),
 });
 

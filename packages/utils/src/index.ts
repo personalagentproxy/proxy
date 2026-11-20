@@ -1,4 +1,4 @@
-export {ApiErr, setDbLogger, setDbMetrics, wrapDb} from './api-error';
+export {ApiErr, apiErrorMessage, setDbLogger, setDbMetrics, wrapDb} from './api-error';
 export type {ApiError, DbLogger, DbMetrics} from './api-error';
 export {CHAT_MODELS, isChatModel} from './chat-models';
 export type {ChatModel} from './chat-models';

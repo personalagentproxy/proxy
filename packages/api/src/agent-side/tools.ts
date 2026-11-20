@@ -1,3 +1,5 @@
+import {randomUUID} from 'node:crypto';
+
 import {Err, Ok, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
@@ -35,7 +37,6 @@ import {parseRecordValues} from '../records/record-values';
 import {loadConnection} from '../records/target';
 import {log as serverLog} from '../observability/log';
 import {integrationOf} from '../utils/connection-actions';
-import {ensureFilesConnection} from '../native/files/connections';
 import {ensureSandboxConnection} from '../native/sandbox/connections';
 import type {NativeToolRun} from '../native/tool';
 import {requireOpenTask} from './tasks';
@@ -86,7 +87,6 @@ export function listAgentConnections(signedIn: SignedInAgent): Promise<Result<z.
 	return Do(async ($) => {
 		const agent = $(await requireAgent(signedIn));
 		$(await ensureSandboxConnection(agentViewer(signedIn)));
-		$(await ensureFilesConnection(agentViewer(signedIn)));
 		const connections = $(await listConnectionsWithCredential(agentViewer(signedIn))).flatMap((connection) => {
 			const integration = integrationOf(connection);
 			if (!integration) {
@@ -254,7 +254,7 @@ export function runAgentTool(caller: TaskCaller, connectionId: string, toolName:
 		const unavailable = unavailableActions(connection);
 		const run: ToolRun = {
 			caller,
-			target: {connection, collection},
+			target: {connection, collection, by: {agentId: caller.agent.agentId, taskId: caller.taskId}},
 			connector: $(requirePresent(connectorFor(integration.id, collection.id), ApiErr.notFound('tool', toolName))),
 			tool,
 			actions: actionsOf(agent, connection, integration, unavailable),
@@ -313,12 +313,22 @@ function runNativeTool(integration: Integration, tool: ApiTool, run: NativeToolR
 
 // Whether the person allowed the run by what they did, whatever the agent's access: for one of
 // the integration's own tools whose module says so (native/tool.ts NativeToolAllowance).
-function allowedAnyway(integration: Integration, tool: ServerTool | ApiTool, run: NativeToolRun): Promise<Result<boolean, ApiError>> {
+function allowedAnyway(integration: Integration, tool: Tool, run: NativeToolRun): Promise<Result<boolean, ApiError>> {
 	const allowance = tool.kind === 'native' ? apiIntegration(integration.id)?.allowances?.[tool.name] : undefined;
 	if (!allowance) {
 		return Promise.resolve(Ok(false));
 	}
 	return allowance(run);
+}
+
+// The action a run needs: the one the integration's module says for its params, for one of its
+// own tools that has one (native/tool.ts NativeToolAction); else the tool's own.
+function actionOfRun(integration: Integration, tool: Tool, run: NativeToolRun): Promise<Result<string, ApiError>> {
+	const action = tool.kind === 'native' ? apiIntegration(integration.id)?.actions?.[tool.name] : undefined;
+	if (!action) {
+		return Promise.resolve(Ok(tool.action));
+	}
+	return action(run);
 }
 
 /** What a run is checked against: the agent, for the caller's task, on a connection as the agent reaches it now, since `startedAt`. */
@@ -340,17 +350,20 @@ export type RunEntry = {collection: string; action: string; title: string | null
 
 /**
  * The gate of a tool with params of its own, and of what code in a sandbox does as one does
- * (native/files/cli.ts): `work` is done where the agent has the tool's action, and the one it
+ * (native/files/cli.ts), as a collection's read of a Google Drive's files: `work` is done where the agent has the tool's action, or the one the
+ * integration's module says this run needs (native/tool.ts NativeToolAction), and the one it
  * needs beside it, or where the person allowed this very run by what they did, as by attaching
  * the file it reads. Logged as `entry`: refused, as denied, saying why; failed, with what went
- * wrong; or allowed.
+ * wrong; or allowed. The entry's id is given before it is logged, so `work` can keep it.
  */
-export function gateRun<T>(target: RunTarget, tool: ServerTool | ApiTool, params: Record<string, unknown>, entry: RunEntry, work: () => Promise<Result<T, ApiError>>): Promise<Result<T, ApiError>> {
+export function gateRun<T>(target: RunTarget, tool: Tool, params: Record<string, unknown>, entry: RunEntry, work: (entryId: string) => Promise<Result<T, ApiError>>): Promise<Result<T, ApiError>> {
 	return Do(async ($) => {
 		const {caller, agent, connection, integration, startedAt} = target;
+		const entryId = randomUUID();
 		const logRun = (outcome: Outcome, error?: string) => {
 			recordToolCall(caller, connection, tool.action, outcome, startedAt, error);
 			return logAgentRequest({
+				id: entryId,
 				orgId: caller.agent.orgId,
 				agentId: caller.agent.agentId,
 				connectionId: connection.id,
@@ -368,12 +381,14 @@ export function gateRun<T>(target: RunTarget, tool: ServerTool | ApiTool, params
 		};
 		const unavailable = unavailableActions(connection);
 		const actions = actionsOf(agent, connection, integration, unavailable);
-		const missing = [tool.action, tool.requires].find((actionId) => actionId !== undefined && !actions.includes(actionId));
-		if (missing !== undefined && !$(await allowedAnyway(integration, tool, {caller, connection, params}))) {
+		const run: NativeToolRun = {caller, connection, params, entryId};
+		const action = $(await actionOfRun(integration, tool, run));
+		const missing = [action, tool.requires].find((actionId) => actionId !== undefined && !actions.includes(actionId));
+		if (missing !== undefined && !$(await allowedAnyway(integration, tool, run))) {
 			$(await logRun('denied'));
 			return $(Err(actionRefusal(integration, agent, connection, unavailable, missing)));
 		}
-		const done = await work();
+		const done = await work(entryId);
 		if (done.isErr()) {
 			$(await logRun('failed', failureOf(done.error)));
 		}
@@ -395,7 +410,9 @@ function runParamsTool(target: RunTarget, tool: ServerTool | ApiTool, params: un
 		const {caller, connection, integration} = target;
 		const entry = {collection: TOOLS_COLLECTION_ID, action: tool.name, title: null, query: loggedParams(args)};
 		const text = $(
-			await gateRun(target, tool, args, entry, () => (tool.kind === 'call' ? callCustomTool(connection, tool.name, args) : runNativeTool(integration, tool, {caller, connection, params: args}))),
+			await gateRun(target, tool, args, entry, (entryId) =>
+				tool.kind === 'call' ? callCustomTool(connection, tool.name, args) : runNativeTool(integration, tool, {caller, connection, params: args, entryId}),
+			),
 		);
 		return {text};
 	});

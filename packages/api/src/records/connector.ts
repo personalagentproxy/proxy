@@ -2,6 +2,7 @@ import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError} from '@proxy/utils';
 import type {ConnectionRow} from '@proxy/db/connection';
+import type {FileActor} from '@proxy/db/files';
 import type {Collection} from '@proxy/integrations';
 import type {Crumb, DataRecord, RecordPage} from '@proxy/contracts/records';
 
@@ -30,10 +31,16 @@ export function requireFirstPage(query: ListQuery): Result<void, ApiError> {
 	return Ok(undefined);
 }
 
-/** The connection and collection a request is about, with the connection's encrypted credential. */
+/**
+ * The connection and collection a request is about, with the connection's encrypted credential,
+ * and who it is for, where it may write: an agent for one of its tasks, or a member. A connector
+ * that keeps a history of its writes, as Google Drive's (google-history.ts), logs them as `by`;
+ * what only reads, as a watch's look, has none.
+ */
 export type RecordTarget = {
 	connection: ConnectionRow & {credential: string | null};
 	collection: Collection;
+	by?: FileActor;
 };
 
 /**

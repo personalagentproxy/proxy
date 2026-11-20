@@ -1,12 +1,16 @@
 import {z} from 'zod';
 
-import {PAP_METHODS} from './cli-constants';
+import {CLI_CONVERSIONS, CLI_EXPORTS, PAP_METHODS} from './cli-constants';
 
 export {
 	CLI_CALL_PATH,
+	CLI_CONVERSIONS,
+	CLI_EXPORTS,
 	CLI_FILE_HEADER,
 	CLI_FILES_PATH,
 	CLI_STATUS,
+	type CliConversion,
+	type CliExport,
 	PAP_METHODS,
 	type PapMethod,
 } from './cli-constants';
@@ -51,19 +55,32 @@ export type CliCallFailure = {error: string; message: string};
 
 /**
  * A drive's files by path, for code in a sandbox (`/api/cli/files/:connection/…`), which a tool
- * can't carry: a tool's answer is text, and a file is bytes. With the same token, through the same
- * gate and into the same log as a tool run: listing and reading need Read files, a new file Add
- * files, and writing over one Edit files. A path is the names from the drive's top with `/`
- * between them, as `Reports/2026/q3.csv`; the top is the empty path. Answered with the statuses
- * `/api/cli/call` uses: 200, 422 with `{error, message}` for what went wrong, in words for a
- * model, and 401 for the token.
+ * can't carry: a tool's answer is text, and a file is bytes. A drive is a Files connection or a
+ * Google one. With the same token, through the same gate and into the same log as a tool run:
+ * listing and reading need Read files, a new file Add files, and writing over one Edit files. A
+ * path is the names from the drive's top with `/` between them, as `Reports/2026/q3.csv`; the top
+ * is the empty path. Google Drive's top holds its own three places, so a path there starts with
+ * one: `My Drive/Reports/q3.pdf`, `Shared drives/<drive>/…` or `Shared with me/…`. Where a name
+ * matches more than one file, as Drive allows, the path is refused with their ids, and the file is
+ * named by its id instead. Answered with the statuses `/api/cli/call` uses: 200, 422 with
+ * `{error, message}` for what went wrong, in words for a model, and 401 for the token.
  * - `GET …/list?path=`: what the folder holds (`cliFileListSchema`).
  * - `GET …/content?path=` or `?id=`, with `&version=` for an earlier version: the file's bytes,
- *   and which file they are in the `x-pap-file` header (`cliFileSchema`, URI-encoded JSON).
- * - `PUT …/content?path=`, its body the bytes, sent as `application/octet-stream`: a new file
- *   there, the folders on the way made where they are missing; or, where a file is there, its next
- *   version, by whoever names the version it holds (`&version=`), as the write tool takes it, or
- *   says `&force=1` to write over whatever it holds. Answers `cliPushedSchema`.
+ *   and which file they are in the `x-pap-file` header (`cliPulledSchema`, URI-encoded JSON). A
+ *   Google Doc, Sheet or Slides file has no bytes of its own, and comes as Drive exports it: as
+ *   `&as=` says (`cliPullQuerySchema`), else a Doc as Markdown, a Sheet as xlsx and a Slides file
+ *   as pptx; a Sheet as CSV is its first tab, or the one `&tab=` names.
+ * - `POST …/uploads?path=&size=&sha256=`: starts an upload of a file to the path, its size in
+ *   bytes and its SHA-256 in hex said first, as files_upload does (@proxy/contracts/uploads): a
+ *   new file there, the folders on the way made where they are missing; or, where a file is
+ *   there, its next version, by whoever names the version it holds (`&version=`), as the write tool
+ *   takes it, or says `&force=1` to write over what it holds now. `&id=` in place of the path
+ *   writes over the file of that id. `&file=` is the local file's name, whose extension says what
+ *   its bytes are, and `&as=` makes a new file in Google Drive a Doc, Sheet or Slides file.
+ *   Answers `cliUploadStartedSchema`: where to PUT the bytes, in one request, which needs no
+ *   token.
+ * - `POST …/uploads/<upload>/done`: makes the file of the bytes that arrived, once they are
+ *   checked against what was said, as files_upload_done does. Answers `cliPushedSchema`.
  */
 export const cliFileSchema = z.object({
 	id: z.string(),
@@ -79,7 +96,20 @@ export const cliFileSchema = z.object({
 
 export type CliFile = z.infer<typeof cliFileSchema>;
 
-export const cliFileListSchema = z.object({path: z.string(), files: z.array(cliFileSchema)});
+export const cliFileListSchema = z.object({
+	path: z.string(),
+	files: z.array(cliFileSchema),
+	/** Whether the folder holds more than are listed, as a Google Drive folder of thousands may. */
+	more: z.boolean().optional(),
+});
+
+/** A file pulled: which it is, and what it was exported as, where it has no bytes of its own. */
+export const cliPulledSchema = cliFileSchema.extend({
+	/** What a Google Doc, Sheet or Slides file was exported as (`CLI_EXPORTS`); null for bytes as they are. */
+	format: z.string().nullable(),
+});
+
+export type CliPulled = z.infer<typeof cliPulledSchema>;
 
 export const cliPushedSchema = z.object({
 	file: cliFileSchema,
@@ -96,13 +126,38 @@ export const cliPullQuerySchema = z
 		path: z.string().min(1).max(2000).optional(),
 		id: z.string().min(1).optional(),
 		version: z.string().min(1).optional(),
+		as: z.enum(CLI_EXPORTS).optional(),
+		tab: z.string().min(1).max(200).optional(),
 	})
 	.refine(({path, id}) => (path === undefined) !== (id === undefined), {
 		message: 'Name the file by path or by id, one of them',
 	});
 
-export const cliPushQuerySchema = z.object({
-	path: z.string().min(1).max(2000),
-	version: z.string().min(1).optional(),
-	force: z.enum(['1']).optional(),
+export const cliUploadQuerySchema = z
+	.object({
+		path: z.string().min(1).max(2000).optional(),
+		id: z.string().min(1).optional(),
+		size: z.coerce.number().int().nonnegative(),
+		sha256: z.string().regex(/^[0-9a-f]{64}$/),
+		version: z.string().min(1).optional(),
+		force: z.enum(['1']).optional(),
+		file: z.string().min(1).max(2000).optional(),
+		as: z.enum(CLI_CONVERSIONS).optional(),
+	})
+	.refine(({path, id}) => (path === undefined) !== (id === undefined), {
+		message: 'Name where the file goes by path or by id, one of them',
+	});
+
+export const cliUploadStartedSchema = z.object({
+	/** The upload's id, which `…/uploads/<upload>/done` takes. */
+	upload: z.string(),
+	/** Where the bytes go: the URL with the headers to send there, and until when. */
+	put: z.object({
+		url: z.string(),
+		method: z.literal('PUT'),
+		headers: z.record(z.string(), z.string()),
+		expiresAt: z.string(),
+	}),
 });
+
+export type CliUploadStarted = z.infer<typeof cliUploadStartedSchema>;

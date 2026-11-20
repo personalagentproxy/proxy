@@ -15,6 +15,8 @@
 		"./desktop-auth": "./src/desktop-auth.ts",
 		"./feedback": "./src/feedback.ts",
 		"./files": "./src/files.ts",
+		"./file-uploads": "./src/file-uploads.ts",
+		"./file-undo": "./src/file-undo.ts",
 		"./harness": "./src/harness.ts",
 		"./harness-transcript": "./src/harness-transcript.ts",
 		"./vault": "./src/vault.ts",
@@ -40,7 +42,8 @@
 		"@prisma/client": "^6.19.3",
 		"@proxy/utils": "workspace:*",
 		"prisma": "^6.19.3",
-		"ts-results-es": "^7.1.0"
+		"ts-results-es": "^7.1.0",
+		"zod": "^4.5.4"
 	},
 	"devDependencies": {
 		"@electric-sql/pglite": "0.4.3",

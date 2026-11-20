@@ -22,10 +22,20 @@ export const CLI_CALL_PATH = '/api/cli/call';
 export const CLI_STATUS = {ok: 200, failed: 422, refused: 401} as const;
 
 /**
- * Where the files of a drive are reached by path, under `PAP_URL` (cli.ts): `<this>/<connection>/list`
- * and `<this>/<connection>/content`.
+ * Where the files of a drive are reached by path, under `PAP_URL` (cli.ts): `<this>/<connection>/list`,
+ * `<this>/<connection>/content`, and `<this>/<connection>/uploads` with `…/uploads/<upload>/done`.
  */
 export const CLI_FILES_PATH = '/api/cli/files';
 
-/** The header a file's bytes come with, saying which file they are: URI-encoded JSON (`cliFileSchema` in cli.ts). */
+/** The header a file's bytes come with, saying which file they are: URI-encoded JSON (`cliPulledSchema` in cli.ts). */
 export const CLI_FILE_HEADER = 'x-pap-file';
+
+/** What a Google Doc, Sheet or Slides file is pulled as: `pap files pull --as`. */
+export const CLI_EXPORTS = ['md', 'docx', 'pdf', 'xlsx', 'csv', 'pptx', 'txt'] as const;
+
+export type CliExport = (typeof CLI_EXPORTS)[number];
+
+/** What a new file pushed to Google Drive is made into: `pap files push --as`. */
+export const CLI_CONVERSIONS = ['doc', 'sheet', 'slides'] as const;
+
+export type CliConversion = (typeof CLI_CONVERSIONS)[number];

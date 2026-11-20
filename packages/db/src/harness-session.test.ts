@@ -26,11 +26,10 @@ import {
 	type ThreadRow,
 } from './harness';
 
-// What a harness that runs its tools itself writes, against the local database, as harness.test.ts
-// runs: with the database up and the environment loaded, `bun --env-file=../../.env test` from
-// this package; skipped without DATABASE_URL. A turn's output appended as it goes, the session
-// kept on the thread as the job ends, and a sleep as a wake job, each fenced by the turn's job.
-// Everything made here is one organization's, deleted at the end.
+// What a harness that runs its tools itself writes, against a database, as harness.test.ts runs:
+// with `bun run test:db` from the repository's root; skipped without DATABASE_URL. A turn's output
+// appended as it goes, the session kept on the thread as the job ends, and a sleep as a wake job,
+// each fenced by the turn's job. Everything made here is one organization's, deleted at the end.
 const databaseUrl = process.env.DATABASE_URL;
 
 function unwrap<T>(result: Result<T, ApiError>): T {

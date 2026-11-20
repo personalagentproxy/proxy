@@ -15,7 +15,6 @@ import {log} from '../../observability/log';
 import {loadConnection} from '../../records/target';
 import {env} from '../../utils/env';
 import type {OrgViewer} from '../../utils/user-org';
-import {ensureFilesConnection} from './connections';
 import {requireFile} from './connector';
 import {maxFileBytes, readContent, storeContent, uploadBody} from './content';
 import {asFolderName, CHATS_FOLDER, isShownImage, mediaType, requireFileName} from './names';
@@ -41,17 +40,14 @@ import {readVersion} from './text';
 const FILE_CHARACTERS = 8000;
 const MESSAGE_CHARACTERS = 24_000;
 
-const NO_DRIVE = 'Files aren’t set up here, so nothing can be attached.';
-
 /** The most files one answer shows; a picture beyond them stays a link. */
 const MAX_SHOWN = 10;
 
-// The viewer's own drive, made where they have none yet.
+// The viewer's own drive, made with their membership.
 function ownDrive(viewer: OrgViewer): Promise<Result<FileChangeBy, ApiError>> {
 	return Do(async ($) => {
-		$(await ensureFilesConnection(viewer));
 		const found = $(await getOwnDrive({orgId: viewer.orgId, userId: viewer.userId, integrationId: FILES_INTEGRATION_ID}));
-		const connectionId = $(requirePresent(found, ApiErr.unavailable(NO_DRIVE)));
+		const connectionId = $(requirePresent(found, ApiErr.internalError(new Error('A member has no drive of their own'))));
 		return {orgId: viewer.orgId, connectionId, by: {userId: viewer.userId}};
 	});
 }

@@ -24,8 +24,9 @@ const CALENDAR = [[scope('calendar.events'), scope('calendar.calendarlist.readon
 // without an offset are on, `calendar.calendarlist.readonly`.
 const AVAILABILITY = [[scope('calendar.events.freebusy'), scope('calendar.calendarlist.readonly')]];
 
-// Drive's export and uploads and the Sheets API take `drive` for reading and writing alike, so it
-// alone covers every file action; the Docs, Sheets and Slides scopes would add nothing to it.
+// Drive's export and uploads, and the Docs, Sheets and Slides APIs, take `drive` for reading and
+// writing alike, so it alone covers every file action, editing a Doc's or a Slides file's text in
+// place too; the Docs, Sheets and Slides scopes would add nothing to it.
 const DRIVE = [[scope('drive')]];
 
 const CONTACTS = [[scope('contacts')]];

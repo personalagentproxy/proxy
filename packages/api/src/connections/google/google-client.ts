@@ -1,4 +1,4 @@
-import {Err, Ok, type Result} from 'ts-results-es';
+import {Err, Ok, Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, type FetchError, httpRequest} from '@proxy/utils';
@@ -21,21 +21,23 @@ type StoredConnection = {id: string; credential: string | null};
 const googleErrorSchema = z.object({
 	error: z.object({
 		message: z.string().optional(),
+		// The newer APIs' kind of error, such as FAILED_PRECONDITION.
+		status: z.string().optional(),
 		errors: z.array(z.object({reason: z.string().optional()})).optional(),
 		// Newer APIs say why in `details`, such as SERVICE_DISABLED.
 		details: z.array(z.object({reason: z.string().optional()})).optional(),
 	}),
 });
 
-// The reasons Google gave for an error, from both places it puts them, and its message.
-function readGoogleError(error: Extract<FetchError, {kind: 'http'}>): {reasons: string[]; message: string} {
+// The reasons Google gave for an error, from both places it puts them, its kind and its message.
+function readGoogleError(error: Extract<FetchError, {kind: 'http'}>): {reasons: string[]; status: string; message: string} {
 	const parsed = googleErrorSchema.safeParse(error.body);
 	if (!parsed.success) {
-		return {reasons: [], message: ''};
+		return {reasons: [], status: '', message: ''};
 	}
-	const {errors = [], details = [], message = ''} = parsed.data.error;
+	const {errors = [], details = [], status = '', message = ''} = parsed.data.error;
 	const reasons = [...errors, ...details].flatMap((entry) => (entry.reason ? [entry.reason] : []));
-	return {reasons, message};
+	return {reasons, status, message};
 }
 
 /** What reading a file past Google's export limit says, where its content would be. */
@@ -111,11 +113,89 @@ export function googleWrite<S extends z.ZodType>(accessToken: string, method: Wr
 	return googleUpload(accessToken, method, url, {type: 'application/json', body: JSON.stringify(body)}, schema);
 }
 
-/** A write whose body is of its own type, as a file uploaded to Drive is, its answer read with `schema`. */
-export async function googleUpload<S extends z.ZodType>(accessToken: string, method: WriteMethod, url: URL, content: {type: string; body: string}, schema: S): Promise<Result<z.infer<S>, ApiError>> {
+/**
+ * A write made only to the revision of a file the agent read, as a Doc's or a Slides file's
+ * `batchUpdate` with `writeControl.requiredRevisionId` is: Google turning it down since the file
+ * changed after that revision is a `conflict`, saying `stale`, which says what to read again;
+ * anything else is as `googleWrite` answers it. Google says so as a 400 INVALID_ARGUMENT that the
+ * required revision doesn't match the latest, and documents FAILED_PRECONDITION: either is taken,
+ * a FAILED_PRECONDITION only where it is about the revision, as one for another reason is not.
+ */
+export async function googleRevisionWrite<S extends z.ZodType>(accessToken: string, url: URL, body: object, schema: S, stale: string): Promise<Result<z.infer<S>, ApiError>> {
+	const init = {method: 'POST', headers: {...authHeaders(accessToken), 'content-type': 'application/json'}, body: JSON.stringify(body)};
+	const answer = await httpRequest(url, init, {schema, timeoutMs: TIMEOUT_MS});
+	return answer.mapErr((error) => (isStaleRevision(error) ? ApiErr.conflict(stale) : googleError(error)));
+}
+
+const STALE_REVISION = /required revision id .*does not match the latest revision/i;
+const REVISION = /revision/i;
+
+function isStaleRevision(error: FetchError): boolean {
+	if (error.kind !== 'http' || error.status !== 400) {
+		return false;
+	}
+	const google = readGoogleError(error);
+	return STALE_REVISION.test(google.message) || (google.status === 'FAILED_PRECONDITION' && REVISION.test(google.message));
+}
+
+/** A write whose body is of its own type, text or bytes, as a file uploaded to Drive is, its answer read with `schema`. */
+export async function googleUpload<S extends z.ZodType>(
+	accessToken: string,
+	method: WriteMethod,
+	url: URL,
+	content: {type: string; body: string | Blob},
+	schema: S,
+): Promise<Result<z.infer<S>, ApiError>> {
 	const init = {method, headers: {...authHeaders(accessToken), 'content-type': content.type}, body: content.body};
 	const answer = await httpRequest(url, init, {schema, timeoutMs: TIMEOUT_MS});
 	return answer.mapErr(googleError);
+}
+
+// How long a file's bytes may take to come down or go up whole, as a copy kept or given back does:
+// far longer than a call's, for files of hundreds of megabytes.
+const TRANSFER_TIMEOUT_MS = 30 * 60_000;
+
+/** A GET whose answer is a file's bytes, as they come, never held whole here. */
+export async function googleStream(accessToken: string, url: URL): Promise<Result<ReadableStream<Uint8Array>, ApiError>> {
+	const answer = await httpRequest(url, authorized(accessToken), {parse: 'response', timeoutMs: TRANSFER_TIMEOUT_MS});
+	return answer.map((response) => response.body ?? new Blob([]).stream()).mapErr(googleError);
+}
+
+/**
+ * A write whose body is a file's bytes as they come, as a copy given back is, `size` of them where
+ * that is known; its answer read with `schema`.
+ */
+export async function googleTransfer<S extends z.ZodType>(
+	accessToken: string,
+	method: WriteMethod,
+	url: URL,
+	content: {type: string; body: ReadableStream<Uint8Array>; size: number | null},
+	schema: S,
+): Promise<Result<z.infer<S>, ApiError>> {
+	const length: Record<string, string> = content.size === null ? {} : {'content-length': String(content.size)};
+	const init = {method, headers: {...authHeaders(accessToken), 'content-type': content.type, ...length}, body: content.body};
+	const answer = await httpRequest(url, init, {schema, timeoutMs: TRANSFER_TIMEOUT_MS});
+	return answer.mapErr(googleError);
+}
+
+/**
+ * Starts a resumable upload at Drive, for bytes of `type`, `size` of them where that is known, with
+ * `metadata` as JSON: the session's address, where the bytes are then sent, which Google answers in
+ * `Location`.
+ */
+export function googleSession(accessToken: string, method: WriteMethod, url: URL, content: {type: string; size: number | null; metadata: object}): Promise<Result<string, ApiError>> {
+	return Do(async ($) => {
+		const length: Record<string, string> = content.size === null ? {} : {'x-upload-content-length': String(content.size)};
+		const headers = {...authHeaders(accessToken), 'content-type': 'application/json; charset=UTF-8', 'x-upload-content-type': content.type, ...length};
+		const answer = await httpRequest(url, {method, headers, body: JSON.stringify(content.metadata)}, {parse: 'response', timeoutMs: TIMEOUT_MS});
+		const response = $(answer.mapErr(googleError));
+		await Result.wrapAsync(() => response.body?.cancel() ?? Promise.resolve());
+		const location = response.headers.get('location');
+		if (location === null) {
+			return $(Err(ApiErr.providerUnreachable(new Error('Google started an upload without saying where to send it'))));
+		}
+		return location;
+	});
 }
 
 /** A DELETE, whose answer is empty. */

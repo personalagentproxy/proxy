@@ -3,7 +3,7 @@ import type {Result} from 'ts-results-es';
 import {type ApiError, Do} from '@proxy/utils';
 import {formatBytes} from '@proxy/utils/bytes';
 import {FILES_READ_CHARACTERS} from '@proxy/integrations';
-import type {FileBlobRow, FileFound, FileVersionRow} from '@proxy/db/files';
+import type {FileBlobRow, FileFound, StoredVersionRow} from '@proxy/db/files';
 
 import {fileText, readableKind} from '../../records/attachment-text';
 import {readContent} from './content';
@@ -29,7 +29,7 @@ function whyOf(error: ApiError): string | null {
 }
 
 /** What a version of the file called `name` holds, read as text; one that isn't text, or is too large to read, says so rather than failing. */
-export function readVersion(name: string, version: FileVersionRow & {blob: FileBlobRow}): Promise<Result<Reading, ApiError>> {
+export function readVersion(name: string, version: StoredVersionRow & {blob: FileBlobRow}): Promise<Result<Reading, ApiError>> {
 	return Do(async ($): Promise<Reading> => {
 		const info = {name, type: version.type, size: version.size};
 		const kind = readableKind(info);
@@ -48,16 +48,16 @@ export function readVersion(name: string, version: FileVersionRow & {blob: FileB
 	});
 }
 
-/** A stretch of a text from the character `from`, and what to say of it: how much of the whole it is, and where to read on. */
-export function stretch(text: string, from: number): {content: string; length: string} {
+/** A stretch of a text from the character `from`, and what to say of it: how much of the whole it is, and where to read on, with `tool`. */
+export function stretch(text: string, from: number, tool = 'files_read'): {content: string; length: string} {
 	const start = Math.min(Math.max(0, Math.floor(from)), text.length);
 	const end = Math.min(start + FILES_READ_CHARACTERS, text.length);
 	const whole = start === 0 && end === text.length;
-	const rest = end < text.length ? ` Read on with files_read from ${end}.` : '';
+	const rest = end < text.length ? ` Read on with ${tool} from ${end}.` : '';
 	return {content: text.slice(start, end), length: whole ? `${text.length} characters` : `Characters ${start} to ${end} of ${text.length}.${rest}`};
 }
 
 /** What a file is, in a line: for one with no text to show. */
-export function describeUnread(version: FileVersionRow, why: string): string {
+export function describeUnread(version: StoredVersionRow, why: string): string {
 	return `(${version.type}, ${formatBytes(version.size)}. ${why})`;
 }

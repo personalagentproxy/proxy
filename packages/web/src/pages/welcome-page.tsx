@@ -42,7 +42,7 @@ type Step = 'connections' | IntegrationId | 'agent';
 // shown again.
 export function WelcomePage({step}: {step: Step}) {
 	const org = useOrgSlug();
-	const {agents, connections, configured, files} = useLoaderData<typeof welcomeLoader>();
+	const {agents, connections, configured} = useLoaderData<typeof welcomeLoader>();
 	const navigate = useNavigate();
 	const [finishing, setFinishing] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -72,12 +72,7 @@ export function WelcomePage({step}: {step: Step}) {
 	return (
 		<Frame step={step === 'agent' ? 2 : 1}>
 			{step === 'connections' && (
-				<ConnectionsStep
-					agentName={agentName}
-					connections={connections}
-					configured={configured}
-					files={files}
-				/>
+				<ConnectionsStep agentName={agentName} connections={connections} configured={configured} />
 			)}
 			{form === 'email' && <EmailStep onContinue={onContinue} />}
 			{form === 'bank' && <BankStep onContinue={onContinue} />}
@@ -157,12 +152,10 @@ function ConnectionsStep({
 	agentName,
 	connections,
 	configured,
-	files,
 }: {
 	agentName: string;
 	connections: Connection[];
 	configured: Configured;
-	files: boolean;
 }) {
 	const org = useOrgSlug();
 	const navigate = useNavigate();
@@ -178,7 +171,6 @@ function ConnectionsStep({
 			<IntegrationCatalog
 				connections={connections}
 				configured={configured}
-				files={files}
 				returnTo="welcome"
 				onConnectForm={(integrationId) => navigate(`/${org}/welcome/connections/${integrationId}`)}
 				onConnected={(connection) => navigate(`/${org}/welcome/connections/${connection.id}`)}

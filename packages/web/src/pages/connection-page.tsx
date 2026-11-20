@@ -23,6 +23,7 @@ import {IntegrationLogo} from '@/components/brand-logo';
 import {NotFound} from '@/components/not-found';
 import {PageTabs} from '@/components/page-tabs';
 import {RecentActivity} from '@/components/recent-activity';
+import {DriveHistory} from '@/components/drive-history';
 import {FileBrowser} from '@/components/file-browser';
 import {SandboxList} from '@/components/sandbox-list';
 import {SuccessLine} from '@/components/success-line';
@@ -60,6 +61,7 @@ function ConnectionDetail() {
 		sandboxes,
 		github,
 		files,
+		history,
 	} = useLoaded<typeof connectionLoader>();
 	const navigate = useNavigate();
 	const reload = useReload();
@@ -94,11 +96,19 @@ function ConnectionDetail() {
 	const actingAs = integration.native ? null : actsAs(connection, human);
 	// A vault a member made is deleted, with its entries, where another connection is disconnected.
 	// The page's parts, one shown at a time: what a vault, the Sandboxes or a drive hold comes
-	// first, being what it is opened for; the repositories a GitHub connection reaches follow its
-	// Permissions; and a built-in connection, which is never shared, has no Sharing.
+	// first, being what it is opened for; the repositories a GitHub connection reaches, and the
+	// history a Google connection keeps of its files in Drive, follow its Permissions; and a built-in
+	// connection, which is never shared, has no Sharing.
 	const tabs: Array<
 		PageTab<
-			'entries' | 'sandboxes' | 'files' | 'repositories' | 'permissions' | 'sharing' | 'activity'
+			| 'entries'
+			| 'sandboxes'
+			| 'files'
+			| 'repositories'
+			| 'history'
+			| 'permissions'
+			| 'sharing'
+			| 'activity'
 		>
 	> = [
 		...(vaultEntries === null
@@ -112,6 +122,7 @@ function ConnectionDetail() {
 		...(github === null
 			? []
 			: [{id: 'repositories' as const, label: 'Repositories', count: reachedRepositories(github)}]),
+		...(history === null ? [] : [{id: 'history' as const, label: 'File history'}]),
 		...(connection.builtIn ? [] : [{id: 'sharing' as const, label: 'Sharing'}]),
 		{id: 'activity', label: 'Recent activity'},
 	];
@@ -243,6 +254,9 @@ function ConnectionDetail() {
 						shared={connection.shared}
 						reach={github}
 					/>
+				)}
+				{tab === 'history' && history !== null && (
+					<DriveHistory connectionId={connection.id} history={history} />
 				)}
 				{tab === 'permissions' && (
 					<div className="flex flex-col gap-2">

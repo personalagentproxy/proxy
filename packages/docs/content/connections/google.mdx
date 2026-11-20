@@ -4,7 +4,8 @@ description: Connect a Google account for agents to work with Gmail, Calendar, D
 ---
 
 Agents work with the account's email, calendars, files, contacts and tasks, as the person who signs
-in. Every request goes to Google live; nothing is copied. One sign-in covers Gmail, Calendar, Drive,
+in. Every request goes to Google live; the only thing kept is a copy of a Drive file before an
+agent first changes it, as under [Version history](#version-history). One sign-in covers Gmail, Calendar, Drive,
 Docs, Sheets, Slides, Contacts and Tasks, and one connection holds them all. Gmail needs no app password, so it works for accounts
 that can't make one.
 
@@ -37,10 +38,12 @@ address, such as `http://192.168.1.20` or `http://nas.lan`, won't register.
 
 ### Enable the APIs
 
-Enable the Gmail API, Google Calendar API, Google Drive API, Google Sheets API, People API and
-Google Tasks API in the client's project. [This link](https://console.cloud.google.com/flows/enableapi?apiid=gmail.googleapis.com,calendar-json.googleapis.com,drive.googleapis.com,sheets.googleapis.com,people.googleapis.com,tasks.googleapis.com)
-asks for the project and enables all six. Documents and presentations are read and written through
-Drive, so the Docs and Slides APIs aren't needed.
+Enable the Gmail API, Google Calendar API, Google Drive API, Google Sheets API, Google Docs API,
+Google Slides API, People API and Google Tasks API in the client's project. [This link](https://console.cloud.google.com/flows/enableapi?apiid=gmail.googleapis.com,calendar-json.googleapis.com,drive.googleapis.com,sheets.googleapis.com,docs.googleapis.com,slides.googleapis.com,people.googleapis.com,tasks.googleapis.com)
+asks for the project and enables all eight. The Docs and Slides APIs are only used to edit a
+document's or a presentation's text in place, as under [Editing in place](#editing-in-place); a
+project without them has everything else, and those tools answer with the link enabling them. They
+take the same `drive` scope as the rest of Drive, so no scope is added for them.
 
 ### Add the scopes
 
@@ -209,25 +212,198 @@ For Drive, Docs, Sheets and Slides:
   header used twice, or a column without one, goes by its column's letter, `Status (E)`. Other
   files, shortcuts included, open as their name, kind, owner, last change and link.
 - **Create files** makes folders, documents and spreadsheets in My Drive, a folder or a shared
-  drive, and adds rows to a spreadsheet's tabs, and requires Read files. A document is written as
-  Markdown and a spreadsheet as CSV, and Google converts them as they are uploaded. A row is written
-  as `Header: value` lines, under the headers of the tab's first row, and goes after the last row
-  holding anything, from column A.
-- **Edit files** renames files and a spreadsheet's tabs, replaces a document's content, and changes
-  rows, and requires Read files. A document's content is replaced whole with the Markdown written,
-  which drops its comments and suggestions, and only when it is written differently from how it
-  read, so renaming a document leaves its content alone. Shared drives aren't renamed or trashed. A row changes only in the values written differently,
-  so a formula in another of its cells stays. A presentation's and a spreadsheet's content are only
-  read.
+  drive, uploads other files, such as PDFs and pictures, copies files into them, and adds rows to a
+  spreadsheet's tabs, and requires Read files. A document is written as Markdown and a spreadsheet
+  as CSV, and Google converts them as they are uploaded. Any other file goes up as its bytes
+  through a URL, as under [Uploading through a URL](#uploading-through-a-url).
+  Copying is done by Google, so a file of any size already in Drive is copied into a folder, a
+  shared drive or My Drive, under its own name or a new one; folders aren't copied. A row is
+  written as `Header: value` lines, under the headers of the tab's first row, and goes after the
+  last row holding anything, from column A.
+- **Edit files** renames files and a spreadsheet's tabs, and changes rows, and requires Read
+  files. A file's content is never written over whole: a document replaced from Markdown would lose
+  its comments, suggestions and formatting, so a content written differently from how it read is
+  refused, and renaming a file leaves its content alone. Shared drives aren't renamed or trashed. A
+  row changes only in the values written differently, so a formula in another of its cells stays.
+  It also edits a document's and a presentation's text in place and inserts and deletes a
+  spreadsheet's rows, columns and tabs, as under [Editing in place](#editing-in-place); uploads a
+  file's bytes over a file of its own bytes that is there; gives a
+  file an earlier version back; and undoes a change to a spreadsheet's cells, as under
+  [Uploading through a URL](#uploading-through-a-url) and [Version history](#version-history).
 - **Move files to Trash** moves files and folders to Drive's Trash, where Drive keeps them 30 days
   before deleting them, and requires Read files. Nothing is deleted for good.
 
 Agents can also read and write a range of a spreadsheet, in A1 notation with its tab, such as
 `'Q1 Sales'!A1:F20`, given the spreadsheet's link or id, which covers tabs without a header row.
 A range without a tab is in the first one. Reading needs Read files and answers the values as
-Sheets shows them, as CSV, one row a line, 1000 rows at most.
+Sheets shows them, as CSV, one row a line, 1000 rows at most, or, with Formulas, each cell's
+formula as it was typed in, `=SUM(B2:B9)`, and a cell without one as its value unformatted.
 Writing needs Edit files and takes CSV the same way, each value as if typed into its cell, so
-`=SUM(B2:B9)` is a formula, and `""` empties a cell; it answers what the range holds afterwards.
+`=SUM(B2:B9)` is a formula, and `""` empties a cell; it answers what the range holds afterwards,
+as formulas with Formulas.
+
+### Editing in place
+
+A Doc, Sheet or Slides file is never written over whole, from Markdown, CSV or an Office file,
+which would drop its comments, suggestions and whatever the format can't hold. Agents edit a
+document's and a presentation's text in place instead, through Google's
+Docs and Slides APIs, keeping its comments, suggestions, formatting and layout, and a spreadsheet's
+structure through the Sheets API. Reading needs Read files; every edit needs Edit files.
+
+- **Read document text**, `docs_read`, answers a document's text as the Docs API has it, paragraph
+  by paragraph, the paragraphs in tables' cells too, and the revision the document is at. A
+  document with several tabs is read in its first, or the one asked for by its title or id, and the
+  answer lists the others. Its table of contents, headers, footers and footnotes are left out. An
+  image or a chip in the text shows as `￼`.
+- **Edit document**, `docs_edit`, takes the document, that revision and a list of edits. Each edit
+  finds text that must appear exactly once in the text `docs_read` answers, case and all: in the
+  tab the edit names, or, naming none, in the whole document, every tab of it. It then
+  replaces it, writes text just before or after it, or styles it: bold, italic, underlined, linked,
+  or its paragraphs made a heading, a title or normal text. Text found may run across paragraphs,
+  but not across an image, a chip or a table's cells. An edit whose text appears nowhere, or more
+  than once, is turned down saying how often it appears, and so is one finding the same text as
+  another; then no edit is made. The edits are made together, in one change, only to the revision
+  given: if the document changed since it was read, Google turns them all down, and the agent
+  reads it again. Replaced text keeps the style of the text it replaces.
+- **Read presentation text**, `slides_read`, answers a presentation's text, slide by slide, what its
+  shapes and tables hold, and the revision it is at.
+- **Replace text in presentation**, `slides_edit`, replaces text in a presentation, matched with
+  its case, as Slides' find and replace does, only at the revision given, and answers how many
+  times each text was replaced. As with a document, each text must appear exactly once, on the
+  slide the replacement names or in the whole presentation, unless it says to replace every one;
+  otherwise nothing is replaced, and the agent is told how often and on which slides it appears.
+- **Insert or delete rows**, `sheets_rows`, inserts empty rows or columns into a spreadsheet's tab,
+  at a row's number or a column's letter, or deletes them with what they hold.
+- **Add or delete tab**, `sheets_tabs`, adds an empty tab after a spreadsheet's others, or deletes
+  one with everything on it. A tab is renamed as a record, with the files tools.
+
+Sheets deletes rows, columns and tabs by where they are, with no way to make a change only to the
+version an agent read, so a delete names a short checksum of what it takes away: its cells' values
+and formulas. A delete without it deletes nothing and answers what those cells hold and their
+checksum; the agent deletes them by asking again with it. Where the cells changed in between, as
+when someone inserted a row above them, the checksum no longer matches and nothing is deleted.
+
+Each edit is a change in the file's [Version history](#version-history), with a copy kept before a
+task first changes the file. Rows, columns and tabs inserted or deleted have no exact undo: an agent
+reads what they took away in the copy, and you give the whole spreadsheet back from File > Version
+history.
+
+### Uploading through a URL
+
+A file of its own bytes, a PDF, a picture, a video, a docx, goes up to Drive through a URL, from
+wherever the agent runs, with a shell and `curl`, as it does [into Files](/connections/files#uploading-through-a-url).
+The URL is Personal Agent Proxy's own: the bytes are kept there until the upload is finished, and
+only then sent on to Drive, so nothing reaches Drive that wasn't checked first. A file can be as
+large as the server takes, 100 MB unless its `FILES_MAX_MB` says otherwise.
+
+1. The agent asks for an upload with `files_upload`, saying the file's name and the folder or
+   shared drive for a new file, My Drive if it names none, or the file and its version to write
+   over one, and the file's size in bytes, with its SHA-256 if it likes. Everything is checked
+   then, before any bytes are sent: that the agent may add files, or edit them to write over one;
+   that the folder is there; that the file is still at the version given; and what the bytes may
+   be, as below.
+2. It is answered with the URL and a line to run as it is:
+   `curl -X PUT --upload-file report.pdf '<url>'`. The URL is the only key to the upload, so it
+   needs no sign-in. It takes one file, no more bytes than were said, for one hour. Bytes all in
+   by then can still be finished for an hour more.
+3. The agent calls `files_upload_done`, which checks the size, and the SHA-256 if one was given,
+   against what arrived. Bytes that aren't what was said are refused, and nothing reaches Drive.
+   Otherwise the file in Drive is checked again: a file written over must still be at the version
+   given, or the upload is refused and the file left as it is. Then its copy is kept, as under
+   [Version history](#version-history), the bytes are sent on to Drive, and the file is logged in
+   its history as the agent's, for the task it started the upload for. The agent is answered with
+   its id, version and link.
+
+A new file keeps its own type, as its name's extension says, such as `report.pdf`, or as the agent
+says where the name has none. With `convert`, it becomes one of Google's own instead: a docx or
+Markdown a Doc, an xlsx or CSV a Sheet, and a pptx a Slides file, named without the extension.
+Over a file that is there, only a file of its own bytes takes bytes, of any type. A Doc, Sheet or
+Slides file is never uploaded over, since it would lose its comments, suggestions and formatting:
+the agent is pointed to [editing it in place](#editing-in-place), or to uploading the file as a new
+one.
+
+The version a write is checked against is the file's head revision in Drive, which
+`files_versions` says it is at now.
+
+### Version history
+
+Personal Agent Proxy keeps its own history of the Drive files agents change, beside Drive's. Every
+change made through it, a file made, copied, renamed, written, moved to Trash, a document's or a
+presentation's text edited, a range or a row of a spreadsheet written, its rows, columns or tabs
+inserted, added or deleted, a tab renamed, is logged with who made it: the agent and the task it was
+for, or you, from the web app. Before a task first changes what a file holds, a copy is kept:
+
+- a file uploaded to Drive, such as a PDF or a picture, as its bytes, to give back;
+- a Doc as Markdown, a Sheet as an xlsx and a Slides file as text, as Google exports them, with
+  Drive's revision it was taken of, for agents to read. A Doc, Sheet or Slides file is never
+  given a version back by Personal Agent Proxy: Google's API can only write one over whole, which
+  loses its comments, suggestions and what others changed since. An agent reads the version and
+  makes the changes back in place, or you give it back from File > Version history in the file.
+
+A copy is kept in the same store as Files (`FILES_DIR` or `FILES_S3_BUCKET`), up to
+`DRIVE_COPY_MAX_MB`, 25 MB unless set otherwise. A larger file isn't copied: an uploaded file's revision is kept for good in Drive instead, and a Doc's,
+Sheet's or Slides file's revision is only noted, for Drive's own version history (Google exports
+at most 10 MB anyway). A copy the latest version holds already, the same revision or the same
+bytes, isn't kept twice. Renaming a file or moving it to Trash leaves what it holds alone, and
+takes no copy. Copies, the revisions kept for good in their place and the history of the changes
+are all kept for good.
+
+Writing a range or a row of a spreadsheet also keeps the cells it changes as they were and as it
+left them, formulas as formulas, up to 10,000 cells, so the change can be undone exactly.
+
+- **List versions**, `files_versions`, needs Read files: a file's versions, newest first, each
+  kept here or only in Drive, and the changes made to it, who made each and for which task, with
+  the version the file is at now in Drive, which an upload over it gives.
+- **Read version**, `files_version_read`, needs Read files: what a version held, as text, 50,000
+  characters at a time: a Doc as Markdown, a Sheet's tabs as CSV, a Slides file's text, and an
+  uploaded file where it is text, a PDF or an Office file. A Doc's, Sheet's or Slides file's
+  version kept only in Drive is read in Drive's own version history.
+- **Restore version**, `files_restore`, needs Edit files: gives an uploaded file a version back as
+  its newest revision, keeping its id and link, from its copy, or downloaded from Drive where only
+  Drive kept it. What the file held until then is kept as a version too. For a Doc, Sheet or
+  Slides file the agent is told to read the version and make the changes back in place, or to
+  have you give it back from File > Version history, picking the version from that time.
+- **Undo change**, `files_undo`, needs Edit files: puts a spreadsheet's cells back as they were
+  before a change, only while they still hold what it wrote; otherwise the agent is pointed to
+  Read version.
+
+You see the same history on the Google connection's page, under **File history**: the files
+changed through Personal Agent Proxy, the latest changed first, each with its last change and who
+made it. A file opens with its versions, each kept here or only in Drive, and its changes, each
+with the agent and the task it was for. **Restore** gives an uploaded file a version back and
+**Undo** puts a spreadsheet's cells back, each once you confirm, as your own change in the file's
+history. A Doc, Sheet or Slides file has no Restore: open the file and give a version back from
+File > Version history, picking the version from that time.
+
+### Files in a sandbox
+
+An agent that also runs commands in a [sandbox](/connections/sandboxes) moves files between Drive
+and the sandbox with `pap files`, as it does [with Files](/connections/files#files-in-a-sandbox).
+A path starts at one of Drive's own places: `My Drive/Reports/q3.pdf`,
+`Shared drives/Research/plan.docx`, or `Shared with me/brief.pdf`; `pap files ls <connection>`
+lists the three. Drive lets two files in a folder have the same name, so where a name matches
+more than one, `pap` says so and lists their ids, and the file is named with `--id`, which takes a
+file's link too.
+
+- `pap files pull` brings a file of its own bytes, a PDF or a picture, as it is, through Personal
+  Agent Proxy as Drive sends it. A Doc comes as Markdown, a Sheet as an xlsx and a Slides file as
+  a pptx, named with the extension, unless `--as` asks for another: a Doc as `md`, `docx`, `pdf`
+  or `txt`, a Sheet as `xlsx`, `csv` or `pdf`, a Slides file as `pptx`, `pdf` or `txt`. A Sheet as
+  CSV is its first tab, or the one `--tab` names. Google exports at most 10 MB of a file: past
+  that, the agent is told to pull a PDF, or something smaller, as one tab. `pap` notes the file's
+  id, the version it was at and what it was exported as.
+- `pap files push` sends a file back, as an [upload through a URL](#uploading-through-a-url). A
+  new file goes up as its bytes; with `--as doc`, `--as sheet` or `--as slides` a docx or Markdown
+  becomes a Doc, an xlsx or CSV a Sheet, and a pptx a Slides file. The folders on its way that
+  are missing are made first, as the agent's, and stay if the push is never finished. Over a file
+  that is there, the push names the version that was pulled, or is made with `--force`, and a
+  copy is kept first, as under [Version history](#version-history). A Doc, Sheet or Slides file
+  is never pushed over: the agent is pointed to `docs_edit` for a Doc's text, `ranges_write`,
+  `sheets_rows` and `sheets_tabs` for a Sheet, `slides_edit` for a Slides file's text, or to push
+  it as a new file with `--as`.
+
+A pull is a read, a push to a new path an added file, and a push over a file an edit, each checked
+against what the agent may do and in the activity log as from a sandbox.
 
 For Contacts, agents see the account's contacts in Google Contacts, the most recently changed
 first, 50 to a page. A search is Google's, matching the start of a name, email address, phone

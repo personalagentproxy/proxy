@@ -1,12 +1,16 @@
 import {Err, Ok, type Result} from 'ts-results-es';
+import {z} from 'zod';
 
-import {ApiErr, type ApiError, Do} from '@proxy/utils';
+import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
+import type {FileChangeBy} from '@proxy/db/files';
 
 import {
+	copyFile,
 	createFile,
 	DRIVE_ID,
 	driveQuoted,
 	exportFile,
+	fileIdOf,
 	getFile,
 	getFileParents,
 	getMyDriveId,
@@ -15,7 +19,6 @@ import {
 	listSharedDrives,
 	MIME_TYPES,
 	PAGE_SIZE,
-	replaceContent,
 	updateFile,
 	type DriveFile,
 	type FileParents,
@@ -23,8 +26,11 @@ import {
 } from '../connections/google/drive-api';
 import {callGoogle, TOO_LARGE_TO_READ} from '../connections/google/google-client';
 import {appendRow, cellRange, columnLetters, getRanges, getSheets, renameSheet, rowsRange, updateCells, type Sheet} from '../connections/google/sheets-api';
+import type {NativeToolRunner} from '../native/tool';
 import {requireFirstPage, type CommandRunner, type Crumb, type DataRecord, type ListQuery, type RecordPage, type RecordStore, type RecordTarget, type RecordValues} from './connector';
 import type {FileSearch, Matched, MatchedFile} from './capabilities';
+import {cellsBefore, cellsOfRow, cellsUndo, emptyCells, type CellsWritten} from './google-cells';
+import {changeBy, changeDriveFile, logDriveCreate, loggedAs, requireEditor, type DriveChangeEntry, type DriveEditor} from './google-history';
 import {readValueLines, valueLines} from './value-lines';
 
 /**
@@ -39,11 +45,20 @@ import {readValueLines, valueLines} from './value-lines';
  * knows of them, with a link.
  *
  * Folders, documents and spreadsheets are made inside a folder, My Drive or a shared drive: a
- * document from Markdown and a spreadsheet from CSV, which Drive converts as it uploads them. A row
- * is made inside a tab, its "Header: value" lines put under the headers. Any file can be renamed,
- * and a tab; a document's content is replaced whole by uploading Markdown again, which drops its
- * comments and suggestions; a row changes only in the cells written differently. A presentation's
- * and a spreadsheet's content are only read. Files go to Trash, never deleted for good.
+ * document from Markdown and a spreadsheet from CSV, which Drive converts as it uploads them. Any
+ * other file, a PDF or a picture, goes up as its bytes through a URL, on to Drive once finished
+ * (`files_upload`, google-uploads.ts), and a file already in Drive is copied into one by Drive
+ * itself (`files_copy`), its bytes never passing through here. A row is made inside a tab, its
+ * "Header: value" lines put under the headers. Any file can be renamed, and a tab; a row changes
+ * only in the cells written differently. A file's content is never written over here: a document
+ * replaced whole from Markdown would lose its comments, suggestions and whatever Markdown can't
+ * hold, so a document's text is edited in place with docs_edit (google-docs.ts), a presentation's
+ * with slides_edit, a spreadsheet's cells as a range or a row, and a file's bytes uploaded over it
+ * with files_upload. Files go to Trash, never deleted for good.
+ *
+ * Every write to a file goes through its history (google-history.ts): logged as the agent's, for
+ * its task, or the member's, with a copy of the file kept before a task first changes what it holds,
+ * and a Sheet's cells written kept for an exact undo (google-cells.ts).
  *
  * For the Find file widget, a search of all of Drive, shared drives too, by name, or where no name
  * has the words, inside the files.
@@ -117,14 +132,25 @@ function notFoundAs(recordId: string) {
 	return (error: ApiError): ApiError => (error.kind === 'not_found' ? ApiErr.notFound('record', recordId) : error);
 }
 
-/** One request's way into Drive: the access token, and My Drive's own id, asked for once at most. */
-type Drive = {token: string; myDriveId: () => Promise<Result<string, ApiError>>};
+/**
+ * One request's way into Drive: the access token, My Drive's own id, asked for once at most, and
+ * who its writes are logged as, where it writes.
+ */
+type Drive = {token: string; myDriveId: () => Promise<Result<string, ApiError>>; change: FileChangeBy | null};
 
-function withDrive<T>(target: RecordTarget, run: (drive: Drive) => Promise<Result<T, ApiError>>): Promise<Result<T, ApiError>> {
-	return callGoogle(target.connection, (token) => {
-		let myDriveId: Promise<Result<string, ApiError>> | null = null;
-		return run({token, myDriveId: () => (myDriveId ??= getMyDriveId(token))});
-	});
+function driveOf(token: string, change: FileChangeBy | null): Drive {
+	let myDriveId: Promise<Result<string, ApiError>> | null = null;
+	return {token, myDriveId: () => (myDriveId ??= getMyDriveId(token)), change};
+}
+
+function withDrive<T>(target: Pick<RecordTarget, 'connection' | 'by'>, run: (drive: Drive) => Promise<Result<T, ApiError>>): Promise<Result<T, ApiError>> {
+	const change = target.by ? changeBy(target.connection, target.by) : null;
+	return callGoogle(target.connection, (token) => run(driveOf(token, change)));
+}
+
+// Who a write is made as, through the file's history.
+function editorOf(drive: Drive): Result<DriveEditor, ApiError> {
+	return requireEditor(drive.token, drive.change);
 }
 
 function kindOf(mimeType: string): string {
@@ -285,8 +311,16 @@ function crumbsAbove(drive: Drive, file: FileParents): Promise<Result<Crumb[], A
 }
 
 /** The trail to a file: the records above it, then the file. */
-function trailTo(drive: Drive, file: DriveFile): Promise<Result<Crumb[], ApiError>> {
+function trailTo(drive: Drive, file: FileParents): Promise<Result<Crumb[], ApiError>> {
 	return Do(async ($) => [...$(await crumbsAbove(drive, file)), {id: file.id, title: file.name}]);
+}
+
+/**
+ * Where a file is in Drive, as the names on its trail from the top: My Drive, or Shared drives and
+ * the drive's name, or Shared with me; then its folders, then the file. As `pap files` takes a path.
+ */
+export function pathInDrive(token: string, file: FileParents): Promise<Result<string[], ApiError>> {
+	return Do(async ($) => $(await trailTo(driveOf(token, null), file)).map((crumb) => crumb.title));
 }
 
 /**
@@ -535,8 +569,11 @@ function refuse(message: string): Promise<Result<never, ApiError>> {
 }
 
 // A folder, document or spreadsheet, made in the folder with Drive's id `parentId`, answered as
-// opening it would.
+// opening it would. Any other file goes up as its bytes, with files_upload.
 function makeFile(drive: Drive, parentId: string, values: RecordValues): Promise<Result<DataRecord, ApiError>> {
+	if (values.kind === 'File') {
+		return refuse('A file of its own bytes, such as a PDF or a picture, goes up with files_upload, which answers with a URL to send it to');
+	}
 	return Do(async ($) => {
 		const kind = values.kind ?? '';
 		const made = MADE[kind];
@@ -552,7 +589,9 @@ function makeFile(drive: Drive, parentId: string, values: RecordValues): Promise
 			return $(Err(ApiErr.validationError('A folder has no content')));
 		}
 		const upload = made.upload === null || content === '' ? null : {type: made.upload, body: content};
+		const editor = $(editorOf(drive));
 		const file = $(await createFile(drive.token, {name, mimeType: made.mimeType, parent: parentId}, upload));
+		await logDriveCreate(editor, file);
 		return $(await getRef(drive, {kind: 'file', fileId: file.id}));
 	});
 }
@@ -562,6 +601,17 @@ function headersOf(drive: Drive, file: DriveFile, sheet: Sheet): Promise<Result<
 	return Do(async ($) => {
 		const [[headers = []] = []] = $(await getRanges(drive.token, file.id, [rowsRange(sheet.title, 1, 1)]));
 		return {headers, names: columnNames(headers, sheet)};
+	});
+}
+
+// A row appended to a tab, and its undo: the row is new, so its cells were empty before, and
+// undoing it empties them again.
+function appendCells(drive: Drive, file: DriveFile, sheet: Sheet, cells: string[]): Promise<Result<{done: number; entry: DriveChangeEntry}, ApiError>> {
+	return Do(async ($) => {
+		const row = $(await appendRow(drive.token, file.id, sheet.title, cells));
+		const area = cellsOfRow(file.id, sheet, row, 0, cells.length - 1);
+		const undo = area ? await cellsUndo(drive.token, area, emptyCells(area)) : null;
+		return {done: row, entry: {kind: 'edit', undo}};
 	});
 }
 
@@ -585,43 +635,74 @@ function addRow(drive: Drive, ref: {fileId: string; sheetId: number}, values: Re
 		if (last === -1) {
 			return $(Err(ApiErr.validationError('Write the row’s values in content, one "Header: value" a line')));
 		}
-		const row = $(await appendRow(drive.token, file.id, sheet.title, cells.slice(0, last + 1)));
+		const editor = $(editorOf(drive));
+		const row = $(await changeDriveFile(editor, file.id, {content: true}, () => appendCells(drive, file, sheet, cells.slice(0, last + 1))));
 		return $(await getRef(drive, {kind: 'row', fileId: file.id, sheetId: sheet.sheetId, row}));
 	});
 }
 
-function createIn(drive: Drive, ref: FileRef, values: RecordValues): Promise<Result<DataRecord, ApiError>> {
+/**
+ * The Drive id of the folder a new file goes in, from the record it is made inside: My Drive's, a
+ * shared drive's or a folder's. `spreadsheet` is what to say of a spreadsheet, which holds tabs.
+ */
+function folderOf(token: string, ref: FileRef, spreadsheet: string): Promise<Result<DriveFolder, ApiError>> {
 	if (ref.kind === 'place') {
 		if (ref.place.id !== MY_DRIVE.id) {
 			return refuse(`Nothing can be made in ${ref.place.name}: make it in a folder, My Drive or a shared drive`);
 		}
-		return makeFile(drive, MY_DRIVE.id, values);
+		return Promise.resolve(Ok({id: MY_DRIVE.id, driveId: null}));
 	}
 	if (ref.kind === 'drive') {
-		return makeFile(drive, ref.driveId, values);
+		return Promise.resolve(Ok({id: ref.driveId, driveId: ref.driveId}));
 	}
 	if (ref.kind === 'sheet') {
-		return addRow(drive, ref, values);
+		return refuse('A tab holds rows: make files in a folder');
 	}
 	if (ref.kind === 'row') {
 		return refuse('A row holds nothing: add rows to its tab');
 	}
 	return Do(async ($) => {
-		const file = $(await getFile(drive.token, ref.fileId));
+		const file = $(await getFile(token, ref.fileId));
 		const kind = kindOf(file.mimeType);
 		if (kind === 'Spreadsheet') {
-			return $(Err(ApiErr.validationError('Rows go in one of the spreadsheet’s tabs: open it and pick one as parent')));
+			return $(Err(ApiErr.validationError(spreadsheet)));
 		}
 		if (kind !== 'Folder') {
 			return $(Err(ApiErr.validationError(`A ${kind.toLowerCase()} holds nothing: make it in a folder`)));
 		}
-		return $(await makeFile(drive, file.id, values));
+		return {id: file.id, driveId: file.driveId ?? null};
+	});
+}
+
+/** A folder files are made in, by its id in Drive, with the shared drive it is in; none for My Drive's. */
+export type DriveFolder = {id: string; driveId: string | null};
+
+/**
+ * The folder a file goes in, from the record id `parent`, as files_list gives it: a folder, a
+ * shared drive (`drive-<id>`) or My Drive (`root`), which it is where `parent` is null. Anything
+ * else is refused, `spreadsheet` saying what to do of a spreadsheet's id.
+ */
+export function folderNamed(token: string, parent: string | null, spreadsheet: string): Promise<Result<DriveFolder, ApiError>> {
+	return Do(async ($) => {
+		const where = parent ?? MY_DRIVE.id;
+		const ref = $(requireRef(where));
+		return $((await folderOf(token, ref, spreadsheet)).mapErr(notFoundAs(where)));
+	});
+}
+
+function createIn(drive: Drive, ref: FileRef, values: RecordValues): Promise<Result<DataRecord, ApiError>> {
+	if (ref.kind === 'sheet') {
+		return addRow(drive, ref, values);
+	}
+	return Do(async ($) => {
+		const folder = $(await folderOf(drive.token, ref, 'Rows go in one of the spreadsheet’s tabs: open it and pick one as parent'));
+		return $(await makeFile(drive, folder.id, values));
 	});
 }
 
 /**
- * A new file inside `parent`, My Drive when none is given: a folder, document or spreadsheet in a
- * folder, My Drive or a shared drive, or a row in a tab.
+ * A new file inside `parent`, My Drive when none is given: a folder, document, spreadsheet or other
+ * file in a folder, My Drive or a shared drive, or a row in a tab.
  */
 function createFilesRecord(target: RecordTarget, values: RecordValues, parent: string | null): Promise<Result<DataRecord, ApiError>> {
 	return withDrive(target, (drive) =>
@@ -652,19 +733,20 @@ function renamed(current: string, written: string | undefined): Result<string | 
 	return Ok(written.trim());
 }
 
-// What can't be written into each kind of file but a document, and what can be done instead.
+// Why no kind of file's content is written over here, and what can be done instead.
 const CONTENT_REFUSALS: Partial<Record<string, string>> = {
-	Presentation: 'A presentation’s content is only read here; its name can be changed',
+	Document: 'A document’s content is only read here, never written over, which would lose its comments, suggestions and formatting: edit its text in place with docs_edit; its name can be changed',
+	Presentation: 'A presentation’s content is only read here: replace its text in place with slides_edit; its name can be changed',
 	Spreadsheet: 'A spreadsheet’s content is in its tabs: change its rows, or write a range',
 	Folder: 'A folder has no content; its name can be changed',
 };
 
-const OTHER_FILE_REFUSAL = 'Only a document’s content can be written here; this file’s name can be changed';
+const OTHER_FILE_REFUSAL = 'A file’s bytes are written over with files_upload, not here; its name can be changed';
 
 /**
- * A file renamed, and a document's content replaced, each only where it is written differently
- * from how it read, `before`, so a rename doesn't upload the content as it was read over a change
- * made since; without `before`, from how it reads now.
+ * A file renamed, only where its name is written differently. Its content is only read: one written
+ * differently from how it read, `before`, or without `before` from how it reads now, is refused,
+ * whatever the file is.
  */
 function updateFileRef(drive: Drive, fileId: string, values: RecordValues, before: DataRecord | undefined): Promise<Result<DataRecord, ApiError>> {
 	return Do(async ($) => {
@@ -674,15 +756,12 @@ function updateFileRef(drive: Drive, fileId: string, values: RecordValues, befor
 		const name = $(renamed(file.name, values.name));
 		const content = values.content ?? null;
 		const read = before?.values.content ?? $(await contentOf(drive, file));
-		const replaced = content !== null && content !== read;
-		if (replaced && kind !== 'Document') {
+		if (content !== null && content !== read) {
 			return $(Err(ApiErr.validationError(CONTENT_REFUSALS[kind] ?? OTHER_FILE_REFUSAL)));
 		}
 		if (name !== null) {
-			$(await updateFile(drive.token, file.id, {name}));
-		}
-		if (replaced) {
-			$(await replaceContent(drive.token, file.id, {type: 'text/markdown', body: content}));
+			const editor = $(editorOf(drive));
+			$(await changeDriveFile(editor, file.id, {content: false}, () => loggedAs({kind: 'move', name, beforeName: file.name}, updateFile(drive.token, file.id, {name}))));
 		}
 		return $(await getRef(drive, {kind: 'file', fileId: file.id}));
 	});
@@ -700,8 +779,19 @@ function updateSheet(drive: Drive, ref: {fileId: string; sheetId: number}, value
 		if (name === null) {
 			return sheetRecord(file, sheet);
 		}
-		$(await renameSheet(drive.token, file.id, sheet.sheetId, name));
+		const editor = $(editorOf(drive));
+		$(await changeDriveFile(editor, file.id, {content: true}, () => loggedAs({kind: 'edit'}, renameSheet(drive.token, file.id, sheet.sheetId, name))));
 		return $(await getRef(drive, {kind: 'sheet', fileId: file.id, sheetId: sheet.sheetId}));
+	});
+}
+
+// A row's cells written, each in its own cell, and their undo, the cells of `area` read before and after.
+function writeRowCells(drive: Drive, fileId: string, cells: {range: string; value: string}[], area: CellsWritten | null): Promise<Result<{done: void; entry: DriveChangeEntry}, ApiError>> {
+	return Do(async ($) => {
+		const before = area ? $(await cellsBefore(drive.token, area)) : null;
+		$(await updateCells(drive.token, fileId, cells));
+		const undo = area ? await cellsUndo(drive.token, area, before) : null;
+		return {done: undefined, entry: {kind: 'edit', undo}};
 	});
 }
 
@@ -723,12 +813,16 @@ function updateRow(drive: Drive, ref: {fileId: string; sheetId: number; row: num
 		const written = $(readValueLines(values.content ?? '', names));
 		const changed = names.flatMap((name, column) => {
 			const value = written[name];
-			return value !== undefined && value !== (cells[column] ?? '') ? [{range: cellRange(sheet.title, column, ref.row), value}] : [];
+			return value !== undefined && value !== (cells[column] ?? '') ? [{column, range: cellRange(sheet.title, column, ref.row), value}] : [];
 		});
-		if (changed.length === 0) {
+		const [first, ...rest] = changed;
+		if (!first) {
 			return current;
 		}
-		$(await updateCells(drive.token, file.id, changed));
+		const editor = $(editorOf(drive));
+		// The cells from the first changed to the last, those between them unchanged.
+		const area = cellsOfRow(file.id, sheet, ref.row, first.column, rest.at(-1)?.column ?? first.column);
+		$(await changeDriveFile(editor, file.id, {content: true}, () => writeRowCells(drive, file.id, changed, area)));
 		return $(await getRef(drive, {kind: 'row', fileId: file.id, sheetId: sheet.sheetId, row: ref.row}));
 	});
 }
@@ -756,6 +850,55 @@ function updateFilesRecord(target: RecordTarget, recordId: string, values: Recor
 	);
 }
 
+// The file a copy is made of, by its id or its link: any but a folder, which Drive doesn't copy.
+function copiedFile(drive: Drive, given: string): Promise<Result<DriveFile, ApiError>> {
+	return Do(async ($) => {
+		const id = fileIdOf(given);
+		if (id === null) {
+			return $(Err(ApiErr.validationError('Say which file to copy as id: its id, as files_list gives it, or its link')));
+		}
+		const found = await getFile(drive.token, id);
+		if (found.isErr() && found.error.kind === 'not_found') {
+			return $(Err(ApiErr.validationError(`There is no file ${id} to copy, or this account can’t open it`)));
+		}
+		const file = $(found);
+		if (kindOf(file.mimeType) === 'Folder') {
+			return $(Err(ApiErr.validationError('A folder can’t be copied: make a folder, and copy its files into it')));
+		}
+		return file;
+	});
+}
+
+const copySchema = z.object({id: z.string(), parent: z.string().optional(), name: z.string().optional()}).strict();
+
+type Copy = z.infer<typeof copySchema>;
+
+// A copy made by Drive in the folder `parent` names, My Drive where none is, under the name given,
+// else the file's own, said as a few lines: what it is, its id for the next call, and its link.
+function copyInto(drive: Drive, copy: Copy): Promise<Result<string, ApiError>> {
+	return Do(async ($) => {
+		const source = $(await copiedFile(drive, copy.id));
+		const folder = $(await folderNamed(drive.token, copy.parent || null, 'A spreadsheet holds tabs: copy the file into a folder'));
+		const name = copy.name?.trim() || source.name;
+		const editor = $(editorOf(drive));
+		const made = $(await copyFile(drive.token, source.id, {name, parent: folder.id}));
+		await logDriveCreate(editor, made);
+		const link = made.webViewLink ? [`Link: ${made.webViewLink}`] : [];
+		return [`Made “${made.name}”, a copy of “${source.name}”.`, `Id: ${made.id}`, `Kind: ${kindOf(made.mimeType)}`, ...link].join('\n');
+	});
+}
+
+/**
+ * `files_copy`: a copy of a file in Drive, made by Drive itself, so a file of any size is copied
+ * without its bytes passing through here, into a folder, a shared drive or My Drive.
+ */
+export const runFilesCopy: NativeToolRunner = (run) =>
+	Do(async ($) => {
+		const copy = $(parseSchema(copySchema, run.params).mapErr(() => ApiErr.validationError('files_copy takes id, and parent and name where wanted, each as text')));
+		const by = {agentId: run.caller.agent.agentId, taskId: run.caller.taskId};
+		return $(await withDrive({connection: run.connection, by}, (drive) => copyInto(drive, copy)));
+	});
+
 /** Moves a file or folder to Trash, where Drive keeps it 30 days; it leaves the tree. */
 const trashFilesRecord: CommandRunner = (target, recordId) =>
 	withDrive(target, (drive) =>
@@ -764,7 +907,9 @@ const trashFilesRecord: CommandRunner = (target, recordId) =>
 			if (ref.kind !== 'file') {
 				return $(Err(ApiErr.validationError('Only files and folders go to Trash, not places, shared drives, tabs or rows')));
 			}
-			$((await updateFile(drive.token, ref.fileId, {trashed: true})).mapErr(notFoundAs(recordId)));
+			const editor = $(editorOf(drive));
+			const trashed = await changeDriveFile(editor, ref.fileId, {content: false}, () => loggedAs({kind: 'trash'}, updateFile(drive.token, ref.fileId, {trashed: true})));
+			$(trashed.mapErr(notFoundAs(recordId)));
 			return null;
 		}),
 	);

@@ -98,6 +98,18 @@ services:
         value: http://proxy-internal:3100
       - key: SANDBOX_SERVICE_TOKEN
         sync: false
+      # Where the bytes of Files and uploads are kept, which the api needs to start: a bucket, as
+      # the service runs on more than one instance, which share no disk.
+      - key: FILES_S3_BUCKET
+        sync: false
+      - key: FILES_S3_ACCESS_KEY_ID
+        sync: false
+      - key: FILES_S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: FILES_S3_ENDPOINT
+        sync: false
+      - key: FILES_S3_REGION
+        sync: false
       # Hosted Personal Agent Proxy is not an installation to count.
       - key: TELEMETRY_ENABLED
         value: 'false'

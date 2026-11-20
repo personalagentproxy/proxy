@@ -182,7 +182,6 @@ function renderChatPage({
 	draft = null,
 	draftAttachments = [],
 	chatAlerts = 0,
-	files = false,
 	answered = () => Promise.resolve(),
 	threadAnswered = () => Promise.resolve(),
 	initial,
@@ -201,8 +200,6 @@ function renderChatPage({
 	draftAttachments?: ChatThreads['draftAttachments'];
 	// How many of the open chat's alerts open threads of their own.
 	chatAlerts?: number;
-	// Whether the organization has Files: where a test attaches.
-	files?: boolean;
 	// When the api answers for a chat: at once, unless a test holds it back.
 	answered?: (personaId: string) => Promise<void>;
 	// When the api answers for a thread: at once, unless a test holds it back.
@@ -215,7 +212,7 @@ function renderChatPage({
 		[
 			{
 				id: 'human',
-				loader: () => testHuman({...testOrg, files}),
+				loader: () => testHuman(testOrg),
 				element: <HumanSide />,
 				children: [
 					{
@@ -1531,7 +1528,6 @@ describe('ChatPage', () => {
 			);
 			renderChatPage({
 				threads: [pricing],
-				files: true,
 				initial: '/acme/chat/general/threads/t1',
 			});
 			const box = await screen.findByLabelText('Reply');
@@ -1976,7 +1972,7 @@ describe('ChatPage', () => {
 						: new Response(null, {status: 204}),
 				);
 			});
-			renderChatPage({draftAttachments: [kept], files: true});
+			renderChatPage({draftAttachments: [kept]});
 
 			// A chip by its name in the box the message is typed in, its size said on hover.
 			const box = await openNewTask();
@@ -2014,7 +2010,6 @@ describe('ChatPage', () => {
 			renderChatPage({
 				draft: `Read ${ATTACHMENT_MARK}`,
 				draftAttachments: [kept],
-				files: true,
 			});
 			const chat = await screen.findByLabelText('Tasks');
 			await openNewTask();
@@ -2033,7 +2028,7 @@ describe('ChatPage', () => {
 		test('opens with each file where it sat among the words, and sends the words with a mark for each, in their order', async () => {
 			const chart = {...kept, fileId: 'file-2', name: 'chart.png', type: 'image/png'};
 			const typed = `Does ${ATTACHMENT_MARK} match ${ATTACHMENT_MARK}?`;
-			renderChatPage({draft: typed, draftAttachments: [chart, kept], files: true});
+			renderChatPage({draft: typed, draftAttachments: [chart, kept]});
 
 			const box = await openNewTask();
 			await waitFor(() => expect(box.textContent).toBe('Does chart.png match pricing.md?'));
@@ -2059,7 +2054,6 @@ describe('ChatPage', () => {
 			renderChatPage({
 				draft: `Look at ${ATTACHMENT_MARK}`,
 				draftAttachments: [kept],
-				files: true,
 			});
 
 			const box = await openNewTask();
@@ -2072,7 +2066,6 @@ describe('ChatPage', () => {
 			renderChatPage({
 				draft: `Look at ${ATTACHMENT_MARK} today`,
 				draftAttachments: [kept],
-				files: true,
 			});
 			const box = await openNewTask();
 			await waitFor(() => expect(chipOf('pricing.md') === null).toBe(false));
@@ -2090,7 +2083,7 @@ describe('ChatPage', () => {
 		});
 
 		test('saves what is typed around a file with which file each mark is', async () => {
-			renderChatPage({draftAttachments: [kept], files: true});
+			renderChatPage({draftAttachments: [kept]});
 			const box = await openNewTask();
 			await waitFor(() => expect(chipOf('pricing.md') === null).toBe(false));
 
@@ -2116,7 +2109,7 @@ describe('ChatPage', () => {
 
 		test('takes a file out of the input on the server too, by its cross or by deleting it from the text', async () => {
 			const chart = {...kept, fileId: 'file-2', name: 'chart.png', type: 'image/png'};
-			renderChatPage({draftAttachments: [kept, chart], files: true});
+			renderChatPage({draftAttachments: [kept, chart]});
 			const box = await openNewTask();
 			await waitFor(() => expect(chipOf('pricing.md') === null).toBe(false));
 
@@ -2151,7 +2144,7 @@ describe('ChatPage', () => {
 							: new Response(null, {status: 204}),
 				),
 			);
-			renderChatPage({files: true});
+			renderChatPage();
 			const box = await openNewTask();
 			typeIn(box, 'See ');
 			const file = new File(['hello'], 'notes.txt', {type: 'text/plain'});
@@ -2196,7 +2189,6 @@ describe('ChatPage', () => {
 					]),
 				},
 				initial: '/acme/chat/general/threads/t1',
-				files: true,
 			});
 
 			await screen.findByLabelText('Thread');
@@ -2225,16 +2217,6 @@ describe('ChatPage', () => {
 
 			fireEvent.click(within(viewer).getByRole('button', {name: 'Close'}));
 			await waitFor(() => expect(viewer.isConnected).toBe(false));
-		});
-
-		test('takes no files where the organization has none: no paperclip, and a drop is left alone', async () => {
-			renderChatPage();
-			await openNewTask();
-
-			fireEvent.dragEnter(window, {dataTransfer: {types: ['Files'], files: []}});
-
-			expect(screen.queryByRole('button', {name: 'Attach files'})).toBeNull();
-			expect(screen.queryByText('Drop files to attach them')).toBeNull();
 		});
 	});
 });

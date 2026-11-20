@@ -25,9 +25,9 @@ import {
 	type ThreadRow,
 } from './harness';
 
-// A thread's sub-agents, against the local database: run with it up (`bun run dev`) and the
-// environment loaded, `bun --env-file=../../.env test src/sub-agents.test.ts` from this package;
-// skipped without DATABASE_URL. Everything made here is one organization's, deleted at the end.
+// A thread's sub-agents, against a database: run with `bun run test:db` from the repository's
+// root, which gives the tests a database of their own, since a running `bun run dev` claims the
+// jobs they queue; skipped without DATABASE_URL. Everything made here is one organization's, deleted at the end.
 const databaseUrl = process.env.DATABASE_URL;
 
 function unwrap<T>(result: Result<T, ApiError>): T {

@@ -16,6 +16,7 @@
 		"typecheck": "bun run --filter './packages/*' typecheck",
 		"lint": "bun run --cwd packages/web lint && bun run --cwd packages/docs lint && bun run --cwd packages/website lint && bun run --cwd packages/map lint && bun run --cwd packages/desktop lint",
 		"test": "bun run --filter './packages/*' test",
+		"test:db": "bun --env-file=.env packages/db/scripts/test-db.ts",
 		"desktop": "bun run --cwd packages/desktop desktop"
 	},
 	"devDependencies": {

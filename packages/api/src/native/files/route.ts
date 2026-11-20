@@ -10,6 +10,7 @@ import {
 	createFolderBodySchema,
 	type DriveFile,
 	type fileAnswerSchema,
+	type FileAuthor,
 	type FileCrumb,
 	type fileDetailSchema,
 	type fileListSchema,
@@ -30,8 +31,11 @@ import {
 	type FileMaker as FileMakerRow,
 	type FileNodeRow,
 	type FileVersionEntry,
+	type StoredVersionRow,
+	type VersionAuthor,
 	getFile,
 	getFileVersion,
+	isStored,
 	listFileMakers,
 	listFileVersions,
 	listFolder,
@@ -125,21 +129,24 @@ function toCrumbs(trail: FileNodeRow[]): FileCrumb[] {
 	return trail.map((folder) => ({id: folder.id, name: folder.name}));
 }
 
-function toVersion(version: FileVersionEntry, file: FileEntry): FileVersion {
+/**
+ * Who made a version or a change, as far as the journal has it: a member by their avatar, or an
+ * agent as the file's makers are drawn, with the task it was for; also the Google Drive history's
+ * (records/google-history-route.ts).
+ */
+export function toFileAuthor(author: Pick<VersionAuthor, 'user' | 'maker' | 'task'>): FileAuthor {
+	if (author.user !== null) {
+		return {kind: 'person', name: author.user.name ?? author.user.email, email: author.user.email, image: author.user.image};
+	}
+	// An agent that is gone since, by no name and no mark.
+	if (author.maker === null) {
+		return {kind: 'agent', id: '', name: 'An agent', providerId: '', task: author.task};
+	}
+	return {...toMaker(author.maker), task: author.task};
+}
+
+function toVersion(version: FileVersionEntry & StoredVersionRow, file: FileEntry): FileVersion {
 	const {author} = version;
-	const by = (): FileVersion['by'] => {
-		if (author === null) {
-			return null;
-		}
-		if (author.user !== null) {
-			return {kind: 'person', name: author.user.name ?? author.user.email, email: author.user.email, image: author.user.image};
-		}
-		// An agent that is gone since, by no name and no mark.
-		if (author.maker === null) {
-			return {kind: 'agent', id: '', name: 'An agent', providerId: '', task: author.task};
-		}
-		return {...toMaker(author.maker), task: author.task};
-	};
 	return {
 		id: version.id,
 		name: author?.name ?? file.name,
@@ -147,7 +154,7 @@ function toVersion(version: FileVersionEntry, file: FileEntry): FileVersion {
 		type: version.type,
 		at: version.createdAt.toISOString(),
 		current: version.id === file.head?.id,
-		by: by(),
+		by: author === null ? null : toFileAuthor(author),
 		restored: author?.kind === 'restore',
 	};
 }
@@ -185,7 +192,8 @@ export function handleGetFileRoute(request: AuthenticatedRequest): Promise<Resul
 		const {connectionId} = $(await driveOf(request));
 		const fileId = request.params.fileId ?? '';
 		const file = $(requirePresent($(await getFile(connectionId, fileId)), ApiErr.notFound('file', fileId)));
-		const versions = file.folder ? [] : $(await listFileVersions(connectionId, file.id));
+		// A file of Files has every version's bytes here.
+		const versions = file.folder ? [] : $(await listFileVersions(connectionId, file.id)).filter(isStored);
 		return {file: toFile(file), trail: toCrumbs(file.trail), versions: versions.map((version) => toVersion(version, file))};
 	});
 }

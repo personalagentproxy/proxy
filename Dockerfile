@@ -65,6 +65,9 @@ ENV PORT=4000
 ARG APP_VERSION=""
 ENV APP_VERSION=$APP_VERSION
 EXPOSE 4000
+# Where the bytes of Files and uploads go when FILES_DIR names it, as docker-compose.yml does: made
+# here, the server's own, so a volume mounted on it starts out writable.
+RUN mkdir -p /data/files && chown bun:bun /data/files
 USER bun
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=20s \

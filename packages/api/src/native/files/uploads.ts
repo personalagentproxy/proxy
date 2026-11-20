@@ -1,0 +1,81 @@
+import {Err} from 'ts-results-es';
+
+import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
+import {checkNewFile, createFile, ensureFolder, type FileChangeBy, getFile, writeFile} from '@proxy/db/files';
+import type {FileUploadRow} from '@proxy/db/file-uploads';
+
+import type {DriveUploads} from '../../uploads/tickets';
+import {requireFile} from './connector';
+import {fileLink} from './links';
+import {mediaType, requireFileName} from './names';
+
+/**
+ * Uploads into a drive of Files (uploads/tickets.ts): the blob the bytes arrived in becomes the
+ * file's version as it is. Everything a write checks is checked at the start too, so a URL is
+ * only handed out for a file that could be made: the folder, the name free in it, or the version
+ * of the file written over. The file is made at done, as the upload's agent's, for its task, with the folders on the way to it that a
+ * push to a path names and the drive lacks (`pap files push`, cli.ts), and checked again then, as
+ * the drive may have changed in the hour. A blob of an upload never finished is no version's, and
+ * so is taken by the sweep of unused blobs (sweeper.ts).
+ */
+
+function changeOf(upload: FileUploadRow): FileChangeBy {
+	return {orgId: upload.orgId, connectionId: upload.connectionId, by: {agentId: upload.agentId, taskId: upload.taskId}};
+}
+
+export const filesUploads: DriveUploads = {
+	start: (run, target, file) =>
+		Do(async ($) => {
+			const connectionId = run.connection.id;
+			const named = await Do<{name: string; fileId: string | null}, ApiError>(async ($$) => {
+				if (target.kind === 'create') {
+					if (target.convert) {
+						return $$(Err(ApiErr.validationError('Files keeps every file as its bytes, of its own type: leave convert out')));
+					}
+					const name = $$(requireFileName(target.name));
+					for (const folder of target.folders) {
+						$$(requireFileName(folder));
+					}
+					// Where folders are to be made on the way, the first of them is what is new in the folder there.
+					$$(await checkNewFile(connectionId, {parentId: target.parentId, name: target.folders[0] ?? name}));
+					return {name, fileId: null};
+				}
+				const found = $$(await requireFile(connectionId, target.fileId));
+				if (found.folder) {
+					return $$(Err(ApiErr.validationError(`${found.name} is a folder, which holds no bytes: give a file’s id, or a name and this folder as parent to add a file in it`)));
+				}
+				if (found.head?.id !== target.version) {
+					return $$(
+						Err(ApiErr.conflict(`${found.name} changed since that version was read: it holds ${found.head?.id ?? 'nothing'} now. Read it again with files_read, then upload what you make of it.`)),
+					);
+				}
+				return {name: found.name, fileId: found.id};
+			});
+			const {name, fileId} = $(named);
+			return {name, type: mediaType(name, file.type ?? undefined, 'bytes'), fileId};
+		}),
+
+	finish: (_run, upload, blob) =>
+		Do(async ($) => {
+			const broken = (what: string) => ApiErr.internalError(new Error(`Upload ${upload.id} to Files has no ${what}.`));
+			const content = {blobId: blob.id, size: blob.size, type: upload.type};
+			const change = changeOf(upload);
+			if (upload.target === 'write') {
+				const written = $(await writeFile(change, {fileId: $(requirePresent(upload.fileId, broken('file'))), ifVersion: $(requirePresent(upload.version, broken('version'))), content}));
+				return {fileId: written.id, version: $(requirePresent(written.head, broken('version made'))).id};
+			}
+			// The folders on the way, made where they are still missing, each the agent's as the file is.
+			let parentId = upload.parentId;
+			for (const name of upload.folders) {
+				parentId = $(await ensureFolder(change, {parentId, name})).id;
+			}
+			const made = $(await createFile(change, {parentId, name: upload.name, content}));
+			return {fileId: made.id, version: $(requirePresent(made.head, broken('version made'))).id};
+		}),
+
+	link: (run, upload, made) =>
+		Do(async ($) => {
+			const file = $(await getFile(upload.connectionId, made.fileId));
+			return fileLink(run.caller.agent.orgSlug, upload.connectionId, file ?? {id: made.fileId, parentId: upload.parentId, folder: false});
+		}),
+};

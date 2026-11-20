@@ -926,6 +926,9 @@ const INVITED: Condition = {
 	values: ['Needs action', 'Accepted', 'Declined', 'Maybe'],
 };
 
+/** How much of a file's text a read answers at once, and where the next read goes on from. */
+export const FILES_READ_CHARACTERS = 50_000;
+
 // What a Drive record can be beside a place: a spreadsheet holds its tabs (Sheet), a tab its rows.
 const FILE_KINDS = ['Folder', 'Document', 'Spreadsheet', 'Presentation', 'Sheet', 'Row', 'File'];
 
@@ -939,11 +942,16 @@ const FILE_KINDS = ['Folder', 'Document', 'Spreadsheet', 'Presentation', 'Sheet'
 // Drive, Shared with me, Shared drives and Recent at the top, folders holding files, a spreadsheet
 // holding its tabs and a tab its rows. Documents read as Markdown, presentations as text, rows as
 // "Header: value" lines; new documents are written as Markdown and new spreadsheets as CSV, which
-// Drive converts, and a spreadsheet's ranges are read and written in A1 notation as CSV. Files are
+// Drive converts; a larger file goes up as its bytes through a URL, to Personal Agent Proxy first
+// and on to Drive once finished (files_upload), and a file in Drive is copied into a folder by
+// Drive itself (files_copy). A spreadsheet's ranges
+// are read and written in A1 notation as CSV. Files are
 // moved to Trash, never deleted, and neither are events, contacts or tasks. Who is free is asked
 // of Google for the people named, and the people Gmail keeps under Other contacts are only read.
-// Tasks are one tree: the task lists at the top, each holding its tasks. Nothing is copied: every
-// request goes to Google.
+// Tasks are one tree: the task lists at the top, each holding its tasks. Every request goes to
+// Google; the only thing kept is a Drive file's history: a copy of it before a task first changes
+// it, and the changes made to it, read with files_versions and files_version_read, a file of its
+// own bytes given back with files_restore, and a Sheet's cells written undone with files_undo.
 const google: Integration = {
 	id: 'google',
 	signIn: true,
@@ -1070,7 +1078,8 @@ const google: Integration = {
 		{
 			id: 'createFiles',
 			label: 'Create files',
-			description: 'Create folders, documents and spreadsheets, and add rows',
+			description:
+				'Create folders, documents and spreadsheets, upload files such as PDFs and pictures, copy files into folders, and add rows',
 			risk: 'medium',
 			requires: 'readFiles',
 			group: 'Drive',
@@ -1078,7 +1087,8 @@ const google: Integration = {
 		{
 			id: 'editFiles',
 			label: 'Edit files',
-			description: 'Rename files, replace a document’s content and change rows and ranges',
+			description:
+				'Rename files, edit documents’ and presentations’ text, replace a document’s content, and change rows, ranges and tabs',
 			risk: 'medium',
 			requires: 'readFiles',
 			group: 'Drive',
@@ -1340,8 +1350,9 @@ const google: Integration = {
 			],
 			fields: [
 				{key: 'name', label: 'Name', type: 'text'},
-				// What a record is, and what a new one is to be: a folder, document or spreadsheet inside a
-				// folder or a place, or a row inside a tab, where it can be left out. It can't be changed.
+				// What a record is: a folder, document, spreadsheet or other file inside a folder or a
+				// place, or a row inside a tab. A new one is a folder, document or spreadsheet, or a row,
+				// where it can be left out; another file goes up with files_upload. It can't be changed.
 				{
 					key: 'kind',
 					label: 'Kind',
@@ -1355,10 +1366,19 @@ const google: Integration = {
 				{key: 'owner', label: 'Owner', type: 'text', system: true},
 				// A document as Markdown, a presentation as text, a spreadsheet's tabs one a line with their
 				// size, a row's values one "Header: value" a line, the headers from the tab's first row. A
-				// new document is written as Markdown and a new spreadsheet as CSV. Writing a document's
-				// content replaces all of it, dropping its comments and suggestions; a row's changes only
-				// the headers written differently. A presentation's and a spreadsheet's are only read.
-				{key: 'content', label: 'Content', type: 'longtext'},
+				// new document is written as Markdown and a new spreadsheet as CSV; any other new file goes
+				// up as its bytes with files_upload, and they aren't read back. A row's content changes
+				// only the headers written differently; a file's is only read here, never written over,
+				// which would drop a document's comments, suggestions and formatting: docs_edit and
+				// slides_edit edit a document's or a presentation's text in place, and ranges and sheets_
+				// tools a spreadsheet's cells and structure.
+				{
+					key: 'content',
+					label: 'Content',
+					type: 'longtext',
+					description:
+						'a new Document as Markdown, a new Spreadsheet as CSV, a row as "Header: value" lines; a document there already is edited in place with docs_edit, never written over here; a new File, such as report.pdf or chart.png, goes up as its bytes with files_upload instead',
+				},
 			],
 		},
 		// A range of a spreadsheet, read or written in A1 notation, as people who know Sheets think of
@@ -1396,9 +1416,19 @@ const google: Integration = {
 				// What Write puts in the range, as CSV, one row a line, each value as if typed into the
 				// cell: =SUM(B2:B9) is a formula.
 				{key: 'values', label: 'Values', type: 'longtext'},
+				// Yes answers each cell's formula, as typed in, rather than what it shows: after Write too.
+				{
+					key: 'formulas',
+					label: 'Formulas',
+					type: 'select',
+					options: ['Yes', 'No'],
+					description:
+						'Yes answers each cell’s formula as it was typed in, =SUM(B2:B9), rather than what it shows, and a cell without one as its value unformatted',
+				},
 				// "12 rows", or how many of more were answered: at most 1000.
 				{key: 'rows', label: 'Rows', type: 'text', system: true},
-				// The range's values as Sheets shows them, as CSV, one row a line: after Write, as written.
+				// The range's values as Sheets shows them, or its formulas, as CSV, one row a line: after
+				// Write, as written.
 				{key: 'result', label: 'Result', type: 'longtext', system: true},
 			],
 		},
@@ -1513,6 +1543,400 @@ const google: Integration = {
 				// What a task was made from, such as an email in Gmail, by its link.
 				{key: 'source', label: 'Made from', type: 'text', system: true},
 			],
+		},
+	],
+	// Copying a file names both the file and where the copy goes, which no one record's write does.
+	// Drive makes the copy itself, so a file of any size is copied without passing through here. A
+	// file's bytes go up through a URL of Personal Agent Proxy's own, which the agent sends them to
+	// however it can, and on to Drive only once files_upload_done finds them as said; files_upload needs Add files
+	// for a new file and Edit files to write over one, as does finishing it, as Files' do. A file's
+	// history, the versions Personal Agent Proxy keeps of it and the changes made through it, is
+	// read and given back through tools of their own too. A Doc's and a Slides file's text is read
+	// with the revision it is at, and edited in place only at that revision, through the Docs and
+	// Slides APIs, keeping its comments and formatting; a spreadsheet's rows, columns and tabs are
+	// inserted, added and deleted. Each edit is logged in the file's history.
+	tools: [
+		{
+			name: 'files_copy',
+			title: 'Copy file',
+			description:
+				'Copies a file in Drive into a folder, a shared drive or My Drive, as Drive’s Make a copy does: a PDF, a picture, a document, any file but a folder, however large. Answers with the copy’s id, kind and link.',
+			action: 'createFiles',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					id: {
+						type: 'string',
+						description: 'The id of the file to copy, as files_list gives it, or its link',
+					},
+					parent: {
+						type: 'string',
+						description:
+							'The id of the folder or shared drive to put the copy in, as files_list gives it; left out, My Drive',
+					},
+					name: {type: 'string', description: 'The copy’s name; left out, the file’s own'},
+				},
+				required: ['id'],
+			},
+		},
+		{
+			name: 'files_upload',
+			title: 'Upload file',
+			description:
+				"Uploads a file into Drive as its bytes: a PDF, a picture, a video, a docx. Answers with a URL that takes the file for an hour, and a line to run in a shell, as curl -X PUT --upload-file <path> '<url>'; no sign-in or header is needed. Then call files_upload_done with the upload’s id: it checks what arrived and only then puts the file in Drive, so nothing reaches Drive before it. For a new file give name and size, and parent for a folder or shared drive; it keeps its own type, or with convert becomes a Doc, Sheet or Slides file, from a docx, xlsx or pptx, or Markdown or CSV. To write over a file of its own bytes, as a PDF or a picture, give its id, the version files_versions says it is at and size. A Doc, Sheet or Slides file is never written over, which would lose its comments, suggestions and formatting: edit it in place with docs_edit, slides_edit, ranges_write, sheets_rows or sheets_tabs. A copy is kept before a task first changes a file. Everything is checked before the URL is given: the folder, the name, the type and the version.",
+			action: 'createFiles',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					name: {
+						type: 'string',
+						description: 'A new file’s name, with its extension, as report.pdf',
+					},
+					parent: {
+						type: 'string',
+						description:
+							'The id of the folder or shared drive to put a new file in, as files_list gives it; left out, My Drive',
+					},
+					id: {
+						type: 'string',
+						description:
+							'The id of a file of its own bytes to write over, or its link, instead of name and parent; never a Doc, Sheet or Slides file',
+					},
+					version: {
+						type: 'string',
+						description: 'The version of the file id names, as files_versions says it is at now',
+					},
+					size: {
+						type: 'number',
+						description: 'The file’s size in bytes, as wc -c < <path> counts it',
+					},
+					type: {
+						type: 'string',
+						description:
+							'Its media type, as application/pdf, where its name’s extension doesn’t say',
+					},
+					sha256: {
+						type: 'string',
+						description:
+							'The file’s SHA-256 in hex, as sha256sum prints it, for done to check what arrived against',
+					},
+					convert: {
+						type: 'boolean',
+						description:
+							'Makes a new file a Doc, Sheet or Slides file: a docx or Markdown a Doc, an xlsx or CSV a Sheet, a pptx a Slides file',
+					},
+				},
+				required: ['size'],
+			},
+		},
+		{
+			name: 'files_upload_done',
+			title: 'Finish upload',
+			description:
+				'Finishes an upload, once its bytes were sent to the URL files_upload answered with: checks with Drive that their size, and their SHA-256 where you gave one, are what arrived, and answers with the file’s id, version and link. Bytes that aren’t what was said are taken out of Drive again: a new file moved to Trash, a file written over given back its revision before. Called again, it answers the same.',
+			action: 'createFiles',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					upload: {
+						type: 'string',
+						description: 'The upload’s id, as files_upload answered with it',
+					},
+				},
+				required: ['upload'],
+			},
+		},
+		{
+			name: 'files_versions',
+			title: 'List versions',
+			description:
+				'Lists the versions Personal Agent Proxy keeps of a file in Drive, newest first, and the changes made to it through Personal Agent Proxy: who made each, for which task, and whether a version is kept here or only as Drive’s own revision. A copy is kept before a task first changes a file. Answers the version ids files_version_read and files_restore take, the change ids files_undo takes, and the version the file is at now in Drive, which files_upload takes to write over it.',
+			action: 'readFiles',
+			readOnly: true,
+			inputSchema: {
+				type: 'object',
+				properties: {
+					id: {type: 'string', description: 'The file’s id, as files_list gives it, or its link'},
+				},
+				required: ['id'],
+			},
+		},
+		{
+			name: 'files_version_read',
+			title: 'Read version',
+			description: `Reads what a version of a file in Drive held, from files_versions, as text, ${FILES_READ_CHARACTERS} characters at a time: a Doc as Markdown, a Sheet’s tabs as CSV, a Slides file’s text, and a file of its own bytes where it is text, a PDF or an Office file. To bring back what a Doc, Sheet or Slides file lost, read the version from before and make the changes back in place, with docs_edit, slides_edit, ranges_write or sheets_rows.`,
+			action: 'readFiles',
+			readOnly: true,
+			inputSchema: {
+				type: 'object',
+				properties: {
+					id: {type: 'string', description: 'The file’s id, as files_list gives it, or its link'},
+					version: {type: 'string', description: 'The version, from files_versions'},
+					from: {
+						type: 'number',
+						description: 'The character to read on from, as the read before said',
+					},
+				},
+				required: ['id', 'version'],
+			},
+		},
+		{
+			name: 'files_restore',
+			title: 'Restore version',
+			description:
+				'Gives a file of its own bytes in Drive, as a PDF or a picture, an earlier version back, from files_versions, as its newest revision, keeping its id and link. What it held until now is kept as a version too. A Doc, Sheet or Slides file is never given a version back here, which would write over it whole: read the version with files_version_read and make the changes back in place, or a person gives it back in Drive’s own version history.',
+			action: 'editFiles',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					id: {type: 'string', description: 'The file’s id, or its link'},
+					version: {type: 'string', description: 'The version to give back, from files_versions'},
+				},
+				required: ['id', 'version'],
+			},
+		},
+		{
+			name: 'files_undo',
+			title: 'Undo change',
+			description:
+				'Undoes one change exactly, where it has an exact undo, as a range or a row of a Sheet written: puts the cells back as they were before it. Refused where the cells changed since; files_version_read reads the version from before it instead.',
+			action: 'editFiles',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					change: {type: 'string', description: 'The change’s id, from files_versions'},
+				},
+				required: ['change'],
+			},
+		},
+		{
+			name: 'docs_read',
+			title: 'Read document text',
+			description:
+				'Reads a Google Doc’s text as the Docs API has it, paragraph by paragraph, the paragraphs in tables’ cells too, with the revision it is at, which docs_edit takes: its first tab, or the one asked for, and the titles and ids of its other tabs. Its text is what docs_edit finds text in. files_get reads a document as Markdown instead, with its formatting.',
+			action: 'readFiles',
+			readOnly: true,
+			inputSchema: {
+				type: 'object',
+				properties: {
+					id: {
+						type: 'string',
+						description: 'The document’s id, as files_list gives it, or its link',
+					},
+					tab: {
+						type: 'string',
+						description:
+							'The tab to read, by its title or its id, as a read of the document lists them; left out, the first',
+					},
+				},
+				required: ['id'],
+			},
+		},
+		{
+			name: 'docs_edit',
+			title: 'Edit document',
+			description:
+				'Edits a Google Doc in place, keeping its comments, suggestions and formatting: each edit finds text that must appear exactly once, in the tab it names or in the whole document, every tab of it, as docs_read answers it, and replaces it, writes text before or after it, or styles it. Give the revision docs_read answered with: where the document changed since, nothing is edited, and you read it again. The edits are made together, or none is; no two may find the same text. A copy is kept before a task first changes a file (files_versions).',
+			action: 'editFiles',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					id: {
+						type: 'string',
+						description: 'The document’s id, as files_list gives it, or its link',
+					},
+					revision: {
+						type: 'string',
+						description: 'The revision docs_read answered with',
+					},
+					edits: {
+						type: 'array',
+						description:
+							'Up to 100 edits, each find and one of replace, insertBefore, insertAfter or style, and tab where wanted',
+						items: {
+							type: 'object',
+							properties: {
+								find: {
+									type: 'string',
+									description:
+										'Text that appears exactly once in the document, or in the tab given, case and all, as docs_read answers it; it may run across paragraphs, not across an image, a chip or a table’s cells',
+								},
+								tab: {
+									type: 'string',
+									description:
+										'The tab find is in, by its title or its id; left out, find is looked for in every tab',
+								},
+								replace: {type: 'string', description: 'Text to put in its place; "" deletes it'},
+								insertBefore: {type: 'string', description: 'Text to write just before it'},
+								insertAfter: {type: 'string', description: 'Text to write just after it'},
+								style: {
+									type: 'object',
+									description: 'Styles to give it',
+									properties: {
+										bold: {type: 'boolean'},
+										italic: {type: 'boolean'},
+										underline: {type: 'boolean'},
+										link: {
+											type: 'string',
+											description: 'A web address to link it to; "" takes a link off',
+										},
+										heading: {
+											type: 'string',
+											description: 'The style of the paragraphs it is in',
+											enum: [
+												'Normal text',
+												'Title',
+												'Subtitle',
+												'Heading 1',
+												'Heading 2',
+												'Heading 3',
+												'Heading 4',
+												'Heading 5',
+												'Heading 6',
+											],
+										},
+									},
+									additionalProperties: false,
+								},
+							},
+							required: ['find'],
+							additionalProperties: false,
+						},
+					},
+				},
+				required: ['id', 'revision', 'edits'],
+			},
+		},
+		{
+			name: 'sheets_rows',
+			title: 'Insert or delete rows',
+			description:
+				'Inserts empty rows or columns into a tab of a Google Sheet, moving those from there on down or right, or deletes them with what they hold. A delete names the checksum of what it takes away: asked without it, nothing is deleted, and the answer shows what those rows or columns hold and their checksum, to delete them with; where they changed since, as when a row was inserted above them, it is refused the same way. Deleting has no exact undo: files_version_read reads the copy kept before a task first changes a file. Values are written with ranges_write.',
+			action: 'editFiles',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					spreadsheet: {
+						type: 'string',
+						description: 'The spreadsheet’s id, as files_list gives it, or its link',
+					},
+					tab: {type: 'string', description: 'The tab’s title'},
+					insert: {
+						type: 'object',
+						description:
+							'Where to insert and how many: start is the first new one’s row number, from 1, or column’s letter; one past the last adds them at the end',
+						properties: {start: {type: ['integer', 'string']}, count: {type: 'integer'}},
+						required: ['start', 'count'],
+						additionalProperties: false,
+					},
+					delete: {
+						type: 'object',
+						description:
+							'Which to delete: start is the first one’s row number, from 1, or column’s letter, and count how many',
+						properties: {start: {type: ['integer', 'string']}, count: {type: 'integer'}},
+						required: ['start', 'count'],
+						additionalProperties: false,
+					},
+					dimension: {
+						type: 'string',
+						description: 'Rows or columns; left out, rows',
+						enum: ['rows', 'columns'],
+					},
+					checksum: {
+						type: 'string',
+						description:
+							'For a delete: the checksum of what it takes away, as a delete without it answered',
+					},
+				},
+				required: ['spreadsheet', 'tab'],
+			},
+		},
+		{
+			name: 'sheets_tabs',
+			title: 'Add or delete tab',
+			description:
+				'Adds an empty tab to a Google Sheet, after its others, or deletes one with everything on it. A delete names the checksum of what the tab holds: asked without it, nothing is deleted, and the answer shows what the tab holds and its checksum, to delete it with; where it changed since, it is refused the same way. Deleting has no exact undo: files_version_read reads the copy kept before a task first changes a file. A tab is renamed with files_update on it.',
+			action: 'editFiles',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					spreadsheet: {
+						type: 'string',
+						description: 'The spreadsheet’s id, as files_list gives it, or its link',
+					},
+					add: {type: 'string', description: 'The title of a tab to add'},
+					delete: {type: 'string', description: 'The title of a tab to delete'},
+					checksum: {
+						type: 'string',
+						description:
+							'For a delete: the checksum of what the tab holds, as a delete without it answered',
+					},
+				},
+				required: ['spreadsheet'],
+			},
+		},
+		{
+			name: 'slides_read',
+			title: 'Read presentation text',
+			description:
+				'Reads a Google Slides file’s text, slide by slide, what its shapes and tables hold, with the revision it is at, which slides_edit takes.',
+			action: 'readFiles',
+			readOnly: true,
+			inputSchema: {
+				type: 'object',
+				properties: {
+					id: {
+						type: 'string',
+						description: 'The presentation’s id, as files_list gives it, or its link',
+					},
+				},
+				required: ['id'],
+			},
+		},
+		{
+			name: 'slides_edit',
+			title: 'Replace text in presentation',
+			description:
+				'Replaces text in a Google Slides file, matched with its case, as Slides’ find and replace does, keeping its slides and formatting, one replacement after another, and answers how many times each was replaced. Each find must appear exactly once, on the slide it names or in the whole presentation, unless all says to replace every one. Give the revision slides_read answered with: where the presentation changed since, nothing is replaced, and you read it again. The replacements are made together, or none is. A copy is kept before a task first changes a file (files_versions).',
+			action: 'editFiles',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					id: {
+						type: 'string',
+						description: 'The presentation’s id, as files_list gives it, or its link',
+					},
+					revision: {type: 'string', description: 'The revision slides_read answered with'},
+					replace: {
+						type: 'array',
+						description: 'Up to 100 replacements',
+						items: {
+							type: 'object',
+							properties: {
+								find: {
+									type: 'string',
+									description:
+										'The text to find, case and all, within one shape or table cell, as slides_read answers it',
+								},
+								replace: {type: 'string', description: 'What to put in its place; "" deletes it'},
+								slide: {
+									type: 'integer',
+									description:
+										'The slide to replace it on, by its number from 1, as slides_read counts them; left out, any',
+								},
+								all: {
+									type: 'boolean',
+									description:
+										'Replace every time it appears, rather than only where it appears once',
+								},
+							},
+							required: ['find', 'replace'],
+							additionalProperties: false,
+						},
+					},
+				},
+				required: ['id', 'revision', 'replace'],
+			},
 		},
 	],
 };
@@ -1782,9 +2206,6 @@ const sandbox: Integration = {
 
 export const FILES_INTEGRATION_ID = 'files';
 
-/** How much of a file's text a read answers at once, and where the next read goes on from. */
-export const FILES_READ_CHARACTERS = 50_000;
-
 /** How long what is put in the trash stays there before it is deleted for good. */
 export const FILES_TRASH_DAYS = 30;
 
@@ -1795,8 +2216,10 @@ export const FILES_TRASH_DAYS = 30;
 // an agent wrote over can be given back. The collection lists folders and opens files, as text
 // where they can be read as it; the writes are tools of the integration's own, since each names
 // who made the change and, to write over a file, the version that was read. A tool carries text:
-// the bytes of a file that isn't text go up and come down in the web app. Offered where the server
-// has a place for the bytes (FILES_DIR or FILES_S3_BUCKET).
+// the bytes of a file that isn't text go up through a URL files_upload hands out, and come down in
+// the web app or a sandbox (pap files). files_upload needs Add files for a new file and Edit files
+// to write over one, as does finishing it; the api asks for the one each run needs. Offered where
+// the server has a place for the bytes (FILES_DIR or FILES_S3_BUCKET).
 const files: Integration = {
 	id: FILES_INTEGRATION_ID,
 	name: 'Files',
@@ -1866,7 +2289,7 @@ const files: Integration = {
 			name: 'files_create',
 			title: 'Add file',
 			description:
-				'Adds a file holding content as text, or a folder, called name, in the folder parent or at the top. Refused where something there has the name: files_write changes a file that is there.',
+				'Adds a file holding content as text, or a folder, called name, in the folder parent or at the top. Refused where something there has the name: files_write changes a file that is there. A file that isn’t text, or a large one, goes up with files_upload.',
 			action: 'createFiles',
 			inputSchema: {
 				type: 'object',
@@ -1889,7 +2312,7 @@ const files: Integration = {
 			name: 'files_write',
 			title: 'Write file',
 			description:
-				'Writes content, as text, over what a file holds, as its next version; the one before is kept (files_versions). Give the version files_read answered with: where the file changed since, the write is refused, and you read it again.',
+				'Writes content, as text, over what a file holds, as its next version; the one before is kept (files_versions). Give the version files_read answered with: where the file changed since, the write is refused, and you read it again. Bytes that aren’t text go up with files_upload.',
 			action: 'editFiles',
 			inputSchema: {
 				type: 'object',
@@ -1899,6 +2322,66 @@ const files: Integration = {
 					content: {type: 'string', description: 'All of its new content, as text'},
 				},
 				required: ['id', 'version', 'content'],
+			},
+		},
+		{
+			name: 'files_upload',
+			title: 'Upload file',
+			description:
+				"Uploads a file of any kind, as its bytes: a PDF, a picture, a spreadsheet, an archive, too large or not text for files_create and files_write. Answers with a URL that takes the file for an hour, and a line to run in a shell, as curl -X PUT --upload-file <path> '<url>'; no sign-in or header is needed. Then call files_upload_done with the upload’s id: only that makes the file. For a new file give name and size, and parent for a folder; to write over a file, its id, the version you read and size, and the version before is kept. Everything is checked before the URL is given: the folder, the name, the version and the size.",
+			action: 'createFiles',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					name: {
+						type: 'string',
+						description: 'A new file’s name, with its extension, as report.pdf',
+					},
+					parent: {
+						type: 'string',
+						description: 'The id of the folder to put a new file in; left out, the top',
+					},
+					id: {
+						type: 'string',
+						description: 'The id of a file to write over, instead of name and parent',
+					},
+					version: {
+						type: 'string',
+						description: 'The version you read of the file id names, as files_read answers with it',
+					},
+					size: {
+						type: 'number',
+						description: 'The file’s size in bytes, as wc -c < <path> counts it',
+					},
+					type: {
+						type: 'string',
+						description:
+							'Its media type, as application/pdf, where its name’s extension doesn’t say',
+					},
+					sha256: {
+						type: 'string',
+						description:
+							'The file’s SHA-256 in hex, as sha256sum prints it, for done to check what arrived against',
+					},
+				},
+				required: ['size'],
+			},
+		},
+		{
+			name: 'files_upload_done',
+			title: 'Finish upload',
+			description:
+				'Makes the file of an upload, once its bytes were sent to the URL files_upload answered with: checks that its size, and its SHA-256 where you gave one, are what arrived, and answers with the file’s id, version and link. Called again, it answers the same.',
+			action: 'createFiles',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					upload: {
+						type: 'string',
+						description: 'The upload’s id, as files_upload answered with it',
+					},
+				},
+				required: ['upload'],
 			},
 		},
 		{

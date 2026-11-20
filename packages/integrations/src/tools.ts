@@ -94,19 +94,20 @@ function conditionText(collection: Collection, condition: Condition | undefined)
 }
 
 function fieldProperty(field: Field): JsonSchemaProperty {
+	const label = field.description ? `${field.label}: ${field.description}` : field.label;
 	if (field.options) {
-		return {type: 'string', description: field.label, enum: field.options};
+		return {type: 'string', description: label, enum: field.options};
 	}
 	if (field.type === 'email') {
-		return {type: 'string', description: `${field.label}: one or more addresses, comma-separated`};
+		return {type: 'string', description: `${label}: one or more addresses, comma-separated`};
 	}
 	if (field.type === 'date') {
-		return {type: 'string', description: `${field.label}, as YYYY-MM-DD`, format: 'date'};
+		return {type: 'string', description: `${label}, as YYYY-MM-DD`, format: 'date'};
 	}
 	if (field.type === 'datetime') {
-		return {type: 'string', description: field.label, format: 'date-time'};
+		return {type: 'string', description: label, format: 'date-time'};
 	}
-	return {type: 'string', description: field.label};
+	return {type: 'string', description: label};
 }
 
 function objectSchema(

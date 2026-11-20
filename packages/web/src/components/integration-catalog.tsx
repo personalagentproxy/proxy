@@ -1,5 +1,5 @@
 import type {Connection} from '@proxy/contracts/connections';
-import {FILES_INTEGRATION_ID, type IntegrationId} from '@proxy/integrations';
+import type {IntegrationId} from '@proxy/integrations';
 import {useState} from 'react';
 import {Badge} from '@proxy/ui/components/badge';
 import {pillButtonVariants} from '@proxy/ui/lib/pill-variants';
@@ -41,12 +41,10 @@ const PLUS = cn(
 // can be connected again, for another mailbox, account or server. The vault is among them, though
 // it lives here and every member has one already: another is made on a form, as a server is
 // connected, and counts the ones made. One that needs what the server
-// doesn't have, such as Google without its client, is greyed out, saying what to set up. Files
-// aren't offered where the server has no place for their bytes.
+// doesn't have, such as Google without its client, is greyed out, saying what to set up.
 export function IntegrationCatalog({
 	connections,
 	configured,
-	files,
 	returnTo,
 	shared = false,
 	onConnectForm,
@@ -54,8 +52,6 @@ export function IntegrationCatalog({
 }: {
 	connections: Connection[];
 	configured: Configured;
-	// Whether Files are offered in the organization (`Org.files`).
-	files: boolean;
 	returnTo?: 'welcome';
 	// A new connection is for every member of the organization rather than the person's own.
 	shared?: boolean;
@@ -69,8 +65,7 @@ export function IntegrationCatalog({
 	// that makes one is the app's, so the welcome flow, which has none, leaves those out.
 	const available = INTEGRATIONS.filter(
 		(integration) =>
-			(!integration.native || (integration.made !== undefined && returnTo !== 'welcome')) &&
-			(integration.id !== FILES_INTEGRATION_ID || files),
+			!integration.native || (integration.made !== undefined && returnTo !== 'welcome'),
 	);
 	// The integration a key is being typed for, in the dialog.
 	const [keyFor, setKeyFor] = useState<IntegrationId | null>(null);

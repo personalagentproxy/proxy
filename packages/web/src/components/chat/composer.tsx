@@ -10,7 +10,6 @@ import {
 import {type ModelChoice, ModelSwitcher} from '@/components/model-switcher';
 import {type AttachmentInput, takenFiles, useAttachments} from '@/hooks/use-attachments';
 import type {ChatDraft} from '@/hooks/use-chat-draft';
-import {useHuman} from '@/hooks/use-human';
 import {useReloadWhileHidden} from '@/hooks/use-reload-on-release';
 import {useWindowFileDrop} from '@/hooks/use-window-file-drop';
 import {ATTACHMENT_MARK} from '@proxy/utils/harness';
@@ -72,8 +71,7 @@ type Props = {
 
 /**
  * The box a message is written in, under the chat and under a thread, the same in both: the words
- * with the files placed among them, what runs the agent, a paperclip where the organization has
- * Files, and Send. What is typed is its own, so typing draws the box, not the chat over it. A
+ * with the files placed among them, what runs the agent, a paperclip, and Send. What is typed is its own, so typing draws the box, not the chat over it. A
  * message sent leaves the box at once, its files with it, and comes back to it where the send
  * fails.
  */
@@ -96,9 +94,8 @@ export function Composer({
 	onSent,
 	className,
 }: Props) {
-	// What goes with the next message: the files the person put in the box, where the
-	// organization has Files. Sent once none is still on its way up, with words, files, or both.
-	const attaches = useHuman()?.org.files ?? false;
+	// What goes with the next message: the files the person put in the box. Sent once none is
+	// still on its way up, with words, files, or both.
 	const attachments = useAttachments(input, keptFiles);
 	// The files in the box now, as a send that waited on the server finds them.
 	const pendingNow = useRef(attachments.pending);
@@ -188,7 +185,7 @@ export function Composer({
 	const failedUpload = failedFile ? `${failedFile.name}: ${failedFile.error ?? ''}` : null;
 	const sendable = !attachments.uploading && (words !== '' || placed.length > 0);
 	// Files dropped anywhere on the window are attached, unless a dialog is open over the page.
-	const dropping = useWindowFileDrop(attaches && !managing, attachments.add);
+	const dropping = useWindowFileDrop(!managing, attachments.add);
 
 	// The message leaves the box at once, its files with it. Where the send fails, it comes back,
 	// before anything typed since; where it doesn't, what was typed since is kept as the draft,
@@ -264,7 +261,7 @@ export function Composer({
 					placeholder={placeholder}
 					onChange={type}
 					onRemove={attachments.remove}
-					onFiles={attaches ? attachments.add : undefined}
+					onFiles={attachments.add}
 					onSubmit={() => form.current?.requestSubmit()}
 				/>
 				{/* The model's name starts where the message's hint does: 5px, the switcher's 1px border
@@ -276,26 +273,18 @@ export function Composer({
 						mayChange={model.mayChange}
 						onPick={(choice) => void switchModel(choice)}
 					/>
-					{attaches && (
-						<PillButton
-							type="button"
-							variant="ghost"
-							icon
-							className="ml-auto"
-							onClick={() => picker.current?.click()}
-							aria-label="Attach files"
-						>
-							<PaperclipIcon />
-						</PillButton>
-					)}
-					{/* The command bar's main button without its label: Enter's mark, as Enter sends. */}
 					<PillButton
-						type="submit"
-						enter
-						className={cn(!attaches && 'ml-auto')}
-						disabled={sending || !sendable}
-						aria-label="Send"
-					/>
+						type="button"
+						variant="ghost"
+						icon
+						className="ml-auto"
+						onClick={() => picker.current?.click()}
+						aria-label="Attach files"
+					>
+						<PaperclipIcon />
+					</PillButton>
+					{/* The command bar's main button without its label: Enter's mark, as Enter sends. */}
+					<PillButton type="submit" enter disabled={sending || !sendable} aria-label="Send" />
 				</InputGroupAddon>
 			</InputGroup>
 		</form>

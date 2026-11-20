@@ -4,6 +4,7 @@ import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
 import type {Member} from '@proxy/contracts/orgs';
 import type {DataRecord} from '@proxy/contracts/records';
+import type {DriveHistoryLoaded} from '@/components/drive-history';
 import {DEFAULT_LOOK} from '@proxy/utils/harness';
 import type {GitHubReach} from '@/lib/github';
 import {afterEach, describe, expect, test, spyOn} from 'bun:test';
@@ -79,6 +80,7 @@ function renderConnectionPage(
 	sandboxes: DataRecord[] | null = null,
 	github: GitHubReach | null = null,
 	files: Drive | null = null,
+	history: DriveHistoryLoaded | null = null,
 ) {
 	const loads = {count: 0};
 	const router = createMemoryRouter(
@@ -103,6 +105,7 @@ function renderConnectionPage(
 								sandboxes,
 								github,
 								files,
+								history,
 							};
 						}),
 						shouldRevalidate: shouldRevalidateTabs,
@@ -570,6 +573,155 @@ describe('ConnectionPage', () => {
 				'PATCH',
 				'/api/orgs/acme/connections/conn-1/files/file-1',
 				JSON.stringify({parent: 'folder-1'}),
+			],
+		]);
+		globalThis.fetch = realFetch;
+	});
+
+	test('a Google connection’s File history lists the files changed through it, and one opens with its versions and changes', async () => {
+		const google = {...mailbox, integrationId: 'google', defaults: ['readFiles']};
+		const agent = {
+			kind: 'agent' as const,
+			id: 'agent-1',
+			name: 'Claude',
+			providerId: 'claude',
+			task: {id: 'task-1', title: 'Fill in the budget'},
+		};
+		const files = [
+			{
+				id: 'sheet-1',
+				name: 'Budget 2026',
+				at: '2026-10-21T00:00:00.000Z',
+				kind: 'edit' as const,
+				by: agent,
+			},
+		];
+		renderConnectionPage(
+			'/acme/connections/conn-1?tab=history',
+			google,
+			[claude],
+			null,
+			null,
+			null,
+			null,
+			{files, file: null, shown: null, error: null},
+		);
+
+		const row = await screen.findByRole('link', {name: /Budget 2026/});
+		expect(tabs()).toEqual([
+			['Permissions', null],
+			['File history', 'page'],
+			['Sharing', null],
+			['Recent activity', null],
+		]);
+		expect(row.textContent).toContain('Edited');
+		expect(row.textContent).toContain('Claude');
+		expect(row.getAttribute('href')).toBe('/acme/connections/conn-1?tab=history&file=sheet-1');
+	});
+
+	test('a Drive file’s history gives a version back and undoes a change with exact cells, each once the person confirms', async () => {
+		const realFetch = globalThis.fetch;
+		const calls: Array<[string, string, string | undefined]> = [];
+		globalThis.fetch = ((input: string, init?: RequestInit) => {
+			calls.push([
+				init?.method ?? 'GET',
+				input,
+				typeof init?.body === 'string' ? init.body : undefined,
+			]);
+			return Promise.resolve(new Response(null, {status: 204}));
+		}) as typeof fetch;
+		const dana = {kind: 'person' as const, name: 'Dana', email: 'dana@example.com', image: null};
+		const agent = {
+			kind: 'agent' as const,
+			id: 'agent-1',
+			name: 'Claude',
+			providerId: 'claude',
+			task: {id: 'task-1', title: 'Fill in the budget'},
+		};
+		const version = {type: 'application/pdf', pinned: false, origin: 'before' as const, by: agent};
+		const at = '2026-10-21T00:00:00.000Z';
+		renderConnectionPage(
+			'/acme/connections/conn-1?tab=history&file=sheet-1',
+			{...mailbox, integrationId: 'google', defaults: ['readFiles']},
+			[claude],
+			null,
+			null,
+			null,
+			null,
+			{
+				files: [{id: 'sheet-1', name: 'Budget 2026', at, kind: 'edit', by: agent}],
+				file: 'sheet-1',
+				error: null,
+				shown: {
+					file: {
+						id: 'sheet-1',
+						name: 'Budget 2026',
+						link: 'https://docs.google.com/spreadsheets/d/sheet-1',
+						google: true,
+					},
+					versions: [
+						{...version, id: 'v2', at, kept: 'here', size: 2048, restorable: false},
+						{...version, id: 'v1', at, kept: 'drive', size: null, restorable: false, by: dana},
+					],
+					changes: [
+						{
+							id: 'c2',
+							at,
+							kind: 'edit',
+							name: 'Budget 2026',
+							beforeName: null,
+							by: agent,
+							cells: {tab: 'Q1', range: 'B2:B3'},
+						},
+						{
+							id: 'c1',
+							at,
+							kind: 'move',
+							name: 'Budget 2026',
+							beforeName: 'Budget',
+							by: dana,
+							cells: null,
+						},
+					],
+				},
+			},
+		);
+
+		const dialog = await screen.findByRole('dialog');
+		const versions = within(within(dialog).getByRole('region', {name: 'Versions'})).getAllByRole(
+			'listitem',
+		);
+		expect(versions[0]?.textContent).toContain('Kept here · 2 KB');
+		expect(versions[0]?.textContent).toContain('ClaudeFill in the budget');
+		// A Sheet's version, kept here or only in Drive, is given back from Drive's own version history.
+		expect(versions[0]?.textContent).toContain('File > Version history');
+		expect(versions[1]?.textContent).toContain('Only in Drive');
+		expect(versions[1]?.textContent).toContain('File > Version history');
+		expect(
+			within(versions[1] as HTMLElement)
+				.getByRole('link', {name: 'the file'})
+				.getAttribute('href'),
+		).toBe('https://docs.google.com/spreadsheets/d/sheet-1');
+		expect(within(dialog).queryAllByRole('button', {name: 'Restore this version'})).toEqual([]);
+		const changes = within(within(dialog).getByRole('region', {name: 'Changes'})).getAllByRole(
+			'listitem',
+		);
+		expect(changes[0]?.textContent).toContain('Cells B2:B3 of “Q1” edited');
+		expect(changes[1]?.textContent).toContain('Renamed from “Budget”');
+		expect(within(dialog).getAllByRole('button', {name: 'Undo this change'})).toHaveLength(1);
+
+		// Nothing is sent until the person confirms.
+		fireEvent.click(within(dialog).getByRole('button', {name: 'Undo this change'}));
+		const confirm = await screen.findByRole('button', {name: 'Undo'});
+		expect(calls.filter(([method]) => method === 'POST')).toEqual([]);
+		fireEvent.click(confirm);
+
+		await waitFor(() => expect(calls.filter(([method]) => method === 'POST')).toHaveLength(1));
+		expect(calls.filter(([method]) => method === 'POST')).toEqual([
+			[
+				'POST',
+				'/api/orgs/acme/connections/conn-1/drive-history/sheet-1/changes/c2/undo',
+				undefined,
 			],
 		]);
 		globalThis.fetch = realFetch;

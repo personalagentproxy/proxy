@@ -1,10 +1,10 @@
 import type {
 	DriveFile,
+	FileAuthor,
 	FileCrumb,
 	FileDetail,
 	FileList,
 	FileMaker,
-	FileVersion,
 } from '@proxy/contracts/files';
 import {FILES_TRASH_DAYS} from '@proxy/integrations';
 import {
@@ -179,11 +179,11 @@ function Trail({trail, trash}: {trail: FileCrumb[]; trash: boolean}) {
 const VERSION_COLUMNS =
 	'grid grid-cols-[minmax(0,1fr)_4rem_5.5rem_minmax(0,13rem)_4.5rem_4.5rem] items-center gap-3';
 
-// Who made a version, as far as it is known: a member by their avatar, or an agent as the file's
-// makers are drawn, with the task it was for under its name.
-function VersionBy({version}: {version: FileVersion}) {
+// Who made a version or a change, as far as it is known: a member by their avatar, or an agent as
+// the file's makers are drawn, with the task it was for under its name. Google Drive's history
+// draws its own the same way (drive-history.tsx).
+export function AuthorCell({by}: {by: FileAuthor | null}) {
 	const org = useOrgSlug();
-	const {by} = version;
 	if (by === null) {
 		return <span className="text-muted-foreground">Unknown</span>;
 	}
@@ -335,7 +335,7 @@ function ShownFile({connectionId, shown, onClose, onRename, onMove}: ShownProps)
 							<span className="text-muted-foreground" title={formatDateTime(version.at)}>
 								{formatAgo(version.at)}
 							</span>
-							<VersionBy version={version} />
+							<AuthorCell by={version.by} />
 							<span>
 								{version.current && (
 									<Badge variant="secondary" className="font-normal">

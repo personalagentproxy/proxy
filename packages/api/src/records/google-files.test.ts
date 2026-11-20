@@ -1,14 +1,36 @@
 import {beforeEach, describe, expect, mock, spyOn, test} from 'bun:test';
-import {Ok, type Result} from 'ts-results-es';
+import {Err, Ok, type Result} from 'ts-results-es';
 
 import type {ApiError} from '@proxy/utils';
+import type {FileUndo} from '@proxy/db/file-undo';
 import {findCollection, findIntegration, type Collection} from '@proxy/integrations';
 
 const markCredentialRejected = mock(async () => Ok(true));
 mock.module('@proxy/db/connection', () => ({markCredentialRejected, updateConnectionCredential: mock(), getConnectionCredential: mock(async () => Ok(null))}));
 
+// The history every write goes through (google-history.ts), kept in memory: each task has its copy
+// already, so no copy is taken here (google-history.test.ts takes them), and the changes logged are
+// kept to look at.
+type Logged = {kind: string; fileId: string; name: string; beforeName?: string | null; beforeRevision?: string | null; afterRevision?: string | null; undo?: FileUndo | null};
+const history = {logged: [] as Logged[], down: false};
+mock.module('@proxy/db/files', () => ({
+	hasTaskCopied: mock(async () => Ok(true)),
+	getLatestFileVersion: mock(async () => Ok(null)),
+	recordFileVersion: mock(),
+	logFileChange: mock(async (_change: object, entry: Logged) => {
+		if (history.down) {
+			return Err({kind: 'db_error', statusCode: 500, cause: new Error('the database is down')});
+		}
+		history.logged.push(entry);
+		return Ok({change: {id: `change-${history.logged.length}`, ...entry}, version: null});
+	}),
+	createFileBlob: mock(),
+	completeFileBlob: mock(),
+}));
+
+const logError = mock();
 mock.module('../observability/log', () => ({
-	log: {debug: mock(), info: mock(), warn: mock(), error: mock()},
+	log: {debug: mock(), info: mock(), warn: mock(), error: logError},
 	serializeError: mock(() => ({})),
 }));
 
@@ -55,6 +77,7 @@ const target = {
 		credential: `enc:${JSON.stringify(CREDENTIAL)}`,
 	},
 	collection: files(),
+	by: {agentId: 'agent-1', taskId: 'task-1'},
 };
 
 const MY_DRIVE_ID = '0AFmyDriveRootUk9PVA';
@@ -80,6 +103,7 @@ function fresh(): State {
 			'1Plan': file('1Plan', 'Launch plan', MIME.document, '# Launch plan\n\n- Ship it'),
 			'1Budget': file('1Budget', 'Budget 2026', MIME.spreadsheet),
 			'1Deck': file('1Deck', 'Board deck', MIME.presentation, 'Slide one'),
+			'1Paper': file('1Paper', 'Paper.pdf', 'application/pdf'),
 		},
 		grid: [
 			['Item', 'Amount', 'Status'],
@@ -92,12 +116,14 @@ function fresh(): State {
 
 let state = fresh();
 
-type Request = {method: string; url: URL; type: string; body: string};
+// A body as text, and as the bytes it is, for a file uploaded as it is.
+type Request = {method: string; url: URL; type: string; body: string; bytes: Buffer};
 
 // Where Sheets puts an appended row: after the last rows holding anything, from the first column of
 // the block they are in.
 // What a search of Drive finds, by its query; none is asked for but in the searches' tests.
-const google = {requests: [] as Request[], appendColumn: 'A', appendedTitle: 'Q1', found: null as ((q: string) => File[]) | null};
+// `enteredDown`: Sheets failing to read cells as they were entered, as after a write, for its undo.
+const google = {requests: [] as Request[], appendColumn: 'A', appendedTitle: 'Q1', found: null as ((q: string) => File[]) | null, enteredDown: false};
 
 function driveFile(file: File): object {
 	return {
@@ -126,13 +152,27 @@ function cellOf(range: string): {row: number; column: number} {
 	return {row: Number(row), column: letter.charCodeAt(0) - 65};
 }
 
-// The metadata and the content of a multipart upload.
-function multipartOf(request: Request): {metadata: {name: string; mimeType: string; parents: string[]}; type: string; content: string} {
+// The metadata and the bytes of a multipart upload of a file as it is.
+function uploadOf(request: Request): {metadata: {name: string; mimeType: string; parents: string[]}; type: string; bytes: Buffer} {
 	const boundary = /boundary=(.+)$/.exec(request.type)?.[1] ?? '';
-	const [, first = '', second = ''] = request.body.split(`--${boundary}`);
+	const [, first = '', second = ''] = request.bytes.toString('latin1').split(`--${boundary}`);
 	const [, json = '{}'] = first.split('\r\n\r\n');
-	const [head = '', ...content] = second.split('\r\n\r\n');
-	return {metadata: JSON.parse(json.trim()), type: head.replace('\r\nContent-Type: ', ''), content: content.join('\r\n\r\n').replace(/\r\n$/, '')};
+	const at = second.indexOf('\r\n\r\n');
+	return {metadata: JSON.parse(json.trim()), type: second.slice(0, at).replace('\r\nContent-Type: ', ''), bytes: Buffer.from(second.slice(at + 4).replace(/\r\n$/, ''), 'latin1')};
+}
+
+// The metadata and the content of a multipart upload of text.
+function multipartOf(request: Request): {metadata: {name: string; mimeType: string; parents: string[]}; type: string; content: string} {
+	const {metadata, type, bytes} = uploadOf(request);
+	return {metadata, type, content: bytes.toString('utf8')};
+}
+
+// The cells of a range of the tab as they were entered, as Sheets answers them with the grid's
+// data: from the range's first cell, the empty ones at the end of each row and of the rows left out.
+function enteredOf(range: string): object {
+	const [, first = 'A', top = '1', last = 'A', bottom = '1'] = /!([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(range) ?? [];
+	const rows = state.grid.slice(Number(top) - 1, Number(bottom)).map((row) => row.slice(first.charCodeAt(0) - 65, last.charCodeAt(0) - 64));
+	return {startRow: Number(top) - 1, startColumn: first.charCodeAt(0) - 65, rowData: rows.map((row) => ({values: row.map((cell) => (cell === '' ? {} : {userEnteredValue: {stringValue: cell}}))}))};
 }
 
 function make(name: string, mimeType: string, parents: string[], content: string): Response {
@@ -159,6 +199,19 @@ function answer(request: Request): Response {
 		const {metadata, content} = multipartOf(request);
 		return make(metadata.name, metadata.mimeType, metadata.parents, content);
 	}
+	const copied = /^\/drive\/v3\/files\/([^/]+)\/copy$/.exec(path)?.[1];
+	const original = copied ? state.files[copied] : undefined;
+	if (method === 'POST' && copied && !original) {
+		return notFound();
+	}
+	if (method === 'POST' && original) {
+		const {name, parents} = JSON.parse(request.body);
+		return make(name, original.mimeType, parents, original.content);
+	}
+	const revised = /^\/drive\/v3\/files\/([^/]+)\/revisions$/.exec(path)?.[1];
+	if (revised) {
+		return Response.json({revisions: [{id: `${revised}-r1`}, {id: `${revised}-r${writes().length + 1}`}]});
+	}
 	const exported = /^\/drive\/v3\/files\/([^/]+)\/export$/.exec(path)?.[1];
 	if (exported) {
 		return new Response(state.files[exported]?.content ?? '');
@@ -178,6 +231,12 @@ function answer(request: Request): Response {
 	}
 	if (file) {
 		return Response.json(driveFile(file));
+	}
+	if (path === '/v4/spreadsheets/1Budget' && url.searchParams.has('ranges')) {
+		if (google.enteredDown) {
+			return Response.json({error: {code: 503, message: 'The service is currently unavailable.', status: 'UNAVAILABLE'}}, {status: 503});
+		}
+		return Response.json({sheets: [{data: [enteredOf(url.searchParams.get('ranges') ?? '')]}]});
 	}
 	if (path === '/v4/spreadsheets/1Budget') {
 		return Response.json({sheets: [{properties: {sheetId: 0, title: 'Q1', gridProperties: {rowCount: 100, columnCount: 3}}}]});
@@ -217,7 +276,8 @@ function answer(request: Request): Response {
 spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Request, init?: RequestInit) => {
 	const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
 	const headers = new Headers(init?.headers);
-	const request = {method: init?.method ?? 'GET', url, type: headers.get('content-type') ?? '', body: typeof init?.body === 'string' ? init.body : ''};
+	const body = init?.body instanceof Blob ? Buffer.from(await init.body.arrayBuffer()) : Buffer.from(typeof init?.body === 'string' ? init.body : '');
+	const request = {method: init?.method ?? 'GET', url, type: headers.get('content-type') ?? '', body: body.toString('utf8'), bytes: body};
 	google.requests.push(request);
 	return answer(request);
 }) as typeof fetch);
@@ -229,10 +289,14 @@ function writes(): Request[] {
 
 beforeEach(() => {
 	state = fresh();
+	history.logged = [];
+	history.down = false;
+	logError.mockClear();
 	google.requests = [];
 	google.appendColumn = 'A';
 	google.appendedTitle = 'Q1';
 	google.found = null;
+	google.enteredDown = false;
 });
 
 describe('creating files', () => {
@@ -371,6 +435,90 @@ describe('creating files', () => {
 	});
 });
 
+describe('files of their own bytes', () => {
+	test('a new one goes up with files_upload, never in content', async () => {
+		const {filesConnector} = await import('./google-files');
+		const refused = await filesConnector.create(target, {name: 'Results.pdf', kind: 'File', content: 'JVBERi0='}, '1Projects');
+
+		expect(messageOf(refused)).toBe('A file of its own bytes, such as a PDF or a picture, goes up with files_upload, which answers with a URL to send it to');
+		expect(writes()).toEqual([]);
+	});
+
+	test('a file uploaded is renamed as any file is, and its bytes aren’t written over', async () => {
+		const {filesConnector} = await import('./google-files');
+		const before = (await filesConnector.get(target, '1Paper')).unwrap();
+		expect(before.values).toMatchObject({name: 'Paper.pdf', kind: 'File', content: ''});
+		await filesConnector.update(target, '1Paper', {...before.values, name: 'Paper v2.pdf'}, before);
+		expect(writes().map((request) => [request.method, request.url.pathname, JSON.parse(request.body)])).toEqual([['PATCH', '/drive/v3/files/1Paper', {name: 'Paper v2.pdf'}]]);
+
+		google.requests = [];
+		const refused = await filesConnector.update(target, '1Paper', {content: 'JVBERi0='});
+		expect(messageOf(refused)).toBe('A file’s bytes are written over with files_upload, not here; its name can be changed');
+		expect(writes()).toEqual([]);
+	});
+});
+
+describe('copying files', () => {
+	const agent = {agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'claude', name: 'Claude', orgSlug: 'acme', experiments: []};
+
+	function run(params: Record<string, unknown>) {
+		return {caller: {agent, via: 'mcp' as const, taskId: 'task-1'}, connection: target.connection, params};
+	}
+
+	test('Drive copies a file into the folder given, under its own name where none is written, and the answer says the copy’s id and link', async () => {
+		const {runFilesCopy} = await import('./google-files');
+		const answer = (await runFilesCopy(run({id: '1Paper', parent: 'drive-0ATeamDrive'}))).unwrap();
+
+		const [copy] = writes();
+		expect([copy?.method, copy?.url.pathname, copy?.url.searchParams.get('supportsAllDrives'), JSON.parse(copy?.body ?? '')]).toEqual([
+			'POST',
+			'/drive/v3/files/1Paper/copy',
+			'true',
+			{name: 'Paper.pdf', parents: ['0ATeamDrive']},
+		]);
+		expect(writes()).toHaveLength(1);
+		expect(answer).toBe(['Made “Paper.pdf”, a copy of “Paper.pdf”.', 'Id: 1New1', 'Kind: File', 'Link: https://drive.google.com/open?id=1New1'].join('\n'));
+	});
+
+	test('a file named by its link is copied under the name written, into My Drive where no folder is given', async () => {
+		const {runFilesCopy} = await import('./google-files');
+		const answer = (await runFilesCopy(run({id: 'https://docs.google.com/document/d/1Plan/edit', name: 'Plan for the board'}))).unwrap();
+
+		expect(JSON.parse(writes()[0]?.body ?? '')).toEqual({name: 'Plan for the board', parents: ['root']});
+		expect(answer).toStartWith('Made “Plan for the board”, a copy of “Launch plan”.\nId: 1New1\nKind: Document');
+	});
+
+	test('a folder, a file that isn’t there, a place, file or tab that holds no files, and params that aren’t text are turned down before anything is written', async () => {
+		const {runFilesCopy} = await import('./google-files');
+		const refusals = await Promise.all([
+			runFilesCopy(run({id: '1Projects', parent: 'root'})),
+			runFilesCopy(run({id: '1Gone'})),
+			runFilesCopy(run({id: 'https://example.com/d/1Plan'})),
+			runFilesCopy(run({id: '1Paper', parent: 'shared-with-me'})),
+			runFilesCopy(run({id: '1Paper', parent: '1Plan'})),
+			runFilesCopy(run({id: '1Paper', parent: '1Budget'})),
+			runFilesCopy(run({id: '1Paper', parent: 'sheet-1Budget-0'})),
+			runFilesCopy(run({id: '1Paper', parent: '1Missing'})),
+			runFilesCopy(run({id: ['1Paper']})),
+			runFilesCopy(run({id: '1Paper', folder: '1Projects'})),
+		]);
+
+		expect(refusals.map((result) => messageOf(result))).toEqual([
+			'A folder can’t be copied: make a folder, and copy its files into it',
+			'There is no file 1Gone to copy, or this account can’t open it',
+			'Say which file to copy as id: its id, as files_list gives it, or its link',
+			'Nothing can be made in Shared with me: make it in a folder, My Drive or a shared drive',
+			'A document holds nothing: make it in a folder',
+			'A spreadsheet holds tabs: copy the file into a folder',
+			'A tab holds rows: make files in a folder',
+			'not_found',
+			'files_copy takes id, and parent and name where wanted, each as text',
+			'files_copy takes id, and parent and name where wanted, each as text',
+		]);
+		expect(writes()).toEqual([]);
+	});
+});
+
 describe('editing files', () => {
 	test('a file is renamed with its metadata alone', async () => {
 		const {filesConnector} = await import('./google-files');
@@ -383,22 +531,18 @@ describe('editing files', () => {
 		expect(record.values.name).toBe('Board deck v2');
 	});
 
-	test('a document’s content is replaced whole by uploading Markdown, and only when written differently', async () => {
+	test('a document’s content is never written over, and a rename written with it is refused too', async () => {
 		const {filesConnector} = await import('./google-files');
 		await filesConnector.update(target, '1Plan', {name: 'Launch plan', content: '# Launch plan\n\n- Ship it'});
 		expect(writes()).toEqual([]);
 
-		const record = (await filesConnector.update(target, '1Plan', {name: 'Launch plan', content: '# Launch plan\n\n- Shipped'})).unwrap();
+		const refused = await filesConnector.update(target, '1Plan', {name: 'Launch plan v2', content: '# Launch plan\n\n- Shipped'});
 
-		const [upload] = writes();
-		expect([upload?.method, upload?.url.pathname, upload?.url.searchParams.get('uploadType'), upload?.type, upload?.body]).toEqual([
-			'PATCH',
-			'/upload/drive/v3/files/1Plan',
-			'media',
-			'text/markdown; charset=UTF-8',
-			'# Launch plan\n\n- Shipped',
-		]);
-		expect(record.values.content).toBe('# Launch plan\n\n- Shipped');
+		expect(messageOf(refused)).toBe(
+			'A document’s content is only read here, never written over, which would lose its comments, suggestions and formatting: edit its text in place with docs_edit; its name can be changed',
+		);
+		expect(writes()).toEqual([]);
+		expect(state.files['1Plan']?.content).toBe('# Launch plan\n\n- Ship it');
 	});
 
 	test('a presentation’s or a spreadsheet’s content, a kind or an empty name is turned down before anything is written', async () => {
@@ -412,7 +556,7 @@ describe('editing files', () => {
 		]);
 
 		expect(refusals.map((result) => messageOf(result))).toEqual([
-			'A presentation’s content is only read here; its name can be changed',
+			'A presentation’s content is only read here: replace its text in place with slides_edit; its name can be changed',
 			'A spreadsheet’s content is in its tabs: change its rows, or write a range',
 			'What a file is can’t be changed: this is a Document',
 			'A file needs a name',
@@ -534,5 +678,98 @@ describe('finding files for the widget', () => {
 		expect(params?.has('orderBy')).toBe(false);
 		expect(params?.get('pageSize')).toBe('8');
 		expect(found.map((file) => [file.name, file.matched])).toEqual([['Launch plan', 'content']]);
+	});
+});
+
+describe('the history of what is written', () => {
+	test('a file made, a copy too, is logged as made, with the revision Drive gives it', async () => {
+		const {filesConnector, runFilesCopy} = await import('./google-files');
+		await filesConnector.create(target, {name: 'Notes', kind: 'Document', content: '# Notes'}, '1Projects');
+		const agent = {agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'claude', name: 'Claude', orgSlug: 'acme', experiments: []};
+		await runFilesCopy({caller: {agent, via: 'mcp', taskId: 'task-1'}, connection: target.connection, params: {id: '1Plan'}});
+
+		expect(history.logged.map(({kind, fileId, name, afterRevision}) => [kind, fileId, name, afterRevision])).toEqual([
+			['create', '1New1', 'Notes', '1New1-r2'],
+			['create', '1New2', 'Launch plan', '1New2-r3'],
+		]);
+	});
+
+	test('a rename is logged as a move from the old name, with the revisions around it', async () => {
+		const {filesConnector} = await import('./google-files');
+		await filesConnector.update(target, '1Plan', {name: 'Launch plan v2'});
+
+		expect(history.logged).toEqual([
+			expect.objectContaining({kind: 'move', fileId: '1Plan', name: 'Launch plan v2', beforeName: 'Launch plan', beforeRevision: '1Plan-r1', afterRevision: '1Plan-r2'}),
+		]);
+	});
+
+	test('a row changed keeps its cells from the first changed to the last as they were and are, for an exact undo', async () => {
+		const {filesConnector} = await import('./google-files');
+		await filesConnector.update(target, 'row-1Budget-0-3', {content: 'Item: Food\nAmount: 350\nStatus: Paid'});
+
+		const [edit] = history.logged;
+		expect(edit).toMatchObject({kind: 'edit', fileId: '1Budget', name: 'Budget 2026'});
+		expect(edit?.undo).toEqual({
+			kind: 'sheets_cells',
+			sheetId: 0,
+			tab: 'Q1',
+			range: 'B3:C3',
+			before: [[{value: '300'}, null]],
+			after: [[{value: '350'}, {value: 'Paid'}]],
+		});
+	});
+
+	test('a row added keeps its cells as empty before, and a tab renamed is an edit of the spreadsheet', async () => {
+		const {filesConnector} = await import('./google-files');
+		await filesConnector.create(target, {content: 'Item: Travel\nStatus: Due'}, 'sheet-1Budget-0');
+		await filesConnector.update(target, 'sheet-1Budget-0', {name: 'Q1 2026'});
+
+		expect(history.logged.map(({kind, fileId, undo}) => [kind, fileId, undo])).toEqual([
+			['edit', '1Budget', {kind: 'sheets_cells', sheetId: 0, tab: 'Q1', range: 'A4:C4', before: [[null, null, null]], after: [[{value: 'Travel'}, null, {value: 'Due'}]]}],
+			['edit', '1Budget', null],
+		]);
+	});
+
+	test('a row Sheets appended is answered as added where its cells can’t be read again after, keeping no undo, so it is never added twice', async () => {
+		google.enteredDown = true;
+		const {filesConnector} = await import('./google-files');
+		const record = await filesConnector.create(target, {content: 'Item: Travel\nStatus: Due'}, 'sheet-1Budget-0');
+
+		expect(record.isOk()).toBe(true);
+		expect(writes().filter((request) => request.url.pathname.endsWith(':append'))).toHaveLength(1);
+		expect(history.logged.map(({kind, fileId, undo}) => [kind, fileId, undo])).toEqual([['edit', '1Budget', null]]);
+		expect(logError).toHaveBeenCalledWith('The cells a Sheet write left could not be read for its undo', {spreadsheetId: '1Budget', errorKind: 'provider_unreachable'});
+	});
+
+	test('a file moved to Trash is logged as trashed', async () => {
+		const {filesConnector} = await import('./google-files');
+		await filesConnector.commands?.trash?.(target, '1Paper');
+
+		expect(history.logged.map(({kind, fileId}) => [kind, fileId])).toEqual([['trash', '1Paper']]);
+	});
+
+	test('a write Drive made is answered as made even where logging it fails, which the server logs by its ids alone', async () => {
+		history.down = true;
+		const {filesConnector} = await import('./google-files');
+		const row = await filesConnector.create(target, {content: 'Item: Travel\nStatus: Due'}, 'sheet-1Budget-0');
+		const folder = await filesConnector.create(target, {name: 'Receipts', kind: 'Folder'}, '1Projects');
+
+		expect(row.isOk() && row.value.id).toBe('row-1Budget-0-4');
+		expect(folder.isOk() && folder.value.values.name).toBe('Receipts');
+		expect(writes().filter((request) => request.method === 'POST')).toHaveLength(2);
+		expect(logError.mock.calls).toEqual([
+			['A change made in Google Drive could not be logged in its history', {connectionId: 'google-1', fileId: '1Budget', kind: 'edit', errorKind: 'db_error'}],
+			['A change made in Google Drive could not be logged in its history', {connectionId: 'google-1', fileId: '1New1', kind: 'create', errorKind: 'db_error'}],
+		]);
+	});
+
+	test('a write with no one to log it as never reaches Drive', async () => {
+		const {filesConnector} = await import('./google-files');
+		const {by: _by, ...unknown} = target;
+		const result = await filesConnector.update(unknown, '1Plan', {name: 'Nobody’s plan'});
+
+		expect(result.isErr() && result.error.kind).toBe('internal_error');
+		expect(writes()).toEqual([]);
+		expect(history.logged).toEqual([]);
 	});
 });

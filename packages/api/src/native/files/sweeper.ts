@@ -33,9 +33,6 @@ async function purgeOldTrash(now: Date): Promise<void> {
 
 async function removeUnusedBlobs(now: Date): Promise<void> {
 	const backend = await blobBackend();
-	if (backend === null) {
-		return;
-	}
 	const unused = await listUnusedFileBlobs(new Date(now.getTime() - DAY_MS), BATCH);
 	if (unused.isErr()) {
 		log.error('The files sweeper could not list blobs', serializeError(unused.error));
@@ -63,10 +60,7 @@ export async function sweepFiles(now = new Date()): Promise<void> {
 	await removeUnusedBlobs(now);
 }
 
-/** Starts the sweeper, where the server has a blob store. */
-export async function startFilesSweeper(): Promise<void> {
-	if ((await blobBackend()) === null) {
-		return;
-	}
+/** Starts the sweeper. */
+export function startFilesSweeper(): void {
 	setInterval(() => void sweepFiles(), SWEEP_MS).unref();
 }
