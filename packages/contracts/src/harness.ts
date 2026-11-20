@@ -263,6 +263,9 @@ export const threadMessageSchema = z.object({
 	isError: z.boolean(),
 	at: z.string(),
 	attachments: z.array(chatAttachmentSchema),
+	// An event in a line, as the person is shown it, its text being for the agent: an alert that
+	// landed by its title and what came (api harness/alerts.ts eventLine).
+	line: z.string().optional(),
 	// A sub-agent the persona started there, an event, by its thread, its title and whether it is at
 	// work, or asleep until it wakes: shown as a line that opens it, in place of what it said, which
 	// the persona reads.
