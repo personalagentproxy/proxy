@@ -3,7 +3,7 @@ import {describe, expect, test} from 'bun:test';
 import type {AlertRow, MemberAlertRow} from '@proxy/db/alerts';
 
 import {checkEvery, everyText, nextTime} from './alert-repeat';
-import {alertArgs, alertsParagraph, describeAlert, dueText, matches, matchText} from './alerts';
+import {alertArgs, alertsParagraph, describeAlert, dueText, eventLine, matches, matchText} from './alerts';
 
 const now = new Date('2026-11-04T10:00:00Z');
 
@@ -186,6 +186,15 @@ describe('the words', () => {
 		expect(text).toContain('What you noted for it: Tell me what it says.');
 		expect(text).not.toContain('You set it in');
 		expect(matchText({...watch, threadId: null}, [record], 'Watch the bank')).toContain('You set it in the thread “Watch the bank” (id thread-1).');
+	});
+
+	test('what an alert lands says in a line its title and what came, anything else its first line', () => {
+		const record = {id: 'm1', title: 'Your loan', url: 'https://mail.example.com/m1', summary: 'From dana@bank.com'};
+		expect(eventLine(matchText(watch, [record], null))).toBe('“Mail from the bank” matched a new email');
+		expect(eventLine(matchText(watch, [record, {...record, id: 'm2'}], null))).toBe('“Mail from the bank” matched 2 new emails');
+		expect(eventLine(matchText({...watch, collectionId: 'events'}, [record], null))).toBe('“Mail from the bank” matched a new calendar event');
+		expect(eventLine(dueText(timed, null))).toBe('“Mail from the bank” is due');
+		expect(eventLine('Something else\n\nwith more')).toBe('Something else');
 	});
 
 	test('a timed alert due says when it was set for, or how it repeats', () => {

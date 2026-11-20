@@ -35,6 +35,7 @@ import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {manages} from '../utils/manages';
 import type {AttachmentRef, ChatFiles} from './attachments';
 import {type OrgViewer, requireViewer} from '../utils/user-org';
+import {eventLine} from './alerts';
 import {getBuiltInAgent} from './built-in-agent';
 import {SHOWN_CALLS, threadOpening} from './thread-rules';
 import {STANDING_WITHIN_MS} from './thread-standing';
@@ -380,7 +381,10 @@ function threadShown(thread: ChatThreadRow, files: RouteFiles): Shown[] {
 		if (entry.kind === 'person' && thread.subAgentOfId !== null) {
 			return [];
 		}
-		if (entry.kind === 'person' || entry.kind === 'event') {
+		if (entry.kind === 'event') {
+			return [from({id: entry.id, kind: entry.kind, text: entry.text, line: eventLine(entry.text), isError: entry.isError, at, attachments: attachmentsOf(entry.id)})];
+		}
+		if (entry.kind === 'person') {
 			return [from({id: entry.id, kind: entry.kind, text: entry.text, isError: entry.isError, at, attachments: attachmentsOf(entry.id)})];
 		}
 		if (entry.kind !== 'assistant') {

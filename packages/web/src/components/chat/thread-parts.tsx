@@ -2,8 +2,9 @@ import type {ChatAttachment, ThreadStanding} from '@proxy/contracts/harness';
 import {attachedParts} from '@proxy/utils/harness';
 import {
 	ArchiveIcon,
+	BellIcon,
 	CheckIcon,
-	ClockIcon,
+	ChevronRightIcon,
 	CornerDownRightIcon,
 	LoaderCircleIcon,
 } from 'lucide-react';
@@ -13,6 +14,7 @@ import {SentChip} from '@/components/chat/attachments';
 import {Bubble, BubbleContent} from '@/components/chat/bubble';
 import {FileViewer, type ViewedFile} from '@/components/chat/file-viewer';
 import {Trace, TraceLine, TraceTitle} from '@/components/chat/trace';
+import {markedTime} from '@/lib/thread-time';
 import {PillButton} from '@proxy/ui/components/pill-button';
 import {Tooltip, TooltipContent, TooltipTrigger} from '@proxy/ui/components/tooltip';
 import {cn} from '@proxy/ui/lib/utils';
@@ -224,15 +226,38 @@ export function PersonBubble({text, attachments}: {text: string; attachments: Ch
 	);
 }
 
-/** Something that came into a thread rather than being said in it, as an alert that fired: a quiet line by a clock. */
-export function EventLine({text}: {text: string}) {
+/**
+ * Something that came into a thread rather than being said in it, as an alert that landed: a quiet
+ * line by a bell, saying what came in a line, which opens to all of it, as its agent was told it.
+ */
+export function EventLine({line, text}: {line: string; text: string}) {
+	const [open, setOpen] = useState(false);
 	return (
-		<p className="flex min-w-0 items-start gap-2 text-sm leading-relaxed text-muted-foreground">
-			{/* Centred on the line's first row. */}
-			<span className="flex h-[1.625em] shrink-0 items-center">
-				<ClockIcon className="size-[15px]" aria-hidden />
-			</span>
-			<span className="min-w-0">{text}</span>
+		<Trace>
+			<button type="button" aria-expanded={open} onClick={() => setOpen(!open)}>
+				<TraceLine>
+					<BellIcon className="size-3.5 shrink-0" aria-hidden />
+					<TraceTitle>{line}</TraceTitle>
+					<ChevronRightIcon
+						className={cn('size-3.5 shrink-0 transition-transform', open && 'rotate-90')}
+						aria-hidden
+					/>
+				</TraceLine>
+			</button>
+			{open && (
+				<p className="pl-5.5 text-sm leading-relaxed break-words whitespace-pre-wrap text-muted-foreground">
+					{text}
+				</p>
+			)}
+		</Trace>
+	);
+}
+
+/** When what follows was said, between a thread's messages, as a chat app marks it: a small line in the middle. */
+export function TimeMarker({at}: {at: string}) {
+	return (
+		<p className="pt-2 pb-1 text-center text-xs font-medium text-muted-foreground">
+			<time dateTime={at}>{markedTime(at)}</time>
 		</p>
 	);
 }
