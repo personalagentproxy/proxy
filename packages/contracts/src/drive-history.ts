@@ -39,9 +39,9 @@ export type DriveHistoryList = z.infer<typeof driveHistoryListSchema>;
 /**
  * One version kept of a file: kept here, its bytes in Personal Agent Proxy, or only as Drive's own
  * revision, which Drive keeps for good meanwhile where Personal Agent Proxy pinned it; whether it
- * can be given back from here, which a Doc's, Sheet's or Slides file's kept only in Drive can't be,
- * its link's File > Version history can; and who made the change it was kept before, or who made
- * it, as a restore makes one.
+ * can be given back from here, which a Doc's, Sheet's or Slides file's never can be, its link's
+ * File > Version history can; and who made the change it was kept before, or who made it, as a
+ * restore makes one.
  */
 export const driveVersionSchema = z.object({
 	id: z.string(),

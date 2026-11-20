@@ -62,6 +62,17 @@ export function rowsRange(title: string, from: number, to: number): string {
 	return `${quotedTitle(title)}!A${from}:${LAST_COLUMN}${to}`;
 }
 
+/** Whole rows or columns of a tab, from `start` for `count`, counting from 1: `'Q1 Sales'!5:7`, `'Q1 Sales'!B:D`. */
+export function spanRange(title: string, axis: 'rows' | 'columns', start: number, count: number): string {
+	const name = (at: number) => (axis === 'rows' ? String(at) : columnLetters(at - 1));
+	return `${quotedTitle(title)}!${name(start)}:${name(start + count - 1)}`;
+}
+
+/** A whole tab, as A1 notation names it: `'Q1 Sales'`. */
+export function wholeTabRange(title: string): string {
+	return quotedTitle(title);
+}
+
 /** One cell of a tab, its column counting from 0: `'Q1 Sales'!C5`. */
 export function cellRange(title: string, column: number, row: number): string {
 	return `${quotedTitle(title)}!${columnLetters(column)}${row}`;

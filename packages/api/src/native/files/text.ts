@@ -48,12 +48,12 @@ export function readVersion(name: string, version: StoredVersionRow & {blob: Fil
 	});
 }
 
-/** A stretch of a text from the character `from`, and what to say of it: how much of the whole it is, and where to read on. */
-export function stretch(text: string, from: number): {content: string; length: string} {
+/** A stretch of a text from the character `from`, and what to say of it: how much of the whole it is, and where to read on, with `tool`. */
+export function stretch(text: string, from: number, tool = 'files_read'): {content: string; length: string} {
 	const start = Math.min(Math.max(0, Math.floor(from)), text.length);
 	const end = Math.min(start + FILES_READ_CHARACTERS, text.length);
 	const whole = start === 0 && end === text.length;
-	const rest = end < text.length ? ` Read on with files_read from ${end}.` : '';
+	const rest = end < text.length ? ` Read on with ${tool} from ${end}.` : '';
 	return {content: text.slice(start, end), length: whole ? `${text.length} characters` : `Characters ${start} to ${end} of ${text.length}.${rest}`};
 }
 

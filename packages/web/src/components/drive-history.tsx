@@ -22,7 +22,7 @@ import {Dialog, DialogContent, DialogHeader, DialogTitle} from '@proxy/ui/compon
 import {cn} from '@proxy/ui/lib/utils';
 
 const EMPTY =
-	'No file in Drive has been changed through Personal Agent Proxy yet. Before an agent’s task first changes a file, a copy of it is kept here, to give back.';
+	'No file in Drive has been changed through Personal Agent Proxy yet. Before an agent’s task first changes a file, a copy of it is kept here: a PDF or a picture to give back, a Doc, Sheet or Slides file for agents to read.';
 
 const LINK = 'underline underline-offset-4 hover:text-foreground';
 
@@ -88,7 +88,7 @@ function keptText(version: DriveVersion): string {
 // the tool's the api says it in.
 function undoRefusal(error: FetchError): string {
 	if (error.kind === 'http' && error.status === 409) {
-		return 'Those cells changed since, so this change can’t be undone exactly. Give back the version from before it instead.';
+		return 'Those cells changed since, so this change can’t be undone exactly. Give back the version from before it from File > Version history in the sheet instead.';
 	}
 	return describeApiError(error);
 }
@@ -258,7 +258,9 @@ export function DriveHistory({connectionId, history}: Props) {
 	return (
 		<div className="flex flex-col gap-2">
 			<p className="text-sm text-muted-foreground">
-				Before an agent’s task first changes a file in Drive, a copy of it is kept, to give back.
+				Before an agent’s task first changes a file in Drive, a copy of it is kept: a PDF or a
+				picture to give back, a Doc, Sheet or Slides file for agents to read, which Drive’s own
+				version history gives back.
 			</p>
 			{file !== null && history.error && (
 				<p className="text-sm text-destructive">{history.error}</p>
@@ -331,6 +333,5 @@ function describeConfirming(confirming: Confirming | null, shown: DriveFileHisto
 		const where = cells ? `Cells ${cells.range} of “${cells.tab}”` : 'The cells it wrote';
 		return `${where} in “${file.name}” are put back as they were before it. The undo is a change of its own, which can be undone in turn.`;
 	}
-	const converted = file.google ? ', converted back from the copy kept' : '';
-	return `“${file.name}” gets what this version held as its newest revision in Google Drive${converted}. What it holds now is kept as a version first.`;
+	return `“${file.name}” gets what this version held as its newest revision in Google Drive. What it holds now is kept as a version first.`;
 }

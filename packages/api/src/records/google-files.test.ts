@@ -448,7 +448,7 @@ describe('files of their own bytes', () => {
 
 		google.requests = [];
 		const refused = await filesConnector.update(target, '1Paper', {content: 'JVBERi0='});
-		expect(messageOf(refused)).toBe('Only a document’s content can be written here; this file’s name can be changed');
+		expect(messageOf(refused)).toBe('A file’s bytes are written over with files_upload, not here; its name can be changed');
 		expect(writes()).toEqual([]);
 	});
 });
@@ -526,22 +526,18 @@ describe('editing files', () => {
 		expect(record.values.name).toBe('Board deck v2');
 	});
 
-	test('a document’s content is replaced whole by uploading Markdown, and only when written differently', async () => {
+	test('a document’s content is never written over, and a rename written with it is refused too', async () => {
 		const {filesConnector} = await import('./google-files');
 		await filesConnector.update(target, '1Plan', {name: 'Launch plan', content: '# Launch plan\n\n- Ship it'});
 		expect(writes()).toEqual([]);
 
-		const record = (await filesConnector.update(target, '1Plan', {name: 'Launch plan', content: '# Launch plan\n\n- Shipped'})).unwrap();
+		const refused = await filesConnector.update(target, '1Plan', {name: 'Launch plan v2', content: '# Launch plan\n\n- Shipped'});
 
-		const [upload] = writes();
-		expect([upload?.method, upload?.url.pathname, upload?.url.searchParams.get('uploadType'), upload?.type, upload?.body]).toEqual([
-			'PATCH',
-			'/upload/drive/v3/files/1Plan',
-			'media',
-			'text/markdown; charset=UTF-8',
-			'# Launch plan\n\n- Shipped',
-		]);
-		expect(record.values.content).toBe('# Launch plan\n\n- Shipped');
+		expect(messageOf(refused)).toBe(
+			'A document’s content is only read here, never written over, which would lose its comments, suggestions and formatting: edit its text in place with docs_edit; its name can be changed',
+		);
+		expect(writes()).toEqual([]);
+		expect(state.files['1Plan']?.content).toBe('# Launch plan\n\n- Ship it');
 	});
 
 	test('a presentation’s or a spreadsheet’s content, a kind or an empty name is turned down before anything is written', async () => {
@@ -555,7 +551,7 @@ describe('editing files', () => {
 		]);
 
 		expect(refusals.map((result) => messageOf(result))).toEqual([
-			'A presentation’s content is only read here; its name can be changed',
+			'A presentation’s content is only read here: replace its text in place with slides_edit; its name can be changed',
 			'A spreadsheet’s content is in its tabs: change its rows, or write a range',
 			'What a file is can’t be changed: this is a Document',
 			'A file needs a name',
@@ -693,13 +689,12 @@ describe('the history of what is written', () => {
 		]);
 	});
 
-	test('a rename is logged as a move from the old name, and a document written over with the revisions around it', async () => {
+	test('a rename is logged as a move from the old name, with the revisions around it', async () => {
 		const {filesConnector} = await import('./google-files');
-		await filesConnector.update(target, '1Plan', {name: 'Launch plan v2', content: '# Launch plan\n\n- Ship it twice'});
+		await filesConnector.update(target, '1Plan', {name: 'Launch plan v2'});
 
 		expect(history.logged).toEqual([
 			expect.objectContaining({kind: 'move', fileId: '1Plan', name: 'Launch plan v2', beforeName: 'Launch plan', beforeRevision: '1Plan-r1', afterRevision: '1Plan-r2'}),
-			expect.objectContaining({kind: 'write', fileId: '1Plan', name: 'Launch plan v2', beforeRevision: '1Plan-r2', afterRevision: '1Plan-r3', undo: null}),
 		]);
 	});
 

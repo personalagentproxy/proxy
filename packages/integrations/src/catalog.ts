@@ -926,6 +926,9 @@ const INVITED: Condition = {
 	values: ['Needs action', 'Accepted', 'Declined', 'Maybe'],
 };
 
+/** How much of a file's text a read answers at once, and where the next read goes on from. */
+export const FILES_READ_CHARACTERS = 50_000;
+
 // What a Drive record can be beside a place: a spreadsheet holds its tabs (Sheet), a tab its rows.
 const FILE_KINDS = ['Folder', 'Document', 'Spreadsheet', 'Presentation', 'Sheet', 'Row', 'File'];
 
@@ -947,8 +950,8 @@ const FILE_KINDS = ['Folder', 'Document', 'Spreadsheet', 'Presentation', 'Sheet'
 // of Google for the people named, and the people Gmail keeps under Other contacts are only read.
 // Tasks are one tree: the task lists at the top, each holding its tasks. Every request goes to
 // Google; the only thing kept is a Drive file's history: a copy of it before a task first changes
-// it, and the changes made to it, read and given back with files_versions, files_restore and
-// files_undo.
+// it, and the changes made to it, read with files_versions and files_version_read, a file of its
+// own bytes given back with files_restore, and a Sheet's cells written undone with files_undo.
 const google: Integration = {
 	id: 'google',
 	signIn: true,
@@ -1364,17 +1367,17 @@ const google: Integration = {
 				// A document as Markdown, a presentation as text, a spreadsheet's tabs one a line with their
 				// size, a row's values one "Header: value" a line, the headers from the tab's first row. A
 				// new document is written as Markdown and a new spreadsheet as CSV; any other new file goes
-				// up as its bytes with files_upload, and they aren't read back. Writing a document's content
-				// replaces all of it, dropping its comments and suggestions; a row's changes only the
-				// headers written differently. A presentation's and a spreadsheet's are only read here:
-				// docs_edit and slides_edit edit a document's or a presentation's text in place, and
-				// ranges and sheets_ tools a spreadsheet's cells and structure.
+				// up as its bytes with files_upload, and they aren't read back. A row's content changes
+				// only the headers written differently; a file's is only read here, never written over,
+				// which would drop a document's comments, suggestions and formatting: docs_edit and
+				// slides_edit edit a document's or a presentation's text in place, and ranges and sheets_
+				// tools a spreadsheet's cells and structure.
 				{
 					key: 'content',
 					label: 'Content',
 					type: 'longtext',
 					description:
-						'a Document as Markdown, a Spreadsheet as CSV, a row as "Header: value" lines; a new File, such as report.pdf or chart.png, goes up as its bytes with files_upload instead',
+						'a new Document as Markdown, a new Spreadsheet as CSV, a row as "Header: value" lines; a document there already is edited in place with docs_edit, never written over here; a new File, such as report.pdf or chart.png, goes up as its bytes with files_upload instead',
 				},
 			],
 		},
@@ -1580,7 +1583,7 @@ const google: Integration = {
 			name: 'files_upload',
 			title: 'Upload file',
 			description:
-				"Uploads a file into Drive as its bytes: a PDF, a picture, a video, a docx. Answers with a URL that takes the file for an hour, and a line to run in a shell, as curl -X PUT --upload-file <path> '<url>'; no sign-in or header is needed. Then call files_upload_done with the upload’s id: it checks what arrived and only then puts the file in Drive, so nothing reaches Drive before it. For a new file give name and size, and parent for a folder or shared drive; it keeps its own type, or with convert becomes a Doc, Sheet or Slides file, from a docx, xlsx or pptx, or Markdown or CSV. To write over a file, give its id, the version files_versions says it is at and size: a file of its own bytes takes any but Markdown or CSV, and a Doc, Sheet or Slides file only a docx, xlsx or pptx, which Drive converts into it. A copy is kept before a task first changes a file. Everything is checked before the URL is given: the folder, the name, the type and the version.",
+				"Uploads a file into Drive as its bytes: a PDF, a picture, a video, a docx. Answers with a URL that takes the file for an hour, and a line to run in a shell, as curl -X PUT --upload-file <path> '<url>'; no sign-in or header is needed. Then call files_upload_done with the upload’s id: it checks what arrived and only then puts the file in Drive, so nothing reaches Drive before it. For a new file give name and size, and parent for a folder or shared drive; it keeps its own type, or with convert becomes a Doc, Sheet or Slides file, from a docx, xlsx or pptx, or Markdown or CSV. To write over a file of its own bytes, as a PDF or a picture, give its id, the version files_versions says it is at and size. A Doc, Sheet or Slides file is never written over, which would lose its comments, suggestions and formatting: edit it in place with docs_edit, slides_edit, ranges_write, sheets_rows or sheets_tabs. A copy is kept before a task first changes a file. Everything is checked before the URL is given: the folder, the name, the type and the version.",
 			action: 'createFiles',
 			inputSchema: {
 				type: 'object',
@@ -1596,7 +1599,8 @@ const google: Integration = {
 					},
 					id: {
 						type: 'string',
-						description: 'The id of a file to write over, or its link, instead of name and parent',
+						description:
+							'The id of a file of its own bytes to write over, or its link, instead of name and parent; never a Doc, Sheet or Slides file',
 					},
 					version: {
 						type: 'string',
@@ -1646,7 +1650,7 @@ const google: Integration = {
 			name: 'files_versions',
 			title: 'List versions',
 			description:
-				'Lists the versions Personal Agent Proxy keeps of a file in Drive, newest first, and the changes made to it through Personal Agent Proxy: who made each, for which task, and whether a version is kept here or only as Drive’s own revision. A copy is kept before a task first changes a file. Answers the version ids files_restore takes, the change ids files_undo takes, and the version the file is at now in Drive, which files_upload takes to write over it.',
+				'Lists the versions Personal Agent Proxy keeps of a file in Drive, newest first, and the changes made to it through Personal Agent Proxy: who made each, for which task, and whether a version is kept here or only as Drive’s own revision. A copy is kept before a task first changes a file. Answers the version ids files_version_read and files_restore take, the change ids files_undo takes, and the version the file is at now in Drive, which files_upload takes to write over it.',
 			action: 'readFiles',
 			readOnly: true,
 			inputSchema: {
@@ -1658,10 +1662,29 @@ const google: Integration = {
 			},
 		},
 		{
+			name: 'files_version_read',
+			title: 'Read version',
+			description: `Reads what a version of a file in Drive held, from files_versions, as text, ${FILES_READ_CHARACTERS} characters at a time: a Doc as Markdown, a Sheet’s tabs as CSV, a Slides file’s text, and a file of its own bytes where it is text, a PDF or an Office file. To bring back what a Doc, Sheet or Slides file lost, read the version from before and make the changes back in place, with docs_edit, slides_edit, ranges_write or sheets_rows.`,
+			action: 'readFiles',
+			readOnly: true,
+			inputSchema: {
+				type: 'object',
+				properties: {
+					id: {type: 'string', description: 'The file’s id, as files_list gives it, or its link'},
+					version: {type: 'string', description: 'The version, from files_versions'},
+					from: {
+						type: 'number',
+						description: 'The character to read on from, as the read before said',
+					},
+				},
+				required: ['id', 'version'],
+			},
+		},
+		{
 			name: 'files_restore',
 			title: 'Restore version',
 			description:
-				'Gives a file in Drive an earlier version back, from files_versions, as its newest revision, keeping its id and link: a PDF or a picture as its bytes were, a Doc, Sheet or Slides file converted back from the copy kept. What it held until now is kept as a version too. A Doc’s, Sheet’s or Slides file’s version kept only in Drive is given back in Drive’s own version history instead, as the refusal says.',
+				'Gives a file of its own bytes in Drive, as a PDF or a picture, an earlier version back, from files_versions, as its newest revision, keeping its id and link. What it held until now is kept as a version too. A Doc, Sheet or Slides file is never given a version back here, which would write over it whole: read the version with files_version_read and make the changes back in place, or a person gives it back in Drive’s own version history.',
 			action: 'editFiles',
 			inputSchema: {
 				type: 'object',
@@ -1676,7 +1699,7 @@ const google: Integration = {
 			name: 'files_undo',
 			title: 'Undo change',
 			description:
-				'Undoes one change exactly, where it has an exact undo, as a range or a row of a Sheet written: puts the cells back as they were before it. Refused where the cells changed since; files_restore gives back the whole version from before it instead.',
+				'Undoes one change exactly, where it has an exact undo, as a range or a row of a Sheet written: puts the cells back as they were before it. Refused where the cells changed since; files_version_read reads the version from before it instead.',
 			action: 'editFiles',
 			inputSchema: {
 				type: 'object',
@@ -1690,7 +1713,7 @@ const google: Integration = {
 			name: 'docs_read',
 			title: 'Read document text',
 			description:
-				'Reads a Google Doc’s text as the Docs API has it, paragraph by paragraph, the paragraphs in tables’ cells too, with the revision it is at, which docs_edit takes. Its text is what docs_edit finds text in. files_get reads a document as Markdown instead, with its formatting.',
+				'Reads a Google Doc’s text as the Docs API has it, paragraph by paragraph, the paragraphs in tables’ cells too, with the revision it is at, which docs_edit takes: its first tab, or the one asked for, and the titles and ids of its other tabs. Its text is what docs_edit finds text in. files_get reads a document as Markdown instead, with its formatting.',
 			action: 'readFiles',
 			readOnly: true,
 			inputSchema: {
@@ -1700,6 +1723,11 @@ const google: Integration = {
 						type: 'string',
 						description: 'The document’s id, as files_list gives it, or its link',
 					},
+					tab: {
+						type: 'string',
+						description:
+							'The tab to read, by its title or its id, as a read of the document lists them; left out, the first',
+					},
 				},
 				required: ['id'],
 			},
@@ -1708,7 +1736,7 @@ const google: Integration = {
 			name: 'docs_edit',
 			title: 'Edit document',
 			description:
-				'Edits a Google Doc in place, keeping its comments, suggestions and formatting: each edit finds text that must appear exactly once in the document, as docs_read answers it, and replaces it, writes text before or after it, or styles it. Give the revision docs_read answered with: where the document changed since, nothing is edited, and you read it again. The edits are made together, or none is; no two may find the same text. A copy is kept before a task first changes a file (files_versions).',
+				'Edits a Google Doc in place, keeping its comments, suggestions and formatting: each edit finds text that must appear exactly once, in the tab it names or in the whole document, every tab of it, as docs_read answers it, and replaces it, writes text before or after it, or styles it. Give the revision docs_read answered with: where the document changed since, nothing is edited, and you read it again. The edits are made together, or none is; no two may find the same text. A copy is kept before a task first changes a file (files_versions).',
 			action: 'editFiles',
 			inputSchema: {
 				type: 'object',
@@ -1724,14 +1752,19 @@ const google: Integration = {
 					edits: {
 						type: 'array',
 						description:
-							'Up to 100 edits, each find and one of replace, insertBefore, insertAfter or style',
+							'Up to 100 edits, each find and one of replace, insertBefore, insertAfter or style, and tab where wanted',
 						items: {
 							type: 'object',
 							properties: {
 								find: {
 									type: 'string',
 									description:
-										'Text that appears exactly once in the document, case and all, as docs_read answers it; it may run across paragraphs, not across an image, a chip or a table’s cells',
+										'Text that appears exactly once in the document, or in the tab given, case and all, as docs_read answers it; it may run across paragraphs, not across an image, a chip or a table’s cells',
+								},
+								tab: {
+									type: 'string',
+									description:
+										'The tab find is in, by its title or its id; left out, find is looked for in every tab',
 								},
 								replace: {type: 'string', description: 'Text to put in its place; "" deletes it'},
 								insertBefore: {type: 'string', description: 'Text to write just before it'},
@@ -1778,7 +1811,7 @@ const google: Integration = {
 			name: 'sheets_rows',
 			title: 'Insert or delete rows',
 			description:
-				'Inserts empty rows or columns into a tab of a Google Sheet, moving those from there on down or right, or deletes them with what they hold. Deleting has no exact undo: the copy kept before a task first changes a file gives them back (files_versions, files_restore). Values are written with ranges_write.',
+				'Inserts empty rows or columns into a tab of a Google Sheet, moving those from there on down or right, or deletes them with what they hold. A delete names the checksum of what it takes away: asked without it, nothing is deleted, and the answer shows what those rows or columns hold and their checksum, to delete them with; where they changed since, as when a row was inserted above them, it is refused the same way. Deleting has no exact undo: files_version_read reads the copy kept before a task first changes a file. Values are written with ranges_write.',
 			action: 'editFiles',
 			inputSchema: {
 				type: 'object',
@@ -1809,6 +1842,11 @@ const google: Integration = {
 						description: 'Rows or columns; left out, rows',
 						enum: ['rows', 'columns'],
 					},
+					checksum: {
+						type: 'string',
+						description:
+							'For a delete: the checksum of what it takes away, as a delete without it answered',
+					},
 				},
 				required: ['spreadsheet', 'tab'],
 			},
@@ -1817,7 +1855,7 @@ const google: Integration = {
 			name: 'sheets_tabs',
 			title: 'Add or delete tab',
 			description:
-				'Adds an empty tab to a Google Sheet, after its others, or deletes one with everything on it. Deleting has no exact undo: the copy kept before a task first changes a file gives it back (files_versions, files_restore). A tab is renamed with files_update on it.',
+				'Adds an empty tab to a Google Sheet, after its others, or deletes one with everything on it. A delete names the checksum of what the tab holds: asked without it, nothing is deleted, and the answer shows what the tab holds and its checksum, to delete it with; where it changed since, it is refused the same way. Deleting has no exact undo: files_version_read reads the copy kept before a task first changes a file. A tab is renamed with files_update on it.',
 			action: 'editFiles',
 			inputSchema: {
 				type: 'object',
@@ -1828,6 +1866,11 @@ const google: Integration = {
 					},
 					add: {type: 'string', description: 'The title of a tab to add'},
 					delete: {type: 'string', description: 'The title of a tab to delete'},
+					checksum: {
+						type: 'string',
+						description:
+							'For a delete: the checksum of what the tab holds, as a delete without it answered',
+					},
 				},
 				required: ['spreadsheet'],
 			},
@@ -1854,7 +1897,7 @@ const google: Integration = {
 			name: 'slides_edit',
 			title: 'Replace text in presentation',
 			description:
-				'Replaces text everywhere it appears in a Google Slides file, matched with its case, as Slides’ find and replace does, keeping its slides and formatting, one replacement after another, and answers how many times each was replaced. Give the revision slides_read answered with: where the presentation changed since, nothing is replaced, and you read it again. A copy is kept before a task first changes a file (files_versions).',
+				'Replaces text in a Google Slides file, matched with its case, as Slides’ find and replace does, keeping its slides and formatting, one replacement after another, and answers how many times each was replaced. Each find must appear exactly once, on the slide it names or in the whole presentation, unless all says to replace every one. Give the revision slides_read answered with: where the presentation changed since, nothing is replaced, and you read it again. The replacements are made together, or none is. A copy is kept before a task first changes a file (files_versions).',
 			action: 'editFiles',
 			inputSchema: {
 				type: 'object',
@@ -1870,8 +1913,22 @@ const google: Integration = {
 						items: {
 							type: 'object',
 							properties: {
-								find: {type: 'string', description: 'The text to find, case and all'},
+								find: {
+									type: 'string',
+									description:
+										'The text to find, case and all, within one shape or table cell, as slides_read answers it',
+								},
 								replace: {type: 'string', description: 'What to put in its place; "" deletes it'},
+								slide: {
+									type: 'integer',
+									description:
+										'The slide to replace it on, by its number from 1, as slides_read counts them; left out, any',
+								},
+								all: {
+									type: 'boolean',
+									description:
+										'Replace every time it appears, rather than only where it appears once',
+								},
 							},
 							required: ['find', 'replace'],
 							additionalProperties: false,
@@ -2148,9 +2205,6 @@ const sandbox: Integration = {
 };
 
 export const FILES_INTEGRATION_ID = 'files';
-
-/** How much of a file's text a read answers at once, and where the next read goes on from. */
-export const FILES_READ_CHARACTERS = 50_000;
 
 /** How long what is put in the trash stays there before it is deleted for good. */
 export const FILES_TRASH_DAYS = 30;

@@ -1,22 +1,25 @@
-import type {Result} from 'ts-results-es';
+import {Err, Ok, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 
 import {fileIdOf} from '../connections/google/drive-api';
 import {callGoogle} from '../connections/google/google-client';
-import {getPresentation, replaceAllText} from '../connections/google/slides-api';
+import {getPresentation, replaceAllText, type Slide, type SlideReplacement} from '../connections/google/slides-api';
 import {readParams, type NativeToolRunner} from '../native/tool';
 import {changeDriveFile, loggedAs, type DriveEditor, runEditor} from './google-history';
 
 /**
  * A Google Slides file's text, read and replaced in place through the Slides API, keeping its
  * slides, layout and formatting: `slides_read` answers each slide's text, its shapes' and tables'
- * and those in groups, with the revision it was read at; `slides_edit` replaces text everywhere
- * it appears in the presentation, matched with its case, as Slides' own find and replace does,
- * only to the revision the agent read: on a read of an older one, it is turned down, and the agent
- * reads the presentation again. A replacement goes through the presentation's history
- * (google-history.ts): a copy of it kept before a task's first change, and logged as an edit.
+ * and those in groups, with the revision it was read at; `slides_edit` replaces text, matched with
+ * its case, as Slides' own find and replace does, as `docs_edit` does in a Doc: each find must
+ * appear exactly once, on the slide it names or in the whole presentation, unless it says to
+ * replace every time it appears. It is counted here in the text read, and replaced by Slides only
+ * on the slides it was found on, only to the revision the agent read: on a read of an older one,
+ * it is turned down, and the agent reads the presentation again. A replacement goes through the
+ * presentation's history (google-history.ts): a copy of it kept before a task's first change, and
+ * logged as an edit.
  */
 
 // The most texts replaced at once.
@@ -38,41 +41,105 @@ export const runSlidesRead: NativeToolRunner = (run) =>
 		const {id} = $(readParams(idSchema, 'slides_read', 'id', run.params));
 		const presentationId = $(requirePresentationId(id));
 		const presentation = $(await callGoogle(run.connection, (token) => getPresentation(token, presentationId)));
-		const slides = presentation.slides.flatMap((texts, index) => ['', `Slide ${index + 1}:`, ...(texts.length === 0 ? ['(no text)'] : texts.map((text) => text.replace(/\n$/, '')))]);
+		const slides = presentation.slides.flatMap(({texts}, index) => ['', `Slide ${index + 1}:`, ...(texts.length === 0 ? ['(no text)'] : texts.map((text) => text.replace(/\n$/, '')))]);
 		return [`“${presentation.title}”, at revision ${presentation.revisionId}, which slides_edit takes as revision.`, `Link: ${linkOf(presentationId)}`, ...slides].join('\n');
 	});
+
+const replacementSchema = z.strictObject({find: z.string().min(1), replace: z.string(), slide: z.number().int().min(1).optional(), all: z.boolean().optional()});
 
 const slidesEditSchema = z.object({
 	id: z.string().min(1),
 	revision: z.string().min(1),
-	replace: z
-		.array(z.strictObject({find: z.string().min(1), replace: z.string()}))
-		.min(1)
-		.max(MAX_REPLACEMENTS),
+	replace: z.array(replacementSchema).min(1).max(MAX_REPLACEMENTS),
 });
 
-type Replacement = {find: string; replace: string};
+type Replacement = z.infer<typeof replacementSchema>;
+
+const REPLACEMENT_TAKES = 'a find and its replace, and slide and all where wanted';
+
+// A replacement's place in the list, as an agent counts.
+function nth(index: number): string {
+	return `Replacement ${index + 1}`;
+}
+
+// How many times `find` is in `text`, one after another as a replace finds them, none overlapping.
+function timesIn(text: string, find: string): number {
+	return text.split(find).length - 1;
+}
+
+function slidesText(numbers: number[]): string {
+	return numbers.length === 1 ? `slide ${numbers[0]}` : `slides ${numbers.slice(0, -1).join(', ')} and ${numbers.at(-1)}`;
+}
+
+// The slides a replacement is made on, as it was found on them, or why it can't be: its slide
+// isn't there, or its find appears nowhere, or more than once where it isn't to be replaced every time.
+function placeOf(slides: Slide[], given: Replacement, index: number): Result<SlideReplacement, string> {
+	if (given.slide !== undefined && given.slide > slides.length) {
+		return Err(`${nth(index)}: the presentation has ${slides.length} slides, so there is no slide ${given.slide}`);
+	}
+	const searched = slides.map((slide, at) => ({slide, number: at + 1})).filter(({number}) => given.slide === undefined || number === given.slide);
+	const found = searched.flatMap(({slide, number}) => {
+		const times = slide.texts.reduce((sum, text) => sum + timesIn(text, given.find), 0);
+		return times === 0 ? [] : [{slide, number, times}];
+	});
+	const times = found.reduce((sum, {times: on}) => sum + on, 0);
+	const where = given.slide === undefined ? 'in the presentation' : `on slide ${given.slide}`;
+	if (times === 0) {
+		return Err(`${nth(index)}: “${given.find}” appears nowhere ${where}. find matches the text as slides_read answers it, exactly, its case too, within one shape or cell.`);
+	}
+	if (times > 1 && given.all !== true) {
+		const spread = found.length > 1 ? `, on ${slidesText(found.map(({number}) => number))}` : '';
+		const orSlide = given.slide === undefined && found.length > 1 ? ', name its slide with slide,' : '';
+		return Err(`${nth(index)}: “${given.find}” appears ${times} times ${where}${spread}. Make find longer, with the words around it, so it appears once${orSlide} or give all to replace every one.`);
+	}
+	return Ok({find: given.find, replace: given.replace, slideIds: found.map(({slide}) => slide.id)});
+}
+
+// A replacement whose find is in what one before it writes, which the count read before can't tell.
+function writtenBefore(given: Replacement[]): string[] {
+	return given.flatMap((later, at) => {
+		const earlier = given.slice(0, at).findIndex((one) => one.replace.includes(later.find));
+		return earlier === -1 ? [] : [`${nth(at)} finds text that ${nth(earlier)} writes: make them one, or replace in two calls`];
+	});
+}
+
+// Every replacement's slides, refused where any can't be told.
+function placeAll(slides: Slide[], given: Replacement[]): Result<SlideReplacement[], ApiError> {
+	const results = given.map((one, index) => placeOf(slides, one, index));
+	const problems = [...results.flatMap((result) => (result.isErr() ? [result.error] : [])), ...writtenBefore(given)];
+	if (problems.length > 0) {
+		return Err(ApiErr.validationError(`Nothing was replaced:\n${problems.join('\n')}`));
+	}
+	return Ok(results.flatMap((result) => (result.isOk() ? [result.value] : [])));
+}
 
 function staleText(revision: string): string {
 	return `The presentation changed since revision ${revision} was read, or that revision is too old: nothing was replaced. Read it again with slides_read, and replace text on what it holds now, with its new revision.`;
 }
 
-// The text replaced, only at the revision read, through the presentation's history.
-function replaceIn(editor: DriveEditor, presentationId: string, revision: string, replacements: Replacement[]): Promise<Result<{replaced: number[]; revisionId: string | null}, ApiError>> {
-	return changeDriveFile(editor, presentationId, {content: true}, () => loggedAs({kind: 'edit'}, replaceAllText(editor.token, presentationId, replacements, revision, staleText(revision))));
+// The presentation read, each text counted and placed on its slides, and replaced, only at the
+// revision read, through its history. Replacements that can't be placed in a presentation read at
+// another revision than the agent's are turned down as stale.
+function replaceIn(editor: DriveEditor, presentationId: string, revision: string, given: Replacement[]): Promise<Result<{replaced: number[]; revisionId: string | null}, ApiError>> {
+	return Do(async ($) => {
+		const presentation = $(await getPresentation(editor.token, presentationId));
+		const placed = placeAll(presentation.slides, given);
+		if (placed.isErr() && presentation.revisionId !== revision) {
+			return $(Err(ApiErr.conflict(staleText(revision))));
+		}
+		const replacements = $(placed);
+		return $(await changeDriveFile(editor, presentationId, {content: true}, () => loggedAs({kind: 'edit'}, replaceAllText(editor.token, presentationId, replacements, revision, staleText(revision)))));
+	});
 }
 
 function timesText(count: number): string {
-	if (count === 0) {
-		return 'appears nowhere, so nothing was replaced';
-	}
 	return count === 1 ? 'replaced once' : `replaced ${count} times`;
 }
 
-/** `slides_edit`: text replaced everywhere in a Slides file, only at the revision the agent read. */
+/** `slides_edit`: text replaced in a Slides file, each where it appears once, or every time where asked, only at the revision the agent read. */
 export const runSlidesEdit: NativeToolRunner = (run) =>
 	Do(async ($): Promise<string> => {
-		const params = $(readParams(slidesEditSchema, 'slides_edit', 'id, revision and replace, each a find and its replace', run.params));
+		const params = $(readParams(slidesEditSchema, 'slides_edit', `id, revision and replace, each ${REPLACEMENT_TAKES}`, run.params));
 		const presentationId = $(requirePresentationId(params.id));
 		const done = $(await callGoogle(run.connection, (token) => replaceIn(runEditor(run, token), presentationId, params.revision, params.replace)));
 		const lines = params.replace.map(({find}, index) => `“${find}”: ${timesText(done.replaced[index] ?? 0)}`);

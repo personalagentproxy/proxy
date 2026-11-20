@@ -10,7 +10,7 @@ import {otherContactsConnector} from '../../records/google-other-contacts';
 import {rangesConnector} from '../../records/google-ranges';
 import {runSheetsRows, runSheetsTabs} from '../../records/google-sheets';
 import {runSlidesEdit, runSlidesRead} from '../../records/google-slides';
-import {runFilesRestore, runFilesUndo, runFilesVersions} from '../../records/google-versions';
+import {runFilesRestore, runFilesUndo, runFilesVersionRead, runFilesVersions} from '../../records/google-versions';
 import {tasksConnector} from '../../records/google-tasks';
 import {googleUploads} from '../../records/google-uploads';
 import {uploadActions, uploadTools} from '../../uploads/tools';
@@ -50,6 +50,7 @@ export const GOOGLE_INTEGRATION: ApiIntegration = {
 		files_copy: runFilesCopy,
 		...uploadTools(googleUploads),
 		files_versions: runFilesVersions,
+		files_version_read: runFilesVersionRead,
 		files_restore: runFilesRestore,
 		files_undo: runFilesUndo,
 		docs_read: runDocsRead,

@@ -1,3 +1,5 @@
+import {createHash} from 'node:crypto';
+
 import {Err, Ok, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
@@ -5,23 +7,86 @@ import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 
 import {fileIdOf} from '../connections/google/drive-api';
 import {callGoogle} from '../connections/google/google-client';
-import {addSheet, appendDimension, columnIndex, columnLetters, deleteDimension, deleteSheet, getSheets, insertDimension, type Dimension, type Sheet} from '../connections/google/sheets-api';
+import {
+	addSheet,
+	appendDimension,
+	columnIndex,
+	columnLetters,
+	deleteDimension,
+	deleteSheet,
+	getSheets,
+	getValues,
+	insertDimension,
+	spanRange,
+	wholeTabRange,
+	type Dimension,
+	type Sheet,
+} from '../connections/google/sheets-api';
 import {readParams, type NativeToolRunner} from '../native/tool';
+import {csvOf} from './csv';
 import {changeDriveFile, type DriveChangeEntry, type DriveEditor, runEditor} from './google-history';
 
 /**
  * A spreadsheet's structure, changed through the Sheets API: `sheets_rows` inserts or deletes rows
  * or columns of a tab, and `sheets_tabs` adds a tab or deletes one. Each goes through the
  * spreadsheet's history (google-history.ts), logged as an edit with Drive's revisions before and
- * after, with no exact undo, as a range written has: what they take away is given back from the
- * copy kept before the task's first change to the spreadsheet (files_restore).
+ * after, with no exact undo, as a range written has: what they take away is read in the copy kept
+ * before the task's first change to the spreadsheet (files_version_read), and given back whole only
+ * in Drive's own version history.
+ *
+ * Sheets deletes by place, and has no write made only to a version read, so a delete is confirmed
+ * by what it deletes instead: the cells' short checksum, their values and formulas as Sheets holds
+ * them, which a delete without it, or with one no longer theirs, is refused with, showing what the
+ * cells hold. A row inserted above since the agent looked moves what it would delete, and changes
+ * the checksum. Nothing is kept of it here: it is worked out again from the cells each time.
  */
 
 function requireSpreadsheet(given: string): Result<string, ApiError> {
 	return requirePresent(fileIdOf(given), ApiErr.validationError('Say which spreadsheet as spreadsheet: its id, as files_list gives it, or its link'));
 }
 
-const NO_UNDO = 'It has no exact undo: files_versions lists the version kept from before this task’s first change to the spreadsheet, which files_restore gives back, with what this took away.';
+const NO_UNDO = 'It has no exact undo: files_version_read reads the version kept from before this task’s first change to the spreadsheet (files_versions lists it), with what this took away.';
+
+// ---- What a delete takes away ------------------------------------------------------------------
+
+// The checksum's length: enough to tell cells changed, short enough to copy.
+const CHECKSUM_LENGTH = 8;
+
+// The rows of what a delete takes away shown at most, the rest counted.
+const SHOWN_ROWS = 20;
+
+/** What cells hold, their values and formulas, and its checksum. */
+type Held = {values: string[][]; checksum: string};
+
+// What a range holds, formulas as formulas, which a value Sheets works out, as NOW()'s, can't change.
+function heldIn(token: string, spreadsheetId: string, range: string): Promise<Result<Held, ApiError>> {
+	return getValues(token, spreadsheetId, range, 'formulas').then((read) =>
+		read.map(({values}) => ({values, checksum: createHash('sha256').update(JSON.stringify(values)).digest('hex').slice(0, CHECKSUM_LENGTH)})),
+	);
+}
+
+function heldText(held: Held): string {
+	if (held.values.length === 0) {
+		return 'is empty.';
+	}
+	const more = held.values.length > SHOWN_ROWS ? `\n(and ${held.values.length - SHOWN_ROWS} rows more)` : '';
+	return `holds, formulas as formulas:\n${csvOf(held.values.slice(0, SHOWN_ROWS))}${more}`;
+}
+
+/**
+ * A delete confirmed by the checksum of what it takes away, `what`, as `tool` was told it: refused
+ * without one, or with one no longer of what is there, saying what is there and its checksum.
+ */
+function requireChecksum(tool: string, what: string, held: Held, given: string | undefined): Result<void, ApiError> {
+	if (given?.trim().toLowerCase() === held.checksum) {
+		return Ok(undefined);
+	}
+	const confirm = `To delete it, call ${tool} again with checksum ${held.checksum}.`;
+	if (given === undefined) {
+		return Err(ApiErr.validationError(`Nothing was deleted: a delete names the checksum of what it takes away. What it would take away, ${what}, ${heldText(held)}\n${confirm}`));
+	}
+	return Err(ApiErr.conflict(`Nothing was deleted: what it would take away, ${what}, changed since checksum ${given}. It now ${heldText(held)}\n${confirm}`));
+}
 
 // A tab by its title, or the tabs there are.
 function requireTab(sheets: Sheet[], title: string): Result<Sheet, ApiError> {
@@ -49,6 +114,7 @@ const rowsSchema = z.object({
 	insert: placeSchema.optional(),
 	delete: placeSchema.optional(),
 	dimension: z.enum(['rows', 'columns']).optional(),
+	checksum: z.string().min(1).optional(),
 });
 
 type Place = z.infer<typeof placeSchema>;
@@ -125,11 +191,16 @@ function rowsDone(tab: Sheet, spreadsheet: string, change: Structural): string {
 	return `Deleted ${span} of “${tab.title}” in “${spreadsheet}”, with what ${they} held; the ${change.axis} ${moved}. ${NO_UNDO}`;
 }
 
-// The tab found by its title, the change checked against its grid, and made.
-function changeRows(editor: DriveEditor, spreadsheetId: string, title: string, change: Structural): Promise<Result<string, ApiError>> {
+// The tab found by its title, the change checked against its grid, a delete against the checksum of what it takes away, and made.
+function changeRows(editor: DriveEditor, spreadsheetId: string, title: string, change: Structural, checksum: string | undefined): Promise<Result<string, ApiError>> {
 	return Do(async ($) => {
 		const tab = $(requireTab($(await getSheets(editor.token, spreadsheetId)), title));
 		$(checkGrid(tab, change));
+		if (!change.insert) {
+			const held = $(await heldIn(editor.token, spreadsheetId, spanRange(tab.title, change.axis, change.start, change.count)));
+			const span = spanText(change.axis, change.start, change.count);
+			$(requireChecksum('sheets_rows', `${span} of “${tab.title}”`, held, checksum));
+		}
 		const {name} = $(await changeSpreadsheet(editor, spreadsheetId, () => writeStructural(editor.token, spreadsheetId, tab, change)));
 		return rowsDone(tab, name, change);
 	});
@@ -138,10 +209,10 @@ function changeRows(editor: DriveEditor, spreadsheetId: string, title: string, c
 /** `sheets_rows`: rows or columns of a tab inserted or deleted. */
 export const runSheetsRows: NativeToolRunner = (run) =>
 	Do(async ($): Promise<string> => {
-		const params = $(readParams(rowsSchema, 'sheets_rows', 'spreadsheet, tab, one of insert or delete, each a start and a count, and dimension', run.params));
+		const params = $(readParams(rowsSchema, 'sheets_rows', 'spreadsheet, tab, one of insert or delete, each a start and a count, dimension, and a delete’s checksum', run.params));
 		const spreadsheetId = $(requireSpreadsheet(params.spreadsheet));
 		const change = $(insertOrDelete(params));
-		return $(await callGoogle(run.connection, (token) => changeRows(runEditor(run, token), spreadsheetId, params.tab, change)));
+		return $(await callGoogle(run.connection, (token) => changeRows(runEditor(run, token), spreadsheetId, params.tab, change, params.checksum)));
 	});
 
 // ---- Tabs ----------------------------------------------------------------------------------------
@@ -149,7 +220,12 @@ export const runSheetsRows: NativeToolRunner = (run) =>
 // Sheets' longest tab title.
 const MAX_TITLE = 100;
 
-const tabsSchema = z.object({spreadsheet: z.string().min(1), add: z.string().trim().min(1).max(MAX_TITLE).optional(), delete: z.string().min(1).optional()});
+const tabsSchema = z.object({
+	spreadsheet: z.string().min(1),
+	add: z.string().trim().min(1).max(MAX_TITLE).optional(),
+	delete: z.string().min(1).optional(),
+	checksum: z.string().min(1).optional(),
+});
 
 function addTab(editor: DriveEditor, spreadsheetId: string, title: string): Promise<Result<string, ApiError>> {
 	return Do(async ($) => {
@@ -162,13 +238,15 @@ function addTab(editor: DriveEditor, spreadsheetId: string, title: string): Prom
 	});
 }
 
-function deleteTab(editor: DriveEditor, spreadsheetId: string, title: string): Promise<Result<string, ApiError>> {
+function deleteTab(editor: DriveEditor, spreadsheetId: string, title: string, checksum: string | undefined): Promise<Result<string, ApiError>> {
 	return Do(async ($) => {
 		const sheets = $(await getSheets(editor.token, spreadsheetId));
 		const tab = $(requireTab(sheets, title));
 		if (sheets.length === 1) {
 			return $(Err(ApiErr.validationError(`“${title}” is the spreadsheet’s only tab, and a spreadsheet keeps one: add another first, or move the file to Trash`)));
 		}
+		const held = $(await heldIn(editor.token, spreadsheetId, wholeTabRange(tab.title)));
+		$(requireChecksum('sheets_tabs', `the tab “${tab.title}”, ${tab.rowCount} rows by ${tab.columnCount} columns`, held, checksum));
 		const {name} = $(await changeSpreadsheet(editor, spreadsheetId, () => deleteSheet(editor.token, spreadsheetId, tab.sheetId)));
 		return `Deleted the tab “${title}” from “${name}”, with everything on it. ${NO_UNDO}`;
 	});
@@ -177,7 +255,7 @@ function deleteTab(editor: DriveEditor, spreadsheetId: string, title: string): P
 /** `sheets_tabs`: a tab added to a spreadsheet, or one deleted. */
 export const runSheetsTabs: NativeToolRunner = (run) =>
 	Do(async ($): Promise<string> => {
-		const params = $(readParams(tabsSchema, 'sheets_tabs', 'spreadsheet, and one of add or delete, a tab’s title', run.params));
+		const params = $(readParams(tabsSchema, 'sheets_tabs', 'spreadsheet, one of add or delete, a tab’s title, and a delete’s checksum', run.params));
 		const spreadsheetId = $(requireSpreadsheet(params.spreadsheet));
 		const {add, delete: remove} = params;
 		if ((add === undefined) === (remove === undefined)) {
@@ -186,7 +264,7 @@ export const runSheetsTabs: NativeToolRunner = (run) =>
 		return $(
 			await callGoogle(run.connection, (token) => {
 				const editor = runEditor(run, token);
-				return add === undefined ? deleteTab(editor, spreadsheetId, remove ?? '') : addTab(editor, spreadsheetId, add);
+				return add === undefined ? deleteTab(editor, spreadsheetId, remove ?? '', params.checksum) : addTab(editor, spreadsheetId, add);
 			}),
 		);
 	});

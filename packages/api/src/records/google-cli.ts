@@ -47,10 +47,10 @@ import {googleUploads} from './google-uploads';
  * A push is an upload into Drive (google-uploads.ts), its bytes sent to Personal Agent Proxy's
  * URL and on to Drive at done. A new file goes up as its bytes, or, asked to, is made a Doc, Sheet
  * or Slides file of a docx, Markdown, xlsx, CSV or pptx; the folders on its way that are missing
- * are made first, logged as the agent's. Over a file, the version pulled is
+ * are made first, logged as the agent's. Over a file with bytes of its own, the version pulled is
  * named, or the push says to write over it, and the task's copy is kept first (google-history.ts).
- * Markdown and CSV never go over a file that is there, since a Doc or a Sheet would lose what they
- * can't hold: the refusal says what to do instead.
+ * A Doc, Sheet or Slides file is never pushed over, which would lose its comments, suggestions and
+ * whatever the bytes can't hold: the refusal points to the tools that edit it in place.
  */
 
 const MARKDOWN = 'text/markdown';
@@ -325,7 +325,7 @@ function pullExport(token: string, file: DriveFileState, asked: CliPullAsked, pa
 			return $(
 				Err(
 					ApiErr.validationError(
-						`Drive exports “${file.name}” only as it is now, at version ${version}: pull it without --version. What it held before is in its versions (files_versions) and in Drive’s own version history.`,
+						`Drive exports “${file.name}” only as it is now, at version ${version}: pull it without --version. What it held before is read with the files_version_read tool, a version from files_versions, and in Drive’s own version history.`,
 					),
 				),
 			);
@@ -372,17 +372,22 @@ function sentType(push: CliPush): string | null {
 	return type === BYTES ? null : type;
 }
 
-// Why Markdown or CSV is never pushed over a file that is there, and what to do instead.
-function textOverRefusal(there: CliFile, type: string): ApiError {
-	const what = type === MARKDOWN ? 'Markdown' : 'CSV';
-	const insteads: Partial<Record<string, string>> = {
-		[MIME_TYPES.document]: 'edit its text in place with the docs_edit tool, push a .docx over it, or push the Markdown to a new path with --as doc to make a new Doc of it',
-		[MIME_TYPES.spreadsheet]: 'write its cells with the ranges_write tool, push an .xlsx over it, or push the CSV to a new path with --as sheet to make a new Sheet of it',
-		[MIME_TYPES.presentation]: 'replace its text with the slides_edit tool, or push a .pptx over it',
-	};
-	const instead = insteads[there.type ?? ''] ?? `push it to a new path instead, as it is, or with --as ${type === MARKDOWN ? 'doc to make a Doc' : 'sheet to make a Sheet'} of it`;
+// How each of Google's kinds of file is changed instead of pushed over.
+const EDITED_IN_PLACE: Partial<Record<string, string>> = {
+	[MIME_TYPES.document]: 'edit its text in place with the docs_edit tool',
+	[MIME_TYPES.spreadsheet]: 'write its cells with the ranges_write tool, and change its rows, columns and tabs with sheets_rows and sheets_tabs',
+	[MIME_TYPES.presentation]: 'replace its text in place with the slides_edit tool',
+};
+
+// Why a Doc, Sheet or Slides file is never pushed over, and what to do instead.
+function googleOverRefusal(there: CliFile): ApiError {
+	const kind = kindOf(there.type ?? '');
+	const instead = EDITED_IN_PLACE[there.type ?? ''];
+	if (instead === undefined) {
+		return ApiErr.validationError(`“${there.name}” is a ${kind}, which takes nothing pushed over it.`);
+	}
 	return ApiErr.validationError(
-		`${what} is never pushed over a file that is there, since a Doc or a Sheet would lose what it can’t hold, as its formatting and formulas. For “${there.name}”, ${instead}.`,
+		`“${there.name}” is a ${kind}, which is never pushed over, since it would lose its comments, suggestions and formatting: ${instead}, or push the file to a new path with --as to make a new ${kind} of it.`,
 	);
 }
 
@@ -509,18 +514,14 @@ export function googleCliDrive(target: RunTarget): CliDrive {
 
 		startWrite: (run, there, push, ask) =>
 			Do(async ($) => {
-				const said = sentType(push);
-				if (push.as !== null && there.type !== CONVERSIONS[push.as].mimeType) {
+				if (isGoogleType(there.type ?? '')) {
+					return $(Err(googleOverRefusal(there)));
+				}
+				if (push.as !== null) {
 					const kind = CONVERSIONS[push.as].kind;
-					return $(
-						Err(
-							ApiErr.validationError(`--as ${push.as} makes a new ${kind}, and “${there.name}” is there already, a ${kindOf(there.type ?? '')}: push to a new path, or without --as to write over it.`),
-						),
-					);
+					return $(Err(ApiErr.validationError(`--as ${push.as} makes a new ${kind}, and “${there.name}” is there already: push to a new path, or without --as to write over it.`)));
 				}
-				if (said === MARKDOWN || said === CSV) {
-					return $(Err(textOverRefusal(there, said)));
-				}
+				const said = sentType(push);
 				const held = $(versionToWrite(there, ask));
 				return $(await startUpload(run, googleUploads, {kind: 'write', fileId: there.id, version: held}, {size: push.size, sha256: push.sha256, type: said}));
 			}),

@@ -171,10 +171,6 @@ export const envSchema = z.object({
 		description:
 			'The largest copy of a Google Drive file kept here before an agent’s task first changes it, in megabytes: a file’s bytes, or a Doc’s, Sheet’s or Slides file’s export, which Google makes up to 10 MB. Past it, an uploaded file’s revision is kept for good in Drive instead, and a Doc’s is only noted.',
 	}),
-	DRIVE_COPY_KEEP_DAYS: documented(z.coerce.number().int().positive().default(30), {
-		group: 'Connections',
-		description: 'How many days the copies of Google Drive files are kept here, and the revisions kept for good in Drive in their place stay so, before they are let go.',
-	}),
 
 	TYPESAFE_API_KEY: documented(z.string().min(1).optional(), {
 		group: 'Core',

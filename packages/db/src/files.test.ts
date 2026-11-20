@@ -10,7 +10,6 @@ import {
 	createFileBlob,
 	createFolder,
 	deleteUnusedFileBlob,
-	dropFileVersionCopy,
 	FILE_CHANGED,
 	findFileVersion,
 	getFile,
@@ -23,8 +22,6 @@ import {
 	listFileMakers,
 	listFileVersions,
 	listFolder,
-	listOldFileCopies,
-	listOldPinnedVersions,
 	listTrash,
 	listTrashedBefore,
 	listUnusedFileBlobs,
@@ -35,7 +32,6 @@ import {
 	restoreFileVersion,
 	searchFiles,
 	trashFile,
-	unpinFileVersion,
 	untrashFile,
 	writeFile,
 	type FileChangeBy,
@@ -830,56 +826,5 @@ describe.skipIf(!databaseUrl)('files, against the database', () => {
 			data: {undo: {kind: 'docs_text', find: 'Q3'}},
 		});
 		expect(unwrap(await getFileChange(elsewhereId, logged.change.id))?.undo).toBeNull();
-	});
-
-	test('finds an integration’s old copies and pins, lets the copies go and releases the pins', async () => {
-		const fileId = `sheet-${stamp}-4`;
-		const copy = unwrap(
-			await recordFileVersion({connectionId: elsewhereId, fileId, content: await sheetCopy('r1')}),
-		);
-		const pinned = unwrap(
-			await recordFileVersion({
-				connectionId: elsewhereId,
-				fileId,
-				content: {...sheetRevision('r2'), pinned: true},
-			}),
-		);
-		const native = unwrap(
-			await createFile(person, {parentId: null, name: 'kept.txt', content: await content()}),
-		);
-		const later = new Date(Date.now() + 60_000);
-		const aged = {integrationId: elsewhereIntegration, before: later, limit: 1000};
-
-		const copies = unwrap(await listOldFileCopies(aged)).map((version) => version.id);
-		expect(copies).toContain(copy.id);
-		expect(copies).not.toContain(pinned.id);
-		expect(copies).not.toContain(native.head?.id);
-		expect(
-			unwrap(await listOldFileCopies({...aged, before: new Date(Date.now() - 60_000)})),
-		).toEqual([]);
-		expect(unwrap(await listOldPinnedVersions(aged)).map((version) => version.id)).toContain(
-			pinned.id,
-		);
-
-		expect(unwrap(await dropFileVersionCopy(copy))).toBe(true);
-		expect(unwrap(await dropFileVersionCopy(copy))).toBe(false);
-		// The version stays, with its revision, and the blob is the sweep's.
-		expect(unwrap(await findFileVersion(elsewhereId, fileId, copy.id))).toMatchObject({
-			blobId: null,
-			size: 20,
-			sourceRevision: 'r1',
-		});
-		expect(unwrap(await listOldFileCopies(aged)).map((version) => version.id)).not.toContain(
-			copy.id,
-		);
-		expect(unwrap(await listUnusedFileBlobs(later, 1000)).map((blob) => blob.id)).toContain(
-			copy.blobId ?? '',
-		);
-
-		expect(unwrap(await unpinFileVersion(pinned))).toBe(true);
-		expect(unwrap(await unpinFileVersion(pinned))).toBe(false);
-		expect(unwrap(await listOldPinnedVersions(aged)).map((version) => version.id)).not.toContain(
-			pinned.id,
-		);
 	});
 });

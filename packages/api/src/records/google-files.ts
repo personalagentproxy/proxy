@@ -19,7 +19,6 @@ import {
 	listSharedDrives,
 	MIME_TYPES,
 	PAGE_SIZE,
-	replaceContent,
 	updateFile,
 	type DriveFile,
 	type FileParents,
@@ -50,11 +49,12 @@ import {readValueLines, valueLines} from './value-lines';
  * other file, a PDF or a picture, goes up as its bytes through a URL, on to Drive once finished
  * (`files_upload`, google-uploads.ts), and a file already in Drive is copied into one by Drive
  * itself (`files_copy`), its bytes never passing through here. A row is made inside a tab, its
- * "Header: value" lines put under the headers. Any file can be renamed, and a tab; a document's
- * content is replaced whole by uploading Markdown again, which drops its comments and suggestions;
- * a row changes only in the cells written differently. A presentation's and a spreadsheet's
- * content are only read, and so are the bytes of a file uploaded. Files go to Trash, never deleted
- * for good.
+ * "Header: value" lines put under the headers. Any file can be renamed, and a tab; a row changes
+ * only in the cells written differently. A file's content is never written over here: a document
+ * replaced whole from Markdown would lose its comments, suggestions and whatever Markdown can't
+ * hold, so a document's text is edited in place with docs_edit (google-docs.ts), a presentation's
+ * with slides_edit, a spreadsheet's cells as a range or a row, and a file's bytes uploaded over it
+ * with files_upload. Files go to Trash, never deleted for good.
  *
  * Every write to a file goes through its history (google-history.ts): logged as the agent's, for
  * its task, or the member's, with a copy of the file kept before a task first changes what it holds,
@@ -730,19 +730,20 @@ function renamed(current: string, written: string | undefined): Result<string | 
 	return Ok(written.trim());
 }
 
-// What can't be written into each kind of file but a document, and what can be done instead.
+// Why no kind of file's content is written over here, and what can be done instead.
 const CONTENT_REFUSALS: Partial<Record<string, string>> = {
-	Presentation: 'A presentation’s content is only read here; its name can be changed',
+	Document: 'A document’s content is only read here, never written over, which would lose its comments, suggestions and formatting: edit its text in place with docs_edit; its name can be changed',
+	Presentation: 'A presentation’s content is only read here: replace its text in place with slides_edit; its name can be changed',
 	Spreadsheet: 'A spreadsheet’s content is in its tabs: change its rows, or write a range',
 	Folder: 'A folder has no content; its name can be changed',
 };
 
-const OTHER_FILE_REFUSAL = 'Only a document’s content can be written here; this file’s name can be changed';
+const OTHER_FILE_REFUSAL = 'A file’s bytes are written over with files_upload, not here; its name can be changed';
 
 /**
- * A file renamed, and a document's content replaced, each only where it is written differently
- * from how it read, `before`, so a rename doesn't upload the content as it was read over a change
- * made since; without `before`, from how it reads now.
+ * A file renamed, only where its name is written differently. Its content is only read: one written
+ * differently from how it read, `before`, or without `before` from how it reads now, is refused,
+ * whatever the file is.
  */
 function updateFileRef(drive: Drive, fileId: string, values: RecordValues, before: DataRecord | undefined): Promise<Result<DataRecord, ApiError>> {
 	return Do(async ($) => {
@@ -752,16 +753,12 @@ function updateFileRef(drive: Drive, fileId: string, values: RecordValues, befor
 		const name = $(renamed(file.name, values.name));
 		const content = values.content ?? null;
 		const read = before?.values.content ?? $(await contentOf(drive, file));
-		const replaced = content !== null && content !== read;
-		if (replaced && kind !== 'Document') {
+		if (content !== null && content !== read) {
 			return $(Err(ApiErr.validationError(CONTENT_REFUSALS[kind] ?? OTHER_FILE_REFUSAL)));
 		}
-		const editor = $(editorOf(drive));
 		if (name !== null) {
+			const editor = $(editorOf(drive));
 			$(await changeDriveFile(editor, file.id, {content: false}, () => loggedAs({kind: 'move', name, beforeName: file.name}, updateFile(drive.token, file.id, {name}))));
-		}
-		if (replaced) {
-			$(await changeDriveFile(editor, file.id, {content: true}, () => loggedAs({kind: 'write'}, replaceContent(drive.token, file.id, {type: 'text/markdown', body: content}))));
 		}
 		return $(await getRef(drive, {kind: 'file', fileId: file.id}));
 	});

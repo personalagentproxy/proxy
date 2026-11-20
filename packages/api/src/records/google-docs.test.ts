@@ -159,7 +159,9 @@ const PLAN: Block[] = [
 
 // The fake Docs and Drive: the document at its revision, the batches it took, and what the
 // history asks of Drive: the document as a file, and its latest revision.
-const docs = {blocks: PLAN, revision: 'rev-1', batches: [] as {requests: DocumentRequest[]; writeControl: {requiredRevisionId: string}}[]};
+type FakeTab = {id: string; title: string; blocks: Block[]; children: {id: string; title: string; blocks: Block[]}[]};
+const ONE_TAB = (blocks: Block[]): FakeTab[] => [{id: 't.0', title: 'Tab 1', blocks, children: []}];
+const docs = {tabs: ONE_TAB(PLAN), revision: 'rev-1', batches: [] as {requests: DocumentRequest[]; writeControl: {requiredRevisionId: string}}[]};
 const google = {requests: [] as {method: string; url: URL; body: string}[]};
 
 spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Request, init?: RequestInit) => {
@@ -178,7 +180,12 @@ spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Requ
 		return Response.json({revisions: [{id: `d${docs.batches.length + 1}`}]});
 	}
 	if (path === '/v1/documents/1Plan' && method === 'GET') {
-		return Response.json({documentId: '1Plan', title: 'Launch plan', revisionId: docs.revision, body: {content: documentOf(docs.blocks).content}});
+		const tabs = docs.tabs.map(({id, title, blocks, children}) => ({
+			tabProperties: {tabId: id, title},
+			documentTab: {body: {content: documentOf(blocks).content}},
+			childTabs: children.map((child) => ({tabProperties: {tabId: child.id, title: child.title}, documentTab: {body: {content: documentOf(child.blocks).content}}})),
+		}));
+		return Response.json({documentId: '1Plan', title: 'Launch plan', revisionId: docs.revision, tabs});
 	}
 	if (path === '/v1/documents/1Plan:batchUpdate') {
 		const batch = JSON.parse(body);
@@ -194,7 +201,7 @@ spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Requ
 }) as typeof fetch);
 
 beforeEach(() => {
-	docs.blocks = PLAN;
+	docs.tabs = ONE_TAB(PLAN);
 	docs.revision = 'rev-1';
 	docs.batches = [];
 	google.requests = [];
@@ -250,7 +257,7 @@ describe('reading a document', () => {
 				'',
 			].join('\n'),
 		);
-		expect(google.requests.map((request) => [request.method, request.url.pathname, request.url.searchParams.get('fields')])).toEqual([['GET', '/v1/documents/1Plan', 'title,revisionId,body']]);
+		expect(google.requests.map((request) => [request.method, request.url.pathname, request.url.searchParams.get('fields')])).toEqual([['GET', '/v1/documents/1Plan', 'title,revisionId,tabs']]);
 	});
 
 	test('a document that isn’t Google’s never reaches Google', async () => {
@@ -284,19 +291,19 @@ describe('editing a document', () => {
 		const [batch] = docs.batches;
 		expect(batch?.writeControl).toEqual({requiredRevisionId: 'rev-1'});
 		// Styles first, at the places found, then the text from the end back.
-		const heading = {startIndex: 1, endIndex: 13};
+		const heading = {startIndex: 1, endIndex: 13, tabId: 't.0'};
 		expect(batch?.requests.slice(0, 2)).toEqual([
 			{updateTextStyle: {range: heading, textStyle: {bold: true, link: {url: 'https://example.com/plan'}}, fields: 'bold,link'}},
 			{updateParagraphStyle: {range: heading, paragraphStyle: {namedStyleType: 'HEADING_1'}, fields: 'namedStyleType'}},
 		]);
 		const beta = indexOf('beta');
 		expect(batch?.requests.slice(2)).toEqual([
-			{insertText: {location: {index: indexOf('Owner:')}, text: 'Release '}},
-			{insertText: {location: {index: indexOf('on Friday') + 'on Friday'.length}, text: ' at noon'}},
+			{insertText: {location: {index: indexOf('Owner:'), tabId: 't.0'}, text: 'Release '}},
+			{insertText: {location: {index: indexOf('on Friday') + 'on Friday'.length, tabId: 't.0'}, text: ' at noon'}},
 			// The new text written after the found text's first character, so it takes its style, then the rest deleted.
-			{insertText: {location: {index: beta + 1}, text: 'first release'}},
-			{deleteContentRange: {range: {startIndex: beta + 1 + 'first release'.length, endIndex: beta + 4 + 'first release'.length}}},
-			{deleteContentRange: {range: {startIndex: beta, endIndex: beta + 1}}},
+			{insertText: {location: {index: beta + 1, tabId: 't.0'}, text: 'first release'}},
+			{deleteContentRange: {range: {startIndex: beta + 1 + 'first release'.length, endIndex: beta + 4 + 'first release'.length, tabId: 't.0'}}},
+			{deleteContentRange: {range: {startIndex: beta, endIndex: beta + 1, tabId: 't.0'}}},
 		]);
 		expect(edited()).toContain('We ship the first release on Friday at noon.\nRelease Owner: Dana Reyes￼ signs off.\n');
 	});
@@ -331,8 +338,8 @@ describe('editing a document', () => {
 		);
 
 		const party = indexOf('😀');
-		expect(docs.batches[0]?.requests[0]).toEqual({insertText: {location: {index: party + 2}, text: '🎉 after'}});
-		expect(docs.batches[0]?.requests.at(-1)).toEqual({deleteContentRange: {range: {startIndex: indexOf('Team'), endIndex: indexOf('Team') + 4}}});
+		expect(docs.batches[0]?.requests[0]).toEqual({insertText: {location: {index: party + 2, tabId: 't.0'}, text: '🎉 after'}});
+		expect(docs.batches[0]?.requests.at(-1)).toEqual({deleteContentRange: {range: {startIndex: indexOf('Team'), endIndex: indexOf('Team') + 4, tabId: 't.0'}}});
 		expect(edited()).toContain('Party 🎉 after launch.');
 		expect(edited()).toContain('￼￼\n￼Four people');
 	});
@@ -400,7 +407,7 @@ describe('editing a document', () => {
 	});
 
 	test('text found twice where one find overlaps the other counts both', async () => {
-		docs.blocks = [{paragraph: ['aaa\n']}];
+		docs.tabs = ONE_TAB([{paragraph: ['aaa\n']}]);
 		const {runDocsEdit} = await import('./google-docs');
 		const result = await runDocsEdit(run({id: '1Plan', revision: 'rev-1', edits: [{find: 'aa', replace: 'b'}]}));
 
@@ -449,7 +456,7 @@ describe('editing a document', () => {
 		const {runDocsEdit} = await import('./google-docs');
 		const result = await runDocsEdit(run({id: '1Plan', revision: 'rev-1', edits: [{find: 'beta', bold: true}]}));
 
-		expect(refusal(result)).toStartWith('validation_error: docs_edit takes id, revision and edits, each find, and one of replace, insertBefore, insertAfter or style:\n');
+		expect(refusal(result)).toStartWith('validation_error: docs_edit takes id, revision and edits, each find, and one of replace, insertBefore, insertAfter or style, and tab where wanted:\n');
 		expect(google.requests).toEqual([]);
 	});
 
@@ -457,6 +464,98 @@ describe('editing a document', () => {
 		const {runDocsEdit} = await import('./google-docs');
 		await runDocsEdit(run({id: '1Plan', revision: 'rev-1', edits: [{find: 'beta', style: {link: '', bold: false}}]}));
 
-		expect(docs.batches[0]?.requests).toEqual([{updateTextStyle: {range: {startIndex: indexOf('beta'), endIndex: indexOf('beta') + 4}, textStyle: {bold: false}, fields: 'bold,link'}}]);
+		expect(docs.batches[0]?.requests).toEqual([{updateTextStyle: {range: {startIndex: indexOf('beta'), endIndex: indexOf('beta') + 4, tabId: 't.0'}, textStyle: {bold: false}, fields: 'bold,link'}}]);
 	});
+});
+
+describe('a document with tabs', () => {
+	const TABS: FakeTab[] = [
+		{id: 't.0', title: 'Plan', blocks: [{paragraph: ['We ship the beta on Friday.\n']}], children: [{id: 't.child', title: 'Risks', blocks: [{paragraph: ['The beta may slip.\n']}]}]},
+		{id: 't.notes', title: 'Notes', blocks: [{paragraph: ['Ask Dana about the launch.\n']}], children: []},
+	];
+
+	test('reads its first tab, or the one asked for by its title or id, and says what its other tabs are', async () => {
+		docs.tabs = TABS;
+		const {runDocsRead} = await import('./google-docs');
+
+		expect((await runDocsRead(run({id: '1Plan'}))).unwrap()).toBe(
+			[
+				'“Launch plan”, at revision rev-1, which docs_edit takes as revision.',
+				'Link: https://docs.google.com/document/d/1Plan/edit?tab=t.0',
+				'This is the tab “Plan” (t.0). Its other tabs are “Plan › Risks” (t.child), “Notes” (t.notes): docs_read reads one with tab, and a docs_edit edit names the one it is in with tab.',
+				'',
+				'We ship the beta on Friday.\n',
+			].join('\n'),
+		);
+		expect((await runDocsRead(run({id: '1Plan', tab: 'Risks'}))).unwrap()).toEndWith('\n\nThe beta may slip.\n');
+		expect((await runDocsRead(run({id: '1Plan', tab: 't.notes'}))).unwrap()).toEndWith('\n\nAsk Dana about the launch.\n');
+		expect(refusal(await runDocsRead(run({id: '1Plan', tab: 'Budget'})))).toBe(
+			'validation_error: The document has no tab “Budget”; its tabs are “Plan” (t.0), “Plan › Risks” (t.child), “Notes” (t.notes)',
+		);
+	});
+
+	test('finds text once across every tab, or in the tab an edit names, and edits it in that tab', async () => {
+		docs.tabs = TABS;
+		const {runDocsEdit} = await import('./google-docs');
+		const refused = await runDocsEdit(run({id: '1Plan', revision: 'rev-1', edits: [{find: 'beta', replace: 'release'}]}));
+		expect(refusal(refused)).toBe(
+			'validation_error: No edit was made:\nEdit 1: “beta” appears 2 times in the document, in the tabs “Plan” (t.0), “Plan › Risks” (t.child). Make find longer, with the words around it, so it appears once, or name its tab with tab.',
+		);
+
+		(
+			await runDocsEdit(
+				run({
+					id: '1Plan',
+					revision: 'rev-1',
+					edits: [
+						{find: 'beta', tab: 'Risks', replace: 'release'},
+						{find: 'Dana', replace: 'Sam'},
+						{find: 'beta', tab: 't.0', style: {bold: true}},
+					],
+				}),
+			)
+		).unwrap();
+		expect(docs.batches[0]?.requests).toEqual([
+			{updateTextStyle: {range: {startIndex: 13, endIndex: 17, tabId: 't.0'}, textStyle: {bold: true}, fields: 'bold'}},
+			{insertText: {location: {index: 6, tabId: 't.notes'}, text: 'Sam'}},
+			{deleteContentRange: {range: {startIndex: 9, endIndex: 12, tabId: 't.notes'}}},
+			{deleteContentRange: {range: {startIndex: 5, endIndex: 6, tabId: 't.notes'}}},
+			{insertText: {location: {index: 6, tabId: 't.child'}, text: 'release'}},
+			{deleteContentRange: {range: {startIndex: 13, endIndex: 16, tabId: 't.child'}}},
+			{deleteContentRange: {range: {startIndex: 5, endIndex: 6, tabId: 't.child'}}},
+		]);
+	});
+
+	test('text named in a tab it isn’t in, or in a tab the document hasn’t, is turned down', async () => {
+		docs.tabs = TABS;
+		const {runDocsEdit} = await import('./google-docs');
+		const result = await runDocsEdit(
+			run({
+				id: '1Plan',
+				revision: 'rev-1',
+				edits: [
+					{find: 'Dana', tab: 'Plan', replace: 'Sam'},
+					{find: 'Dana', tab: 'Budget', replace: 'Sam'},
+				],
+			}),
+		);
+
+		expect(refusal(result)).toBe(
+			[
+				'validation_error: No edit was made:',
+				'Edit 1: “Dana” appears nowhere in the tab “Plan”. find matches the text as docs_read answers it, exactly, its case too, and never across an image, a chip or a table’s cells.',
+				'Edit 2: The document has no tab “Budget”; its tabs are “Plan” (t.0), “Plan › Risks” (t.child), “Notes” (t.notes)',
+			].join('\n'),
+		);
+		expect(docs.batches).toEqual([]);
+	});
+});
+
+test('edits that can’t be placed in a document changed since the revision read are turned down as stale, to read it again', async () => {
+	docs.revision = 'rev-7';
+	const {runDocsEdit} = await import('./google-docs');
+	const result = await runDocsEdit(run({id: '1Plan', revision: 'rev-1', edits: [{find: 'the beta that was cut', replace: 'release'}]}));
+
+	expect(refusal(result)).toStartWith('conflict: The document changed since revision rev-1 was read');
+	expect(docs.batches).toEqual([]);
 });

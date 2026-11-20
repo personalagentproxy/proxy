@@ -29,8 +29,10 @@ import {env} from '../utils/env';
  * one of its tasks or a member, with Drive's revisions of the file before and after it.
  *
  * Before a task's first change to what a file holds, a copy of it is kept: a file with bytes of
- * its own, a PDF or a picture, as those bytes, in the blob store, and a Doc, Sheet or Slides file
- * as the docx, xlsx or pptx Drive exports, each with Drive's revision it was taken of. One past
+ * its own, a PDF or a picture, as those bytes, in the blob store, to give back; and a Doc, Sheet or
+ * Slides file as what an agent reads it as, a Doc as Markdown, a Sheet as xlsx, its tabs read as
+ * CSV, and a Slides file as text, as Drive exports them, each with Drive's revision it was taken
+ * of: one is never given back from here, only read (google-versions.ts). One past
  * `DRIVE_COPY_MAX_MB` is not copied: an uploaded file's revision is kept for good in Drive instead
  * (pinned), and a Doc's revision only noted, for Drive's own version history. A copy that the
  * latest version holds already, the same revision or the same bytes, is not taken again. A member
@@ -151,16 +153,23 @@ function storedCopy(orgId: string, bytes: Promise<Result<ReadableStream<Uint8Arr
 	});
 }
 
+// What a Doc, Sheet or Slides file is kept as, to be read: the export that reads best as text.
+const COPY_TYPES: Partial<Record<string, string>> = {
+	[MIME_TYPES.document]: 'text/markdown',
+	[MIME_TYPES.spreadsheet]: OFFICE_TYPES[MIME_TYPES.spreadsheet],
+	[MIME_TYPES.presentation]: 'text/plain',
+};
+
 // A Doc's, Sheet's or Slides file's copy: its export into the store where it can be, and Drive's
 // revision with it, or the revision alone.
 function copyGoogleFile(editor: DriveEditor, file: DriveFileState, revision: string): Promise<Result<RecordedContent, ApiError>> {
 	return Do(async ($) => {
-		const office = OFFICE_TYPES[file.mimeType];
-		const pointer = {blobId: null, size: null, type: office ?? file.mimeType, sourceRevision: revision, sourceType: file.mimeType};
-		if (office === undefined) {
+		const copied = COPY_TYPES[file.mimeType];
+		const pointer = {blobId: null, size: null, type: copied ?? file.mimeType, sourceRevision: revision, sourceType: file.mimeType};
+		if (copied === undefined) {
 			return pointer;
 		}
-		const stored = $(await storedCopy(editor.change.orgId, exportBytes(editor.token, file.id, office)));
+		const stored = $(await storedCopy(editor.change.orgId, exportBytes(editor.token, file.id, copied)));
 		return stored === null ? pointer : {...pointer, blobId: stored.blobId, size: stored.size};
 	});
 }
@@ -180,7 +189,7 @@ function copyUploadedFile(editor: DriveEditor, file: DriveFileState, revision: s
 		if (stored !== null) {
 			return {...pointer, blobId: stored.blobId, size: stored.size};
 		}
-		const pinned = await keepRevision(editor.token, file.id, revision, true);
+		const pinned = await keepRevision(editor.token, file.id, revision);
 		if (pinned.isErr() && pinned.error.kind !== 'validation_error') {
 			return $(pinned);
 		}

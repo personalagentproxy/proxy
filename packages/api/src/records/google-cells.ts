@@ -111,17 +111,23 @@ export function applyCellsUndo(token: string, spreadsheetId: string, undo: FileU
 	return Do(async ($) => {
 		const place = parseArea(undo.range);
 		if (place === null) {
-			return $(Err(ApiErr.validationError(`That change’s cells, ${undo.range}, aren’t a range this server reads: give the file’s earlier version back with files_restore instead`)));
+			return $(
+				Err(ApiErr.validationError(`That change’s cells, ${undo.range}, aren’t a range this server reads: read the version from before it with files_version_read and write them back instead`)),
+			);
 		}
 		const tab = $(await getSheets(token, spreadsheetId)).find((sheet) => sheet.sheetId === undo.sheetId);
 		if (!tab) {
-			return $(Err(ApiErr.conflict(`The tab “${undo.tab}” is no longer in the spreadsheet: give back the version from before the change with files_restore instead`)));
+			return $(Err(ApiErr.conflict(`The tab “${undo.tab}” is no longer in the spreadsheet: read the version from before the change with files_version_read and write what it held back instead`)));
 		}
 		const area = {sheetId: tab.sheetId, ...place};
 		const now = $(await getEnteredCells(token, spreadsheetId, tab.title, area));
 		if (now === null || !sameCells(now, undo.after)) {
 			return $(
-				Err(ApiErr.conflict(`The cells ${undo.range} of “${tab.title}” changed since that change: give back the version from before it with files_restore instead (files_versions lists them)`)),
+				Err(
+					ApiErr.conflict(
+						`The cells ${undo.range} of “${tab.title}” changed since that change: read the version from before it with files_version_read and write back what should be there (files_versions lists them)`,
+					),
+				),
 			);
 		}
 		$(await putEnteredCells(token, spreadsheetId, area, undo.before));

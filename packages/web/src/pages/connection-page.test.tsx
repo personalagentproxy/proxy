@@ -660,7 +660,7 @@ describe('ConnectionPage', () => {
 						google: true,
 					},
 					versions: [
-						{...version, id: 'v2', at, kept: 'here', size: 2048, restorable: true},
+						{...version, id: 'v2', at, kept: 'here', size: 2048, restorable: false},
 						{...version, id: 'v1', at, kept: 'drive', size: null, restorable: false, by: dana},
 					],
 					changes: [
@@ -693,7 +693,8 @@ describe('ConnectionPage', () => {
 		);
 		expect(versions[0]?.textContent).toContain('Kept here · 2 KB');
 		expect(versions[0]?.textContent).toContain('ClaudeFill in the budget');
-		// Kept only in Drive, a Sheet's version is given back from Drive's own version history.
+		// A Sheet's version, kept here or only in Drive, is given back from Drive's own version history.
+		expect(versions[0]?.textContent).toContain('File > Version history');
 		expect(versions[1]?.textContent).toContain('Only in Drive');
 		expect(versions[1]?.textContent).toContain('File > Version history');
 		expect(
@@ -701,7 +702,7 @@ describe('ConnectionPage', () => {
 				.getByRole('link', {name: 'the file'})
 				.getAttribute('href'),
 		).toBe('https://docs.google.com/spreadsheets/d/sheet-1');
-		expect(within(dialog).getAllByRole('button', {name: 'Restore this version'})).toHaveLength(1);
+		expect(within(dialog).queryAllByRole('button', {name: 'Restore this version'})).toEqual([]);
 		const changes = within(within(dialog).getByRole('region', {name: 'Changes'})).getAllByRole(
 			'listitem',
 		);
@@ -710,20 +711,13 @@ describe('ConnectionPage', () => {
 		expect(within(dialog).getAllByRole('button', {name: 'Undo this change'})).toHaveLength(1);
 
 		// Nothing is sent until the person confirms.
-		fireEvent.click(within(dialog).getByRole('button', {name: 'Restore this version'}));
-		const confirm = await screen.findByRole('button', {name: 'Restore'});
+		fireEvent.click(within(dialog).getByRole('button', {name: 'Undo this change'}));
+		const confirm = await screen.findByRole('button', {name: 'Undo'});
 		expect(calls.filter(([method]) => method === 'POST')).toEqual([]);
 		fireEvent.click(confirm);
-		fireEvent.click(await within(dialog).findByRole('button', {name: 'Undo this change'}));
-		fireEvent.click(await screen.findByRole('button', {name: 'Undo'}));
 
-		await waitFor(() => expect(calls.filter(([method]) => method === 'POST')).toHaveLength(2));
+		await waitFor(() => expect(calls.filter(([method]) => method === 'POST')).toHaveLength(1));
 		expect(calls.filter(([method]) => method === 'POST')).toEqual([
-			[
-				'POST',
-				'/api/orgs/acme/connections/conn-1/drive-history/sheet-1/restore',
-				JSON.stringify({version: 'v2'}),
-			],
 			[
 				'POST',
 				'/api/orgs/acme/connections/conn-1/drive-history/sheet-1/changes/c2/undo',

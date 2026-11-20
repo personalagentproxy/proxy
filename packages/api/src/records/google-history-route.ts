@@ -16,7 +16,8 @@ import {loadConnection, type LoadedConnection} from './target';
 /**
  * Personal Agent Proxy's history of a Google connection's files in Drive, on the connection's page
  * (google-history.ts): the files changed through it, and a file's versions and changes. A member
- * who uses the connection gives a version back and undoes a change with an exact undo from there,
+ * who uses the connection gives a version of a file of its own bytes back, a Doc, Sheet or Slides
+ * file's only in Drive's own version history, and undoes a change with an exact undo from there,
  * through what `files_restore` and `files_undo` run (google-versions.ts), logged in the history as
  * the member's, unlogged in the activity log as the person's own doings are.
  */

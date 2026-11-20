@@ -220,13 +220,14 @@ For Drive, Docs, Sheets and Slides:
   shared drive or My Drive, under its own name or a new one; folders aren't copied. A row is
   written as `Header: value` lines, under the headers of the tab's first row, and goes after the
   last row holding anything, from column A.
-- **Edit files** renames files and a spreadsheet's tabs, replaces a document's content, and changes
-  rows, and requires Read files. A document's content is replaced whole with the Markdown written,
-  which drops its comments and suggestions, and only when it is written differently from how it
-  read, so renaming a document leaves its content alone. Shared drives aren't renamed or trashed. A row changes only in the values written differently,
-  so a formula in another of its cells stays. It also edits a document's and a presentation's
-  text in place and inserts and deletes a spreadsheet's rows, columns and tabs, as under
-  [Editing in place](#editing-in-place); uploads a file's bytes over a file that is there; gives a
+- **Edit files** renames files and a spreadsheet's tabs, and changes rows, and requires Read
+  files. A file's content is never written over whole: a document replaced from Markdown would lose
+  its comments, suggestions and formatting, so a content written differently from how it read is
+  refused, and renaming a file leaves its content alone. Shared drives aren't renamed or trashed. A
+  row changes only in the values written differently, so a formula in another of its cells stays.
+  It also edits a document's and a presentation's text in place and inserts and deletes a
+  spreadsheet's rows, columns and tabs, as under [Editing in place](#editing-in-place); uploads a
+  file's bytes over a file of its own bytes that is there; gives a
   file an earlier version back; and undoes a change to a spreadsheet's cells, as under
   [Uploading through a URL](#uploading-through-a-url) and [Version history](#version-history).
 - **Move files to Trash** moves files and folders to Drive's Trash, where Drive keeps them 30 days
@@ -243,17 +244,20 @@ as formulas with Formulas.
 
 ### Editing in place
 
-A document's content written as Markdown replaces all of it, dropping its comments and
-suggestions. Agents edit a document's and a presentation's text in place instead, through Google's
+A Doc, Sheet or Slides file is never written over whole, from Markdown, CSV or an Office file,
+which would drop its comments, suggestions and whatever the format can't hold. Agents edit a
+document's and a presentation's text in place instead, through Google's
 Docs and Slides APIs, keeping its comments, suggestions, formatting and layout, and a spreadsheet's
 structure through the Sheets API. Reading needs Read files; every edit needs Edit files.
 
 - **Read document text**, `docs_read`, answers a document's text as the Docs API has it, paragraph
-  by paragraph, the paragraphs in tables' cells too, and the revision the document is at. Its
-  table of contents, headers, footers and footnotes are left out, and a document with several tabs
-  is read in its first. An image or a chip in the text shows as `￼`.
+  by paragraph, the paragraphs in tables' cells too, and the revision the document is at. A
+  document with several tabs is read in its first, or the one asked for by its title or id, and the
+  answer lists the others. Its table of contents, headers, footers and footnotes are left out. An
+  image or a chip in the text shows as `￼`.
 - **Edit document**, `docs_edit`, takes the document, that revision and a list of edits. Each edit
-  finds text that must appear exactly once in the text `docs_read` answers, case and all, and
+  finds text that must appear exactly once in the text `docs_read` answers, case and all: in the
+  tab the edit names, or, naming none, in the whole document, every tab of it. It then
   replaces it, writes text just before or after it, or styles it: bold, italic, underlined, linked,
   or its paragraphs made a heading, a title or normal text. Text found may run across paragraphs,
   but not across an image, a chip or a table's cells. An edit whose text appears nowhere, or more
@@ -263,17 +267,26 @@ structure through the Sheets API. Reading needs Read files; every edit needs Edi
   reads it again. Replaced text keeps the style of the text it replaces.
 - **Read presentation text**, `slides_read`, answers a presentation's text, slide by slide, what its
   shapes and tables hold, and the revision it is at.
-- **Replace text in presentation**, `slides_edit`, replaces text everywhere it appears in a
-  presentation, matched with its case, as Slides' find and replace does, only at the revision
-  given, and answers how many times each text was replaced.
+- **Replace text in presentation**, `slides_edit`, replaces text in a presentation, matched with
+  its case, as Slides' find and replace does, only at the revision given, and answers how many
+  times each text was replaced. As with a document, each text must appear exactly once, on the
+  slide the replacement names or in the whole presentation, unless it says to replace every one;
+  otherwise nothing is replaced, and the agent is told how often and on which slides it appears.
 - **Insert or delete rows**, `sheets_rows`, inserts empty rows or columns into a spreadsheet's tab,
   at a row's number or a column's letter, or deletes them with what they hold.
 - **Add or delete tab**, `sheets_tabs`, adds an empty tab after a spreadsheet's others, or deletes
   one with everything on it. A tab is renamed as a record, with the files tools.
 
+Sheets deletes rows, columns and tabs by where they are, with no way to make a change only to the
+version an agent read, so a delete names a short checksum of what it takes away: its cells' values
+and formulas. A delete without it deletes nothing and answers what those cells hold and their
+checksum; the agent deletes them by asking again with it. Where the cells changed in between, as
+when someone inserted a row above them, the checksum no longer matches and nothing is deleted.
+
 Each edit is a change in the file's [Version history](#version-history), with a copy kept before a
-task first changes the file. Rows, columns and tabs inserted or deleted have no exact undo: the copy
-gives back what they took away.
+task first changes the file. Rows, columns and tabs inserted or deleted have no exact undo: an agent
+reads what they took away in the copy, and you give the whole spreadsheet back from File > Version
+history.
 
 ### Uploading through a URL
 
@@ -304,18 +317,13 @@ large as the server takes, 100 MB unless its `FILES_MAX_MB` says otherwise.
 A new file keeps its own type, as its name's extension says, such as `report.pdf`, or as the agent
 says where the name has none. With `convert`, it becomes one of Google's own instead: a docx or
 Markdown a Doc, an xlsx or CSV a Sheet, and a pptx a Slides file, named without the extension.
-Over a file that is there:
+Over a file that is there, only a file of its own bytes takes bytes, of any type. A Doc, Sheet or
+Slides file is never uploaded over, since it would lose its comments, suggestions and formatting:
+the agent is pointed to [editing it in place](#editing-in-place), or to uploading the file as a new
+one.
 
-- a file of its own bytes takes any bytes but Markdown or CSV;
-- a Doc, Sheet or Slides file takes only a docx, xlsx or pptx, which Drive converts into it,
-  keeping its id and link;
-- Markdown or CSV is never uploaded over a file, since a Doc or a Sheet would lose what it can't
-  hold, its formatting and formulas: the agent writes a Sheet's cells as a range, or makes a new
-  file.
-
-The version a write is checked against is Drive's head revision for a file of its own bytes, and
-Drive's version number for a Doc, Sheet or Slides file, which goes up with any change to it, its
-name too. `files_versions` says which version a file is at now.
+The version a write is checked against is the file's head revision in Drive, which
+`files_versions` says it is at now.
 
 ### Version history
 
@@ -325,18 +333,20 @@ presentation's text edited, a range or a row of a spreadsheet written, its rows,
 inserted, added or deleted, a tab renamed, is logged with who made it: the agent and the task it was
 for, or you, from the web app. Before a task first changes what a file holds, a copy is kept:
 
-- a file uploaded to Drive, such as a PDF or a picture, as its bytes;
-- a Doc, Sheet or Slides file as the docx, xlsx or pptx Google exports, with Drive's revision it
-  was taken of.
+- a file uploaded to Drive, such as a PDF or a picture, as its bytes, to give back;
+- a Doc as Markdown, a Sheet as an xlsx and a Slides file as text, as Google exports them, with
+  Drive's revision it was taken of, for agents to read. A Doc, Sheet or Slides file is never
+  given a version back by Personal Agent Proxy: Google's API can only write one over whole, which
+  loses its comments, suggestions and what others changed since. An agent reads the version and
+  makes the changes back in place, or you give it back from File > Version history in the file.
 
 A copy is kept in the same store as Files (`FILES_DIR` or `FILES_S3_BUCKET`), up to
 `DRIVE_COPY_MAX_MB`, 25 MB unless set otherwise. A larger file isn't copied: an uploaded file's revision is kept for good in Drive instead, and a Doc's,
 Sheet's or Slides file's revision is only noted, for Drive's own version history (Google exports
 at most 10 MB anyway). A copy the latest version holds already, the same revision or the same
 bytes, isn't kept twice. Renaming a file or moving it to Trash leaves what it holds alone, and
-takes no copy. Copies are let go after `DRIVE_COPY_KEEP_DAYS`, 30 days unless set otherwise, and
-the revisions kept for good in their place are released in Drive then; the history of the
-changes stays.
+takes no copy. Copies, the revisions kept for good in their place and the history of the changes
+are all kept for good.
 
 Writing a range or a row of a spreadsheet also keeps the cells it changes as they were and as it
 left them, formulas as formulas, up to 10,000 cells, so the change can be undone exactly.
@@ -344,23 +354,26 @@ left them, formulas as formulas, up to 10,000 cells, so the change can be undone
 - **List versions**, `files_versions`, needs Read files: a file's versions, newest first, each
   kept here or only in Drive, and the changes made to it, who made each and for which task, with
   the version the file is at now in Drive, which an upload over it gives.
-- **Restore version**, `files_restore`, needs Edit files: gives a version back as the file's
-  newest revision, keeping its id and link. An uploaded file gets its bytes back; a Doc, Sheet or
-  Slides file is converted back from its copy. A version kept only in Drive is downloaded from
-  Drive and uploaded again for an uploaded file; for a Doc, Sheet or Slides file the agent is told
-  to restore it from Drive's own version history (File > Version history) instead. What the file
-  held until then is kept as a version too.
+- **Read version**, `files_version_read`, needs Read files: what a version held, as text, 50,000
+  characters at a time: a Doc as Markdown, a Sheet's tabs as CSV, a Slides file's text, and an
+  uploaded file where it is text, a PDF or an Office file. A Doc's, Sheet's or Slides file's
+  version kept only in Drive is read in Drive's own version history.
+- **Restore version**, `files_restore`, needs Edit files: gives an uploaded file a version back as
+  its newest revision, keeping its id and link, from its copy, or downloaded from Drive where only
+  Drive kept it. What the file held until then is kept as a version too. For a Doc, Sheet or
+  Slides file the agent is told to read the version and make the changes back in place, or to
+  have you give it back from File > Version history, picking the version from that time.
 - **Undo change**, `files_undo`, needs Edit files: puts a spreadsheet's cells back as they were
   before a change, only while they still hold what it wrote; otherwise the agent is pointed to
-  Restore version.
+  Read version.
 
 You see the same history on the Google connection's page, under **File history**: the files
 changed through Personal Agent Proxy, the latest changed first, each with its last change and who
 made it. A file opens with its versions, each kept here or only in Drive, and its changes, each
-with the agent and the task it was for. **Restore** gives a version back and **Undo** puts a
-spreadsheet's cells back, each once you confirm, as your own change in the file's history. A Doc's,
-Sheet's or Slides file's version kept only in Drive has no Restore: open the file and give it back
-from File > Version history, picking the version from that time.
+with the agent and the task it was for. **Restore** gives an uploaded file a version back and
+**Undo** puts a spreadsheet's cells back, each once you confirm, as your own change in the file's
+history. A Doc, Sheet or Slides file has no Restore: open the file and give a version back from
+File > Version history, picking the version from that time.
 
 ### Files in a sandbox
 
@@ -385,8 +398,8 @@ file's link too.
   are missing are made first, as the agent's, and stay if the push is never finished. Over a file
   that is there, the push names the version that was pulled, or is made with `--force`, and a
   copy is kept first, as under [Version history](#version-history). A Doc, Sheet or Slides file
-  is only written over from a docx, xlsx or pptx, and Markdown or CSV never goes over a file: the
-  agent is pointed to `docs_edit` for a Doc's text, `ranges_write` for a Sheet's cells, or to push
+  is never pushed over: the agent is pointed to `docs_edit` for a Doc's text, `ranges_write`,
+  `sheets_rows` and `sheets_tabs` for a Sheet, `slides_edit` for a Slides file's text, or to push
   it as a new file with `--as`.
 
 A pull is a read, a push to a new path an added file, and a push over a file an edit, each checked

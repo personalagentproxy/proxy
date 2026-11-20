@@ -183,23 +183,9 @@ export function updateFile(accessToken: string, fileId: string, changes: {name?:
 	return googleWrite(accessToken, 'PATCH', driveUrl(`/files/${fileId}`, {fields: FILE_FIELDS, supportsAllDrives: 'true'}), changes, driveFileSchema);
 }
 
-/** Replaces all of a file's content with what is uploaded, which Drive converts to the file's own type. */
-export function replaceContent(accessToken: string, fileId: string, upload: Upload): Promise<Result<DriveFile, ApiError>> {
-	return googleUpload(
-		accessToken,
-		'PATCH',
-		driveUrl(`/files/${fileId}`, {uploadType: 'media', fields: FILE_FIELDS, supportsAllDrives: 'true'}, UPLOAD),
-		{...upload, type: textType(upload.type)},
-		driveFileSchema,
-	);
-}
-
 // ---- What a file's history needs ---------------------------------------------------------------
 
-/**
- * What Drive keeps of the Google types that a copy is made of, exported as the Office file each
- * converts to and from: a Doc as docx, a Sheet as xlsx, a Slides file as pptx.
- */
+/** The Office file each of Google's types converts to and from: a Doc docx, a Sheet xlsx, a Slides file pptx. */
 export const OFFICE_TYPES: Partial<Record<string, string>> = {
 	[MIME_TYPES.document]: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 	[MIME_TYPES.spreadsheet]: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -234,9 +220,9 @@ const fileStateSchema = z.object({
 export type DriveFileState = z.infer<typeof fileStateSchema>;
 
 /**
- * The version a write over a file is checked against, as files_upload takes it: a file with bytes
- * of its own has its head revision; a Doc, Sheet or Slides file its version number. None for a
- * folder, which takes no bytes.
+ * A file's version, as files_versions and pap files say it: a file with bytes of its own has its
+ * head revision, which files_upload checks a write over it against; a Doc, Sheet or Slides file,
+ * never written over, its version number. None for a folder.
  */
 export function driveVersion(file: DriveFileState): string | null {
 	if (file.mimeType === MIME_TYPES.folder) {
@@ -298,9 +284,9 @@ export function latestRevision(accessToken: string, fileId: string): Promise<Res
 	});
 }
 
-/** Marks a revision of a file with bytes of its own to be kept for good, or no longer; Drive keeps at most 200 such a file. */
-export async function keepRevision(accessToken: string, fileId: string, revisionId: string, keepForever: boolean): Promise<Result<void, ApiError>> {
-	const answer = await googleWrite(accessToken, 'PATCH', driveUrl(`/files/${fileId}/revisions/${revisionId}`, {fields: 'id,keepForever'}), {keepForever}, z.object({id: z.string()}));
+/** Marks a revision of a file with bytes of its own to be kept for good; Drive keeps at most 200 such a file. */
+export async function keepRevision(accessToken: string, fileId: string, revisionId: string): Promise<Result<void, ApiError>> {
+	const answer = await googleWrite(accessToken, 'PATCH', driveUrl(`/files/${fileId}/revisions/${revisionId}`, {fields: 'id,keepForever'}), {keepForever: true}, z.object({id: z.string()}));
 	return answer.map(() => undefined);
 }
 

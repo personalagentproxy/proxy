@@ -34,7 +34,6 @@ mock.module('../utils/env', () => ({
 		FILES_STORE: {kind: 'disk', dir: blobs},
 		FILES_MAX_MB: 100,
 		DRIVE_COPY_MAX_MB: 1,
-		DRIVE_COPY_KEEP_DAYS: 30,
 	},
 }));
 
@@ -573,39 +572,34 @@ describe.skipIf(!databaseUrl)('pap files, on a Google connection', () => {
 		expect(await messageOf(await start({path: 'My Drive/Reports/scan.pdf', file: 'scan.pdf', as: 'doc'}, 'x'))).toBe(
 			'--as doc makes a Doc of a .docx or Markdown, and this is application/pdf: push it without --as to keep it as it is.',
 		);
-		// A Sheet of the name there already is the one written over, and only from an xlsx.
-		expect(await messageOf(await start({path: 'My Drive/Reports/Launch plan.docx', file: 'Launch plan.docx', as: 'sheet'}, 'x'))).toBe(
-			'--as sheet makes a new Sheet, and “Launch plan” is there already, a Doc: push to a new path, or without --as to write over it.',
+		expect(await messageOf(await start({path: 'My Drive/Reports/q3.pdf', file: 'q3.docx', as: 'doc', force: '1'}, 'x'))).toBe(
+			'--as doc makes a new Doc, and “q3.pdf” is there already: push to a new path, or without --as to write over it.',
 		);
 	});
 
-	test('writes over a Doc only from a docx, at the version pulled, with a copy kept first, and refuses Markdown and CSV over a file, saying what to do instead', async () => {
-		const pulled = saidOf(await pull({path: 'My Drive/Reports/Launch plan', as: 'docx'}));
-
-		expect(await messageOf(await start({path: 'My Drive/Reports/Launch plan', file: 'Launch plan.md', version: pulled.version}, '# Plan'))).toBe(
-			'Markdown is never pushed over a file that is there, since a Doc or a Sheet would lose what it can’t hold, as its formatting and formulas. For “Launch plan”, edit its text in place with the docs_edit tool, push a .docx over it, or push the Markdown to a new path with --as doc to make a new Doc of it.',
+	test('never pushes over a Doc or a Sheet, saying what to do instead, and writes over a file of its own bytes at the version pulled, with a copy kept first', async () => {
+		const plan = saidOf(await pull({path: 'My Drive/Reports/Launch plan', as: 'docx'}));
+		expect(await messageOf(await start({path: 'My Drive/Reports/Launch plan', file: 'Launch plan.docx', version: plan.version}, 'docx'))).toBe(
+			'“Launch plan” is a Doc, which is never pushed over, since it would lose its comments, suggestions and formatting: edit its text in place with the docs_edit tool, or push the file to a new path with --as to make a new Doc of it.',
 		);
+		expect(await messageOf(await start({path: 'My Drive/Reports/Launch plan', file: 'Launch plan.md', force: '1'}, '# Plan'))).toStartWith('“Launch plan” is a Doc, which is never pushed over');
 		expect(await messageOf(await start({path: 'My Drive/Reports/Budget', file: 'Budget.csv', force: '1'}, 'a,b'))).toBe(
-			'CSV is never pushed over a file that is there, since a Doc or a Sheet would lose what it can’t hold, as its formatting and formulas. For “Budget”, write its cells with the ranges_write tool, push an .xlsx over it, or push the CSV to a new path with --as sheet to make a new Sheet of it.',
+			'“Budget” is a Sheet, which is never pushed over, since it would lose its comments, suggestions and formatting: write its cells with the ranges_write tool, and change its rows, columns and tabs with sheets_rows and sheets_tabs, or push the file to a new path with --as to make a new Sheet of it.',
 		);
-		expect(await messageOf(await start({path: 'My Drive/Reports/q3.pdf', file: 'q3.csv', force: '1'}, 'a,b'))).toStartWith('CSV is never pushed over a file that is there');
-		expect(await messageOf(await start({path: 'My Drive/Reports/Launch plan', file: 'Launch plan.docx'}, 'docx'))).toBe(
-			'My Drive/Reports/Launch plan is there already: it holds version 7 now. Pull it again and push what you make of that, or push with --force to write over it; the version before is kept either way.',
+		expect(await messageOf(await start({path: 'My Drive/Reports/q3.pdf', file: 'q3.pdf'}, '%PDF'))).toBe(
+			'My Drive/Reports/q3.pdf is there already: it holds version 1Q3-r1 now. Pull it again and push what you make of that, or push with --force to write over it; the version before is kept either way.',
 		);
 		expect(google.requests.filter((request) => request.url.pathname.startsWith('/upload/'))).toEqual([]);
 
-		const written = await push({path: 'My Drive/Reports/Launch plan', file: 'Launch plan.docx', version: pulled.version}, 'docx bytes');
+		const pulled = saidOf(await pull({path: 'My Drive/Reports/q3.pdf'}));
+		const written = await push({path: 'My Drive/Reports/q3.pdf', file: 'q3.pdf', version: pulled.version}, '%PDF revised');
 		expect(written.status).toBe(200);
-		expect((await written.json()).file).toMatchObject({id: '1Plan', path: 'My Drive/Reports/Launch plan', version: '8', type: MIME.document});
-		const session = google.requests.find((request) => request.method === 'PATCH' && request.url.pathname === '/upload/drive/v3/files/1Plan');
-		expect(session?.headers['x-upload-content-type']).toBe(MIME.docx);
-		const [write] = await changesOf('1Plan');
-		expect(write).toMatchObject({kind: 'write', agentId, taskId, beforeRevision: '1Plan-r1', afterRevision: '1Plan-r2'});
+		expect((await written.json()).file).toMatchObject({id: '1Q3', path: 'My Drive/Reports/q3.pdf', type: 'application/pdf'});
+		const [write] = await changesOf('1Q3');
+		expect(write).toMatchObject({kind: 'write', agentId, taskId, beforeRevision: '1Q3-r1'});
 		expect(write?.beforeVersion).not.toBeNull();
 
-		expect(await messageOf(await start({path: 'My Drive/Reports/Launch plan', file: 'Launch plan.docx', version: pulled.version}, 'docx'))).toStartWith(
-			'My Drive/Reports/Launch plan changed since it was pulled: it holds version 8 now.',
-		);
+		expect(await messageOf(await start({path: 'My Drive/Reports/q3.pdf', file: 'q3.pdf', version: pulled.version}, '%PDF'))).toStartWith('My Drive/Reports/q3.pdf changed since it was pulled');
 	});
 
 	test('reads and writes only as the agent may, each logged as the read or the upload it is, from a sandbox', async () => {

@@ -118,8 +118,13 @@ spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Requ
 		}
 		slides.batches.push(batch);
 		slides.revision = `rev-${slides.batches.length + 1}`;
-		// Slides leaves out how many were changed where none were.
-		return Response.json({presentationId: '1Deck', replies: [{replaceAllText: {occurrencesChanged: 2}}, {replaceAllText: {}}], writeControl: {requiredRevisionId: slides.revision}});
+		// How many times each text is on the slides it names, as Slides counts them; it leaves out how many were changed where none were.
+		const replies = batch.requests.map(({replaceAllText}: {replaceAllText: {containsText: {text: string}; pageObjectIds: string[]}}) => {
+			const on = SLIDES.filter((slide) => replaceAllText.pageObjectIds.includes(slide.objectId));
+			const times = JSON.stringify(on).split(replaceAllText.containsText.text).length - 1;
+			return {replaceAllText: times === 0 ? {} : {occurrencesChanged: times}};
+		});
+		return Response.json({presentationId: '1Deck', replies, writeControl: {requiredRevisionId: slides.revision}});
 	}
 	return Response.json({error: {code: 404, message: 'Requested entity was not found.', status: 'NOT_FOUND'}}, {status: 404});
 }) as typeof fetch);
@@ -154,12 +159,12 @@ describe('reading a presentation', () => {
 				'(no text)',
 			].join('\n'),
 		);
-		expect(google.requests[0]?.url.searchParams.get('fields')).toBe('title,revisionId,slides(pageElements)');
+		expect(google.requests[0]?.url.searchParams.get('fields')).toBe('title,revisionId,slides(objectId,pageElements)');
 	});
 });
 
 describe('replacing text in a presentation', () => {
-	test('replaces each text everywhere, matched with its case, at the revision read, and says how often', async () => {
+	test('replaces text found once, matched with its case, only on the slide it is on, at the revision read, and says how often', async () => {
 		const {runSlidesEdit} = await import('./google-slides');
 		const answer = (
 			await runSlidesEdit(
@@ -167,8 +172,8 @@ describe('replacing text in a presentation', () => {
 					id: '1Deck',
 					revision: 'rev-1',
 					replace: [
-						{find: 'Q3', replace: 'Third quarter'},
-						{find: 'Q5', replace: 'Q6'},
+						{find: '12%', replace: '15%'},
+						{find: 'EMEA', replace: 'Europe'},
 					],
 				}),
 			)
@@ -176,19 +181,70 @@ describe('replacing text in a presentation', () => {
 
 		expect(slides.batches).toEqual([
 			{
-				requests: [{replaceAllText: {containsText: {text: 'Q3', matchCase: true}, replaceText: 'Third quarter'}}, {replaceAllText: {containsText: {text: 'Q5', matchCase: true}, replaceText: 'Q6'}}],
+				requests: [
+					{replaceAllText: {containsText: {text: '12%', matchCase: true}, replaceText: '15%', pageObjectIds: ['s1']}},
+					{replaceAllText: {containsText: {text: 'EMEA', matchCase: true}, replaceText: 'Europe', pageObjectIds: ['s2']}},
+				],
 				writeControl: {requiredRevisionId: 'rev-1'},
 			},
 		]);
 		expect(answer).toBe(
-			[
-				'“Q3”: replaced 2 times',
-				'“Q5”: appears nowhere, so nothing was replaced',
-				'It is at revision rev-2 now, which slides_edit takes for more.',
-				'Link: https://docs.google.com/presentation/d/1Deck/edit',
-			].join('\n'),
+			['“12%”: replaced once', '“EMEA”: replaced once', 'It is at revision rev-2 now, which slides_edit takes for more.', 'Link: https://docs.google.com/presentation/d/1Deck/edit'].join('\n'),
 		);
 		expect(history.logged).toEqual([expect.objectContaining({kind: 'edit', fileId: '1Deck', name: 'Q3 review', beforeRevision: 'd1', afterRevision: 'd2'})]);
+	});
+
+	test('text on more than one slide is replaced only on the slide named, or every time with all', async () => {
+		const {runSlidesEdit} = await import('./google-slides');
+		expect(refusal(await runSlidesEdit(run({id: '1Deck', revision: 'rev-1', replace: [{find: 'Re', replace: 'Ra'}]})))).toBe(
+			'validation_error: Nothing was replaced:\nReplacement 1: “Re” appears 2 times in the presentation, on slides 1 and 2. Make find longer, with the words around it, so it appears once, name its slide with slide, or give all to replace every one.',
+		);
+
+		(await runSlidesEdit(run({id: '1Deck', revision: 'rev-1', replace: [{find: 'Re', replace: 'Ra', slide: 2}]}))).unwrap();
+		const answer = (await runSlidesEdit(run({id: '1Deck', revision: 'rev-2', replace: [{find: 'Re', replace: 'Ra', all: true}]}))).unwrap();
+
+		expect(slides.batches.map((batch) => batch.requests)).toEqual([
+			[{replaceAllText: {containsText: {text: 'Re', matchCase: true}, replaceText: 'Ra', pageObjectIds: ['s2']}}],
+			[{replaceAllText: {containsText: {text: 'Re', matchCase: true}, replaceText: 'Ra', pageObjectIds: ['s1', 's2']}}],
+		]);
+		expect(answer.split('\n')[0]).toBe('“Re”: replaced 2 times');
+	});
+
+	test('text that appears nowhere, a slide the presentation hasn’t, or a find another replacement writes is turned down, every one at once, and nothing is sent', async () => {
+		const {runSlidesEdit} = await import('./google-slides');
+		const result = await runSlidesEdit(
+			run({
+				id: '1Deck',
+				revision: 'rev-1',
+				replace: [
+					{find: 'Q5', replace: 'Q6'},
+					{find: 'EMEA', replace: 'Europe', slide: 1},
+					{find: 'Q3', replace: 'Q4', slide: 9},
+					{find: 'Costs', replace: 'Spend held'},
+					{find: 'held', replace: 'stayed'},
+				],
+			}),
+		);
+
+		expect(refusal(result)).toBe(
+			[
+				'validation_error: Nothing was replaced:',
+				'Replacement 1: “Q5” appears nowhere in the presentation. find matches the text as slides_read answers it, exactly, its case too, within one shape or cell.',
+				'Replacement 2: “EMEA” appears nowhere on slide 1. find matches the text as slides_read answers it, exactly, its case too, within one shape or cell.',
+				'Replacement 3: the presentation has 3 slides, so there is no slide 9',
+				'Replacement 5 finds text that Replacement 4 writes: make them one, or replace in two calls',
+			].join('\n'),
+		);
+		expect(slides.batches).toEqual([]);
+	});
+
+	test('replacements that can’t be placed in a presentation changed since the revision read are turned down as stale', async () => {
+		slides.revision = 'rev-4';
+		const {runSlidesEdit} = await import('./google-slides');
+		const result = await runSlidesEdit(run({id: '1Deck', revision: 'rev-1', replace: [{find: 'Q5', replace: 'Q6'}]}));
+
+		expect(refusal(result)).toStartWith('conflict: The presentation changed since revision rev-1 was read');
+		expect(slides.batches).toEqual([]);
 	});
 
 	test('a replacement on an older revision than the presentation’s is turned down by Slides, and nothing is logged', async () => {
@@ -207,8 +263,8 @@ describe('replacing text in a presentation', () => {
 		const refusals = [await runSlidesEdit(run({id: '1Deck', revision: 'rev-1', replace: []})), await runSlidesEdit(run({id: '1Deck', revision: 'rev-1', replace: [{find: '', replace: 'x'}]}))];
 
 		expect(refusals.map((result) => refusal(result).split(':\n')[0])).toEqual([
-			'validation_error: slides_edit takes id, revision and replace, each a find and its replace',
-			'validation_error: slides_edit takes id, revision and replace, each a find and its replace',
+			'validation_error: slides_edit takes id, revision and replace, each a find and its replace, and slide and all where wanted',
+			'validation_error: slides_edit takes id, revision and replace, each a find and its replace, and slide and all where wanted',
 		]);
 		expect(google.requests).toEqual([]);
 	});

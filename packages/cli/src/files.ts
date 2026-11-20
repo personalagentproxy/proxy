@@ -63,9 +63,9 @@ starts at its places: My Drive/Reports/q3.pdf, Shared drives/<drive>/..., Shared
       a file that is there gets its next version; --force writes over one that changed since it was pulled;
       --id writes over the file of that id, on the connection given or the one it was pulled from
       into Google Drive, a new file goes up as its bytes; --as makes it a Doc (of a .docx or .md), a Sheet
-      (.xlsx or .csv) or a Slides file (.pptx). A Doc, Sheet or Slides file is written over only from a
-      .docx, .xlsx or .pptx; .md and .csv never go over a file that is there: edit a Doc in place with the
-      docs_edit tool, a Sheet's cells with ranges_write, or push them to a new path with --as
+      (.xlsx or .csv) or a Slides file (.pptx). A Doc, Sheet or Slides file is never pushed over: edit a Doc
+      in place with the docs_edit tool, a Sheet's cells with ranges_write, a Slides file's text with
+      slides_edit, or push the file to a new path with --as
 Where a name matches more than one file, as Google Drive allows, the ids are listed: name the file with --id.
 The version before a push is always kept in the drive.
 `;

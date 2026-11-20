@@ -28,7 +28,6 @@ mock.module('../utils/env', () => ({
 		FILES_STORE: {kind: 'disk', dir: blobs},
 		FILES_MAX_MB: 100,
 		DRIVE_COPY_MAX_MB: 1,
-		DRIVE_COPY_KEEP_DAYS: 30,
 	},
 }));
 
@@ -84,7 +83,7 @@ function fresh(): State {
 		files: {
 			'1Contract': file('1Contract', 'Contract.pdf', 'application/pdf', '%PDF contract, first draft'),
 			'1Video': file('1Video', 'Walkthrough.mp4', 'video/mp4', 'not really a video', {size: 5 * MB}),
-			'1Plan': file('1Plan', 'Launch plan', MIME.document, 'docx of the launch plan'),
+			'1Plan': file('1Plan', 'Launch plan', MIME.document, '# Launch plan\n\n- Ship it'),
 			'1Huge': file('1Huge', 'Huge notes', MIME.document, 'docx of the huge notes', {exportRefused: true}),
 			'1Budget': file('1Budget', 'Budget 2026', MIME.spreadsheet, 'xlsx of the budget'),
 		},
@@ -339,7 +338,7 @@ describe.skipIf(!databaseUrl)('a Google Drive file’s history, against the data
 		expect(pinned).toMatchObject({sourceRevision: '1Video-r1', blobId: null, size: 5 * MB, pinned: true, type: 'video/mp4'});
 	});
 
-	test('a Doc is copied as its docx export with its latest revision, and one Drive won’t export as the revision alone', async () => {
+	test('a Doc is copied as its Markdown export with its latest revision, to be read, and one Drive won’t export as the revision alone', async () => {
 		const {filesConnector} = await import('./google-files');
 		const {findCollection, findIntegration} = await import('@proxy/integrations');
 		const integration = findIntegration('google');
@@ -349,14 +348,14 @@ describe.skipIf(!databaseUrl)('a Google Drive file’s history, against the data
 		}
 		const target = {connection: {...connection, integrationId: 'google'} as never, collection, by: {agentId, taskId}};
 		const {changeDriveFile, loggedAs} = await import('./google-history');
-		const {replaceContent} = await import('../connections/google/drive-api');
-		unwrap(await changeDriveFile(await editor(), '1Plan', {content: true}, () => loggedAs({kind: 'write'}, replaceContent('access-1', '1Plan', {type: 'text/markdown', body: '# Plan'}))));
+		unwrap(await changeDriveFile(await editor(), '1Plan', {content: true}, () => loggedAs({kind: 'write'}, Promise.resolve(Ok(null)))));
 		unwrap(await filesConnector.commands?.trash?.(target, '1Huge'));
-		unwrap(await changeDriveFile(await editor(), '1Huge', {content: true}, () => loggedAs({kind: 'write'}, replaceContent('access-1', '1Huge', {type: 'text/markdown', body: '# Huge'}))));
+		unwrap(await changeDriveFile(await editor(), '1Huge', {content: true}, () => loggedAs({kind: 'write'}, Promise.resolve(Ok(null)))));
 
 		const [plan] = await versionsOf('1Plan');
-		expect(plan).toMatchObject({sourceRevision: '1Plan-r1', sourceType: MIME.document, type: MIME.docx});
-		expect(await bytesOf(plan?.blobId ?? null)).toBe('docx of the launch plan');
+		expect(plan).toMatchObject({sourceRevision: '1Plan-r1', sourceType: MIME.document, type: 'text/markdown'});
+		expect(await bytesOf(plan?.blobId ?? null)).toBe('# Launch plan\n\n- Ship it');
+		expect(google.requests.find((request) => request.url.pathname === '/drive/v3/files/1Plan/export')?.url.searchParams.get('mimeType')).toBe('text/markdown');
 		const [huge] = await versionsOf('1Huge');
 		expect(huge).toMatchObject({sourceRevision: '1Huge-r1', blobId: null, sourceType: MIME.document, pinned: false});
 		// A move to Trash takes no copy, so the write after it was the task's first change to what the file holds.
@@ -397,11 +396,11 @@ describe.skipIf(!databaseUrl)('a Google Drive file’s history, against the data
 
 		// The cells hold what the undo left, not what the change wrote: undoing it again is refused.
 		expect(refusal(await tool('files_undo', {change: edit?.id}))).toBe(
-			'conflict: The cells B2:B3 of “Q1” changed since that change: give back the version from before it with files_restore instead (files_versions lists them)',
+			'conflict: The cells B2:B3 of “Q1” changed since that change: read the version from before it with files_version_read and write back what should be there (files_versions lists them)',
 		);
 		const created = await logCreate('1Budget');
 		expect(refusal(await tool('files_undo', {change: created}))).toBe(
-			'validation_error: That change has no exact undo: give back the version from before it with files_restore instead (files_versions lists them)',
+			'validation_error: That change has no exact undo: read the version from before it with files_version_read and make the changes back, or, for a file of its own bytes, give it back with files_restore (files_versions lists them)',
 		);
 		expect(refusal(await tool('files_undo', {change: 'no-such-change'}))).toStartWith('not_found');
 	});
@@ -411,7 +410,7 @@ describe.skipIf(!databaseUrl)('a Google Drive file’s history, against the data
 		return (await logDriveCreate(await editor(), {id: fileId}))?.id ?? '';
 	}
 
-	test('files_restore gives an uploaded file’s copy back as its newest revision, and a Doc’s converted back from its docx', async () => {
+	test('files_restore gives an uploaded file’s copy back as its newest revision, and never a Doc’s', async () => {
 		const [copy] = (await versionsOf('1Contract')).filter((version) => version.blobId !== null);
 		google.requests = [];
 		const restored = unwrap(await tool('files_restore', {id: 'https://drive.google.com/file/d/1Contract/view', version: copy?.id}));
@@ -429,20 +428,36 @@ describe.skipIf(!databaseUrl)('a Google Drive file’s history, against the data
 		const [made] = await versionsOf('1Contract');
 		expect(made).toMatchObject({id: restore?.afterVersion ?? '', blobId: copy?.blobId, sourceRevision: restore?.afterRevision});
 
-		// A task restoring a file it never changed keeps what the file held first, and says which version that is.
-		const {db} = await import('@proxy/db');
-		const restorer = (await db.agentTask.create({data: {orgId, agentId, title: 'Put the plan back', goal: 'Restore', via: 'mcp'}})).id;
+		// A Doc is never written over from its copy: its version is read, and given back in Drive's own version history.
 		const plan = (await versionsOf('1Plan')).find((version) => version.sourceRevision === '1Plan-r1');
+		const changesBefore = (await changesOf('1Plan')).length;
 		google.requests = [];
-		const planRestored = unwrap(await tool('files_restore', {id: '1Plan', version: plan?.id}, restorer));
-		const docPut = google.requests.find((request) => request.method === 'PUT');
-		expect([docPut?.type, docPut?.body.toString()]).toEqual([MIME.docx, 'docx of the launch plan']);
-		const [planRestore] = await changesOf('1Plan');
-		expect(planRestore?.beforeVersion).not.toBeNull();
-		expect(planRestored.split('\n')[0]).toEndWith(`; what it held until now is kept as version ${planRestore?.beforeVersion}.`);
+		expect(refusal(await tool('files_restore', {id: '1Plan', version: plan?.id}))).toBe(
+			`validation_error: “Launch plan” is never given a version back from here, which would write over it whole, losing its comments, suggestions and what others changed since. Read what version ${plan?.id} held with files_version_read and make the changes back in place, or have a person give it back in Drive’s own version history, File > Version history > See version history at https://drive.google.com/open?id=1Plan, picking the version from ${plan?.createdAt.toISOString()}.`,
+		);
+		expect(google.requests.filter((request) => request.method !== 'GET')).toEqual([]);
+		expect(await changesOf('1Plan')).toHaveLength(changesBefore);
 	});
 
-	test('files_restore of a version kept only in Drive downloads the revision for an uploaded file, and sends a Doc’s to Drive’s own history', async () => {
+	test('files_version_read reads what a version held as text, a stretch at a time, and one kept only in Drive in Drive’s own history', async () => {
+		const plan = (await versionsOf('1Plan')).find((version) => version.sourceRevision === '1Plan-r1');
+		expect(unwrap(await tool('files_version_read', {id: 'https://docs.google.com/document/d/1Plan/edit', version: plan?.id}))).toBe(
+			[`“Launch plan” as version ${plan?.id} held it, kept ${plan?.createdAt.toISOString()}.`, 'Length: 24 characters', '', '# Launch plan\n\n- Ship it'].join('\n'),
+		);
+		expect(
+			unwrap(await tool('files_version_read', {id: '1Plan', version: plan?.id, from: 15}))
+				.split('\n')
+				.slice(1),
+		).toEqual(['Length: Characters 15 to 24 of 24.', '', '- Ship it']);
+
+		const [huge] = await versionsOf('1Huge');
+		expect(refusal(await tool('files_version_read', {id: '1Huge', version: huge?.id}))).toStartWith(
+			`validation_error: Personal Agent Proxy kept no copy of version ${huge?.id}, too large to keep, only Drive’s revision: read it in Drive’s own version history`,
+		);
+		expect(refusal(await tool('files_version_read', {id: '1Plan', version: 'no-such-version'}))).toStartWith('not_found');
+	});
+
+	test('files_restore of a version kept only in Drive downloads the revision for an uploaded file, and sends a Doc to Drive’s own history', async () => {
 		const [pinned] = await versionsOf('1Video');
 		google.requests = [];
 		unwrap(await tool('files_restore', {id: '1Video', version: pinned?.id}));
@@ -450,10 +465,8 @@ describe.skipIf(!databaseUrl)('a Google Drive file’s history, against the data
 		expect(state.files['1Video']?.revisions.at(-1)?.bytes.toString()).toBe('not really a video');
 
 		const [huge] = await versionsOf('1Huge');
-		const refused = refusal(await tool('files_restore', {id: '1Huge', version: huge?.id}));
-		expect(refused).toStartWith(`validation_error: Personal Agent Proxy kept no copy of version ${huge?.id}, only Drive’s revision of `);
-		expect(refused).toEndWith(
-			'give it back in Drive’s own version history, File > Version history > See version history at https://drive.google.com/open?id=1Huge, picking the version from that time',
+		expect(refusal(await tool('files_restore', {id: '1Huge', version: huge?.id}))).toEndWith(
+			`have a person give it back in Drive’s own version history, File > Version history > See version history at https://drive.google.com/open?id=1Huge, picking the version from ${huge?.createdAt.toISOString()}.`,
 		);
 		expect(refusal(await tool('files_restore', {id: '1Huge', version: 'no-such-version'}))).toStartWith('not_found');
 	});
@@ -522,24 +535,5 @@ describe.skipIf(!databaseUrl)('a Google Drive file’s history, against the data
 		});
 		expect(await logDriveCreate(await editor(), {id: '1Gone'})).toBeNull();
 		expect(errors).toHaveBeenCalledWith('A change made in Google Drive could not be logged in its history', {connectionId: connection.id, fileId: '1Gone', kind: 'create', errorKind: 'not_found'});
-	});
-
-	test('the sweep lets go of old copies, keeping their versions, and releases the revisions pinned in Drive', async () => {
-		const {db} = await import('@proxy/db');
-		const {sweepDriveHistory} = await import('../connections/google/drive-sweeper');
-		// Long before anything else of the database's, so that the sweep finds only these.
-		const long = new Date('1999-12-01T00:00:00.000Z');
-		await db.fileVersion.updateMany({where: {connectionId: connection.id}, data: {createdAt: long}});
-		expect(state.files['1Video']?.revisions[0]?.keepForever).toBe(true);
-
-		await sweepDriveHistory(new Date('1999-12-20T00:00:00.000Z'));
-		expect(await db.fileVersion.count({where: {connectionId: connection.id, blobId: {not: null}}})).toBeGreaterThan(0);
-
-		await sweepDriveHistory(new Date('2000-02-15T00:00:00.000Z'));
-		expect(await db.fileVersion.count({where: {connectionId: connection.id, blobId: {not: null}}})).toBe(0);
-		expect(await db.fileVersion.count({where: {connectionId: connection.id, pinned: true}})).toBe(0);
-		expect(state.files['1Video']?.revisions[0]?.keepForever).toBe(false);
-		const [kept] = await versionsOf('1Contract');
-		expect(kept?.sourceRevision).not.toBeNull();
 	});
 });

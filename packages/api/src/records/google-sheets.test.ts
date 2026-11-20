@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 import {beforeEach, describe, expect, mock, spyOn, test} from 'bun:test';
 import {Ok, type Result} from 'ts-results-es';
 
@@ -70,7 +71,7 @@ function run(params: Record<string, unknown>) {
 // The fake Sheets and Drive: the spreadsheet's tabs, the structural changes it took, and what
 // the history asks of Drive, the spreadsheet as a file and its latest revision.
 type Tab = {sheetId: number; title: string; rowCount: number; columnCount: number};
-const sheets = {tabs: [] as Tab[], requests: [] as JsonValue[]};
+const sheets = {tabs: [] as Tab[], requests: [] as JsonValue[], values: {} as Record<string, string[][]>};
 const google = {requests: [] as {method: string; url: URL}[]};
 
 const TABS: Tab[] = [
@@ -92,6 +93,10 @@ spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Requ
 	if (path === '/v4/spreadsheets/1Budget' && method === 'GET') {
 		return Response.json({sheets: sheets.tabs.map(({sheetId, title, rowCount, columnCount}) => ({properties: {sheetId, title, gridProperties: {rowCount, columnCount}}}))});
 	}
+	if (path.startsWith('/v4/spreadsheets/1Budget/values/') && method === 'GET') {
+		const range = path.slice('/v4/spreadsheets/1Budget/values/'.length);
+		return Response.json({range, values: sheets.values[range] ?? []});
+	}
 	if (path === '/v4/spreadsheets/1Budget:batchUpdate') {
 		const [request] = JSON.parse(typeof init?.body === 'string' ? init.body : '{}').requests;
 		sheets.requests.push(request);
@@ -103,8 +108,26 @@ spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Requ
 	return Response.json({error: {code: 404, message: 'Requested entity was not found.', status: 'NOT_FOUND'}}, {status: 404});
 }) as typeof fetch);
 
+// What the fake tabs hold, by the range a delete reads, formulas as formulas.
+const VALUES: Record<string, string[][]> = {
+	"'Notes'!B:C": [
+		['Owner', 'Due'],
+		['Dana', '=TODAY()+3'],
+	],
+	"'Notes'": [
+		['Topic', 'Owner', 'Due'],
+		['Launch', 'Dana', '=TODAY()+3'],
+	],
+};
+
+// A range's checksum, as a delete names it: what it holds, formulas as formulas, hashed short.
+function checksumOf(values: string[][]): string {
+	return createHash('sha256').update(JSON.stringify(values)).digest('hex').slice(0, 8);
+}
+
 beforeEach(() => {
 	sheets.tabs = TABS;
+	sheets.values = VALUES;
 	sheets.requests = [];
 	google.requests = [];
 	history.logged = [];
@@ -112,7 +135,7 @@ beforeEach(() => {
 
 const LINK = 'https://docs.google.com/spreadsheets/d/1Budget/edit#gid=0';
 
-const NO_UNDO = 'It has no exact undo: files_versions lists the version kept from before this task’s first change to the spreadsheet, which files_restore gives back, with what this took away.';
+const NO_UNDO = 'It has no exact undo: files_version_read reads the version kept from before this task’s first change to the spreadsheet (files_versions lists it), with what this took away.';
 
 describe('inserting and deleting rows and columns', () => {
 	test('rows are inserted at a row number, taking the format of the row above, and logged as an edit with no undo', async () => {
@@ -127,9 +150,9 @@ describe('inserting and deleting rows and columns', () => {
 	test('columns are named by their letters, or their number, and the first row or column takes the format after it', async () => {
 		const {runSheetsRows} = await import('./google-sheets');
 		const answers = [
-			(await runSheetsRows(run({spreadsheet: '1Budget', tab: 'Notes', delete: {start: 'b', count: 2}, dimension: 'columns'}))).unwrap(),
+			(await runSheetsRows(run({spreadsheet: '1Budget', tab: 'Notes', delete: {start: 'b', count: 2}, dimension: 'columns', checksum: checksumOf(VALUES["'Notes'!B:C"] ?? [])}))).unwrap(),
 			(await runSheetsRows(run({spreadsheet: '1Budget', tab: 'Notes', insert: {start: 1, count: 1}, dimension: 'columns'}))).unwrap(),
-			(await runSheetsRows(run({spreadsheet: '1Budget', tab: 'Notes', delete: {start: '3', count: 1}}))).unwrap(),
+			(await runSheetsRows(run({spreadsheet: '1Budget', tab: 'Notes', delete: {start: '3', count: 1}, checksum: checksumOf([])}))).unwrap(),
 		];
 
 		expect(sheets.requests).toEqual([
@@ -177,6 +200,51 @@ describe('inserting and deleting rows and columns', () => {
 	});
 });
 
+describe('a delete confirmed by the checksum of what it takes away', () => {
+	test('a delete without the checksum is refused, saying what the rows hold and their checksum, and one with it is made', async () => {
+		const {runSheetsRows} = await import('./google-sheets');
+		const asked = {spreadsheet: '1Budget', tab: 'Notes', delete: {start: 'B', count: 2}, dimension: 'columns'};
+		const checksum = checksumOf(VALUES["'Notes'!B:C"] ?? []);
+
+		expect(refusal(await runSheetsRows(run(asked)))).toBe(
+			`validation_error: Nothing was deleted: a delete names the checksum of what it takes away. What it would take away, columns B to C of “Notes”, holds, formulas as formulas:\nOwner,Due\nDana,=TODAY()+3\nTo delete it, call sheets_rows again with checksum ${checksum}.`,
+		);
+		expect(sheets.requests).toEqual([]);
+		expect(google.requests.find((request) => request.url.pathname.includes('/values/'))?.url.searchParams.get('valueRenderOption')).toBe('FORMULA');
+
+		(await runSheetsRows(run({...asked, checksum: checksum.toUpperCase()}))).unwrap();
+		expect(sheets.requests).toEqual([{deleteDimension: {range: {sheetId: 7, dimension: 'COLUMNS', startIndex: 1, endIndex: 3}}}]);
+	});
+
+	test('a checksum no longer of what is there, as when a row moved into the place since, is refused, saying what is there now', async () => {
+		const {runSheetsRows, runSheetsTabs} = await import('./google-sheets');
+		const old = checksumOf(VALUES["'Notes'!B:C"] ?? []);
+		sheets.values = {...VALUES, "'Notes'!B:C": [['Owner', 'Due', 'Cost']]};
+
+		expect(refusal(await runSheetsRows(run({spreadsheet: '1Budget', tab: 'Notes', delete: {start: 'B', count: 2}, dimension: 'columns', checksum: old})))).toBe(
+			`conflict: Nothing was deleted: what it would take away, columns B to C of “Notes”, changed since checksum ${old}. It now holds, formulas as formulas:\nOwner,Due,Cost\nTo delete it, call sheets_rows again with checksum ${checksumOf([['Owner', 'Due', 'Cost']])}.`,
+		);
+		expect(refusal(await runSheetsTabs(run({spreadsheet: '1Budget', delete: 'Notes', checksum: old})))).toStartWith(
+			`conflict: Nothing was deleted: what it would take away, the tab “Notes”, 10 rows by 4 columns, changed since checksum ${old}. It now holds, formulas as formulas:\nTopic,Owner,Due\n`,
+		);
+		expect(sheets.requests).toEqual([]);
+		expect(history.logged).toEqual([]);
+	});
+
+	test('empty rows are said to be empty, and a long delete shows its first rows and counts the rest', async () => {
+		const {runSheetsRows} = await import('./google-sheets');
+		const rows = Array.from({length: 25}, (_, at) => [`Row ${at + 1}`]);
+		sheets.values = {...VALUES, "'Q1 Sales'!1:25": rows};
+
+		expect(refusal(await runSheetsRows(run({spreadsheet: '1Budget', tab: 'Notes', delete: {start: 4, count: 2}})))).toStartWith(
+			'validation_error: Nothing was deleted: a delete names the checksum of what it takes away. What it would take away, rows 4 to 5 of “Notes”, is empty.\n',
+		);
+		const long = refusal(await runSheetsRows(run({spreadsheet: '1Budget', tab: 'Q1 Sales', delete: {start: 1, count: 25}})));
+		expect(long).toContain('\nRow 20\n(and 5 rows more)\nTo delete it');
+		expect(long).not.toContain('Row 21');
+	});
+});
+
 describe('adding and deleting tabs', () => {
 	test('a tab is added after the others, and logged as an edit', async () => {
 		const {runSheetsTabs} = await import('./google-sheets');
@@ -189,7 +257,7 @@ describe('adding and deleting tabs', () => {
 
 	test('a tab is deleted by its title, saying it has no exact undo', async () => {
 		const {runSheetsTabs} = await import('./google-sheets');
-		const answer = (await runSheetsTabs(run({spreadsheet: LINK, delete: 'Notes'}))).unwrap();
+		const answer = (await runSheetsTabs(run({spreadsheet: LINK, delete: 'Notes', checksum: checksumOf(VALUES["'Notes'"] ?? [])}))).unwrap();
 
 		expect(sheets.requests).toEqual([{deleteSheet: {sheetId: 7}}]);
 		expect(answer).toBe(`Deleted the tab “Notes” from “Budget 2026”, with everything on it. ${NO_UNDO}`);

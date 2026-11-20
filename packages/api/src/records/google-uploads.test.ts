@@ -34,7 +34,6 @@ mock.module('../utils/env', () => ({
 		FILES_STORE: {kind: 'disk', dir: blobs},
 		FILES_MAX_MB: 100,
 		DRIVE_COPY_MAX_MB: 1,
-		DRIVE_COPY_KEEP_DAYS: 30,
 	},
 }));
 
@@ -416,25 +415,22 @@ describe.skipIf(!databaseUrl)('uploads into Google Drive, through a URL', () => 
 		expect((await uploadOf(lineOf(ticket, 'Upload'))).status).toBe('failed');
 	});
 
-	test('a Doc is written over from a docx, checked against Drive’s version number, and converted by Drive', async () => {
-		const ticket = unwrap(await tool('files_upload', {id: '1Plan', version: '7', size: 4}));
-		expect(await put(lineOf(ticket, 'URL'), 'docx')).toBe(200);
-		const done = unwrap(await tool('files_upload_done', {upload: lineOf(ticket, 'Upload')}));
+	test('Markdown goes over a file of its own bytes as any bytes do, a notes.md written over with a newer one', async () => {
+		const ticket = unwrap(await tool('files_upload', {id: '1Notes', version: '1Notes-r1', size: 8}));
+		expect(await put(lineOf(ticket, 'URL'), '# Notes!')).toBe(200);
+		unwrap(await tool('files_upload_done', {upload: lineOf(ticket, 'Upload')}));
 
-		const [session, sent] = uploadsToDrive();
-		expect([session?.method, session?.url.pathname, session?.headers['x-upload-content-type'], session?.body.toString()]).toEqual(['PATCH', '/upload/drive/v3/files/1Plan', MIME.docx, '{}']);
-		expect(sent?.body.toString()).toBe('docx');
-		expect(lineOf(done, 'Version')).toBe('8');
-		const [write] = await changesOf('1Plan');
-		expect(write).toMatchObject({kind: 'write', beforeRevision: '1Plan-r1', afterRevision: '1Plan-r2'});
+		const [session] = uploadsToDrive();
+		expect([session?.method, session?.url.pathname, session?.headers['x-upload-content-type']]).toEqual(['PATCH', '/upload/drive/v3/files/1Notes', 'text/markdown']);
+		const [write] = await changesOf('1Notes');
+		expect(write).toMatchObject({kind: 'write', beforeRevision: '1Notes-r1'});
 	});
 
-	test('Markdown or CSV over a file, anything but its own Office file over a Doc or a Sheet, Google’s types, what convert can’t make and a file too large are refused at the start', async () => {
+	test('anything over a Doc or a Sheet, Google’s types, what convert can’t make and a file too large are refused at the start', async () => {
 		const refusals = await Promise.all([
-			tool('files_upload', {id: '1Notes', version: '1Notes-r1', size: 4}),
-			tool('files_upload', {id: '1Contract', version: '1Contract-r1', size: 4, type: 'text/markdown'}),
+			tool('files_upload', {id: '1Plan', version: '7', size: 4}),
+			tool('files_upload', {id: '1Plan', version: '7', size: 4, type: 'text/markdown'}),
 			tool('files_upload', {id: '1Budget', version: '7', size: 4, type: 'text/csv'}),
-			tool('files_upload', {id: '1Plan', version: '7', size: 4, type: 'application/pdf'}),
 			tool('files_upload', {id: '1Projects', version: '7', size: 4}),
 			tool('files_upload', {id: '1Contract', version: '1Contract-r1', size: 4, convert: true}),
 			tool('files_upload', {name: 'Plan', size: 4, type: MIME.document}),
@@ -445,10 +441,9 @@ describe.skipIf(!databaseUrl)('uploads into Google Drive, through a URL', () => 
 		]);
 
 		expect(refusals.map(refusal)).toEqual([
-			'validation_error: Markdown is never uploaded over a file that is there, since a Doc or a Sheet would lose what it can’t hold, as its formatting and formulas. For “notes.md”, upload it as a new file, with name and parent, instead.',
-			'validation_error: Markdown is never uploaded over a file that is there, since a Doc or a Sheet would lose what it can’t hold, as its formatting and formulas. For “Contract.pdf”, upload it as a new file, with name and parent, instead.',
-			'validation_error: CSV is never uploaded over a file that is there, since a Doc or a Sheet would lose what it can’t hold, as its formatting and formulas. For “Budget 2026”, write its cells with ranges_write, or upload an xlsx over it.',
-			'validation_error: A Doc is written over only from a docx, which Drive converts into it, and this is application/pdf',
+			'validation_error: “Launch plan” is a Doc, which is never written over whole, since it would lose its comments, suggestions and formatting: edit its text in place with docs_edit, or upload the file as a new Doc, with name, parent and convert.',
+			'validation_error: “Launch plan” is a Doc, which is never written over whole, since it would lose its comments, suggestions and formatting: edit its text in place with docs_edit, or upload the file as a new Doc, with name, parent and convert.',
+			'validation_error: “Budget 2026” is a Sheet, which is never written over whole, since it would lose its comments, suggestions and formatting: write its cells with ranges_write, and change its rows, columns and tabs with sheets_rows and sheets_tabs, or upload the file as a new Sheet, with name, parent and convert.',
 			'validation_error: “Projects” is a folder, which holds no bytes: give a file’s id, or a name and this folder as parent to add a file in it',
 			'validation_error: convert makes a new file into a Doc, Sheet or Slides file; a file written over keeps its own kind: leave convert out',
 			'validation_error: A file uploaded is its own bytes, of their own type, never one of Google’s: to make a Doc, Sheet or Slides file, upload a docx, xlsx or pptx, or Markdown or CSV, with convert',

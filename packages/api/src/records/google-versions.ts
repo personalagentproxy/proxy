@@ -1,4 +1,4 @@
-import {Err, Ok, type Result} from 'ts-results-es';
+import {Err, Ok, Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
@@ -20,8 +20,10 @@ import {
 
 import {downloadRevision, driveVersion, fileIdOf, getFileState, isGoogleType, putContent, type DriveFileState} from '../connections/google/drive-api';
 import {callGoogle} from '../connections/google/google-client';
-import {openContent} from '../native/files/content';
+import {openContent, readContent} from '../native/files/content';
+import {stretch} from '../native/files/text';
 import {readParams, type NativeToolRunner} from '../native/tool';
+import {fileText, readableKind} from './attachment-text';
 import {applyCellsUndo} from './google-cells';
 import {changeBy, changeDriveFile, runActor, type DriveChange, type DriveChangeEntry, type DriveEditor} from './google-history';
 
@@ -29,11 +31,17 @@ import {changeBy, changeDriveFile, runActor, type DriveChange, type DriveChangeE
  * The Google tools on a Drive file's history (google-history.ts): `files_versions` lists the
  * versions Personal Agent Proxy keeps of it, each a copy taken before a task first changed it, kept
  * here or only as Drive's own revision, and the changes made through it, who made each and for
- * which task; `files_restore` gives a version back as the file's newest revision in Drive, keeping
- * its id; `files_undo` applies a change's exact inverse, a Sheet's cells put back as they were.
- * A restore and an undo are changes of their own, logged and copied before as any other. The web
- * app's routes on a Drive file's history (google-history-route.ts) read, restore and undo through
- * the same functions, as the member.
+ * which task; `files_version_read` reads what a version held, as text; `files_restore` gives a
+ * file of its own bytes, as a PDF, a version back as its newest revision in Drive, keeping its id;
+ * `files_undo` applies a change's exact inverse, a Sheet's cells put back as they were.
+ *
+ * A Doc, Sheet or Slides file is never given a version back from here: Drive's API can only write
+ * one over whole, from an export, which loses its comments, suggestions and whatever the export
+ * can't hold, and what others changed since. Its versions are read instead, for an agent to make
+ * the changes back in place, and given back whole only in Drive's own version history, by a
+ * person. A restore and an undo are changes of their own, logged and copied before as any other.
+ * The web app's routes on a Drive file's history (google-history-route.ts) read, restore and undo
+ * through the same functions, as the member.
  */
 
 /** A Google connection, as its history and its token are read by. */
@@ -139,7 +147,9 @@ export const runFilesVersions: NativeToolRunner = (run) =>
 			...link,
 			...now,
 			'',
-			versionLines.length === 0 ? 'No versions kept: a copy is kept before a task first changes the file.' : 'Versions, newest first; files_restore gives one back:',
+			versionLines.length === 0
+				? 'No versions kept: a copy is kept before a task first changes the file.'
+				: `Versions, newest first; files_version_read reads one${isGoogleType(file.mimeType) ? '' : ', files_restore gives one back'}:`,
 			...versionLines,
 			'',
 			changeLines.length === 0 ? 'No changes made through Personal Agent Proxy.' : 'Changes, newest first:',
@@ -148,12 +158,18 @@ export const runFilesVersions: NativeToolRunner = (run) =>
 	});
 
 /**
- * Whether a version can be given back from here: one with a copy can, and an uploaded file's kept
- * only as Drive's revision; a Doc's, Sheet's or Slides file's kept only in Drive is given back in
- * Drive's own version history, which Drive's API can't do.
+ * Whether a version can be given back from here: an uploaded file's, from its copy or Drive's
+ * revision. A Doc's, Sheet's or Slides file's never is: it is given back in Drive's own version
+ * history.
  */
 export function isRestorable(file: {mimeType: string}, version: FileVersionRow): boolean {
-	return version.blobId !== null || (!isGoogleType(file.mimeType) && version.sourceRevision !== null);
+	return !isGoogleType(file.mimeType) && (version.blobId !== null || version.sourceRevision !== null);
+}
+
+// Where a Doc's, Sheet's or Slides file's version is given back: in Drive's own version history, by the time it was kept.
+function versionHistoryText(file: DriveFileState, version: FileVersionRow): string {
+	const where = file.webViewLink ? ` at ${file.webViewLink}` : '';
+	return `Drive’s own version history, File > Version history > See version history${where}, picking the version from ${version.createdAt.toISOString()}`;
 }
 
 // A version that can be given back from here, or why not and where it can be instead.
@@ -161,11 +177,9 @@ function requireRestorable(file: DriveFileState, version: FileVersionFound): Res
 	if (isRestorable(file, version)) {
 		return Ok(undefined);
 	}
-	const when = version.createdAt.toISOString();
-	const where = file.webViewLink ? ` at ${file.webViewLink}` : '';
 	return Err(
 		ApiErr.validationError(
-			`Personal Agent Proxy kept no copy of version ${version.id}, only Drive’s revision of ${when}: give it back in Drive’s own version history, File > Version history > See version history${where}, picking the version from that time`,
+			`“${file.name}” is never given a version back from here, which would write over it whole, losing its comments, suggestions and what others changed since. Read what version ${version.id} held with files_version_read and make the changes back in place, or have a person give it back in ${versionHistoryText(file, version)}.`,
 		),
 	);
 }
@@ -218,8 +232,7 @@ function restoreIn(editor: DriveEditor, fileId: string, version: FileVersionFoun
 
 /**
  * A version given back as the file's newest revision, keeping its id: an uploaded file's bytes as
- * they were, a Doc's, Sheet's or Slides file's copy converted back into what it is. Logged as a
- * restore by `by`.
+ * they were. Logged as a restore by `by`.
  */
 export function restoreDriveVersion(connection: DriveConnection, by: FileActor, given: string, versionId: string): Promise<Result<Restored & {version: FileVersionFound}, ApiError>> {
 	return Do(async ($) => {
@@ -230,6 +243,52 @@ export function restoreDriveVersion(connection: DriveConnection, by: FileActor, 
 		return {...restored, version};
 	});
 }
+
+const versionReadSchema = z.object({id: z.string().min(1), version: z.string().min(1), from: z.number().int().min(0).optional()});
+
+// What a version holds, as bytes: its copy here, or, for an uploaded file, its revision in Drive.
+// A Doc's, Sheet's or Slides file's kept only in Drive is read in Drive's own version history.
+function versionBytes(token: string, file: DriveFileState, version: FileVersionFound): Promise<Result<Uint8Array, ApiError>> {
+	return Do(async ($) => {
+		if (version.blob !== null) {
+			return $(await readContent(version.blob));
+		}
+		if (isGoogleType(file.mimeType) || version.sourceRevision === null) {
+			return $(Err(ApiErr.validationError(`Personal Agent Proxy kept no copy of version ${version.id}, too large to keep, only Drive’s revision: read it in ${versionHistoryText(file, version)}`)));
+		}
+		const body = await downloadRevision(token, file.id, version.sourceRevision);
+		if (body.isErr() && body.error.kind === 'not_found') {
+			return $(Err(ApiErr.conflict(`Drive no longer keeps the revision that version ${version.id} points at, so it can’t be read`)));
+		}
+		const read = await Result.wrapAsync(() => new Response($(body)).arrayBuffer());
+		return new Uint8Array($(read.mapErr((cause) => ApiErr.providerUnreachable(cause))));
+	});
+}
+
+/**
+ * `files_version_read`: what a version held, as text, a stretch at a time: a Doc as Markdown, a
+ * Sheet's tabs as CSV, a Slides file's text, as their copies were kept, and an uploaded file as an
+ * attachment is read, where it is text, a PDF or an Office file.
+ */
+export const runFilesVersionRead: NativeToolRunner = (run) =>
+	Do(async ($): Promise<string> => {
+		const params = $(readParams(versionReadSchema, 'files_version_read', 'id and version, and from where wanted', run.params));
+		const fileId = $(requireFileId(params.id));
+		const found = $(await findFileVersion(run.connection.id, fileId, params.version));
+		const version = $(requirePresent(found, ApiErr.notFound('version', params.version, 'That file has no such version: files_versions lists them')));
+		const {file, bytes} = $(
+			await callGoogle(run.connection, (token) =>
+				Do(async ($$) => {
+					const state = $$(await getFileState(token, fileId));
+					$$(readableKind({name: state.name, type: version.type, size: version.size ?? 0}));
+					return {file: state, bytes: $$(await versionBytes(token, state, version))};
+				}),
+			),
+		);
+		const text = $(await fileText({name: isGoogleType(file.mimeType) ? '' : file.name, type: version.type, size: bytes.length, bytes}));
+		const {content, length} = stretch(text, params.from ?? 0, 'files_version_read');
+		return [`“${file.name}” as version ${version.id} held it, kept ${version.createdAt.toISOString()}.`, `Length: ${length}`, '', content].join('\n');
+	});
 
 const restoreSchema = z.object({id: z.string().min(1), version: z.string().min(1)});
 
@@ -267,7 +326,13 @@ export function undoDriveChange(connection: DriveConnection, by: FileActor, chan
 		const {undo} = change;
 		if (undo === null) {
 			const from = change.beforeVersion === null ? '' : `, ${change.beforeVersion},`;
-			return $(Err(ApiErr.validationError(`That change has no exact undo: give back the version from before it${from} with files_restore instead (files_versions lists them)`)));
+			return $(
+				Err(
+					ApiErr.validationError(
+						`That change has no exact undo: read the version from before it${from} with files_version_read and make the changes back, or, for a file of its own bytes, give it back with files_restore (files_versions lists them)`,
+					),
+				),
+			);
 		}
 		$(await callGoogle(connection, (token) => undoCells({token, change: changeBy(connection, by)}, change, undo)));
 		return {change, undo};

@@ -35,11 +35,14 @@ const pageElementSchema: z.ZodType<PageElement> = z.lazy(() =>
 const presentationSchema = z.object({
 	title: z.string().optional(),
 	revisionId: z.string(),
-	slides: z.array(z.object({pageElements: z.array(pageElementSchema).optional()})).optional(),
+	slides: z.array(z.object({objectId: z.string(), pageElements: z.array(pageElementSchema).optional()})).optional(),
 });
 
-/** A presentation as `presentations.get` answers it: its title, the revision read, and each slide's text, a shape's or a cell's a part of it. */
-export type GooglePresentation = {title: string; revisionId: string; slides: string[][]};
+/** One slide: its id, and its text, a shape's or a cell's a part of it. */
+export type Slide = {id: string; texts: string[]};
+
+/** A presentation as `presentations.get` answers it: its title, the revision read, and its slides. */
+export type GooglePresentation = {title: string; revisionId: string; slides: Slide[]};
 
 function textOf(text: SlideText | undefined): string {
 	return (text?.textElements ?? []).map((element) => element.textRun?.content ?? '').join('');
@@ -56,12 +59,12 @@ function textsOf(elements: PageElement[]): string[] {
 /** A presentation's slides, each as the text on it, as of its revision. */
 export async function getPresentation(accessToken: string, presentationId: string): Promise<Result<GooglePresentation, ApiError>> {
 	const url = new URL(`${SLIDES}/${presentationId}`);
-	url.searchParams.set('fields', 'title,revisionId,slides(pageElements)');
+	url.searchParams.set('fields', 'title,revisionId,slides(objectId,pageElements)');
 	const answer = await googleRequest(accessToken, url, presentationSchema);
 	return answer.map((presentation) => ({
 		title: presentation.title ?? '',
 		revisionId: presentation.revisionId,
-		slides: (presentation.slides ?? []).map((slide) => textsOf(slide.pageElements ?? [])),
+		slides: (presentation.slides ?? []).map((slide) => ({id: slide.objectId, texts: textsOf(slide.pageElements ?? [])})),
 	}));
 }
 
@@ -70,20 +73,23 @@ const batchUpdateSchema = z.object({
 	writeControl: z.object({requiredRevisionId: z.string().optional()}).optional(),
 });
 
+/** Text to replace, matched with its case, on the slides given by their ids. */
+export type SlideReplacement = {find: string; replace: string; slideIds: string[]};
+
 /**
- * Replaces each text, matched with its case, everywhere in the presentation, one after another,
- * only at `revisionId`: one changed since is turned down as a `conflict` saying `stale`. Answers
- * how many times each was replaced, and the revision the presentation is at after them, where
- * Google says it.
+ * Replaces each text, matched with its case, on the slides it names, one after another, only at
+ * `revisionId`: one changed since is turned down as a `conflict` saying `stale`. Answers how many
+ * times each was replaced, and the revision the presentation is at after them, where Google says
+ * it.
  */
 export async function replaceAllText(
 	accessToken: string,
 	presentationId: string,
-	replacements: {find: string; replace: string}[],
+	replacements: SlideReplacement[],
 	revisionId: string,
 	stale: string,
 ): Promise<Result<{replaced: number[]; revisionId: string | null}, ApiError>> {
-	const requests = replacements.map(({find, replace}) => ({replaceAllText: {containsText: {text: find, matchCase: true}, replaceText: replace}}));
+	const requests = replacements.map(({find, replace, slideIds}) => ({replaceAllText: {containsText: {text: find, matchCase: true}, replaceText: replace, pageObjectIds: slideIds}}));
 	const url = new URL(`${SLIDES}/${presentationId}:batchUpdate`);
 	const answer = await googleRevisionWrite(accessToken, url, {requests, writeControl: {requiredRevisionId: revisionId}}, batchUpdateSchema, stale);
 	return answer.map((updated) => ({

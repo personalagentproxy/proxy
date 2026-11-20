@@ -376,6 +376,7 @@ describe('google', () => {
 			'files_upload',
 			'files_upload_done',
 			'files_versions',
+			'files_version_read',
 			'files_restore',
 			'files_undo',
 			'docs_read',
@@ -475,7 +476,7 @@ describe('google', () => {
 		]);
 		// What content takes, told after its label, so an agent finds where a file's bytes go instead.
 		const properties = create?.inputSchema.properties ?? {};
-		expect(properties.content?.description).toStartWith('Content: a Document as Markdown');
+		expect(properties.content?.description).toStartWith('Content: a new Document as Markdown');
 		expect(properties.content?.description).toEndWith(
 			'goes up as its bytes with files_upload instead',
 		);
@@ -523,12 +524,13 @@ describe('google', () => {
 
 	test('a file’s versions are read with Read files, and giving one back or undoing a change needs Edit files', () => {
 		expect(
-			['files_versions', 'files_restore', 'files_undo'].map((name) => {
+			['files_versions', 'files_version_read', 'files_restore', 'files_undo'].map((name) => {
 				const tool = findTool(google, name);
 				return [name, tool?.kind, tool?.action, tool?.readOnly, tool?.inputSchema.required];
 			}),
 		).toEqual([
 			['files_versions', 'native', 'readFiles', true, ['id']],
+			['files_version_read', 'native', 'readFiles', true, ['id', 'version']],
 			['files_restore', 'native', 'editFiles', false, ['id', 'version']],
 			['files_undo', 'native', 'editFiles', false, ['change']],
 		]);

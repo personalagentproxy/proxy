@@ -22,12 +22,12 @@ import {changeBy, changeDriveFile, type DriveEditor, logDriveCreate, loggedAs} f
  * Drive (google-files.ts `folderNamed`), under an id Drive reserves for it at the start, so a done
  * asked again after Drive made the file finds it rather than making it twice; with `convert`, a
  * docx or Markdown becomes a Doc, an xlsx or CSV a Sheet, and a pptx a Slides file, which Drive
- * makes under an id of its own, as it reserves none for them. Over a file
- * that is there, a file with bytes of its own takes any bytes but Markdown or CSV, and a Doc,
- * Sheet or Slides file only the docx, xlsx or pptx Drive converts into it, so nothing it holds is
- * lost to a format that can't hold it. A write is checked against the version read, the head
- * revision of a file with bytes of its own or the version number of one of Google's, at the start
- * and again at done, just before the bytes go, and is made through the file's history
+ * makes under an id of its own, as it reserves none for them. Over a file that is there, only a
+ * file with bytes of its own takes bytes: a Doc, Sheet or Slides file is never written over whole,
+ * which would lose its comments, suggestions and whatever the bytes can't hold, and is edited in
+ * place instead (google-docs.ts, google-slides.ts, google-sheets.ts, google-ranges.ts). A write is
+ * checked against the version read, the file's head revision, at the start and again at done, just
+ * before the bytes go, and is made through the file's history
  * (google-history.ts `changeDriveFile`), which keeps the task's copy first and logs the write as
  * the agent's, for its task, with Drive's revisions before and after it.
  */
@@ -35,11 +35,11 @@ import {changeBy, changeDriveFile, type DriveEditor, logDriveCreate, loggedAs} f
 const MARKDOWN = 'text/markdown';
 const CSV = 'text/csv';
 
-// The kinds of Google's own file that take bytes, each only from the Office file Drive converts into it.
-const GOOGLE_KINDS: Partial<Record<string, {name: string; from: string; instead: string}>> = {
-	[MIME_TYPES.document]: {name: 'Doc', from: 'docx', instead: 'edit its text in place with docs_edit, upload a docx over it, or the Markdown as a new Doc, with name, parent and convert'},
-	[MIME_TYPES.spreadsheet]: {name: 'Sheet', from: 'xlsx', instead: 'write its cells with ranges_write, or upload an xlsx over it'},
-	[MIME_TYPES.presentation]: {name: 'Slides file', from: 'pptx', instead: 'replace its text in place with slides_edit, or upload a pptx over it'},
+// The kinds of Google's own file, and how each is changed instead of written over.
+const GOOGLE_KINDS: Partial<Record<string, {name: string; instead: string}>> = {
+	[MIME_TYPES.document]: {name: 'Doc', instead: 'edit its text in place with docs_edit'},
+	[MIME_TYPES.spreadsheet]: {name: 'Sheet', instead: 'write its cells with ranges_write, and change its rows, columns and tabs with sheets_rows and sheets_tabs'},
+	[MIME_TYPES.presentation]: {name: 'Slides file', instead: 'replace its text in place with slides_edit'},
 };
 
 // What a new file's bytes become with convert, by their type.
@@ -81,35 +81,26 @@ function converted(name: string, type: string): Result<{name: string; mimeType: 
 	return Ok({name: bare === '' ? name : bare, mimeType});
 }
 
-// Why Markdown or CSV is never uploaded over a file that is there, and what to do instead.
-function textOverRefusal(file: DriveFileState, type: string): ApiError {
-	const what = type === MARKDOWN ? 'Markdown' : 'CSV';
-	const instead = GOOGLE_KINDS[file.mimeType]?.instead ?? 'upload it as a new file, with name and parent, instead';
+// Why a Doc, Sheet or Slides file is never uploaded over, and what to do instead.
+function googleOverRefusal(file: DriveFileState): ApiError {
+	const kind = GOOGLE_KINDS[file.mimeType];
+	if (kind === undefined) {
+		return ApiErr.validationError(`Drive takes no bytes over “${file.name}”, which is ${file.mimeType}`);
+	}
 	return ApiErr.validationError(
-		`${what} is never uploaded over a file that is there, since a Doc or a Sheet would lose what it can’t hold, as its formatting and formulas. For “${file.name}”, ${instead}.`,
+		`“${file.name}” is a ${kind.name}, which is never written over whole, since it would lose its comments, suggestions and formatting: ${kind.instead}, or upload the file as a new ${kind.name}, with name, parent and convert.`,
 	);
 }
 
-/**
- * The type of the bytes uploaded over a file, as said, else the file's own, or for a Doc, Sheet or
- * Slides file the Office file it takes; refused where the file can't take them.
- */
+/** The type of the bytes uploaded over a file, as said, else the file's own; refused for a folder and for Google's own types, which take no bytes over them. */
 function bytesOver(file: DriveFileState, said: string | null): Result<string, ApiError> {
 	if (file.mimeType === MIME_TYPES.folder) {
 		return Err(ApiErr.validationError(`“${file.name}” is a folder, which holds no bytes: give a file’s id, or a name and this folder as parent to add a file in it`));
 	}
-	const kind = GOOGLE_KINDS[file.mimeType];
-	const office = OFFICE_TYPES[file.mimeType];
-	if (isGoogleType(file.mimeType) && (kind === undefined || office === undefined)) {
-		return Err(ApiErr.validationError(`Drive takes no bytes over “${file.name}”, which is ${file.mimeType}`));
+	if (isGoogleType(file.mimeType)) {
+		return Err(googleOverRefusal(file));
 	}
-	const type = typeSaid(said) ?? office ?? file.mimeType;
-	if (type === MARKDOWN || type === CSV) {
-		return Err(textOverRefusal(file, type));
-	}
-	if (kind !== undefined && type !== office) {
-		return Err(ApiErr.validationError(`A ${kind.name} is written over only from a ${kind.from}, which Drive converts into it, and this is ${type}`));
-	}
+	const type = typeSaid(said) ?? file.mimeType;
 	if (isGoogleType(type)) {
 		return Err(ApiErr.validationError(GOOGLE_TYPE_REFUSAL));
 	}
