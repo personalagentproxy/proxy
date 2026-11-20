@@ -15,6 +15,7 @@ import {
 	personaBodySchema,
 	type personaAnswerSchema,
 	type personaListSchema,
+	pinBodySchema,
 	postMessageBodySchema,
 	removeAttachmentBodySchema,
 	type openedThreadSchema,
@@ -72,6 +73,7 @@ export type ChatStore = Pick<
 	| 'markThreadRead'
 	| 'getChatDraft'
 	| 'saveChatDraft'
+	| 'setChatPinned'
 	| 'getThreadDraft'
 	| 'saveThreadDraft'
 	| 'openThread'
@@ -115,7 +117,11 @@ function asOffered(harnesses: Harnesses, viewer: OrgViewer, model: PersonaModel)
 	return chosen === null ? {harness: model.harness, chatModel: model.chatModel} : {harness: chosen.harness.id, chatModel: chosen.model};
 }
 
-function toPersona(harnesses: Harnesses, viewer: OrgViewer, persona: PersonaRow & {lastMessage?: LastMessage | null; draft?: string | null; draftAttachments?: DraftAttachment[]}): ChatPersona {
+function toPersona(
+	harnesses: Harnesses,
+	viewer: OrgViewer,
+	persona: PersonaRow & {lastMessage?: LastMessage | null; draft?: string | null; draftAttachments?: DraftAttachment[]; pinnedAt?: Date | null},
+): ChatPersona {
 	const last = persona.lastMessage ?? null;
 	return {
 		id: persona.id,
@@ -127,6 +133,7 @@ function toPersona(harnesses: Harnesses, viewer: OrgViewer, persona: PersonaRow 
 		mayChange: managesPersona(viewer, persona),
 		lastMessage: last && {kind: last.kind, text: preview(last.text), at: last.createdAt.toISOString()},
 		draft: draftPreview(persona),
+		pinnedAt: persona.pinnedAt?.toISOString() ?? null,
 		createdAt: persona.createdAt.toISOString(),
 	};
 }
@@ -329,6 +336,23 @@ function handleSaveDraftRoute(store: ChatStore, request: AuthenticatedRequest): 
 		const persona = $(await requirePersona(store, viewer, request));
 		const chat = $(await ensureChat(store, viewer, persona));
 		if (!$(await store.saveChatDraft(chat.id, text.trim() === '' ? null : text, order))) {
+			return $(Err(ApiErr.notFound('chat', chat.id)));
+		}
+	});
+}
+
+/** `PUT /api/orgs/:org/chat/personas/:personaId/pin` with `{pinned}`: the viewer pins their chat with the persona to the top of their list, begun where there was none, or unpins it; one pinned again keeps its place. Any persona the viewer sees may be pinned: the pin is theirs alone. */
+function handlePinPersonaRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
+	return Do(async ($) => {
+		const viewer = $(await requireViewer(request));
+		const {pinned} = $(parseSchema(pinBodySchema, request.body));
+		const persona = $(await requirePersona(store, viewer, request));
+		// Only pinning begins a chat: one never begun has nothing to unpin.
+		const chat = pinned ? $(await ensureChat(store, viewer, persona)) : $(await store.getMemberChat(persona.id, viewer.userId));
+		if (!chat) {
+			return;
+		}
+		if (!$(await store.setChatPinned(chat.id, pinned))) {
 			return $(Err(ApiErr.notFound('chat', chat.id)));
 		}
 	});
@@ -681,6 +705,7 @@ export function chatRoutes(store: ChatStore, harnesses: Harnesses, files: RouteF
 		handleRemoveAttachmentRoute: (request: AuthenticatedRequest) => handleRemoveAttachmentRoute(store, request),
 		handleMarkReadRoute: (request: AuthenticatedRequest) => handleMarkReadRoute(store, request),
 		handleSaveDraftRoute: (request: AuthenticatedRequest) => handleSaveDraftRoute(store, request),
+		handlePinPersonaRoute: (request: AuthenticatedRequest) => handlePinPersonaRoute(store, request),
 		handleSaveThreadDraftRoute: (request: AuthenticatedRequest) => handleSaveThreadDraftRoute(store, request),
 		handleListThreadsRoute: (request: AuthenticatedRequest) => handleListThreadsRoute(store, harnesses, files, request),
 		handleGetChatThreadRoute: (request: AuthenticatedRequest) => handleGetChatThreadRoute(store, harnesses, files, request),

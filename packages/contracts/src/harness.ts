@@ -55,6 +55,11 @@ export const chatPersonaSchema = z.object({
 	 * without one.
 	 */
 	draft: z.string().nullable(),
+	/**
+	 * When the person pinned their chat with it to the top of their list, the first pinned first;
+	 * null where it is not pinned. Each member pins their own.
+	 */
+	pinnedAt: z.string().nullable(),
 	/** When it was made, which stands for its last activity before anything was said. */
 	createdAt: z.string(),
 });
@@ -211,6 +216,12 @@ export const saveThreadDraftBodySchema = z.object({text: z.string().max(MAX_MESS
  * the chat's threads, open, which that thread is read up to.
  */
 export const markReadBodySchema = z.object({entryId: z.string().min(1)});
+
+/**
+ * `PUT chat/personas/:personaId/pin`: the person pins their chat with the persona to the top of
+ * their list, or unpins it. Pinning one already pinned leaves its place as it is.
+ */
+export const pinBodySchema = z.object({pinned: z.boolean()});
 
 /**
  * What one of the chat's threads is up to: at work; asleep until a time, woken then or by a reply;

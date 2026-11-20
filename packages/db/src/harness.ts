@@ -373,8 +373,8 @@ function toToolCalls(kept: string | null): ToolCall[] | null {
 /**
  * The organization's personas the member sees, their own and those every member does, with the
  * last thing said in the member's chat with each, across the chat and its threads, what they typed
- * in it and the files they put in its input and haven't sent, the one last active first: the last
- * thing said in it, or, before anything was, its making.
+ * in it and the files they put in its input and haven't sent, and when they pinned it, the one
+ * last active first: the last thing said in it, or, before anything was, its making.
  */
 export async function listPersonas(
 	orgId: string,
@@ -386,6 +386,7 @@ export async function listPersonas(
 				lastMessage: LastMessage | null;
 				draft: string | null;
 				draftAttachments: DraftAttachment[];
+				pinnedAt: Date | null;
 			}
 		>,
 		ApiError
@@ -403,6 +404,7 @@ export async function listPersonas(
 					select: {
 						parentThreadId: true,
 						draft: true,
+						pinnedAt: true,
 						attachments: {
 							where: {entryId: null},
 							select: draftSelect,
@@ -447,6 +449,7 @@ export async function listPersonas(
 							: null,
 					draft: chat?.draft ?? null,
 					draftAttachments: chat?.attachments ?? [],
+					pinnedAt: chat?.pinnedAt ?? null,
 				};
 			})
 			.toSorted((a, b) => lastActive(b).getTime() - lastActive(a).getTime());
@@ -848,6 +851,28 @@ function sameFile(
 		one.fileId === other.fileId &&
 		one.version === other.version
 	);
+}
+
+/**
+ * Pins the member's chat to the top of their list, or unpins it. One already pinned keeps when it
+ * was, so pinning it again leaves its place among the pinned as it is. `Ok(false)` means no such
+ * chat: a thread is never pinned.
+ */
+export async function setChatPinned(
+	chatId: string,
+	pinned: boolean,
+): Promise<Result<boolean, ApiError>> {
+	const chat = {id: chatId, parentThreadId: null};
+	return wrapDb(async () => {
+		const {count} = await db.agentThread.updateMany({
+			where: pinned ? {...chat, pinnedAt: null} : chat,
+			data: {pinnedAt: pinned ? new Date() : null},
+		});
+		if (count > 0) {
+			return true;
+		}
+		return (await db.agentThread.count({where: chat})) > 0;
+	});
 }
 
 /**

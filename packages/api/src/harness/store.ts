@@ -79,7 +79,10 @@ export type HarnessStore = {
 	getAgentTask: (orgId: string, agentId: string, taskId: string) => Promise<Result<AgentTaskRow | null, ApiError>>;
 	createAgentTask: (task: NewAgentTask) => Promise<Result<AgentTaskRow | null, ApiError>>;
 
-	listPersonas: (orgId: string, userId: string) => Promise<Result<Array<PersonaRow & {lastMessage: LastMessage | null; draft: string | null; draftAttachments: DraftAttachment[]}>, ApiError>>;
+	listPersonas: (
+		orgId: string,
+		userId: string,
+	) => Promise<Result<Array<PersonaRow & {lastMessage: LastMessage | null; draft: string | null; draftAttachments: DraftAttachment[]; pinnedAt: Date | null}>, ApiError>>;
 	listAnswers: (orgId: string, userId: string) => Promise<Result<ChatAnswerRow[], ApiError>>;
 	ensureFirstPersona: (orgId: string) => Promise<Result<PersonaRow, ApiError>>;
 	getPersona: (orgId: string, userId: string, personaId: string) => Promise<Result<PersonaRow | null, ApiError>>;
@@ -119,6 +122,8 @@ export type HarnessStore = {
 	getThreadDraft: (chatId: string, threadId: string) => Promise<Result<string | null, ApiError>>;
 	saveThreadDraft: (chatId: string, threadId: string, draft: string | null) => Promise<Result<boolean, ApiError>>;
 	saveChatDraft: (chatId: string, draft: string | null, order?: Array<Pick<DraftAttachment, 'connectionId' | 'fileId' | 'version'>>) => Promise<Result<boolean, ApiError>>;
+	/** The member pins their chat to the top of their list, or unpins it; one pinned again keeps its place. False for no such chat. */
+	setChatPinned: (chatId: string, pinned: boolean) => Promise<Result<boolean, ApiError>>;
 	/** The files in a chat's input, not sent yet; put there after those there, at most `max`, and taken out. False for no such chat. */
 	listDraftAttachments: (chatId: string) => Promise<Result<DraftAttachment[], ApiError>>;
 	addDraftAttachment: (chatId: string, attachment: DraftAttachment, max: number) => Promise<Result<boolean, ApiError>>;
@@ -213,6 +218,7 @@ export const harnessStore: HarnessStore = {
 	getThreadDraft: harness.getThreadDraft,
 	saveThreadDraft: harness.saveThreadDraft,
 	saveChatDraft: harness.saveChatDraft,
+	setChatPinned: harness.setChatPinned,
 	listDraftAttachments: harness.listDraftAttachments,
 	addDraftAttachment: harness.addDraftAttachment,
 	removeDraftAttachment: harness.removeDraftAttachment,

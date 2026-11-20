@@ -280,6 +280,7 @@ export function createApiRouter(): express.Router {
 	org.delete('/chat/personas/:personaId/attachments', withAuthResult('Remove chat attachment route', chat.handleRemoveAttachmentRoute));
 	org.post('/chat/personas/:personaId/read', withAuthResult('Mark chat read route', chat.handleMarkReadRoute));
 	org.put('/chat/personas/:personaId/draft', withAuthResult('Save chat draft route', chat.handleSaveDraftRoute));
+	org.put('/chat/personas/:personaId/pin', withAuthResult('Pin chat route', chat.handlePinPersonaRoute));
 	org.get('/chat/personas/:personaId/threads', withAuthResult('List chat threads route', chat.handleListThreadsRoute));
 	org.post('/chat/personas/:personaId/threads', withAuthResult('Open chat thread route', chat.handleOpenThreadRoute));
 	org.get('/chat/personas/:personaId/threads/:threadId', withAuthResult('Get chat thread route', chat.handleGetChatThreadRoute));

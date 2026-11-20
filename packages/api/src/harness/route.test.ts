@@ -33,6 +33,7 @@ const personaResponse = {
 	mayChange: true,
 	lastMessage: null,
 	draft: null,
+	pinnedAt: null,
 	createdAt: '2026-10-21T10:00:00.000Z',
 };
 
@@ -136,7 +137,7 @@ beforeEach(async () => {
 	deletePersona.mockResolvedValue(Ok(true));
 	ensureFirstPersona.mockResolvedValue(Ok({...persona, id: 'persona-9', name: 'General', ownerUserId: null, createdById: null}));
 	requireViewer.mockResolvedValue(Ok(viewer));
-	listPersonas.mockResolvedValue(Ok([{...persona, lastMessage: {kind: 'assistant', text: 'Your vault\n has  one entry.', createdAt: now}, draft: null, draftAttachments: []}]));
+	listPersonas.mockResolvedValue(Ok([{...persona, lastMessage: {kind: 'assistant', text: 'Your vault\n has  one entry.', createdAt: now}, draft: null, draftAttachments: [], pinnedAt: null}]));
 	getPersona.mockResolvedValue(Ok(persona));
 	createPersona.mockResolvedValue(Ok({...persona, id: 'persona-2'}));
 	updatePersona.mockResolvedValue(Ok(true));
@@ -150,7 +151,7 @@ describe('the chat routes', () => {
 	test('offer OpenRouter only with the openrouter experiment: without it, a persona on it is shown on Claude, and none is made or switched to it', async () => {
 		const {handleCreatePersonaRoute, handleListPersonasRoute, handleUpdatePersonaRoute} = routes;
 		requireViewer.mockResolvedValue(Ok({...viewer, experiments: []}));
-		store.listPersonas.mockResolvedValue(Ok([{...persona, ownerUserId: null, lastMessage: null, draft: null, draftAttachments: []}]));
+		store.listPersonas.mockResolvedValue(Ok([{...persona, ownerUserId: null, lastMessage: null, draft: null, draftAttachments: [], pinnedAt: null}]));
 
 		const listed = (await handleListPersonasRoute(request())).unwrap();
 		expect(listed.harnesses.map((harness) => harness.id)).toEqual(['claude-agent-sdk']);
@@ -170,14 +171,15 @@ describe('the chat routes', () => {
 		const {handleListPersonasRoute} = routes;
 		store.listPersonas.mockResolvedValue(
 			Ok([
-				{...persona, lastMessage: {kind: 'assistant', text: 'Your vault\n has  one entry.', createdAt: now}, draft: null, draftAttachments: []},
-				{...persona, id: 'persona-3', ownerUserId: null, createdById: 'user-2', lastMessage: null, draft: 'Move the **pricing review**\nto Friday', draftAttachments: []},
+				{...persona, lastMessage: {kind: 'assistant', text: 'Your vault\n has  one entry.', createdAt: now}, draft: null, draftAttachments: [], pinnedAt: null},
+				{...persona, id: 'persona-3', ownerUserId: null, createdById: 'user-2', lastMessage: null, draft: 'Move the **pricing review**\nto Friday', draftAttachments: [], pinnedAt: null},
 				{
 					...persona,
 					id: 'persona-4',
 					lastMessage: {kind: 'assistant', text: '## Found\n\n- **Three** invoices, see [the list](https://x.test)\n\n| Who | Sum |\n| --- | --- |\n| Dana | 40 |\n\n```\ncode\n```', createdAt: now},
 					draft: null,
 					draftAttachments: [],
+					pinnedAt: null,
 				},
 			]),
 		);
@@ -329,8 +331,8 @@ describe('the chat routes', () => {
 		registry = {proxy, claudeAgentSdk: null};
 		store.listPersonas.mockResolvedValue(
 			Ok([
-				{...persona, harness: 'claude-agent-sdk', chatModel: 'opus', lastMessage: null, draft: null, draftAttachments: []},
-				{...persona, id: 'persona-3', ownerUserId: null, chatModel: 'dropped-long-ago', lastMessage: null, draft: null, draftAttachments: []},
+				{...persona, harness: 'claude-agent-sdk', chatModel: 'opus', lastMessage: null, draft: null, draftAttachments: [], pinnedAt: null},
+				{...persona, id: 'persona-3', ownerUserId: null, chatModel: 'dropped-long-ago', lastMessage: null, draft: null, draftAttachments: [], pinnedAt: null},
 			]),
 		);
 
@@ -362,9 +364,9 @@ describe('the chat routes', () => {
 		// The chat opens with it there, and the list says it is waiting where nothing was typed.
 		store.listDraftAttachments.mockResolvedValue(Ok([kept]));
 		expect((await handleListThreadsRoute(request({personaId: 'persona-1'}))).unwrap().draftAttachments).toEqual([shownAttachment]);
-		store.listPersonas.mockResolvedValue(Ok([{...persona, lastMessage: null, draft: null, draftAttachments: [kept, {...kept, fileId: 'file-2', name: 'chart.png'}]}]));
+		store.listPersonas.mockResolvedValue(Ok([{...persona, lastMessage: null, draft: null, draftAttachments: [kept, {...kept, fileId: 'file-2', name: 'chart.png'}], pinnedAt: null}]));
 		expect((await handleListPersonasRoute(request())).unwrap().personas[0]?.draft).toBe('pricing.md, chart.png');
-		store.listPersonas.mockResolvedValue(Ok([{...persona, lastMessage: null, draft: 'Book the train', draftAttachments: [kept]}]));
+		store.listPersonas.mockResolvedValue(Ok([{...persona, lastMessage: null, draft: 'Book the train', draftAttachments: [kept], pinnedAt: null}]));
 		expect((await handleListPersonasRoute(request())).unwrap().personas[0]?.draft).toBe('Book the train');
 
 		// With as many there as a message carries, the next is refused before its bytes are taken.
@@ -417,6 +419,51 @@ describe('the chat routes', () => {
 		store.getPersona.mockResolvedValue(Ok(null));
 		expect((await handleSaveDraftRoute(request({personaId: 'persona-9'}, {text: 'Hi'}))).unwrapErr().kind).toBe('not_found');
 		expect(store.saveChatDraft).toHaveBeenCalledTimes(3);
+	});
+
+	test('pin the viewer’s chat with the persona to the top of their list, beginning it where there was none, and unpin it, beginning none', async () => {
+		const {handlePinPersonaRoute} = routes;
+		store.setChatPinned.mockResolvedValue(Ok(true));
+
+		expect((await handlePinPersonaRoute(request({personaId: 'persona-1'}, {pinned: true}))).isOk()).toBe(true);
+		expect(store.getMemberChat).toHaveBeenCalledWith('persona-1', 'user-1');
+		expect(store.setChatPinned).toHaveBeenLastCalledWith('chat-1', true);
+
+		expect((await handlePinPersonaRoute(request({personaId: 'persona-1'}, {pinned: false}))).isOk()).toBe(true);
+		expect(store.setChatPinned).toHaveBeenLastCalledWith('chat-1', false);
+
+		// A viewer who never began the chat has nothing pinned to take down, and begins it to pin it.
+		store.getMemberChat.mockResolvedValue(Ok(null));
+		expect((await handlePinPersonaRoute(request({personaId: 'persona-1'}, {pinned: false}))).isOk()).toBe(true);
+		expect(store.ensureMemberChat).not.toHaveBeenCalled();
+		expect(store.setChatPinned).toHaveBeenCalledTimes(2);
+		expect((await handlePinPersonaRoute(request({personaId: 'persona-1'}, {pinned: true}))).isOk()).toBe(true);
+		expect(store.ensureMemberChat).toHaveBeenCalledWith({orgId: 'org-1', agentId: 'login-1', personaId: 'persona-1', userId: 'user-1'});
+		expect(store.setChatPinned).toHaveBeenLastCalledWith('chat-1', true);
+
+		store.setChatPinned.mockResolvedValue(Ok(false));
+		expect((await handlePinPersonaRoute(request({personaId: 'persona-1'}, {pinned: true}))).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'chat'});
+
+		expect((await handlePinPersonaRoute(request({personaId: 'persona-1'}, {pinned: 'yes'}))).unwrapErr().kind).toBe('parse_error');
+		expect((await handlePinPersonaRoute(request({personaId: 'persona-1'}, {}))).unwrapErr().kind).toBe('parse_error');
+
+		store.getPersona.mockResolvedValue(Ok(null));
+		expect((await handlePinPersonaRoute(request({personaId: 'persona-9'}, {pinned: true}))).unwrapErr().kind).toBe('not_found');
+		expect(store.setChatPinned).toHaveBeenCalledTimes(4);
+	});
+
+	test('list when the viewer pinned their chat with each persona, and null where they did not', async () => {
+		const {handleListPersonasRoute} = routes;
+		store.listPersonas.mockResolvedValue(
+			Ok([
+				{...persona, lastMessage: null, draft: null, draftAttachments: [], pinnedAt: now},
+				{...persona, id: 'persona-2', lastMessage: null, draft: null, draftAttachments: [], pinnedAt: null},
+			]),
+		);
+
+		const {personas} = (await handleListPersonasRoute(request())).unwrap();
+		expect(personas.find((listed) => listed.id === 'persona-1')?.pinnedAt).toBe('2026-10-21T10:00:00.000Z');
+		expect(personas.find((listed) => listed.id === 'persona-2')?.pinnedAt).toBeNull();
 	});
 
 	test('mark the thread of the viewer’s chat with the persona that the answer shown is in read up to it, beginning none, and say where the answer, the chat or the persona is gone', async () => {
