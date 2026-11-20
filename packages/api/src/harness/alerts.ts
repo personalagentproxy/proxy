@@ -268,6 +268,32 @@ export function dueText(alert: AlertRow, setInTitle: string | null): string {
 // How much of a record's summary a match carries.
 const MAX_SUMMARY = 300;
 
+// How dueText and matchText open, for the line the thread shows of what they landed: the alert's
+// title, and how many records of which collection matched.
+const DUE_OPENING = /^The alert “(.+?)” is due now, which you set /;
+const MATCH_OPENING = /^The alert “(.+?)” matched (?:a new one of the (.+?)|(\d+) new (.+?)) it watches, /;
+
+/**
+ * What an event says in a line, as the person sees it in its thread, where the whole of it is
+ * for the agent: an alert that landed by its title and what came, “Mail from the bank” matched a
+ * new email; anything else by its first line.
+ */
+export function eventLine(text: string): string {
+	const due = DUE_OPENING.exec(text);
+	if (due) {
+		return `“${due[1]}” is due`;
+	}
+	const match = MATCH_OPENING.exec(text);
+	if (!match) {
+		return text.split('\n', 1)[0] ?? '';
+	}
+	const [, title, one, count, many] = match;
+	if (one !== undefined) {
+		return `“${title}” matched a new ${one.replace(/s$/, '')}`;
+	}
+	return `“${title}” matched ${count} new ${many}`;
+}
+
 /** What a watch is told of the records that matched it now, with their links, for the agent to pass on. */
 export function matchText(alert: AlertRow, changes: Change[], setInTitle: string | null): string {
 	const name = collectionName(alert.collectionId) ?? '';

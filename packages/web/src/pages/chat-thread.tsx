@@ -26,7 +26,13 @@ import {
 	MessageScrollerViewport,
 } from '@/components/chat/message-scroller';
 import {FileViewer, type ViewedFile} from '@/components/chat/file-viewer';
-import {AlertsLine, EventLine, PersonBubble, SubAgentLine} from '@/components/chat/thread-parts';
+import {
+	AlertsLine,
+	EventLine,
+	PersonBubble,
+	SubAgentLine,
+	TimeMarker,
+} from '@/components/chat/thread-parts';
 import {WorkingLine} from '@/components/chat/working-line';
 import {type ImageOf, Markdown} from '@/components/markdown';
 import type {AttachmentInput} from '@/hooks/use-attachments';
@@ -37,6 +43,7 @@ import {useThreadDraft} from '@/hooks/use-chat-draft';
 import {useUnread} from '@/hooks/use-unread';
 import {keepEntries, sameJson} from '@/lib/chat-log';
 import {describeApiError, type Later} from '@/lib/loader-utils';
+import {marksTime} from '@/lib/thread-time';
 import type {chatThreadLoader} from '@/loaders';
 import {markdownPictures, readFileLink} from '@proxy/utils/file-links';
 import {cn} from '@proxy/ui/lib/utils';
@@ -128,7 +135,7 @@ function saidPart(message: ThreadMessage) {
 		);
 	}
 	if (message.kind === 'event') {
-		return <EventLine text={message.text} />;
+		return <EventLine line={message.line ?? message.text} text={message.text} />;
 	}
 	return (
 		<Message>
@@ -379,10 +386,13 @@ function Thread({
 			<MessageScroller className="min-h-0 flex-1">
 				<MessageScrollerViewport aria-label="Thread">
 					<MessageScrollerContent className={cn('w-full gap-4.5 pt-6 pb-4', column)}>
-						{runsOf(sending.entries).map((run) => {
+						{runsOf(sending.entries).map((run, index, runs) => {
 							const key = sending.keyOf(run[0]);
 							return (
 								<MessageScrollerItem key={key} scrollAnchor={run.some(sending.sentHere)}>
+									{marksTime(runs[index - 1]?.at(-1)?.at, run[0].at) && (
+										<TimeMarker at={run[0].at} />
+									)}
 									{run.length === 1 ? (
 										<Said message={run[0]} fresh={!opened.has(key)} />
 									) : (
