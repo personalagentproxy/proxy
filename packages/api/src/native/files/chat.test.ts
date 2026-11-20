@@ -19,7 +19,7 @@ const databaseUrl = process.env.DATABASE_URL;
 const blobs = mkdtempSync(join(tmpdir(), 'proxy-files-chat-test-'));
 const APP_URL = 'https://app.example.com';
 
-mock.module('../../utils/env', () => ({env: {NODE_ENV: 'test', APP_URL, FILES_DIR: blobs, FILES_MAX_MB: 1}}));
+mock.module('../../utils/env', () => ({env: {NODE_ENV: 'test', APP_URL, FILES_DIR: blobs, FILES_STORE: {kind: 'disk', dir: blobs}, FILES_MAX_MB: 1}}));
 mock.module('../../observability/log', () => ({
 	log: {debug: mock(), info: mock(), warn: mock(), error: mock()},
 	serializeError: mock(() => ({})),
@@ -55,14 +55,17 @@ describe.skipIf(!databaseUrl)('the files an answer shows', () => {
 
 	beforeAll(async () => {
 		const {db} = await import('@proxy/db');
-		const {createMissingFilesConnection} = await import('@proxy/db/files');
 		userId = (await db.user.create({data: {email: `files-chat-test-${stamp}@example.test`}})).id;
 		otherUserId = (await db.user.create({data: {email: `files-chat-test-other-${stamp}@example.test`}})).id;
 		orgId = (await db.organization.create({data: {name: 'Files chat test', slug, ownerUserId: userId}})).id;
 		await db.orgMember.create({data: {orgId, userId}});
 		await db.orgMember.create({data: {orgId, userId: otherUserId}});
-		unwrap(await createMissingFilesConnection({orgId, userId, integrationId: 'files', defaults: ['readFiles', 'createFiles', 'editFiles']}));
-		unwrap(await createMissingFilesConnection({orgId, userId: otherUserId, integrationId: 'files', defaults: ['readFiles', 'createFiles', 'editFiles']}));
+		await db.connection.create({
+			data: {orgId, integrationId: 'files', ownerUserId: userId, account: 'Drive', defaults: {create: [{actionId: 'readFiles'}, {actionId: 'createFiles'}, {actionId: 'editFiles'}]}},
+		});
+		await db.connection.create({
+			data: {orgId, integrationId: 'files', ownerUserId: otherUserId, account: 'Drive', defaults: {create: [{actionId: 'readFiles'}, {actionId: 'createFiles'}, {actionId: 'editFiles'}]}},
+		});
 		driveId = (await db.connection.findFirstOrThrow({where: {orgId, integrationId: 'files', ownerUserId: userId}})).id;
 		othersDriveId = (await db.connection.findFirstOrThrow({where: {orgId, integrationId: 'files', ownerUserId: otherUserId}})).id;
 		const signedIn = (id: string, name: string): SignedInAgent => ({agentId: id, orgId, ownerUserId: userId, providerId: 'claude', name, orgSlug: slug, experiments: []});

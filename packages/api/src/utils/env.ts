@@ -2,7 +2,7 @@ import {config} from 'dotenv';
 import {resolve, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-import {envSchema} from './env-schema';
+import {serverEnvSchema} from './env-schema';
 
 const packageDir = dirname(fileURLToPath(import.meta.url));
 
@@ -13,7 +13,7 @@ function read(name: string): string | undefined {
 	return process.env[name] || undefined;
 }
 
-export const env = envSchema.parse({
+export const env = serverEnvSchema.parse({
 	DATABASE_URL: read('DATABASE_URL'),
 	APP_URL: read('APP_URL'),
 	AUTH_SECRET: read('AUTH_SECRET'),

@@ -104,7 +104,7 @@ async function startApiServer(): Promise<void> {
 		);
 		sweeper = startAlertSweeper(harnessStore);
 		void startSandboxSweeper();
-		void startFilesSweeper();
+		startFilesSweeper();
 		startUploadsSweeper();
 		startDriveSweeper();
 	});

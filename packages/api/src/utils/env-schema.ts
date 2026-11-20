@@ -1,3 +1,4 @@
+import {Err, Ok, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 /**
@@ -127,12 +128,12 @@ export const envSchema = z.object({
 	FILES_DIR: documented(z.string().min(1).optional(), {
 		group: 'Connections',
 		description:
-			'Turns on Files, a drive of folders and files for each member, kept here with every version of each: a directory on this server for their bytes, such as `/data/files`, on a volume that is kept. For one server; servers that share no disk need a bucket instead (`FILES_S3_BUCKET`), which is used where both are set. Unset, with no bucket either, there are no Files.',
+			'Where the bytes of Files, each member’s drive, and of uploads on their way to Google Drive are kept: a directory on this server, such as `/data/files`, on a volume that is kept. This or `FILES_S3_BUCKET` is required. For one server; servers that share no disk need a bucket instead, which is used where both are set.',
 	}),
 	FILES_S3_BUCKET: documented(z.string().min(1).optional(), {
 		group: 'Connections',
 		description:
-			'Turns on Files with their bytes in a bucket that speaks S3’s protocol, Amazon’s, Cloudflare R2’s or MinIO’s: the bucket’s name, reached with `FILES_S3_ACCESS_KEY_ID` and `FILES_S3_SECRET_ACCESS_KEY`. Nothing in it is ever read by a browser from the bucket itself, so it needs no public access.',
+			'Keeps the bytes of Files and of uploads in a bucket that speaks S3’s protocol, Amazon’s, Cloudflare R2’s or MinIO’s: the bucket’s name, reached with `FILES_S3_ACCESS_KEY_ID` and `FILES_S3_SECRET_ACCESS_KEY`. This or `FILES_DIR` is required. Nothing in it is ever read by a browser from the bucket itself, so it needs no public access.',
 	}),
 	FILES_S3_ACCESS_KEY_ID: documented(z.string().min(1).optional(), {
 		group: 'Connections',
@@ -168,7 +169,7 @@ export const envSchema = z.object({
 	DRIVE_COPY_MAX_MB: documented(z.coerce.number().int().positive().max(2047).default(25), {
 		group: 'Connections',
 		description:
-			'The largest copy of a Google Drive file kept here before an agent’s task first changes it, in megabytes: a file’s bytes, or a Doc’s, Sheet’s or Slides file’s export, which Google makes up to 10 MB. Past it, or with no `FILES_DIR` or `FILES_S3_BUCKET` to keep it in, an uploaded file’s revision is kept for good in Drive instead, and a Doc’s is only noted.',
+			'The largest copy of a Google Drive file kept here before an agent’s task first changes it, in megabytes: a file’s bytes, or a Doc’s, Sheet’s or Slides file’s export, which Google makes up to 10 MB. Past it, an uploaded file’s revision is kept for good in Drive instead, and a Doc’s is only noted.',
 	}),
 	DRIVE_COPY_KEEP_DAYS: documented(z.coerce.number().int().positive().default(30), {
 		group: 'Connections',
@@ -260,4 +261,44 @@ export const envSchema = z.object({
 				"Lets database and custom MCP server connections reach private and local addresses, such as `192.168.1.5`, `10.0.0.7` or `localhost`. They are refused otherwise, so a connection can't be pointed at something else on the server's own network. Set it to `true` when self-hosting beside your database or server.",
 		},
 	),
+});
+
+/** Where the server keeps the bytes of Files and of uploads: a bucket, or a directory on its disk. */
+export type FilesStore = {kind: 's3'; bucket: string; accessKeyId: string; secretAccessKey: string; endpoint?: string; region?: string; prefix?: string} | {kind: 'disk'; dir: string};
+
+type Env = z.infer<typeof envSchema>;
+
+// The store the settings name: the bucket where one is set, with its keys, else the directory.
+function filesStoreOf(value: Env): Result<FilesStore, string> {
+	if (value.FILES_S3_BUCKET !== undefined) {
+		if (!value.FILES_S3_ACCESS_KEY_ID || !value.FILES_S3_SECRET_ACCESS_KEY) {
+			return Err('FILES_S3_BUCKET needs FILES_S3_ACCESS_KEY_ID and FILES_S3_SECRET_ACCESS_KEY beside it');
+		}
+		return Ok({
+			kind: 's3',
+			bucket: value.FILES_S3_BUCKET,
+			accessKeyId: value.FILES_S3_ACCESS_KEY_ID,
+			secretAccessKey: value.FILES_S3_SECRET_ACCESS_KEY,
+			endpoint: value.FILES_S3_ENDPOINT,
+			region: value.FILES_S3_REGION,
+			prefix: value.FILES_S3_PREFIX,
+		});
+	}
+	if (value.FILES_DIR !== undefined) {
+		return Ok({kind: 'disk', dir: value.FILES_DIR});
+	}
+	return Err('Set FILES_DIR, a directory for the bytes of Files and uploads, or FILES_S3_BUCKET with its keys');
+}
+
+/**
+ * The environment as the api runs with it: every variable of `envSchema`, and `FILES_STORE`, where
+ * the bytes of Files and uploads are kept, which every server has; one without refuses to start.
+ */
+export const serverEnvSchema = envSchema.transform((value, ctx) => {
+	const store = filesStoreOf(value);
+	if (store.isErr()) {
+		ctx.addIssue({code: 'custom', message: store.error, path: ['FILES_DIR']});
+		return z.NEVER;
+	}
+	return {...value, FILES_STORE: store.value};
 });

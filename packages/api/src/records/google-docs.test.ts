@@ -1,4 +1,7 @@
 import {beforeEach, describe, expect, mock, spyOn, test} from 'bun:test';
+import {mkdtempSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {Ok, type Result} from 'ts-results-es';
 
 import type {ApiError} from '@proxy/utils';
@@ -24,8 +27,8 @@ mock.module('@proxy/db/files', () => ({
 		history.logged.push(entry);
 		return Ok({change: {id: `change-${history.logged.length}`, ...entry}, version: null});
 	}),
-	createFileBlob: mock(),
-	completeFileBlob: mock(),
+	createFileBlob: mock(async (data: {orgId: string; backendId: string; key: string}) => Ok({id: 'blob-1', ...data, size: 0, sha256: null})),
+	completeFileBlob: mock(async (id: string, data: {size: number; sha256: string}) => Ok({id, ...data})),
 }));
 
 mock.module('../observability/log', () => ({
@@ -33,7 +36,11 @@ mock.module('../observability/log', () => ({
 	serializeError: mock(() => ({})),
 }));
 
-mock.module('../utils/env', () => ({env: {NODE_ENV: 'production', APP_URL: 'https://app.example.com', GOOGLE_CLIENT_ID: 'client-1', GOOGLE_CLIENT_SECRET: 'secret-1', DRIVE_COPY_MAX_MB: 25}}));
+// The copies a task's first change keeps go into a directory of their own.
+const blobs = mkdtempSync(join(tmpdir(), 'proxy-docs-test-'));
+mock.module('../utils/env', () => ({
+	env: {NODE_ENV: 'production', APP_URL: 'https://app.example.com', GOOGLE_CLIENT_ID: 'client-1', GOOGLE_CLIENT_SECRET: 'secret-1', DRIVE_COPY_MAX_MB: 25, FILES_STORE: {kind: 'disk', dir: blobs}},
+}));
 
 mock.module('../utils/secret-crypto', () => ({
 	encryptSecret: (plaintext: string): Result<string, ApiError> => Ok(`enc:${plaintext}`),
@@ -163,6 +170,9 @@ spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Requ
 	const path = decodeURIComponent(url.pathname);
 	if (path === '/drive/v3/files/1Plan') {
 		return Response.json({id: '1Plan', name: 'Launch plan', mimeType: 'application/vnd.google-apps.document'});
+	}
+	if (path === '/drive/v3/files/1Plan/export') {
+		return new Response('docx of the launch plan');
 	}
 	if (path === '/drive/v3/files/1Plan/revisions') {
 		return Response.json({revisions: [{id: `d${docs.batches.length + 1}`}]});
@@ -340,7 +350,7 @@ describe('editing a document', () => {
 		const {runDocsEdit} = await import('./google-docs');
 		await runDocsEdit(run({id: '1Plan', revision: 'rev-1', edits: [{find: 'beta', replace: 'release'}]}));
 
-		expect(history.kept).toEqual([expect.objectContaining({sourceRevision: 'd1', sourceType: 'application/vnd.google-apps.document'})]);
+		expect(history.kept).toEqual([expect.objectContaining({blobId: 'blob-1', size: 23, sourceRevision: 'd1', sourceType: 'application/vnd.google-apps.document'})]);
 		expect(history.logged).toEqual([expect.objectContaining({kind: 'edit', beforeVersion: 'version-1'})]);
 	});
 

@@ -37,7 +37,6 @@ import {parseRecordValues} from '../records/record-values';
 import {loadConnection} from '../records/target';
 import {log as serverLog} from '../observability/log';
 import {integrationOf} from '../utils/connection-actions';
-import {ensureFilesConnection} from '../native/files/connections';
 import {ensureSandboxConnection} from '../native/sandbox/connections';
 import type {NativeToolRun} from '../native/tool';
 import {requireOpenTask} from './tasks';
@@ -88,7 +87,6 @@ export function listAgentConnections(signedIn: SignedInAgent): Promise<Result<z.
 	return Do(async ($) => {
 		const agent = $(await requireAgent(signedIn));
 		$(await ensureSandboxConnection(agentViewer(signedIn)));
-		$(await ensureFilesConnection(agentViewer(signedIn)));
 		const connections = $(await listConnectionsWithCredential(agentViewer(signedIn))).flatMap((connection) => {
 			const integration = integrationOf(connection);
 			if (!integration) {

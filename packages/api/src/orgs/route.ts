@@ -24,7 +24,6 @@ import {normalizeEmail} from '../auth/email-address';
 import {sendInvitation} from '../auth/mail';
 import {canSignUp, hashToken} from '../auth/session';
 import {beforeDisconnectAll} from '../connections/disconnect';
-import {filesOffered} from '../native/files/connections';
 import {log} from '../observability/log';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {env} from '../utils/env';
@@ -42,8 +41,8 @@ import {NAMED_AFTER_ORGANIZATION} from './starter-connections';
 // How long an invitation's link works.
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-function toOrg(row: UserOrgRow, files: boolean): Org {
-	return {id: row.id, slug: row.slug, name: row.name, role: row.role, onboarded: row.onboarded, files, memberCount: row.memberCount, invitationCount: row.invitationCount};
+function toOrg(row: UserOrgRow): Org {
+	return {id: row.id, slug: row.slug, name: row.name, role: row.role, onboarded: row.onboarded, memberCount: row.memberCount, invitationCount: row.invitationCount};
 }
 
 function toMember(row: MemberRow): Member {
@@ -60,8 +59,7 @@ function toInvitation(row: InvitationRow): Invitation {
  */
 export function handleListOrgsRoute(request: AuthenticatedRequest): Promise<Result<z.infer<typeof orgListSchema>, ApiError>> {
 	return Do(async ($) => {
-		const files = await filesOffered();
-		return {orgs: $(await listUserOrgs(request.user.userId)).map((org) => toOrg(org, files))};
+		return {orgs: $(await listUserOrgs(request.user.userId)).map(toOrg)};
 	});
 }
 
@@ -75,7 +73,7 @@ export function handleGetOrgRoute(request: AuthenticatedRequest): Promise<Result
 				ApiErr.notFound('organization', viewer.slug),
 			),
 		);
-		return toOrg(row, await filesOffered());
+		return toOrg(row);
 	});
 }
 
@@ -84,7 +82,7 @@ export function handleCreateOrgRoute(request: AuthenticatedRequest): Promise<Res
 	return Do(async ($) => {
 		const {name} = $(parseSchema(orgNameBodySchema, request.body));
 		const org = $(await createOrganization({userId: request.user.userId, name}));
-		return {id: org.id, slug: org.slug, name: org.name, role: 'owner' as const, onboarded: true, files: await filesOffered(), memberCount: 1, invitationCount: 0};
+		return {id: org.id, slug: org.slug, name: org.name, role: 'owner' as const, onboarded: true, memberCount: 1, invitationCount: 0};
 	});
 }
 

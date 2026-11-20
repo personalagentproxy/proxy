@@ -50,11 +50,6 @@ const owner = {orgId: 'org-1', userId: 'user-1', slug: 'org-1', name: 'Workspace
 const member = {...owner, userId: 'user-2', role: 'member'};
 const requireViewer = mock(async (): Promise<unknown> => Ok(owner));
 
-// Whether Files are offered: the experiment and a place for the bytes, which the tests of making a
-// drive say; the built-in drive is made elsewhere.
-const filesOffered = mock(async () => true);
-mock.module('../native/files/connections', () => ({filesOffered, ensureFilesConnection: mock(async () => Ok(undefined))}));
-
 mock.module('../utils/user-org', () => ({requireViewer, requireOwner: requireViewer}));
 
 const warn = mock();
@@ -663,12 +658,10 @@ describe('handleCreateDriveRoute', () => {
 		expect(shared.unwrap()).toMatchObject({shared: true, sharedWithEveryone: true});
 	});
 
-	test('a drive needs a name, and is made only where Files are offered', async () => {
+	test('a drive needs a name', async () => {
 		const {handleCreateDriveRoute} = await import('./route');
 
 		expect((await handleCreateDriveRoute(makeRequest({}, {name: '  '}))).unwrapErr().kind).toBe('parse_error');
-		filesOffered.mockResolvedValueOnce(false);
-		expect((await handleCreateDriveRoute(makeRequest({}, {name: 'Launch'}))).unwrapErr().kind).toBe('forbidden');
 		expect(createConnection).not.toHaveBeenCalled();
 	});
 });

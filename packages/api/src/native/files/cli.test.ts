@@ -7,9 +7,6 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 
 import express from 'express';
-import type {Result} from 'ts-results-es';
-
-import type {ApiError} from '@proxy/utils';
 
 import type {CliRequest} from '../../server/middleware/require-cli';
 
@@ -25,7 +22,7 @@ const blobs = mkdtempSync(join(tmpdir(), 'proxy-files-cli-test-'));
 
 const APP_URL = 'https://app.example.com';
 
-mock.module('../../utils/env', () => ({env: {NODE_ENV: 'test', APP_URL, FILES_DIR: blobs, FILES_MAX_MB: 1}}));
+mock.module('../../utils/env', () => ({env: {NODE_ENV: 'test', APP_URL, FILES_DIR: blobs, FILES_STORE: {kind: 'disk', dir: blobs}, FILES_MAX_MB: 1}}));
 mock.module('../../observability/log', () => ({
 	log: {debug: mock(), info: mock(), warn: mock(), error: mock()},
 	serializeError: mock(() => ({})),
@@ -33,13 +30,6 @@ mock.module('../../observability/log', () => ({
 
 function sha256(text: string): string {
 	return createHash('sha256').update(text).digest('hex');
-}
-
-function unwrap<T>(result: Result<T, ApiError>): T {
-	if (result.isErr()) {
-		throw new Error(JSON.stringify(result.error));
-	}
-	return result.value;
 }
 
 describe.skipIf(!databaseUrl)('pap files, as a sandbox reaches a drive', () => {
@@ -112,13 +102,14 @@ describe.skipIf(!databaseUrl)('pap files, as a sandbox reaches a drive', () => {
 
 	beforeAll(async () => {
 		const {db} = await import('@proxy/db');
-		const {createMissingFilesConnection} = await import('@proxy/db/files');
 		const user = await db.user.create({data: {email: `files-cli-test-${stamp}@example.test`}});
 		userId = user.id;
 		const org = await db.organization.create({data: {name: 'Files cli test', slug: `files-cli-test-${stamp}`, ownerUserId: userId}});
 		orgId = org.id;
 		await db.orgMember.create({data: {orgId, userId}});
-		unwrap(await createMissingFilesConnection({orgId, userId, integrationId: 'files', defaults: ['readFiles', 'createFiles', 'editFiles']}));
+		await db.connection.create({
+			data: {orgId, integrationId: 'files', ownerUserId: userId, account: 'Drive', defaults: {create: [{actionId: 'readFiles'}, {actionId: 'createFiles'}, {actionId: 'editFiles'}]}},
+		});
 		connectionId = (await db.connection.findFirstOrThrow({where: {orgId, integrationId: 'files'}})).id;
 		vaultId = (await db.connection.create({data: {orgId, integrationId: 'vault', account: 'Vault', credential: null, ownerUserId: userId}})).id;
 		const agent = await db.agent.create({data: {orgId, providerId: 'claude', name: 'Claude', username: `files-cli-test-${stamp}`, passwordHash: '', ownerUserId: userId}});

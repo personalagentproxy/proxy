@@ -28,13 +28,27 @@ docker compose up -d
 Personal Agent Proxy applies any new database migrations as it starts, before it accepts requests.
 If one fails, Personal Agent Proxy does not start, and its log says why.
 
+<Callout>
+  Personal Agent Proxy needs a place for the bytes of Files and uploads, `FILES_DIR` or
+  `FILES_S3_BUCKET`, and doesn't start without one. The `docker-compose.yml` from before Files were
+  required has neither: download it again, which keeps them on a volume of their own, or set
+  `FILES_S3_BUCKET` and its keys in `.env`.
+</Callout>
+
 ## Backups
 
-Everything Personal Agent Proxy keeps is in Postgres. With Docker Compose, copy it out with
-`pg_dump`:
+Personal Agent Proxy keeps everything in Postgres, but for the bytes of Files, which are on the
+`files_data` volume with Docker Compose, or in the bucket `FILES_S3_BUCKET` names. Copy the database
+out with `pg_dump`:
 
 ```sh
 docker compose exec -T postgres pg_dump -U proxy proxy > proxy-$(date +%F).sql
+```
+
+And the bytes of Files, from their volume, into an archive beside it:
+
+```sh
+docker compose run --rm --no-deps --user root -v "$PWD":/backup --entrypoint tar proxy czf /backup/files-$(date +%F).tar.gz -C /data files
 ```
 
 <Callout type="warning">

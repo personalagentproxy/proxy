@@ -24,7 +24,7 @@ const blobs = mkdtempSync(join(tmpdir(), 'proxy-files-uploads-test-'));
 
 const APP_URL = 'https://app.example.com';
 
-mock.module('../../utils/env', () => ({env: {NODE_ENV: 'test', APP_URL, FILES_DIR: blobs, FILES_MAX_MB: 1}}));
+mock.module('../../utils/env', () => ({env: {NODE_ENV: 'test', APP_URL, FILES_DIR: blobs, FILES_STORE: {kind: 'disk', dir: blobs}, FILES_MAX_MB: 1}}));
 mock.module('../../observability/log', () => ({
 	log: {debug: mock(), info: mock(), warn: mock(), error: mock()},
 	serializeError: mock(() => ({})),
@@ -100,13 +100,14 @@ describe.skipIf(!databaseUrl)('uploads into a drive, through a URL', () => {
 
 	beforeAll(async () => {
 		const {db} = await import('@proxy/db');
-		const {createMissingFilesConnection} = await import('@proxy/db/files');
 		const user = await db.user.create({data: {email: `files-uploads-test-${stamp}@example.test`}});
 		userId = user.id;
 		const org = await db.organization.create({data: {name: 'Files uploads test', slug: `files-uploads-test-${stamp}`, ownerUserId: userId}});
 		orgId = org.id;
 		await db.orgMember.create({data: {orgId, userId}});
-		unwrap(await createMissingFilesConnection({orgId, userId, integrationId: 'files', defaults: ['readFiles', 'createFiles', 'editFiles']}));
+		await db.connection.create({
+			data: {orgId, integrationId: 'files', ownerUserId: userId, account: 'Drive', defaults: {create: [{actionId: 'readFiles'}, {actionId: 'createFiles'}, {actionId: 'editFiles'}]}},
+		});
 		connectionId = (await db.connection.findFirstOrThrow({where: {orgId, integrationId: 'files'}})).id;
 		agentId = (await db.agent.create({data: {orgId, providerId: 'claude', name: 'Claude', username: `files-uploads-test-${stamp}`, passwordHash: '', ownerUserId: userId}})).id;
 		readerId = (await db.agent.create({data: {orgId, providerId: 'claude', name: 'Reader', username: `files-uploads-test-reader-${stamp}`, passwordHash: '', ownerUserId: userId}})).id;

@@ -39,7 +39,6 @@ afterEach(() => {
 function renderCatalog(args: {
 	google?: boolean;
 	plaid?: boolean;
-	files?: boolean;
 	connections?: Connection[];
 	name?: string;
 	onConnectForm?: (integrationId: string) => void;
@@ -54,7 +53,6 @@ function renderCatalog(args: {
 						<IntegrationCatalog
 							connections={args.connections ?? []}
 							configured={{google: args.google ?? true, plaid: args.plaid ?? true, github: true}}
-							files={args.files ?? false}
 							onConnectForm={args.onConnectForm ?? mock()}
 							onConnected={mock()}
 						/>
@@ -89,15 +87,6 @@ describe('IntegrationCatalog', () => {
 		expect(docs.getAttribute('href')).toBe(GOOGLE_DOCS);
 		expect(docs.getAttribute('target')).toBe('_blank');
 		expect(row.getByText('1 connected')).toBeDefined();
-	});
-
-	test('Files are offered where the server has a place for their bytes, and left out where it hasn’t', () => {
-		const row = renderCatalog({files: true, name: 'Files'});
-
-		expect(row.getByRole('button')).toBeDefined();
-		cleanup();
-		renderCatalog({files: false});
-		expect(screen.queryByText('Files')).toBeNull();
 	});
 
 	test('Google with its client on the server is signed in to with the whole row', () => {

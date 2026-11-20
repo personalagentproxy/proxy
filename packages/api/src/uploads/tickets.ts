@@ -9,7 +9,8 @@ import {createFileBlob, type FileBlobRow, getFileBlob} from '@proxy/db/files';
 import {createFileUpload, expireFileUpload, failFileUpload, type FileUploadRow, finishFileUpload, getFileUpload, lockFileUpload, unlockFileUpload} from '@proxy/db/file-uploads';
 
 import {hashToken} from '../auth/session';
-import {maxFileBytes, newBlobKey, requireBlobs} from '../native/files/content';
+import {blobBackend} from '../backends/backends';
+import {maxFileBytes, newBlobKey} from '../native/files/content';
 import type {NativeToolRun} from '../native/tool';
 import {env} from '../utils/env';
 
@@ -107,7 +108,7 @@ function requireTakenSize(file: DeclaredFile): Result<void, ApiError> {
 export function startUpload(run: UploadRun, uploads: DriveUploads, target: UploadTarget, file: DeclaredFile): Promise<Result<UploadTicket, ApiError>> {
 	return Do(async ($) => {
 		$(requireTakenSize(file));
-		const backend = $(await requireBlobs());
+		const backend = await blobBackend();
 		const started = $(await uploads.start(run, target, file));
 		const {caller, connection} = run;
 		const blob = $(await createFileBlob({orgId: connection.orgId, backendId: backend.id, key: newBlobKey(connection.orgId)}));

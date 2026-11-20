@@ -69,6 +69,7 @@ describe('handleAcceptInvitationRoute', () => {
 			connections: [
 				{integrationId: 'vault', defaults: ['readEntries', 'writeEntries']},
 				{integrationId: 'chat', defaults: [], builtInGrants: ['readThreads', 'readAlerts', 'cancelAlerts']},
+				{integrationId: 'files', defaults: ['readFiles', 'createFiles', 'editFiles', 'trashFiles']},
 			],
 		});
 		expect(result.unwrap()).toEqual({orgId: 'org-2', orgSlug: 'acme'});

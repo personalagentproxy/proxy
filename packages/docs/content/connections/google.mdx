@@ -330,8 +330,7 @@ for, or you, from the web app. Before a task first changes what a file holds, a 
   was taken of.
 
 A copy is kept in the same store as Files (`FILES_DIR` or `FILES_S3_BUCKET`), up to
-`DRIVE_COPY_MAX_MB`, 25 MB unless set otherwise. A larger file, or any file on a server with no
-store, isn't copied: an uploaded file's revision is kept for good in Drive instead, and a Doc's,
+`DRIVE_COPY_MAX_MB`, 25 MB unless set otherwise. A larger file isn't copied: an uploaded file's revision is kept for good in Drive instead, and a Doc's,
 Sheet's or Slides file's revision is only noted, for Drive's own version history (Google exports
 at most 10 MB anyway). A copy the latest version holds already, the same revision or the same
 bytes, isn't kept twice. Renaming a file or moving it to Trash leaves what it holds alone, and

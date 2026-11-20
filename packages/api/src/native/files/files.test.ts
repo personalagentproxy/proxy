@@ -16,7 +16,7 @@ const databaseUrl = process.env.DATABASE_URL;
 
 const blobs = mkdtempSync(join(tmpdir(), 'proxy-files-test-'));
 
-mock.module('../../utils/env', () => ({env: {APP_URL: 'https://app.example.com', FILES_DIR: blobs, FILES_MAX_MB: 1}}));
+mock.module('../../utils/env', () => ({env: {APP_URL: 'https://app.example.com', FILES_DIR: blobs, FILES_STORE: {kind: 'disk', dir: blobs}, FILES_MAX_MB: 1}}));
 
 function unwrap<T>(result: Result<T, ApiError>): T {
 	if (result.isErr()) {
@@ -77,12 +77,11 @@ describe.skipIf(!databaseUrl)('files, as an agent works in them', () => {
 
 	beforeAll(async () => {
 		const {db} = await import('@proxy/db');
-		const {createMissingFilesConnection} = await import('@proxy/db/files');
 		const user = await db.user.create({data: {email: `files-api-test-${stamp}@example.test`}});
 		userId = user.id;
 		const org = await db.organization.create({data: {name: 'Files api test', slug: `files-api-test-${stamp}`, ownerUserId: userId}});
 		orgId = org.id;
-		unwrap(await createMissingFilesConnection({orgId, userId, integrationId: 'files', defaults: []}));
+		await db.connection.create({data: {orgId, integrationId: 'files', ownerUserId: userId, account: 'Drive', defaults: {create: []}}});
 		connectionId = (await db.connection.findFirstOrThrow({where: {orgId, integrationId: 'files'}})).id;
 		const agent = await db.agent.create({data: {orgId, providerId: 'claude', name: 'Claude', username: `files-api-test-${stamp}`, passwordHash: ''}});
 		agentId = agent.id;

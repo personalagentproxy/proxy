@@ -1,7 +1,12 @@
-import {describe, expect, test} from 'bun:test';
+import {describe, expect, mock, test} from 'bun:test';
 
-import {areaRange, parseArea, type Sheet} from '../connections/google/sheets-api';
-import {cellsOfRange, cellsOfRow, emptyCells, MAX_UNDO_CELLS} from './google-cells';
+import type {Sheet} from '../connections/google/sheets-api';
+
+// The Sheets module reaches Google through the api's environment, which these tests never read.
+mock.module('../utils/env', () => ({env: {NODE_ENV: 'test', APP_URL: 'https://app.example.com'}}));
+
+const {areaRange, parseArea} = await import('../connections/google/sheets-api');
+const {cellsOfRange, cellsOfRow, emptyCells, MAX_UNDO_CELLS} = await import('./google-cells');
 
 const SHEETS: Sheet[] = [
 	{sheetId: 0, title: 'Summary', rowCount: 1000, columnCount: 26},

@@ -9,7 +9,6 @@ import {
 	createFile,
 	createFileBlob,
 	createFolder,
-	createMissingFilesConnection,
 	deleteUnusedFileBlob,
 	dropFileVersionCopy,
 	FILE_CHANGED,
@@ -124,30 +123,11 @@ describe.skipIf(!databaseUrl)('files, against the database', () => {
 			data: {name: 'Files test', slug: `files-test-${stamp}`, ownerUserId: userId},
 		});
 		orgId = org.id;
-		unwrap(
-			await createMissingFilesConnection({
-				orgId,
-				userId,
-				integrationId: 'files',
-				defaults: ['readFiles'],
-			}),
-		);
-		unwrap(
-			await createMissingFilesConnection({
-				orgId,
-				userId,
-				integrationId: 'files',
-				defaults: ['readFiles'],
-			}),
-		);
-		const connections = await db.connection.findMany({
-			where: {orgId, integrationId: 'files'},
-			include: {defaults: true},
-		});
-		expect(connections).toHaveLength(1);
-		expect(connections[0]?.account).toBe('Files test');
-		expect(connections[0]?.defaults.map((stored) => stored.actionId)).toEqual(['readFiles']);
-		connectionId = connections[0]?.id ?? '';
+		connectionId = (
+			await db.connection.create({
+				data: {orgId, integrationId: 'files', ownerUserId: userId, account: 'Files test'},
+			})
+		).id;
 		const task = await db.agentTask.create({
 			data: {orgId, agentId: 'agent-1', title: 'Tidy the reports', goal: 'Tidy up', via: 'mcp'},
 		});

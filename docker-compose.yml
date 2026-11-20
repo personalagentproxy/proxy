@@ -46,7 +46,8 @@ services:
       CLAUDE_AGENT_SDK_TURNS: ${CLAUDE_AGENT_SDK_TURNS:-}
       SANDBOX_SERVICE_URL: ${SANDBOX_SERVICE_URL:-}
       SANDBOX_SERVICE_TOKEN: ${SANDBOX_SERVICE_TOKEN:-}
-      FILES_DIR: ${FILES_DIR:-}
+      # Where the bytes of Files and uploads are kept, on the volume below; a bucket instead with FILES_S3_BUCKET.
+      FILES_DIR: ${FILES_DIR:-/data/files}
       FILES_S3_BUCKET: ${FILES_S3_BUCKET:-}
       FILES_S3_ACCESS_KEY_ID: ${FILES_S3_ACCESS_KEY_ID:-}
       FILES_S3_SECRET_ACCESS_KEY: ${FILES_S3_SECRET_ACCESS_KEY:-}
@@ -55,6 +56,8 @@ services:
       FILES_S3_PREFIX: ${FILES_S3_PREFIX:-}
       FILES_MAX_MB: ${FILES_MAX_MB:-}
       TELEMETRY_ENABLED: ${TELEMETRY_ENABLED:-}
+    volumes:
+      - files_data:/data/files
     logging: *logging
 
   postgres:
@@ -102,5 +105,6 @@ configs:
 
 volumes:
   postgres_data:
+  files_data:
   caddy_data:
   caddy_config:

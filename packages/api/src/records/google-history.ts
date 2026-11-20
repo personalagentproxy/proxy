@@ -16,7 +16,6 @@ import {
 	type RecordedContent,
 } from '@proxy/db/files';
 
-import {blobBackend} from '../backends/backends';
 import {downloadFile, exportBytes, getFileState, isGoogleType, keepRevision, latestRevision, MIME_TYPES, OFFICE_TYPES, type DriveFileState} from '../connections/google/drive-api';
 import {storeContent, type StoredContent} from '../native/files/content';
 import type {NativeToolRun} from '../native/tool';
@@ -158,7 +157,7 @@ function copyGoogleFile(editor: DriveEditor, file: DriveFileState, revision: str
 	return Do(async ($) => {
 		const office = OFFICE_TYPES[file.mimeType];
 		const pointer = {blobId: null, size: null, type: office ?? file.mimeType, sourceRevision: revision, sourceType: file.mimeType};
-		if (office === undefined || (await blobBackend()) === null) {
+		if (office === undefined) {
 			return pointer;
 		}
 		const stored = $(await storedCopy(editor.change.orgId, exportBytes(editor.token, file.id, office)));
@@ -177,7 +176,7 @@ function copyUploadedFile(editor: DriveEditor, file: DriveFileState, revision: s
 			return {...pointer, blobId: latest.blob.id, size: latest.blob.size, type: latest.type};
 		}
 		const fits = size !== null && size <= copyMaxBytes();
-		const stored = fits && (await blobBackend()) !== null ? $(await storedCopy(editor.change.orgId, downloadFile(editor.token, file.id))) : null;
+		const stored = fits ? $(await storedCopy(editor.change.orgId, downloadFile(editor.token, file.id))) : null;
 		if (stored !== null) {
 			return {...pointer, blobId: stored.blobId, size: stored.size};
 		}

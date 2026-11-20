@@ -25,6 +25,7 @@ mock.module('../utils/env', () => ({
 		GOOGLE_CLIENT_ID: 'client-1',
 		GOOGLE_CLIENT_SECRET: 'secret-1',
 		FILES_DIR: blobs,
+		FILES_STORE: {kind: 'disk', dir: blobs},
 		FILES_MAX_MB: 100,
 		DRIVE_COPY_MAX_MB: 1,
 		DRIVE_COPY_KEEP_DAYS: 30,
