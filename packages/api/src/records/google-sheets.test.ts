@@ -143,7 +143,7 @@ describe('inserting and deleting rows and columns', () => {
 		const answer = (await runSheetsRows(run({spreadsheet: LINK, tab: 'Q1 Sales', insert: {start: 5, count: 3}}))).unwrap();
 
 		expect(sheets.requests).toEqual([{insertDimension: {range: {sheetId: 0, dimension: 'ROWS', startIndex: 4, endIndex: 7}, inheritFromBefore: true}}]);
-		expect(answer).toBe(`Inserted 3 empty rows into “Q1 Sales” in “Budget 2026”, now rows 5 to 7; the rows from there on moved down. ${NO_UNDO}`);
+		expect(answer).toBe('Inserted 3 empty rows into “Q1 Sales” in “Budget 2026”, now rows 5 to 7; the rows from there on moved down.');
 		expect(history.logged).toEqual([expect.objectContaining({kind: 'edit', fileId: '1Budget', name: 'Budget 2026', beforeRevision: 'r1', afterRevision: 'r2', undo: null})]);
 	});
 

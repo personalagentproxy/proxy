@@ -95,18 +95,17 @@ function placeOf(slides: Slide[], given: Replacement, index: number): Result<Sli
 	return Ok({find: given.find, replace: given.replace, slideIds: found.map(({slide}) => slide.id)});
 }
 
-// A replacement whose find is in what one before it writes, which the count read before can't tell.
-function writtenBefore(given: Replacement[]): string[] {
-	return given.flatMap((later, at) => {
-		const earlier = given.slice(0, at).findIndex((one) => one.replace.includes(later.find));
-		return earlier === -1 ? [] : [`${nth(at)} finds text that ${nth(earlier)} writes: make them one, or replace in two calls`];
-	});
+// A replacement whose find is in what one before it writes, which the count read before can't tell, or nothing.
+function writtenBefore(given: Replacement[], at: number): Result<void, string> {
+	const later = given[at];
+	const earlier = later === undefined ? -1 : given.slice(0, at).findIndex((one) => one.replace.includes(later.find));
+	return earlier === -1 ? Ok(undefined) : Err(`${nth(at)} finds text that ${nth(earlier)} writes: make them one, or replace in two calls`);
 }
 
 // Every replacement's slides, refused where any can't be told.
 function placeAll(slides: Slide[], given: Replacement[]): Result<SlideReplacement[], ApiError> {
-	const results = given.map((one, index) => placeOf(slides, one, index));
-	const problems = [...results.flatMap((result) => (result.isErr() ? [result.error] : [])), ...writtenBefore(given)];
+	const results = given.map((one, index) => writtenBefore(given, index).andThen(() => placeOf(slides, one, index)));
+	const problems = results.flatMap((result) => (result.isErr() ? [result.error] : []));
 	if (problems.length > 0) {
 		return Err(ApiErr.validationError(`Nothing was replaced:\n${problems.join('\n')}`));
 	}

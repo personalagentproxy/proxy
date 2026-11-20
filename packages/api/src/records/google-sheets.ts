@@ -184,7 +184,7 @@ function rowsDone(tab: Sheet, spreadsheet: string, change: Structural): string {
 	if (change.insert) {
 		const what = change.count === 1 ? `an empty ${change.axis.slice(0, -1)}` : `${change.count} empty ${change.axis}`;
 		const moved = change.axis === 'rows' ? 'down' : 'right';
-		return `Inserted ${what} into “${tab.title}” in “${spreadsheet}”, now ${span}; the ${change.axis} from there on moved ${moved}. ${NO_UNDO}`;
+		return `Inserted ${what} into “${tab.title}” in “${spreadsheet}”, now ${span}; the ${change.axis} from there on moved ${moved}.`;
 	}
 	const [they, them, their] = change.count === 1 ? ['it', 'it', 'its'] : ['they', 'them', 'their'];
 	const moved = change.axis === 'rows' ? `below ${them} moved up` : `to ${their} right moved left`;

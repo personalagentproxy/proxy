@@ -141,7 +141,7 @@ export const runFilesVersions: NativeToolRunner = (run) =>
 		const changeLines = changes.map(changeLine);
 		const link = file.webViewLink ? [`Link: ${file.webViewLink}`] : [];
 		const current = driveVersion(file);
-		const now = current === null ? [] : [`Version in Drive now: ${current}, which files_upload takes to write over it`];
+		const now = current === null ? [] : [`Version in Drive now: ${current}${isGoogleType(file.mimeType) ? '' : ', which files_upload takes to write over it'}`];
 		return [
 			`“${file.name}”, as Personal Agent Proxy keeps its history. Drive’s own version history (File > Version history in Docs, Sheets and Slides) has every revision.`,
 			...link,
