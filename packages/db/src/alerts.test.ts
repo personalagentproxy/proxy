@@ -35,8 +35,9 @@ import {
 	type ThreadRow,
 } from './harness';
 
-// What the alerts write, against the local database: run with it up (`bun run dev`) and the
-// environment loaded, `bun --env-file=../../.env test src/alerts.test.ts` from this package.
+// What the alerts write, against a database: run with `bun run test:db` from the repository's
+// root, which gives the tests a database of their own, since a running `bun run dev` takes the
+// alerts, polls and jobs they make as they come due.
 // Without DATABASE_URL, as `bun run test` runs, there is nothing to run against, and this is
 // skipped. Everything made here is one organization's, deleted at the end.
 const databaseUrl = process.env.DATABASE_URL;

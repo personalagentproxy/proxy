@@ -40,8 +40,9 @@ import {
 } from './harness';
 import {removeMembership} from './organization';
 
-// What the harness writes, against the local database: run with it up (`bun run dev`) and the
-// environment loaded, `bun --env-file=../../.env test src/harness.test.ts` from this package.
+// What the harness writes, against a database: run with `bun run test:db` from the repository's
+// root, which gives the tests a database of their own, since a running `bun run dev` claims the jobs
+// they queue.
 // Without DATABASE_URL, as `bun run test` runs, there is nothing to run against, and this is
 // skipped. Everything made here is one organization's, deleted at the end. The agent is woken as
 // the api wakes it (@proxy/utils/harness readyForInference).
@@ -279,7 +280,7 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		]);
 	});
 
-	test('each thread’s last answer is unread until the thread is read up to it, never back, each thread on its own; what the person says after it reads nothing, and its turn is told as ended only once it has', async () => {
+	test('each thread’s last answer is unread until the thread is read up to it, never back, each thread on its own; a reply reads the thread up to it', async () => {
 		const persona = unwrap(await ensureFirstPersona(orgId));
 		const lastAnswer = async () =>
 			unwrap(await listAnswers(orgId, userId)).find(
@@ -313,13 +314,14 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 			{threadId: thread.id, answer: {id: first, text: 'Nothing new.'}, ended: true},
 		]);
 
-		// The reply wakes the thread: its last answer stands, unread, but its turn has not ended.
+		// The reply wakes the thread and reads it up to the reply: its last answer stands, read, while
+		// the agent works on the reply.
 		await reply('And now?');
 		expect(await lastAnswer()).toEqual({
 			personaId: persona.id,
 			personaName: persona.name,
 			answer: {id: first, text: 'Nothing new.'},
-			unread: [{threadId: thread.id, answer: {id: first, text: 'Nothing new.'}, ended: false}],
+			unread: [],
 		});
 
 		const second = await answer('worker-r2', 'Still nothing.');
