@@ -4,6 +4,7 @@ import {ApiErr, type ApiError, Do} from '@proxy/utils';
 import type {FileUndo, SheetCell} from '@proxy/db/file-undo';
 
 import {areaRange, columnIndex, getEnteredCells, getSheets, parseArea, putEnteredCells, type CellArea, type Sheet} from '../connections/google/sheets-api';
+import {log} from '../observability/log';
 
 /**
  * The exact undo of a write to a Sheet's cells (db/file-undo.ts `sheets_cells`): the cells it is
@@ -84,18 +85,25 @@ export function emptyCells(written: CellsWritten): SheetCell[][] {
 	return Array.from({length: written.area.rows}, () => Array.from({length: written.area.columns}, (): SheetCell => null));
 }
 
-/** The undo of a write, the cells read again after it; none where there was none before, or the cells it left can't be put back. */
-export function cellsUndo(token: string, written: CellsWritten, before: SheetCell[][] | null): Promise<Result<FileUndo | null, ApiError>> {
-	return Do(async ($) => {
-		if (before === null) {
-			return null;
-		}
-		const after = $(await getEnteredCells(token, written.spreadsheetId, written.tab.title, written.area));
-		if (after === null) {
-			return null;
-		}
-		return {kind: 'sheets_cells', sheetId: written.tab.sheetId, tab: written.tab.title, range: areaRange(written.area), before, after};
-	});
+/**
+ * The undo of a write, the cells read again after it; none where there was none before, or the
+ * cells it left can't be put back. It never fails: it is read once the write is made, which is no
+ * less done for a read that fails, and refusing it would have an agent make it again, a row
+ * appended twice. A read that fails keeps no undo, and is logged on the server.
+ */
+export async function cellsUndo(token: string, written: CellsWritten, before: SheetCell[][] | null): Promise<FileUndo | null> {
+	if (before === null) {
+		return null;
+	}
+	const after = await getEnteredCells(token, written.spreadsheetId, written.tab.title, written.area);
+	if (after.isErr()) {
+		log.error('The cells a Sheet write left could not be read for its undo', {spreadsheetId: written.spreadsheetId, errorKind: after.error.kind});
+		return null;
+	}
+	if (after.value === null) {
+		return null;
+	}
+	return {kind: 'sheets_cells', sheetId: written.tab.sheetId, tab: written.tab.title, range: areaRange(written.area), before, after: after.value};
 }
 
 function sameCells(one: SheetCell[][], other: SheetCell[][]): boolean {

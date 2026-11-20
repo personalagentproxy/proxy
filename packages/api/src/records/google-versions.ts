@@ -226,7 +226,7 @@ function restoreIn(editor: DriveEditor, fileId: string, version: FileVersionFoun
 	return Do(async ($) => {
 		const file = $(await getFileState(editor.token, fileId));
 		$(requireRestorable(file, version));
-		return $(await changeDriveFile(editor, file.id, {content: true}, (change) => restore(editor, change, file, version)));
+		return $(await changeDriveFile(editor, file, {content: true}, (change) => restore(editor, change, file, version)));
 	});
 }
 

@@ -4,12 +4,27 @@ import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 import type {FileBlobRow} from '@proxy/db/files';
 import type {FileUploadRow} from '@proxy/db/file-uploads';
 
-import {createContent, driveVersion, fileIdOf, generateFileId, getFile, getFileState, isGoogleType, MIME_TYPES, OFFICE_TYPES, putContent, type DriveFileState} from '../connections/google/drive-api';
+import {
+	createContent,
+	createFile,
+	driveQuoted,
+	driveVersion,
+	fileIdOf,
+	generateFileId,
+	getFile,
+	getFileState,
+	isGoogleType,
+	listFileStates,
+	MIME_TYPES,
+	OFFICE_TYPES,
+	putContent,
+	type DriveFileState,
+} from '../connections/google/drive-api';
 import {callGoogle} from '../connections/google/google-client';
 import {openContent} from '../native/files/content';
 import {mediaType} from '../native/files/names';
 import type {DeclaredFile, DriveUploads, UploadMade, UploadRun, UploadStarted, UploadTarget} from '../uploads/tickets';
-import {folderNamed} from './google-files';
+import {type DriveFolder, folderNamed} from './google-files';
 import {changeBy, changeDriveFile, type DriveEditor, logDriveCreate, loggedAs} from './google-history';
 
 /**
@@ -19,7 +34,8 @@ import {changeBy, changeDriveFile, type DriveEditor, logDriveCreate, loggedAs} f
  * said, leaves nothing there.
  *
  * A new file is uploaded as its bytes, of their own type, into a folder, a shared drive or My
- * Drive (google-files.ts `folderNamed`), under an id Drive reserves for it at the start, so a done
+ * Drive (google-files.ts `folderNamed`), inside the folders a push to a path names that are
+ * missing, made at done, under an id Drive reserves for it at the start, so a done
  * asked again after Drive made the file finds it rather than making it twice; with `convert`, a
  * docx or Markdown becomes a Doc, an xlsx or CSV a Sheet, and a pptx a Slides file, which Drive
  * makes under an id of its own, as it reserves none for them. Over a file that is there, only a
@@ -32,14 +48,14 @@ import {changeBy, changeDriveFile, type DriveEditor, logDriveCreate, loggedAs} f
  * the agent's, for its task, with Drive's revisions before and after it.
  */
 
-const MARKDOWN = 'text/markdown';
-const CSV = 'text/csv';
+export const MARKDOWN = 'text/markdown';
+export const CSV = 'text/csv';
 
-// The kinds of Google's own file, and how each is changed instead of written over.
-const GOOGLE_KINDS: Partial<Record<string, {name: string; instead: string}>> = {
-	[MIME_TYPES.document]: {name: 'Doc', instead: 'edit its text in place with docs_edit'},
-	[MIME_TYPES.spreadsheet]: {name: 'Sheet', instead: 'write its cells with ranges_write, and change its rows, columns and tabs with sheets_rows and sheets_tabs'},
-	[MIME_TYPES.presentation]: {name: 'Slides file', instead: 'replace its text in place with slides_edit'},
+/** The kinds of Google's own file, and how each is changed instead of written over, with which tools. */
+export const GOOGLE_KINDS: Partial<Record<string, {name: string; instead: string}>> = {
+	[MIME_TYPES.document]: {name: 'Doc', instead: 'edit its text in place with the docs_edit tool'},
+	[MIME_TYPES.spreadsheet]: {name: 'Sheet', instead: 'write its cells with the ranges_write tool, and change its rows, columns and tabs with sheets_rows and sheets_tabs'},
+	[MIME_TYPES.presentation]: {name: 'Slides file', instead: 'replace its text in place with the slides_edit tool'},
 };
 
 // What a new file's bytes become with convert, by their type.
@@ -49,8 +65,8 @@ const CONVERTED: Partial<Record<string, string>> = {
 	[CSV]: MIME_TYPES.spreadsheet,
 };
 
-// The extensions of what is converted, which the file Drive makes of it goes without, as Drive's own import does.
-const CONVERTED_EXTENSION = /\.(docx|xlsx|pptx|md|markdown|csv)$/i;
+/** The extensions of what is converted, which the file Drive makes of it goes without, as Drive's own import does. */
+export const CONVERTED_EXTENSION = /\.(docx|xlsx|pptx|md|markdown|csv)$/i;
 
 const SPREADSHEET_PARENT = 'A spreadsheet holds tabs: upload the file into a folder';
 
@@ -107,11 +123,12 @@ function bytesOver(file: DriveFileState, said: string | null): Result<string, Ap
 	return Ok(type);
 }
 
-// A new file: into a folder that is there, as its bytes or converted, under an id Drive reserves for it.
+// A new file: into a folder that is there, inside the folders to make in it at done, as its bytes
+// or converted, under an id Drive reserves for it.
 function startCreate(token: string, target: Extract<UploadTarget, {kind: 'create'}>, file: DeclaredFile): Promise<Result<UploadStarted, ApiError>> {
 	return Do(async ($) => {
-		if (target.folders.length > 0) {
-			return $(Err(ApiErr.validationError('An upload into Google Drive goes into a folder that is there: make the folders first, with files_create')));
+		if (target.folders.some((folder) => folder.trim() === '')) {
+			return $(Err(ApiErr.validationError('A folder needs a name')));
 		}
 		const given = target.name.trim();
 		if (given === '') {
@@ -173,15 +190,36 @@ function madeBefore(token: string, upload: FileUploadRow): Promise<Result<DriveF
 	});
 }
 
-// A new file made of the blob, under the id reserved for it where there is one; found, where a
-// done before made it already.
+// The folder called `name` in `parent`: one there already, as a done before made, else made now,
+// logged as the upload's agent's.
+function folderIn(editor: DriveEditor, parent: DriveFolder, name: string): Promise<Result<DriveFolder, ApiError>> {
+	return Do(async ($) => {
+		const q = `${driveQuoted(parent.id)} in parents and name = ${driveQuoted(name)} and trashed = false`;
+		const params: Record<string, string> = parent.driveId === null ? {pageSize: '10'} : {corpora: 'drive', driveId: parent.driveId, pageSize: '10'};
+		const listed = $(await listFileStates(editor.token, q, params, null));
+		const found = listed.items.find((file) => file.mimeType === MIME_TYPES.folder && file.name === name);
+		if (found !== undefined) {
+			return {id: found.id, driveId: parent.driveId};
+		}
+		const made = $(await createFile(editor.token, {name, mimeType: MIME_TYPES.folder, parent: parent.id}, null));
+		await logDriveCreate(editor, made);
+		return {id: made.id, driveId: parent.driveId};
+	});
+}
+
+// A new file made of the blob, inside the upload's folders, made where they are missing, under the
+// id reserved for it where there is one; found, where a done before made it already.
 function finishCreate(editor: DriveEditor, upload: FileUploadRow, blob: FileBlobRow): Promise<Result<UploadMade, ApiError>> {
 	return Do(async ($) => {
 		const there = $(await madeBefore(editor.token, upload));
 		if (there !== null) {
 			return {fileId: there.id, version: $(requireVersion(upload, there))};
 		}
-		const parent = $(await folderNamed(editor.token, upload.parentId, SPREADSHEET_PARENT));
+		let folder = $(await folderNamed(editor.token, upload.parentId, SPREADSHEET_PARENT));
+		for (const name of upload.folders) {
+			folder = $(await folderIn(editor, folder, name));
+		}
+		const parent = folder.id;
 		const mimeType = upload.convert ? $(requirePresent(CONVERTED[upload.type], broken(upload, 'kind to convert into'))) : upload.type;
 		const body = $(await openContent(blob));
 		const made = $(await createContent(editor.token, {id: upload.fileId, name: upload.name, mimeType, parent}, {type: upload.type, body, size: blob.size}));
@@ -199,7 +237,7 @@ function finishWrite(editor: DriveEditor, upload: FileUploadRow, blob: FileBlobR
 			return $(Err(changedSince(state, read)));
 		}
 		const written = $(
-			await changeDriveFile(editor, state.id, {content: true}, () =>
+			await changeDriveFile(editor, state, {content: true}, () =>
 				Do(async ($$) => {
 					const body = $$(await openContent(blob));
 					return $$(await loggedAs({kind: 'write'}, putContent(editor.token, state.id, {type: upload.type, body, size: blob.size})));

@@ -557,6 +557,10 @@ describe.skipIf(!databaseUrl)('pap files, on a Google connection', () => {
 			expect((await changesOf(id)).map((change) => [change.kind, change.agentId, change.taskId])).toEqual([['create', agentId, taskId]]);
 		}
 
+		// Nothing reaches Drive before done, not even the folders on the way.
+		expect((await start({path: 'My Drive/Reports/Drafts/notes.pdf', file: 'notes.pdf'}, 'never sent')).status).toBe(200);
+		expect(Object.values(state.files).filter((file) => file.name === 'Drafts')).toEqual([]);
+
 		// Nothing is made where Drive makes nothing.
 		expect(await messageOf(await start({path: 'Shared with me/New/summary.pdf'}, 'x'))).toBe('Nothing can be made in Shared with me: make it in a folder, My Drive or a shared drive');
 		expect(await messageOf(await start({path: 'My Drive/Reports/q3.pdf/inside.pdf'}, 'x'))).toBe('My Drive/Reports/q3.pdf is a file, so nothing goes inside it.');

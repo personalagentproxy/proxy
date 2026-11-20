@@ -161,7 +161,8 @@ const PLAN: Block[] = [
 // history asks of Drive: the document as a file, and its latest revision.
 type FakeTab = {id: string; title: string; blocks: Block[]; children: {id: string; title: string; blocks: Block[]}[]};
 const ONE_TAB = (blocks: Block[]): FakeTab[] => [{id: 't.0', title: 'Tab 1', blocks, children: []}];
-const docs = {tabs: ONE_TAB(PLAN), revision: 'rev-1', batches: [] as {requests: DocumentRequest[]; writeControl: {requiredRevisionId: string}}[]};
+// `precondition`: why Docs turns every batch down as a FAILED_PRECONDITION, where it does.
+const docs = {tabs: ONE_TAB(PLAN), revision: 'rev-1', batches: [] as {requests: DocumentRequest[]; writeControl: {requiredRevisionId: string}}[], precondition: null as string | null};
 const google = {requests: [] as {method: string; url: URL; body: string}[]};
 
 spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Request, init?: RequestInit) => {
@@ -189,6 +190,9 @@ spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Requ
 	}
 	if (path === '/v1/documents/1Plan:batchUpdate') {
 		const batch = JSON.parse(body);
+		if (docs.precondition !== null) {
+			return Response.json({error: {code: 400, message: docs.precondition, status: 'FAILED_PRECONDITION'}}, {status: 400});
+		}
 		if (batch.writeControl?.requiredRevisionId !== docs.revision) {
 			// As Google answers it.
 			return Response.json({error: {code: 400, message: "The required revision ID 'rev-1' does not match the latest revision.", status: 'INVALID_ARGUMENT'}}, {status: 400});
@@ -204,6 +208,7 @@ beforeEach(() => {
 	docs.tabs = ONE_TAB(PLAN);
 	docs.revision = 'rev-1';
 	docs.batches = [];
+	docs.precondition = null;
 	google.requests = [];
 	history.copied = true;
 	history.kept = [];
@@ -371,6 +376,20 @@ describe('editing a document', () => {
 		);
 		expect(docs.batches).toEqual([]);
 		expect(history.logged).toEqual([]);
+	});
+
+	test('a precondition Docs turns a batch down for is stale only where it is about the revision; any other is passed on as Docs says it', async () => {
+		const {runDocsEdit} = await import('./google-docs');
+		const edit = () => runDocsEdit(run({id: '1Plan', revision: 'rev-1', edits: [{find: 'beta', replace: 'release'}]}));
+
+		docs.precondition = 'The revision rev-1 is no longer the latest.';
+		expect(refusal(await edit())).toStartWith('conflict: The document changed since revision rev-1 was read');
+
+		docs.precondition = 'The document is locked for editing.';
+		const refused = refusal(await edit());
+		expect(refused).not.toContain('changed since revision');
+		expect(refused).toContain('The document is locked for editing.');
+		expect(docs.batches).toEqual([]);
 	});
 
 	test('text that appears nowhere, or more than once, is turned down with how often it appears, every edit at once, and nothing is sent', async () => {

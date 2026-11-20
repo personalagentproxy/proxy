@@ -122,7 +122,8 @@ type Request = {method: string; url: URL; type: string; body: string; bytes: Buf
 // Where Sheets puts an appended row: after the last rows holding anything, from the first column of
 // the block they are in.
 // What a search of Drive finds, by its query; none is asked for but in the searches' tests.
-const google = {requests: [] as Request[], appendColumn: 'A', appendedTitle: 'Q1', found: null as ((q: string) => File[]) | null};
+// `enteredDown`: Sheets failing to read cells as they were entered, as after a write, for its undo.
+const google = {requests: [] as Request[], appendColumn: 'A', appendedTitle: 'Q1', found: null as ((q: string) => File[]) | null, enteredDown: false};
 
 function driveFile(file: File): object {
 	return {
@@ -232,6 +233,9 @@ function answer(request: Request): Response {
 		return Response.json(driveFile(file));
 	}
 	if (path === '/v4/spreadsheets/1Budget' && url.searchParams.has('ranges')) {
+		if (google.enteredDown) {
+			return Response.json({error: {code: 503, message: 'The service is currently unavailable.', status: 'UNAVAILABLE'}}, {status: 503});
+		}
 		return Response.json({sheets: [{data: [enteredOf(url.searchParams.get('ranges') ?? '')]}]});
 	}
 	if (path === '/v4/spreadsheets/1Budget') {
@@ -292,6 +296,7 @@ beforeEach(() => {
 	google.appendColumn = 'A';
 	google.appendedTitle = 'Q1';
 	google.found = null;
+	google.enteredDown = false;
 });
 
 describe('creating files', () => {
@@ -723,6 +728,17 @@ describe('the history of what is written', () => {
 			['edit', '1Budget', {kind: 'sheets_cells', sheetId: 0, tab: 'Q1', range: 'A4:C4', before: [[null, null, null]], after: [[{value: 'Travel'}, null, {value: 'Due'}]]}],
 			['edit', '1Budget', null],
 		]);
+	});
+
+	test('a row Sheets appended is answered as added where its cells can’t be read again after, keeping no undo, so it is never added twice', async () => {
+		google.enteredDown = true;
+		const {filesConnector} = await import('./google-files');
+		const record = await filesConnector.create(target, {content: 'Item: Travel\nStatus: Due'}, 'sheet-1Budget-0');
+
+		expect(record.isOk()).toBe(true);
+		expect(writes().filter((request) => request.url.pathname.endsWith(':append'))).toHaveLength(1);
+		expect(history.logged.map(({kind, fileId, undo}) => [kind, fileId, undo])).toEqual([['edit', '1Budget', null]]);
+		expect(logError).toHaveBeenCalledWith('The cells a Sheet write left could not be read for its undo', {spreadsheetId: '1Budget', errorKind: 'provider_unreachable'});
 	});
 
 	test('a file moved to Trash is logged as trashed', async () => {

@@ -7,7 +7,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 
 import express from 'express';
-import {Ok, type Result} from 'ts-results-es';
+import {Err, Ok, type Result} from 'ts-results-es';
 
 import type {ApiError} from '@proxy/utils';
 
@@ -42,8 +42,9 @@ mock.module('../utils/secret-crypto', () => ({
 	decryptSecret: (stored: string): Result<string, ApiError> => Ok(stored.replace(/^enc:/, '')),
 }));
 
+const logError = mock();
 mock.module('../observability/log', () => ({
-	log: {debug: mock(), info: mock(), warn: mock(), error: mock()},
+	log: {debug: mock(), info: mock(), warn: mock(), error: logError},
 	serializeError: mock(() => ({})),
 }));
 
@@ -441,9 +442,9 @@ describe.skipIf(!databaseUrl)('uploads into Google Drive, through a URL', () => 
 		]);
 
 		expect(refusals.map(refusal)).toEqual([
-			'validation_error: “Launch plan” is a Doc, which is never written over whole, since it would lose its comments, suggestions and formatting: edit its text in place with docs_edit, or upload the file as a new Doc, with name, parent and convert.',
-			'validation_error: “Launch plan” is a Doc, which is never written over whole, since it would lose its comments, suggestions and formatting: edit its text in place with docs_edit, or upload the file as a new Doc, with name, parent and convert.',
-			'validation_error: “Budget 2026” is a Sheet, which is never written over whole, since it would lose its comments, suggestions and formatting: write its cells with ranges_write, and change its rows, columns and tabs with sheets_rows and sheets_tabs, or upload the file as a new Sheet, with name, parent and convert.',
+			'validation_error: “Launch plan” is a Doc, which is never written over whole, since it would lose its comments, suggestions and formatting: edit its text in place with the docs_edit tool, or upload the file as a new Doc, with name, parent and convert.',
+			'validation_error: “Launch plan” is a Doc, which is never written over whole, since it would lose its comments, suggestions and formatting: edit its text in place with the docs_edit tool, or upload the file as a new Doc, with name, parent and convert.',
+			'validation_error: “Budget 2026” is a Sheet, which is never written over whole, since it would lose its comments, suggestions and formatting: write its cells with the ranges_write tool, and change its rows, columns and tabs with sheets_rows and sheets_tabs, or upload the file as a new Sheet, with name, parent and convert.',
 			'validation_error: “Projects” is a folder, which holds no bytes: give a file’s id, or a name and this folder as parent to add a file in it',
 			'validation_error: convert makes a new file into a Doc, Sheet or Slides file; a file written over keeps its own kind: leave convert out',
 			'validation_error: A file uploaded is its own bytes, of their own type, never one of Google’s: to make a Doc, Sheet or Slides file, upload a docx, xlsx or pptx, or Markdown or CSV, with convert',
@@ -463,15 +464,16 @@ describe.skipIf(!databaseUrl)('uploads into Google Drive, through a URL', () => 
 		const {fileId} = await uploadOf(lineOf(made, 'Upload'));
 		expect(state.files[fileId ?? '']).toBeUndefined();
 
+		// Fewer bytes than were said are not kept, and done has nothing to send.
 		const over = unwrap(await tool('files_upload', {id: '1Contract', version: '1Contract-r1', size: 6}));
-		expect(await put(lineOf(over, 'URL'), 'short')).toBe(200);
-		expect(refusal(await tool('files_upload_done', {upload: lineOf(over, 'Upload')}))).toStartWith('conflict: Contract.pdf was to be 6 bytes, and 5 arrived');
+		expect(await put(lineOf(over, 'URL'), 'short')).toBe(400);
+		expect(refusal(await tool('files_upload_done', {upload: lineOf(over, 'Upload')}))).toStartWith(`validation_error: Nothing has arrived for upload ${lineOf(over, 'Upload')} yet`);
 		expect(state.files['1Contract']?.revisions.map((revision) => revision.id)).toEqual(['1Contract-r1']);
 		expect(uploadsToDrive()).toEqual([]);
 
 		// Refused for good: asked again, it says so, and asks nothing of Drive.
 		google.requests = [];
-		expect(refusal(await tool('files_upload_done', {upload: lineOf(over, 'Upload')}))).toStartWith('conflict: Contract.pdf was to be 6 bytes');
+		expect(refusal(await tool('files_upload_done', {upload: lineOf(made, 'Upload')}))).toStartWith('conflict: The bytes that arrived for chart.png');
 		expect(google.requests).toEqual([]);
 	});
 
@@ -486,6 +488,24 @@ describe.skipIf(!databaseUrl)('uploads into Google Drive, through a URL', () => 
 		google.requests = [];
 		const done = unwrap(await tool('files_upload_done', {upload: lineOf(ticket, 'Upload')}));
 		expect(lineOf(done, 'Version')).toBe(`${id}-r1`);
+		expect(uploadsToDrive()).toEqual([]);
+	});
+
+	test('a file Drive made whose upload can’t then be marked done is answered as made, and the upload left taken, so no done makes it again', async () => {
+		const fileUploads = await import('@proxy/db/file-uploads');
+		const marking = spyOn(fileUploads, 'finishFileUpload').mockImplementation(async () => Err({kind: 'db_error', statusCode: 500, cause: new Error('the database blinked')}));
+		const ticket = unwrap(await tool('files_upload', {name: 'Retro.docx', parent: '1Projects', size: 9, convert: true}));
+		expect(await put(lineOf(ticket, 'URL'), 'docx 9 b.')).toBe(200);
+
+		const done = unwrap(await tool('files_upload_done', {upload: lineOf(ticket, 'Upload')}));
+		expect(state.files[lineOf(done, 'Id')]?.mimeType).toBe(MIME.document);
+		expect(marking).toHaveBeenCalledTimes(3);
+		expect(logError).toHaveBeenCalledWith('An upload made its file, and could not be marked done', {uploadId: lineOf(ticket, 'Upload'), errorKind: 'db_error'});
+		marking.mockRestore();
+
+		// Drive reserves no id for a Doc it converts, so a done let in again would make a second.
+		google.requests = [];
+		expect(refusal(await tool('files_upload_done', {upload: lineOf(ticket, 'Upload')}))).toStartWith(`conflict: The file is still arriving for upload ${lineOf(ticket, 'Upload')}, or being made`);
 		expect(uploadsToDrive()).toEqual([]);
 	});
 

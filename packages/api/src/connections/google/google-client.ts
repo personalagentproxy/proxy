@@ -118,7 +118,8 @@ export function googleWrite<S extends z.ZodType>(accessToken: string, method: Wr
  * `batchUpdate` with `writeControl.requiredRevisionId` is: Google turning it down since the file
  * changed after that revision is a `conflict`, saying `stale`, which says what to read again;
  * anything else is as `googleWrite` answers it. Google says so as a 400 INVALID_ARGUMENT that the
- * required revision doesn't match the latest, and documents FAILED_PRECONDITION: either is taken.
+ * required revision doesn't match the latest, and documents FAILED_PRECONDITION: either is taken,
+ * a FAILED_PRECONDITION only where it is about the revision, as one for another reason is not.
  */
 export async function googleRevisionWrite<S extends z.ZodType>(accessToken: string, url: URL, body: object, schema: S, stale: string): Promise<Result<z.infer<S>, ApiError>> {
 	const init = {method: 'POST', headers: {...authHeaders(accessToken), 'content-type': 'application/json'}, body: JSON.stringify(body)};
@@ -127,13 +128,14 @@ export async function googleRevisionWrite<S extends z.ZodType>(accessToken: stri
 }
 
 const STALE_REVISION = /required revision id .*does not match the latest revision/i;
+const REVISION = /revision/i;
 
 function isStaleRevision(error: FetchError): boolean {
 	if (error.kind !== 'http' || error.status !== 400) {
 		return false;
 	}
 	const google = readGoogleError(error);
-	return google.status === 'FAILED_PRECONDITION' || STALE_REVISION.test(google.message);
+	return STALE_REVISION.test(google.message) || (google.status === 'FAILED_PRECONDITION' && REVISION.test(google.message));
 }
 
 /** A write whose body is of its own type, text or bytes, as a file uploaded to Drive is, its answer read with `schema`. */

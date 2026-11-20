@@ -10,7 +10,8 @@ import {db} from '.';
  * where the bytes go and where the upload stands. The api's uploads module starts and finishes
  * them, for every kind of drive; what is kept here holds whoever asks: a PUT takes an upload only
  * while it is open, not yet filled and not yet past its hour, and one PUT or one
- * files_upload_done works on an upload at a time (`lockFileUpload`).
+ * files_upload_done works on an upload at a time (`lockFileUpload`), saying it still does as it
+ * goes (`holdFileUpload`), so that one whose process died is taken again once it stops saying so.
  */
 
 export type {FileUploadStatus, FileUploadTarget};
@@ -130,21 +131,37 @@ export function findFileUploadBySecret(
 	});
 }
 
+// Not worked on: by nothing, or by something that last said it was before `staleBefore`, and so died.
+function notHeld(staleBefore: Date): Prisma.FileUploadWhereInput {
+	return {OR: [{lockedAt: null}, {lockedAt: {lt: staleBefore}}]};
+}
+
 /**
- * Takes an open upload to work on, where nothing else has it: for a PUT, only one whose bytes are
- * not in yet, before it expires; for files_upload_done, any open one. Whether it took it.
+ * Takes an open upload to work on, where nothing else has it, or what had it last said so before
+ * `staleBefore`: for a PUT, only one whose bytes are not in yet, before it expires; for
+ * files_upload_done, any open one. Whether it took it.
  */
 export function lockFileUpload(
 	id: string,
-	data: {now: Date; put: boolean},
+	data: {now: Date; put: boolean; staleBefore: Date},
 ): Promise<Result<boolean, ApiError>> {
 	return wrapDb(async () => {
 		const forPut = data.put ? {receivedAt: null, expiresAt: {gt: data.now}} : {};
 		const {count} = await db.fileUpload.updateMany({
-			where: {id, status: 'open', lockedAt: null, ...forPut},
+			where: {id, status: 'open', ...notHeld(data.staleBefore), ...forPut},
 			data: {lockedAt: data.now},
 		});
 		return count > 0;
+	});
+}
+
+/** Says an upload taken is worked on still, as of `now`. */
+export function holdFileUpload(id: string, now: Date): Promise<Result<void, ApiError>> {
+	return wrapDb(async () => {
+		await db.fileUpload.updateMany({
+			where: {id, status: 'open', lockedAt: {not: null}},
+			data: {lockedAt: now},
+		});
 	});
 }
 
@@ -199,22 +216,29 @@ export function expireFileUpload(id: string): Promise<Result<boolean, ApiError>>
 }
 
 /**
- * The open uploads to let go, oldest first: those past `expiresAt` that nothing is coming in for
- * and that hold no bytes, and every one past `expiresAt` by `graceMs` or more, whatever it holds or
- * whoever has it, as one whose bytes came in but that no files_upload_done finished.
+ * The open uploads to let go, oldest first, of those nothing works on, or nothing has said it does
+ * since `staleBefore`: those past `expiresAt` that hold no bytes, and every one past `expiresAt` by
+ * `graceMs` or more, whatever it holds, as one whose bytes came in but that no files_upload_done
+ * finished.
  */
 export function listExpiredFileUploads(data: {
 	now: Date;
 	graceMs: number;
+	staleBefore: Date;
 	limit: number;
 }): Promise<Result<FileUploadRow[], ApiError>> {
 	return wrapDb(async () => {
 		const rows = await db.fileUpload.findMany({
 			where: {
 				status: 'open',
-				OR: [
-					{expiresAt: {lt: data.now}, lockedAt: null, receivedAt: null},
-					{expiresAt: {lt: new Date(data.now.getTime() - data.graceMs)}},
+				AND: [
+					notHeld(data.staleBefore),
+					{
+						OR: [
+							{expiresAt: {lt: data.now}, receivedAt: null},
+							{expiresAt: {lt: new Date(data.now.getTime() - data.graceMs)}},
+						],
+					},
 				],
 			},
 			select: uploadSelect,

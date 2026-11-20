@@ -218,12 +218,12 @@ function keepCopy(editor: DriveEditor, file: DriveFileState, revision: string | 
 	});
 }
 
-// Begins a change to a file in Drive: reads its revision, and, for a change to what it holds,
-// keeps its copy where the task has none yet. What it answers is what the change is logged with
-// once it is made.
-function beginDriveChange(editor: DriveEditor, fileId: string, scope: ChangeScope): Promise<Result<DriveChange, ApiError>> {
+// Begins a change to a file in Drive, by its id or as it was just read: reads its revision, and,
+// for a change to what it holds, keeps its copy where the task has none yet. What it answers is
+// what the change is logged with once it is made.
+function beginDriveChange(editor: DriveEditor, given: string | DriveFileState, scope: ChangeScope): Promise<Result<DriveChange, ApiError>> {
 	return Do(async ($) => {
-		const file = $(await getFileState(editor.token, fileId));
+		const file = typeof given === 'string' ? $(await getFileState(editor.token, given)) : given;
 		const beforeRevision = $(await revisionOf(editor.token, file));
 		const copy = scope.content && !$(await hasCopied(editor.change, file.id)) ? $(await keepCopy(editor, file, beforeRevision)) : null;
 		return {fileId: file.id, name: file.name, mimeType: file.mimeType, beforeRevision, beforeVersion: copy?.id ?? null};
@@ -276,16 +276,16 @@ function logDriveChange(editor: DriveEditor, change: DriveChange, entry: DriveCh
  * A write to one file in Drive, made in one call, through its history: begun, so the task's copy
  * is kept first where the write changes what the file holds, and refused where that fails; made by
  * `write`, which answers what it did and how to log it; and logged, never failing the write once
- * Drive has it.
+ * Drive has it. The file is given by its id, or as the caller just read it, which is not read again.
  */
 export function changeDriveFile<T>(
 	editor: DriveEditor,
-	fileId: string,
+	file: string | DriveFileState,
 	scope: ChangeScope,
 	write: (change: DriveChange) => Promise<Result<{done: T; entry: DriveChangeEntry}, ApiError>>,
 ): Promise<Result<T, ApiError>> {
 	return Do(async ($) => {
-		const change = $(await beginDriveChange(editor, fileId, scope));
+		const change = $(await beginDriveChange(editor, file, scope));
 		const {done, entry} = $(await write(change));
 		await logDriveChange(editor, change, entry);
 		return done;

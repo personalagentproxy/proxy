@@ -2,7 +2,7 @@ import type {Request, Response} from 'express';
 
 import {Err, Ok, Result} from 'ts-results-es';
 
-import {ApiErr, type ApiError, Do} from '@proxy/utils';
+import {ApiErr, type ApiError, apiErrorMessage, Do} from '@proxy/utils';
 import {CLI_GITHUB_API_PATH, CLI_GITHUB_GIT_PATH, type GitHubIdentity, PAP_CONNECTION_HEADER} from '@proxy/contracts/cli-github';
 import {API_REQUESTS_ID, GIT_REQUESTS_ID} from '@proxy/integrations';
 
@@ -75,7 +75,7 @@ function namedConnection(request: Request): string | undefined {
 // An error, in the words the agent side gives a model, as code in a sandbox calls things; GitHub
 // turning the connection down is the server between failing, as GitHub out of reach is.
 function refusalOf(error: ApiError): Refusal {
-	const message = 'message' in error && error.message ? error.message : agentErrorMessage(error, 'cli');
+	const message = apiErrorMessage(error) ?? agentErrorMessage(error, 'cli');
 	return {status: error.kind === 'credentials_rejected' ? 502 : error.statusCode, message};
 }
 

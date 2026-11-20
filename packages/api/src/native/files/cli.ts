@@ -1,7 +1,7 @@
 import type {Response} from 'express';
 import {Err, Ok, type Result} from 'ts-results-es';
 
-import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
+import {ApiErr, type ApiError, apiErrorMessage, Do, parseSchema, requirePresent} from '@proxy/utils';
 import {findTool, type Tool, TOOLS_COLLECTION_ID} from '@proxy/integrations';
 import {CLI_FILE_HEADER, CLI_STATUS, cliListQuerySchema, cliPullQuerySchema, cliUploadQuerySchema, type CliUploadStarted} from '@proxy/contracts/cli';
 
@@ -73,7 +73,7 @@ function fail(response: Response, error: ApiError): void {
 	if (error.kind === 'internal_error' || error.kind === 'db_error') {
 		serverLog.error('A pap files request failed', {kind: error.kind, ...serializeError(error.cause)});
 	}
-	const message = 'message' in error && error.message ? error.message : agentErrorMessage(error, 'cli');
+	const message = apiErrorMessage(error) ?? agentErrorMessage(error, 'cli');
 	response.status(CLI_STATUS.failed).json({error: error.kind, message});
 }
 

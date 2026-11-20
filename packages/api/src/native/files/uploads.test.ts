@@ -257,12 +257,18 @@ describe.skipIf(!databaseUrl)('uploads into a drive, through a URL', () => {
 		expect(unknown.status).toBe(404);
 	});
 
-	test('makes nothing of bytes that are not what was said', async () => {
+	test('makes nothing of bytes that are not what was said, and takes the whole file after one that came short', async () => {
 		const short = unwrap(await tool('files_upload', {name: 'short.txt', size: 10}));
-		expect((await put(lineOf(short, 'URL'), 'five5')).status).toBe(200);
-		expect(refusal(await tool('files_upload_done', {upload: lineOf(short, 'Upload')}))).toBe(
-			'conflict: short.txt was to be 10 bytes, and 5 arrived, so nothing was made of it. Start again with files_upload, with the file’s size in bytes, as wc -c < <path> counts it.',
-		);
+		const shortUpload = lineOf(short, 'Upload');
+		const fewer = await put(lineOf(short, 'URL'), 'five5');
+		expect(fewer.status).toBe(400);
+		const refused = await fewer.json();
+		expect(refused.error).toBe('incomplete');
+		expect(refused.message).toStartWith(`5 of the 10 bytes upload ${shortUpload} was started for came, so they were not kept.`);
+		expect(refusal(await tool('files_upload_done', {upload: shortUpload}))).toStartWith(`validation_error: Nothing has arrived for upload ${shortUpload} yet`);
+		// The URL takes the whole file still.
+		expect((await put(lineOf(short, 'URL'), 'ten bytes!')).status).toBe(200);
+		unwrap(await tool('files_upload_done', {upload: shortUpload}));
 
 		const wrong = unwrap(await tool('files_upload', {name: 'hashed.txt', size: 5, sha256: sha256('right')}));
 		expect((await put(lineOf(wrong, 'URL'), 'wrong')).status).toBe(200);
@@ -271,7 +277,7 @@ describe.skipIf(!databaseUrl)('uploads into a drive, through a URL', () => {
 		);
 
 		const {db} = await import('@proxy/db');
-		expect(await db.fileNode.findMany({where: {connectionId, name: {in: ['short.txt', 'hashed.txt']}}})).toEqual([]);
+		expect((await db.fileNode.findMany({where: {connectionId, name: {in: ['short.txt', 'hashed.txt']}}})).map((node) => node.name)).toEqual(['short.txt']);
 	});
 
 	test('takes nothing after its hour, and the sweep lets go of what nobody finished', async () => {

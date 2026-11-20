@@ -83,7 +83,7 @@ function writeCells(token: string, spreadsheet: string, range: string, rows: str
 		const area = cellsOfRange(spreadsheet, $(await getSheets(token, spreadsheet)), range, size);
 		const before = area ? $(await cellsBefore(token, area)) : null;
 		const written = $(await putValues(token, spreadsheet, range, rows, render));
-		const undo = area ? $(await cellsUndo(token, area, before)) : null;
+		const undo = area ? await cellsUndo(token, area, before) : null;
 		return {done: written, entry: {kind: 'edit', undo}};
 	});
 }

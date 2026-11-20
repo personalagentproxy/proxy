@@ -2,16 +2,17 @@ import {randomBytes} from 'node:crypto';
 
 import {Err, Ok, type Result} from 'ts-results-es';
 
-import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
+import {ApiErr, type ApiError, apiErrorMessage, Do, requirePresent} from '@proxy/utils';
 import {formatBytes} from '@proxy/utils/bytes';
 import {UPLOADS_PATH} from '@proxy/contracts/uploads';
 import {createFileBlob, type FileBlobRow, getFileBlob} from '@proxy/db/files';
-import {createFileUpload, expireFileUpload, failFileUpload, type FileUploadRow, finishFileUpload, getFileUpload, lockFileUpload, unlockFileUpload} from '@proxy/db/file-uploads';
+import {createFileUpload, expireFileUpload, failFileUpload, type FileUploadRow, finishFileUpload, getFileUpload, holdFileUpload, lockFileUpload, unlockFileUpload} from '@proxy/db/file-uploads';
 
 import {hashToken} from '../auth/session';
 import {blobBackend} from '../backends/backends';
 import {maxFileBytes, newBlobKey} from '../native/files/content';
 import type {NativeToolRun} from '../native/tool';
+import {log} from '../observability/log';
 import {env} from '../utils/env';
 
 /**
@@ -37,6 +38,43 @@ import {env} from '../utils/env';
 
 /** How long an upload's URL takes bytes. */
 export const UPLOAD_TTL_MS = 60 * 60_000;
+
+// How long an upload taken by a PUT or a done stays taken with nothing saying it is worked on
+// still: one whose process died, in a deploy or a restart, is taken again after it.
+const LOCK_STALE_MS = 5 * 60_000;
+
+// How often whatever works on an upload says it does, well within the time it goes stale.
+const LOCK_HELD_MS = 60_000;
+
+/** Since when an upload taken must have been said to be worked on, or be taken again. */
+export function lockStaleBefore(now: Date): Date {
+	return new Date(now.getTime() - LOCK_STALE_MS);
+}
+
+/** Takes an open upload to work on, for a PUT or for done, where nothing else works on it (@proxy/db/file-uploads `lockFileUpload`). */
+export function lockUpload(id: string, put: boolean): Promise<Result<boolean, ApiError>> {
+	const now = new Date();
+	return lockFileUpload(id, {now, put, staleBefore: lockStaleBefore(now)});
+}
+
+/**
+ * Works on an upload taken with `lockUpload`, saying it does all the while, so a long PUT, or a
+ * done sending a large file on to its drive, is never taken from it.
+ */
+export async function holdingUpload<T>(id: string, work: () => Promise<T>): Promise<T> {
+	const timer = setInterval(() => {
+		void holdFileUpload(id, new Date()).then((held) => {
+			if (held.isErr()) {
+				log.warn('An upload being worked on could not say so', {uploadId: id, errorKind: held.error.kind});
+			}
+		});
+	}, LOCK_HELD_MS);
+	try {
+		return await work();
+	} finally {
+		clearInterval(timer);
+	}
+}
 
 /** Who uploads, for which task and how the call came in; and the activity log's entry of the call. */
 export type UploadRun = Pick<NativeToolRun, 'caller' | 'connection' | 'entryId'>;
@@ -148,11 +186,7 @@ const EXPIRED = 'This upload expired: its URL takes bytes for an hour, and nothi
 // finish yet, with why, or past its hour.
 type Settled = {kind: 'made'; made: UploadMade} | {kind: 'failed'; why: string} | {kind: 'waiting'; why: string} | {kind: 'expired'};
 
-function errorText(error: ApiError): string {
-	return 'message' in error && error.message ? error.message : error.kind;
-}
-
-// The blob the bytes arrived in, once a PUT has them all; none before.
+// The blob the bytes arrived in, once a PUT has brought them all, as many as were said; none before.
 function arrivedBlob(upload: FileUploadRow): Promise<Result<FileBlobRow | null, ApiError>> {
 	return Do(async ($) => {
 		if (upload.receivedAt === null) {
@@ -175,12 +209,6 @@ function settle(run: UploadRun, uploads: DriveUploads, upload: FileUploadRow, no
 				why: `Nothing has arrived for upload ${upload.id} yet: PUT the file to the URL files_upload answered with, as curl -X PUT --upload-file <path> '<url>', then call files_upload_done again.`,
 			};
 		}
-		if (blob.size !== upload.size) {
-			return {
-				kind: 'failed',
-				why: `${upload.name} was to be ${upload.size} bytes, and ${blob.size} arrived, so nothing was made of it. Start again with files_upload, with the file’s size in bytes, as wc -c < <path> counts it.`,
-			};
-		}
 		if (upload.sha256 !== null && blob.sha256 !== upload.sha256) {
 			return {
 				kind: 'failed',
@@ -189,7 +217,7 @@ function settle(run: UploadRun, uploads: DriveUploads, upload: FileUploadRow, no
 		}
 		const made = await uploads.finish(run, upload, blob);
 		if (made.isErr() && (made.error.kind === 'conflict' || made.error.kind === 'validation_error' || made.error.kind === 'not_found')) {
-			return {kind: 'failed', why: `${errorText(made.error)} Nothing was made of upload ${upload.id}: start again with files_upload.`};
+			return {kind: 'failed', why: `${apiErrorMessage(made.error) ?? made.error.kind} Nothing was made of upload ${upload.id}: start again with files_upload.`};
 		}
 		return {kind: 'made', made: $(made)};
 	});
@@ -200,6 +228,27 @@ function doneOf(run: UploadRun, uploads: DriveUploads, upload: FileUploadRow, ma
 		const link = $(await uploads.link(run, upload, made));
 		return {upload: upload.id, name: upload.name, size: upload.size, created: upload.target === 'create', made, link};
 	});
+}
+
+// How many times an upload whose file was made is marked done before it is left as it is, and how long between.
+const FINISH_TRIES = 3;
+const FINISH_PAUSE_MS = 500;
+
+// An upload whose file was made, marked done, tried again where it fails. One that still can't be
+// is left taken, never let go open, which would have the next done make the file again, and
+// answered as done all the same, since the file is made; it is logged on the server.
+async function markDone(upload: FileUploadRow, made: UploadMade): Promise<void> {
+	for (let tried = 1; ; tried += 1) {
+		const finished = await finishFileUpload(upload.id, {fileId: made.fileId, afterVersion: made.version});
+		if (finished.isOk()) {
+			return;
+		}
+		if (tried === FINISH_TRIES) {
+			log.error('An upload made its file, and could not be marked done', {uploadId: upload.id, errorKind: finished.error.kind});
+			return;
+		}
+		await Bun.sleep(FINISH_PAUSE_MS * tried);
+	}
 }
 
 // What done ends in for the upload's row, once it has the upload to work on: let go where it can't
@@ -223,11 +272,7 @@ function settled(upload: FileUploadRow, outcome: Result<Settled, ApiError>): Pro
 			$(await failFileUpload(upload.id, value.why));
 			return $(Err(ApiErr.conflict(value.why)));
 		}
-		const finished = await finishFileUpload(upload.id, {fileId: value.made.fileId, afterVersion: value.made.version});
-		if (finished.isErr()) {
-			$(await unlockFileUpload(upload.id));
-		}
-		$(finished);
+		await markDone(upload, value.made);
 		return value.made;
 	});
 }
@@ -253,11 +298,10 @@ export function finishUpload(run: UploadRun, uploads: DriveUploads, uploadId: st
 			return $(Err(ApiErr.conflict(EXPIRED)));
 		}
 
-		const now = new Date();
-		if (!$(await lockFileUpload(upload.id, {now, put: false}))) {
+		if (!$(await lockUpload(upload.id, false))) {
 			return $(Err(ApiErr.conflict(`The file is still arriving for upload ${upload.id}, or being made: call files_upload_done again once the PUT has answered.`)));
 		}
-		const made = $(await settled(upload, await settle(run, uploads, upload, now)));
+		const made = $(await holdingUpload(upload.id, async () => settled(upload, await settle(run, uploads, upload, new Date()))));
 		return $(await doneOf(run, uploads, {...upload, fileId: made.fileId, afterVersion: made.version, status: 'done'}, made));
 	});
 }

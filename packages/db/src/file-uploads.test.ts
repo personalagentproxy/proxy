@@ -10,6 +10,7 @@ import {
 	findFileUploadBySecret,
 	finishFileUpload,
 	getFileUpload,
+	holdFileUpload,
 	listExpiredFileUploads,
 	lockFileUpload,
 	unlockFileUpload,
@@ -29,6 +30,7 @@ function unwrap<T>(result: Result<T, ApiError>): T {
 }
 
 const HOUR = 60 * 60_000;
+const STALE = 5 * 60_000;
 
 describe.skipIf(!databaseUrl)('uploads, against the database', () => {
 	const stamp = `${Date.now()}-${process.pid}`;
@@ -100,14 +102,16 @@ describe.skipIf(!databaseUrl)('uploads, against the database', () => {
 
 	test('lets one PUT or one done work on an upload at a time, a PUT only before its bytes are in and its hour is up', async () => {
 		const now = new Date();
+		const staleBefore = new Date(now.getTime() - STALE);
+		const lock = (id: string, put: boolean) => lockFileUpload(id, {now, put, staleBefore});
 		const open = await upload();
-		expect(unwrap(await lockFileUpload(open.id, {now, put: true}))).toBe(true);
-		expect(unwrap(await lockFileUpload(open.id, {now, put: true}))).toBe(false);
-		expect(unwrap(await lockFileUpload(open.id, {now, put: false}))).toBe(false);
+		expect(unwrap(await lock(open.id, true))).toBe(true);
+		expect(unwrap(await lock(open.id, true))).toBe(false);
+		expect(unwrap(await lock(open.id, false))).toBe(false);
 		unwrap(await unlockFileUpload(open.id, {received: now}));
 		// Its bytes in, no PUT takes it again; done does.
-		expect(unwrap(await lockFileUpload(open.id, {now, put: true}))).toBe(false);
-		expect(unwrap(await lockFileUpload(open.id, {now, put: false}))).toBe(true);
+		expect(unwrap(await lock(open.id, true))).toBe(false);
+		expect(unwrap(await lock(open.id, false))).toBe(true);
 		const finished = unwrap(
 			await finishFileUpload(open.id, {fileId: 'file-1', afterVersion: 'version-1'}),
 		);
@@ -117,12 +121,25 @@ describe.skipIf(!databaseUrl)('uploads, against the database', () => {
 			fileId: 'file-1',
 			afterVersion: 'version-1',
 		});
-		expect(unwrap(await lockFileUpload(open.id, {now, put: false}))).toBe(false);
+		expect(unwrap(await lock(open.id, false))).toBe(false);
 
 		const late = await upload(new Date(now.getTime() - 1000));
-		expect(unwrap(await lockFileUpload(late.id, {now, put: true}))).toBe(false);
+		expect(unwrap(await lock(late.id, true))).toBe(false);
 		expect(unwrap(await expireFileUpload(late.id))).toBe(true);
 		expect(unwrap(await expireFileUpload(late.id))).toBe(false);
+
+		// One whose holder stopped saying it works on it is taken again; one still said to be, never.
+		const held = await upload();
+		unwrap(
+			await lockFileUpload(held.id, {
+				now: new Date(now.getTime() - 2 * STALE),
+				put: true,
+				staleBefore,
+			}),
+		);
+		expect(unwrap(await lock(held.id, true))).toBe(true);
+		unwrap(await holdFileUpload(held.id, now));
+		expect(unwrap(await lock(held.id, true))).toBe(false);
 	});
 
 	test('lists for the sweep what nothing is coming for past its hour, and anything still open an hour after', async () => {
@@ -130,16 +147,29 @@ describe.skipIf(!databaseUrl)('uploads, against the database', () => {
 		const ago = (ms: number) => new Date(now.getTime() - ms);
 		const idle = await upload(ago(1000));
 		const sending = await upload(ago(1000));
-		unwrap(await lockFileUpload(sending.id, {now: ago(2000), put: false}));
+		unwrap(await lockFileUpload(sending.id, {now: ago(2000), put: false, staleBefore: ago(STALE)}));
+		// A PUT whose process died, never to answer.
+		const died = await upload(ago(1000));
+		unwrap(
+			await lockFileUpload(died.id, {now: ago(2 * STALE), put: true, staleBefore: ago(STALE)}),
+		);
+		// A done that is still sending a forgotten upload's bytes on to the drive.
+		const finishing = await upload(ago(HOUR + 1000));
+		unwrap(await unlockFileUpload(finishing.id, {received: ago(HOUR + 2000)}));
+		unwrap(
+			await lockFileUpload(finishing.id, {now: ago(2000), put: false, staleBefore: ago(STALE)}),
+		);
 		const arrived = await upload(ago(1000));
 		unwrap(await unlockFileUpload(arrived.id, {received: ago(2000)}));
 		const forgotten = await upload(ago(HOUR + 1000));
 		unwrap(await unlockFileUpload(forgotten.id, {received: ago(HOUR + 2000)}));
 		await upload();
 
-		const listed = unwrap(await listExpiredFileUploads({now, graceMs: HOUR, limit: 100})).filter(
-			(found) => found.connectionId === connectionId,
+		const listed = unwrap(
+			await listExpiredFileUploads({now, graceMs: HOUR, staleBefore: ago(STALE), limit: 100}),
+		).filter((found) => found.connectionId === connectionId);
+		expect(listed.map((found) => found.id).toSorted()).toEqual(
+			[idle.id, died.id, forgotten.id].toSorted(),
 		);
-		expect(listed.map((found) => found.id).toSorted()).toEqual([idle.id, forgotten.id].toSorted());
 	});
 });

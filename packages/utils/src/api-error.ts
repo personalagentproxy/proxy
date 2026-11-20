@@ -21,6 +21,11 @@ export type ApiError =
 	// Something this server needs for the request isn't set up, such as a key or a model.
 	| {kind: 'unavailable'; statusCode: 503; message: string};
 
+/** What an error says, where it says something; null for one that says only its kind. */
+export function apiErrorMessage(error: ApiError): string | null {
+	return 'message' in error && error.message ? error.message : null;
+}
+
 export const ApiErr = {
 	notFound: (resource: string, id?: string, message?: string): ApiError => ({
 		kind: 'not_found',

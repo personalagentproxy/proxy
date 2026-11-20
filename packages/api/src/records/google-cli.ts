@@ -5,7 +5,6 @@ import type {CliConversion, CliExport, CliFile, CliPulled} from '@proxy/contract
 
 import type {RunTarget} from '../agent-side/tools';
 import {
-	createFile,
 	downloadFile,
 	downloadRevision,
 	driveQuoted,
@@ -24,10 +23,10 @@ import {callGoogle, TOO_LARGE_TO_READ} from '../connections/google/google-client
 import {getSheets, getValues, rowsRange} from '../connections/google/sheets-api';
 import {type CliDrive, type CliListed, type CliPull, type CliPullAsked, type CliPush, type CliResolved, versionToWrite} from '../native/files/cli-drive';
 import {mediaType} from '../native/files/names';
-import {finishUpload, startUpload, type UploadRun} from '../uploads/tickets';
-import {folderNamed, pathInDrive} from './google-files';
-import {changeBy, logDriveCreate, sizeOf} from './google-history';
-import {googleUploads} from './google-uploads';
+import {finishUpload, startUpload} from '../uploads/tickets';
+import {pathInDrive} from './google-files';
+import {sizeOf} from './google-history';
+import {CONVERTED_EXTENSION, CSV, GOOGLE_KINDS, googleUploads, MARKDOWN} from './google-uploads';
 
 /**
  * A Google account's Drive as `pap files` reaches it (native/files/cli-drive.ts), by path, as
@@ -47,14 +46,12 @@ import {googleUploads} from './google-uploads';
  * A push is an upload into Drive (google-uploads.ts), its bytes sent to Personal Agent Proxy's
  * URL and on to Drive at done. A new file goes up as its bytes, or, asked to, is made a Doc, Sheet
  * or Slides file of a docx, Markdown, xlsx, CSV or pptx; the folders on its way that are missing
- * are made first, logged as the agent's. Over a file with bytes of its own, the version pulled is
+ * are made at done, with the file, logged as the agent's. Over a file with bytes of its own, the version pulled is
  * named, or the push says to write over it, and the task's copy is kept first (google-history.ts).
  * A Doc, Sheet or Slides file is never pushed over, which would lose its comments, suggestions and
  * whatever the bytes can't hold: the refusal points to the tools that edit it in place.
  */
 
-const MARKDOWN = 'text/markdown';
-const CSV = 'text/csv';
 const BYTES = 'application/octet-stream';
 
 // The media type of a file of the extension, as Files reads it.
@@ -116,16 +113,7 @@ function kindOf(mimeType: string): string {
 	if (mimeType === MIME_TYPES.folder) {
 		return 'folder';
 	}
-	if (mimeType === MIME_TYPES.document) {
-		return 'Doc';
-	}
-	if (mimeType === MIME_TYPES.spreadsheet) {
-		return 'Sheet';
-	}
-	if (mimeType === MIME_TYPES.presentation) {
-		return 'Slides file';
-	}
-	return mimeType;
+	return GOOGLE_KINDS[mimeType]?.name ?? mimeType;
 }
 
 // A name that matches more than one file, refused with each of them, so one is named by its id.
@@ -363,31 +351,20 @@ const CONVERSIONS: Record<CliConversion, {mimeType: string; kind: string; from: 
 	slides: {mimeType: MIME_TYPES.presentation, kind: 'Slides file', from: [typeOf('pptx')], fromText: 'a .pptx'},
 };
 
-// The extensions of what is converted, which the file Drive makes of it goes without (google-uploads.ts).
-const CONVERTED_EXTENSION = /\.(docx|xlsx|pptx|md|markdown|csv)$/i;
-
 // What the bytes pushed are, by the name of the file they are sent from; none where it says nothing.
 function sentType(push: CliPush): string | null {
 	const type = push.file === null ? BYTES : mediaType(push.file, undefined, 'bytes');
 	return type === BYTES ? null : type;
 }
 
-// How each of Google's kinds of file is changed instead of pushed over.
-const EDITED_IN_PLACE: Partial<Record<string, string>> = {
-	[MIME_TYPES.document]: 'edit its text in place with the docs_edit tool',
-	[MIME_TYPES.spreadsheet]: 'write its cells with the ranges_write tool, and change its rows, columns and tabs with sheets_rows and sheets_tabs',
-	[MIME_TYPES.presentation]: 'replace its text in place with the slides_edit tool',
-};
-
 // Why a Doc, Sheet or Slides file is never pushed over, and what to do instead.
 function googleOverRefusal(there: CliFile): ApiError {
-	const kind = kindOf(there.type ?? '');
-	const instead = EDITED_IN_PLACE[there.type ?? ''];
-	if (instead === undefined) {
-		return ApiErr.validationError(`“${there.name}” is a ${kind}, which takes nothing pushed over it.`);
+	const kind = GOOGLE_KINDS[there.type ?? ''];
+	if (kind === undefined) {
+		return ApiErr.validationError(`“${there.name}” is a ${kindOf(there.type ?? '')}, which takes nothing pushed over it.`);
 	}
 	return ApiErr.validationError(
-		`“${there.name}” is a ${kind}, which is never pushed over, since it would lose its comments, suggestions and formatting: ${instead}, or push the file to a new path with --as to make a new ${kind} of it.`,
+		`“${there.name}” is a ${kind.name}, which is never pushed over, since it would lose its comments, suggestions and formatting: ${kind.instead}, or push the file to a new path with --as to make a new ${kind.name} of it.`,
 	);
 }
 
@@ -398,25 +375,6 @@ function requireConvertible(as: CliConversion, type: string): Result<void, ApiEr
 		return Ok(undefined);
 	}
 	return Err(ApiErr.validationError(`--as ${as} makes a ${conversion.kind} of ${conversion.fromText}, and this is ${type}: push it without --as to keep it as it is.`));
-}
-
-// The folders missing on a new file's way, made in the folder `parent` names, each logged as made by the agent; the last one's record id, or the parent's where none is missing.
-function makeFolders(run: UploadRun, parentId: string, folders: string[]): Promise<Result<string, ApiError>> {
-	if (folders.length === 0) {
-		return Promise.resolve(Ok(parentId));
-	}
-	return callGoogle(run.connection, (token) =>
-		Do(async ($) => {
-			const editor = {token, change: changeBy(run.connection, {agentId: run.caller.agent.agentId, taskId: run.caller.taskId})};
-			let folderId = $(await folderNamed(token, parentId, 'A spreadsheet holds tabs: push the file into a folder'));
-			for (const name of folders) {
-				const made = $(await createFile(token, {name, mimeType: MIME_TYPES.folder, parent: folderId}, null));
-				await logDriveCreate(editor, made);
-				folderId = made.id;
-			}
-			return folderId;
-		}),
-	);
 }
 
 /** A Google account's Drive, as the target's agent reaches it. */
@@ -507,9 +465,8 @@ export function googleCliDrive(target: RunTarget): CliDrive {
 				if (push.as !== null) {
 					$(requireConvertible(push.as, mediaType(name, said ?? undefined, 'bytes')));
 				}
-				const parentId = $(await makeFolders(run, parent.id, folders));
 				const file = {size: push.size, sha256: push.sha256, type: said};
-				return $(await startUpload(run, googleUploads, {kind: 'create', parentId, folders: [], name, convert: push.as !== null}, file));
+				return $(await startUpload(run, googleUploads, {kind: 'create', parentId: parent.id, folders, name, convert: push.as !== null}, file));
 			}),
 
 		startWrite: (run, there, push, ask) =>

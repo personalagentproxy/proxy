@@ -610,7 +610,7 @@ function appendCells(drive: Drive, file: DriveFile, sheet: Sheet, cells: string[
 	return Do(async ($) => {
 		const row = $(await appendRow(drive.token, file.id, sheet.title, cells));
 		const area = cellsOfRow(file.id, sheet, row, 0, cells.length - 1);
-		const undo = area ? $(await cellsUndo(drive.token, area, emptyCells(area))) : null;
+		const undo = area ? await cellsUndo(drive.token, area, emptyCells(area)) : null;
 		return {done: row, entry: {kind: 'edit', undo}};
 	});
 }
@@ -645,15 +645,15 @@ function addRow(drive: Drive, ref: {fileId: string; sheetId: number}, values: Re
  * The Drive id of the folder a new file goes in, from the record it is made inside: My Drive's, a
  * shared drive's or a folder's. `spreadsheet` is what to say of a spreadsheet, which holds tabs.
  */
-function folderOf(token: string, ref: FileRef, spreadsheet: string): Promise<Result<string, ApiError>> {
+function folderOf(token: string, ref: FileRef, spreadsheet: string): Promise<Result<DriveFolder, ApiError>> {
 	if (ref.kind === 'place') {
 		if (ref.place.id !== MY_DRIVE.id) {
 			return refuse(`Nothing can be made in ${ref.place.name}: make it in a folder, My Drive or a shared drive`);
 		}
-		return Promise.resolve(Ok(MY_DRIVE.id));
+		return Promise.resolve(Ok({id: MY_DRIVE.id, driveId: null}));
 	}
 	if (ref.kind === 'drive') {
-		return Promise.resolve(Ok(ref.driveId));
+		return Promise.resolve(Ok({id: ref.driveId, driveId: ref.driveId}));
 	}
 	if (ref.kind === 'sheet') {
 		return refuse('A tab holds rows: make files in a folder');
@@ -670,16 +670,19 @@ function folderOf(token: string, ref: FileRef, spreadsheet: string): Promise<Res
 		if (kind !== 'Folder') {
 			return $(Err(ApiErr.validationError(`A ${kind.toLowerCase()} holds nothing: make it in a folder`)));
 		}
-		return file.id;
+		return {id: file.id, driveId: file.driveId ?? null};
 	});
 }
 
+/** A folder files are made in, by its id in Drive, with the shared drive it is in; none for My Drive's. */
+export type DriveFolder = {id: string; driveId: string | null};
+
 /**
- * The Drive id of the folder a file goes in, from the record id `parent`, as files_list gives it:
- * a folder, a shared drive (`drive-<id>`) or My Drive (`root`), which it is where `parent` is
- * null. Anything else is refused, `spreadsheet` saying what to do of a spreadsheet's id.
+ * The folder a file goes in, from the record id `parent`, as files_list gives it: a folder, a
+ * shared drive (`drive-<id>`) or My Drive (`root`), which it is where `parent` is null. Anything
+ * else is refused, `spreadsheet` saying what to do of a spreadsheet's id.
  */
-export function folderNamed(token: string, parent: string | null, spreadsheet: string): Promise<Result<string, ApiError>> {
+export function folderNamed(token: string, parent: string | null, spreadsheet: string): Promise<Result<DriveFolder, ApiError>> {
 	return Do(async ($) => {
 		const where = parent ?? MY_DRIVE.id;
 		const ref = $(requireRef(where));
@@ -692,8 +695,8 @@ function createIn(drive: Drive, ref: FileRef, values: RecordValues): Promise<Res
 		return addRow(drive, ref, values);
 	}
 	return Do(async ($) => {
-		const folderId = $(await folderOf(drive.token, ref, 'Rows go in one of the spreadsheet’s tabs: open it and pick one as parent'));
-		return $(await makeFile(drive, folderId, values));
+		const folder = $(await folderOf(drive.token, ref, 'Rows go in one of the spreadsheet’s tabs: open it and pick one as parent'));
+		return $(await makeFile(drive, folder.id, values));
 	});
 }
 
@@ -787,7 +790,7 @@ function writeRowCells(drive: Drive, fileId: string, cells: {range: string; valu
 	return Do(async ($) => {
 		const before = area ? $(await cellsBefore(drive.token, area)) : null;
 		$(await updateCells(drive.token, fileId, cells));
-		const undo = area ? $(await cellsUndo(drive.token, area, before)) : null;
+		const undo = area ? await cellsUndo(drive.token, area, before) : null;
 		return {done: undefined, entry: {kind: 'edit', undo}};
 	});
 }
@@ -875,10 +878,10 @@ type Copy = z.infer<typeof copySchema>;
 function copyInto(drive: Drive, copy: Copy): Promise<Result<string, ApiError>> {
 	return Do(async ($) => {
 		const source = $(await copiedFile(drive, copy.id));
-		const folderId = $(await folderNamed(drive.token, copy.parent || null, 'A spreadsheet holds tabs: copy the file into a folder'));
+		const folder = $(await folderNamed(drive.token, copy.parent || null, 'A spreadsheet holds tabs: copy the file into a folder'));
 		const name = copy.name?.trim() || source.name;
 		const editor = $(editorOf(drive));
-		const made = $(await copyFile(drive.token, source.id, {name, parent: folderId}));
+		const made = $(await copyFile(drive.token, source.id, {name, parent: folder.id}));
 		await logDriveCreate(editor, made);
 		const link = made.webViewLink ? [`Link: ${made.webViewLink}`] : [];
 		return [`Made “${made.name}”, a copy of “${source.name}”.`, `Id: ${made.id}`, `Kind: ${kindOf(made.mimeType)}`, ...link].join('\n');

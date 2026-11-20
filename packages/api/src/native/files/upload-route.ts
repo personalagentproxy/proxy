@@ -1,13 +1,13 @@
 import type {Request, Response} from 'express';
 import {Err, type Result} from 'ts-results-es';
 
-import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
+import {ApiErr, type ApiError, apiErrorMessage, Do, requirePresent} from '@proxy/utils';
 import type {UploadReceived, UploadRefused} from '@proxy/contracts/uploads';
 import {getFileBlob} from '@proxy/db/files';
-import {findFileUploadBySecret, lockFileUpload, unlockFileUpload} from '@proxy/db/file-uploads';
+import {findFileUploadBySecret, unlockFileUpload} from '@proxy/db/file-uploads';
 
 import {log, serializeError} from '../../observability/log';
-import {hashUploadSecret} from '../../uploads/tickets';
+import {hashUploadSecret, holdingUpload, lockUpload} from '../../uploads/tickets';
 import {fillBlob, requestBytes, type StoredContent} from './content';
 
 /**
@@ -17,8 +17,9 @@ import {fillBlob, requestBytes, type StoredContent} from './content';
  * origin check, and is open to any origin; it is known only by its hash, and neither it nor the address is ever logged (the
  * request logger writes the route's pattern). The body is read as it comes, whatever its type,
  * into the blob made for the upload at its start, counted and hashed as it passes; more bytes than
- * the upload said are refused as they come. One PUT takes an upload; one that fails partway lets
- * it go again, for another try, until its hour is up.
+ * the upload said are refused as they come, and fewer once they have come. One PUT of the whole
+ * file takes an upload; one that fails partway, or comes short, lets it go again, for another try,
+ * until its hour is up.
  */
 
 type Refusal = {status: number; body: UploadRefused};
@@ -37,7 +38,7 @@ function fromApiError(error: ApiError): Refusal {
 		log.error('An upload’s bytes could not be taken', {kind: error.kind, ...('cause' in error ? serializeError(error.cause) : {})});
 		return refused(error.statusCode, error.kind, 'The upload failed on the server: send the file again.');
 	}
-	return refused(error.statusCode, error.kind, 'message' in error && error.message ? error.message : error.kind);
+	return refused(error.statusCode, error.kind, apiErrorMessage(error) ?? error.kind);
 }
 
 function receive(request: Request): Promise<Result<UploadReceived, Refusal>> {
@@ -54,20 +55,35 @@ function receive(request: Request): Promise<Result<UploadReceived, Refusal>> {
 		if (upload.receivedAt !== null) {
 			return $(Err(refused(409, 'conflict', `The file for upload ${upload.id} arrived already, and a URL takes one. ${next}`)));
 		}
-		if (!$((await lockFileUpload(upload.id, {now: new Date(), put: true})).mapErr(fromApiError))) {
+		if (!$((await lockUpload(upload.id, true)).mapErr(fromApiError))) {
 			return $(Err(refused(409, 'conflict', `The file for upload ${upload.id} is being sent to this URL already. Wait for that PUT to answer.`)));
 		}
-		const filled = await Do<StoredContent, ApiError>(async ($$) => {
-			const blob = $$(requirePresent($$(await getFileBlob(upload.blobId)), UNKNOWN_BLOB));
-			const tooLarge = `More than the ${upload.size} bytes upload ${upload.id} was started for came. Send the file it was started for, or start again with files_upload and the file’s size in bytes.`;
-			return $$(await fillBlob(blob, $$(requestBytes(request)), upload.size, tooLarge));
-		});
-		const unlocked = await unlockFileUpload(upload.id, filled.isOk() ? {received: new Date()} : {});
+		const filled = await holdingUpload(upload.id, () =>
+			Do<StoredContent, ApiError>(async ($$) => {
+				const blob = $$(requirePresent($$(await getFileBlob(upload.blobId)), UNKNOWN_BLOB));
+				const tooLarge = `More than the ${upload.size} bytes upload ${upload.id} was started for came. Send the file it was started for, or start again with files_upload and the file’s size in bytes.`;
+				return $$(await fillBlob(blob, $$(requestBytes(request)), upload.size, tooLarge));
+			}),
+		);
+		// Only the whole file takes the URL: one that came short lets it go again, for the file to be sent whole.
+		const whole = filled.isOk() && filled.value.size === upload.size;
+		const unlocked = await unlockFileUpload(upload.id, whole ? {received: new Date()} : {});
 		if (filled.isErr()) {
 			const {error} = filled;
 			return $(Err(error.kind === 'validation_error' ? refused(413, 'too_large', error.message) : fromApiError(error)));
 		}
 		$(unlocked.mapErr(fromApiError));
+		if (!whole) {
+			return $(
+				Err(
+					refused(
+						400,
+						'incomplete',
+						`${filled.value.size} of the ${upload.size} bytes upload ${upload.id} was started for came, so they were not kept. Send the whole file to this URL again, or start again with files_upload and the file’s size in bytes, as wc -c < <path> counts it.`,
+					),
+				),
+			);
+		}
 		return {upload: upload.id, size: filled.value.size, sha256: filled.value.sha256, next};
 	});
 }

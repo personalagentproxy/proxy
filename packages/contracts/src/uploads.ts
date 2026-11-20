@@ -6,11 +6,11 @@ import {z} from 'zod';
  * and is answered with the URL, `PUT {UPLOADS_PATH}/<secret>`; the secret in it is the only
  * credential, so it needs no session, no token and no particular origin. The body is the file, as
  * bytes, whatever its `Content-Type`; no more than the upload said it would be is taken. One PUT is
- * taken for an upload, and none after its hour; one that fails partway can be sent again.
- * `files_upload_done` with the upload's id then makes the file.
+ * taken for an upload, and none after its hour; one that fails partway, or is fewer bytes than
+ * was said, can be sent again. `files_upload_done` with the upload's id then makes the file.
  * - 200: `uploadReceivedSchema`, what arrived.
- * - 4xx: `uploadRefusedSchema`, `{error, message}`: unknown or no longer taking bytes (404), past
- *   its hour (410), taken already (409), more than was said (413).
+ * - 4xx: `uploadRefusedSchema`, `{error, message}`: fewer bytes than was said (400), unknown or no
+ *   longer taking bytes (404), past its hour (410), taken already (409), more than was said (413).
  */
 export const UPLOADS_PATH = '/api/uploads';
 
