@@ -68,8 +68,8 @@ function SecretDialog({
 			<DialogHeader>
 				<DialogTitle>{secret ? secret.values.name : 'New secret'}</DialogTitle>
 				<DialogDescription>
-					Agents see its name and note, never its value. Those with Use secrets have it given to
-					their sandbox commands as an environment variable.
+					Agents see its name and note, not its value. Those with Use secrets have it given to their
+					sandbox commands as an environment variable, which a command can read.
 				</DialogDescription>
 			</DialogHeader>
 			<div className="flex flex-col gap-2">

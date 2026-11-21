@@ -126,3 +126,24 @@ describe('vaultConnector', () => {
 		expect(result.unwrapErr().kind).toBe('internal_error');
 	});
 });
+
+describe('a vault’s secrets', () => {
+	function secrets(): Collection {
+		const integration = findIntegration('vault');
+		const found = integration && findCollection(integration, 'secrets');
+		if (!found) {
+			throw new Error('No secrets collection');
+		}
+		return found;
+	}
+
+	test('keep a value without the spaces and line breaks pasted around it, and refuse one that is only those', async () => {
+		const {vaultConnector} = await import('./connector');
+		const kept = {...target, collection: secrets()};
+		listVaultEntries.mockResolvedValue(Ok([]));
+
+		const created = await vaultConnector.create(kept, {name: 'API_KEY', value: '  sk-test-123 \n', note: ''});
+		expect(created.unwrap().values).toEqual({name: 'API_KEY', value: 'sk-test-123', note: ''});
+		expect((await vaultConnector.create(kept, {name: 'API_KEY', value: ' \n', note: ''})).unwrapErr().kind).toBe('validation_error');
+	});
+});

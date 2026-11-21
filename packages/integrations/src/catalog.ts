@@ -2277,7 +2277,7 @@ const sandbox: Integration = {
 						type: 'array',
 						items: {type: 'string'},
 						description:
-							'Vault secrets to give the command as environment variables, by name, as OPENAI_API_KEY, or as Vault name/NAME where two vaults have it. A value the command writes is shown as [secret NAME]',
+							'Vault secrets to give the command as environment variables, by name, as OPENAI_API_KEY, or as Vault name/NAME where two vaults have it. Where any command prints a secret’s value, it is shown as [secret NAME]',
 					},
 				},
 				required: ['sandbox', 'command'],

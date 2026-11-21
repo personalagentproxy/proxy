@@ -25,8 +25,9 @@ import {secretsFor} from './secrets';
  * credential and nothing installed. The activity log has the command as the agent gave it. The
  * token is signed once the sandbox is woken and pap installed, so it lasts as long as the command
  * may. With `secrets`, it is given the vaults' secrets named, as environment variables
- * (secrets.ts), and what it writes back has their values shown by their names; the log has the
- * names alone, as the agent gave them.
+ * (secrets.ts); what any command writes back has the values of every secret the agent may use
+ * shown by their names, so one isn't read by accident. The log has the names alone, as the agent
+ * gave them.
  */
 
 const paramsSchema = z.object({
@@ -75,7 +76,7 @@ export const runSandboxCommand: NativeToolRunner = ({caller, connection, params}
 			);
 		}
 		const {sandbox: sandboxId, command, stdin, cwd, timeout = SANDBOX_EXEC_DEFAULT_SECONDS, pap = false, secrets: asked = []} = parsed.value;
-		const secrets = $(await secretsFor(caller, asked));
+		const {given: secrets, masked} = $(await secretsFor(caller, asked));
 		const config = pap ? $(requireCliTokenConfig()) : null;
 		const bundle = pap ? $(await papBundle()) : null;
 		const backend = $(await requireBackend());
@@ -91,5 +92,5 @@ export const runSandboxCommand: NativeToolRunner = ({caller, connection, params}
 		const sent = config === null ? plain : {command: withPapOnPath(command), env: {...given, ...cliCommandEnv(config, claims, timeout)}};
 		const output = $(await backend.exec(running.backendRef, {...sent, stdin, cwd, timeoutMs: Math.round(timeout * 1000)}));
 		$(await touchSandbox(running.id));
-		return describeOutput({...output, stdout: maskSecrets(output.stdout, secrets), stderr: maskSecrets(output.stderr, secrets)}, timeout);
+		return describeOutput({...output, stdout: maskSecrets(output.stdout, masked), stderr: maskSecrets(output.stderr, masked)}, timeout);
 	});

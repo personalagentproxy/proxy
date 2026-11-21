@@ -137,7 +137,7 @@ function secretInstructions(connections: AgentConnection[]): string[] {
 		[
 			...(uses
 				? [
-						'A vault’s secrets (secrets_list), such as API keys, are given to a sandbox command as environment variables by name: sandbox_exec {secrets: ["NAME"]}. Their values are never shown to you.',
+						'A vault’s secrets (secrets_list), such as API keys, are given to a sandbox command as environment variables by name: sandbox_exec {secrets: ["NAME"]}. Their values are kept from you: where a command prints one, it is shown as [secret NAME]. Don’t print them.',
 					]
 				: []),
 			...(adds ? ['Keep a key you made with secrets_create {name, value, note}: it can’t be read back.'] : []),

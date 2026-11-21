@@ -66,21 +66,24 @@ export function listSecrets(connectionId: string): Promise<Result<Array<{name: s
 }
 
 // A secret needs a name a command's environment can have, one no other secret of the vault has,
-// and a value. `id` is the secret's own, where it is being changed.
+// and a value, kept without the spaces and line breaks around it, which a paste brings along and
+// a command's output may leave off, so that masking finds the value as printed (secret-values.ts).
+// `id` is the secret's own, where it is being changed.
 function requireSecret(target: RecordTarget, values: RecordValues, id: string | null): Promise<Result<RecordValues, ApiError>> {
 	return Do(async ($) => {
 		const name = (values.name ?? '').trim();
 		if (!SECRET_NAME_PATTERN.test(name)) {
 			return $(Err(ApiErr.validationError('A secret’s name is an environment variable’s: letters, digits and _, not starting with a digit, as OPENAI_API_KEY')));
 		}
-		if ((values.value ?? '') === '') {
+		const value = (values.value ?? '').trim();
+		if (value === '') {
 			return $(Err(ApiErr.validationError('A secret needs a value')));
 		}
 		const others = $(await listRecords(vaultCollection(target)));
 		if (others.some((other) => other.id !== id && other.values.name === name)) {
 			return $(Err(ApiErr.conflict(`This vault has a secret called ${name} already`)));
 		}
-		return {name, value: values.value ?? '', note: values.note ?? ''};
+		return {name, value, note: values.note ?? ''};
 	});
 }
 
