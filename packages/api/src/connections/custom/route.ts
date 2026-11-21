@@ -3,7 +3,6 @@ import {Err, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
-import {updateConnectionTools} from '@proxy/db/connection';
 import {type Connection, connectMcpBodySchema, type connectMcpSchema} from '@proxy/contracts/connections';
 
 import type {AuthenticatedRequest} from '../../server/middleware/require-auth';
@@ -17,8 +16,9 @@ import {listMcpTools} from '../mcp/mcp-client';
 import {keyInAddress} from '../mcp/built-in';
 import {beginBuiltInSignIn, connectWithKey, startMcpSignIn} from '../mcp/mcp-connect';
 import {exchangeMcpCode, mcpEndpoints, mcpEndpointsSchema} from '../mcp/mcp-oauth';
-import {listCustomTools, mcpAccount, readOnlyToolNames, type CustomCredential} from './custom-mcp';
+import {mcpAccount, readOnlyToolNames, type CustomCredential} from './custom-mcp';
 import {discoverMcpServer, parseMcpServerUrl, probeMcpServer} from './mcp-discovery';
+import {refreshCustomTools} from './refresh-tools';
 
 /**
  * Connecting a custom MCP server by its address, under a name the person gives it, since a server
@@ -101,9 +101,7 @@ export function handleRefreshCustomMcpToolsRoute(request: AuthenticatedRequest):
 		const viewer = $(await requireViewer(request));
 		const connectionId = request.params.connectionId ?? '';
 		const row = $(await requireManagedOf(viewer, connectionId, 'mcp', ApiErr.validationError('Only a custom MCP server has tools to ask for again')));
-		const tools = $(await listCustomTools(row));
-		const stored = JSON.stringify(tools);
-		$(await updateConnectionTools({connectionId, tools: stored, actions: tools.map((tool) => tool.name)}));
-		return $(await respond({...row, tools: stored}));
+		const {connection} = $(await refreshCustomTools(row));
+		return $(await respond(connection));
 	});
 }

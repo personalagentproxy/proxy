@@ -25,6 +25,8 @@ export {
  * - `{method: 'connections', args: []}`: the connections the agent can use, a sandbox's own
  *   Sandboxes connection left out.
  * - `{method: 'tools', args: [connection]}`: a connection's tools.
+ * - `{method: 'refreshTools', args: [connection]}`: a custom MCP server's tools asked for again,
+ *   `{tools, notAllowed}`: those the agent has now, and the names of the rest.
  * - `{method: 'call', args: [connection, tool, params?]}`: runs a tool, logged under the token's task.
  * - `{method: 'feedback', args: [{message, connection?, tool?}]}`: feedback for the makers.
  * - `{method: 'upload', args: []}`: a URL to PUT files to, each made a blob of the agent's
