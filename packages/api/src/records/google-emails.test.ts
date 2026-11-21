@@ -563,6 +563,37 @@ describe('drafts', () => {
 		expect(raw.indexOf('filename=terms.pdf')).toBeLessThan(raw.indexOf('filename=offer.pdf'));
 	});
 
+	test('an edit keeps an email attached to a draft whole, and a file with an id the HTML never shows below the text', async () => {
+		const m3 = gmail.messages.m3;
+		m3?.payload.parts?.push(
+			html('<p>Draft text</p>'),
+			{mimeType: 'application/pdf', filename: 'q3.pdf', headers: [{name: 'Content-ID', value: '<f_q3>'}], body: {size: 2, data: base64url('q3')}},
+			{
+				mimeType: 'message/rfc822',
+				filename: 'inner.eml',
+				body: {size: 5, attachmentId: 'a2'},
+				parts: [{mimeType: 'application/pdf', filename: 'inside.pdf', body: {size: 6, attachmentId: 'a3'}}],
+			},
+		);
+		gmail.attachments = {a2: 'Subject: Inner\r\n\r\nInner text', a3: 'inside'};
+
+		(await (await connector()).update(target, 'draft-r1', {subject: 'Offer, revised'})).unwrap();
+
+		const raw = rawText((calls('PUT', '/drafts/r1')[0]?.body as {message: Record<string, unknown>}).message);
+		expect(raw).toContain('Content-Disposition: attachment; filename=q3.pdf');
+		expect(raw).not.toContain('Content-ID: <f_q3>');
+		expect(raw).toContain('Content-Disposition: attachment; filename=inner.eml');
+		expect(raw).not.toContain('inside.pdf');
+		expect(gmail.calls.filter((call) => call.url.pathname.endsWith('/attachments/a3'))).toEqual([]);
+	});
+
+	test('an edit is refused where Gmail hands over nothing of an attachment the draft has', async () => {
+		gmail.messages.m3?.payload.parts?.push({mimeType: 'application/pdf', filename: 'lost.pdf', body: {size: 10}});
+
+		expect((await (await connector()).update(target, 'draft-r1', {subject: 'x'})).unwrapErr()).toMatchObject({kind: 'validation_error', message: expect.stringContaining('“lost.pdf” can’t be read')});
+		expect(calls('PUT', '/drafts/r1')).toEqual([]);
+	});
+
 	test('a message too large for a call’s JSON goes up as an upload of its own, its thread said beside it', async () => {
 		const {gmailRepliesConnector} = await import('./google-emails');
 		const integration = findIntegration('google');

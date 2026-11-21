@@ -774,9 +774,10 @@ describe('attachments an email goes out with', () => {
 			subject: 'Offer',
 			text: 'The offer, attached.',
 			html: '<p>The offer, attached.</p><img src="cid:logo@proxy">',
+			// The file below carries an id too, as a mail app may give one, which the HTML never shows.
 			attachments: [
 				{filename: 'logo.png', contentType: 'image/png', content: Buffer.from('png'), cid: 'logo@proxy', contentDisposition: 'inline'},
-				{filename: 'offer.pdf', contentType: 'application/pdf', content: Buffer.from('%PDF offer')},
+				{filename: 'offer.pdf', contentType: 'application/pdf', content: Buffer.from('%PDF offer'), cid: 'f_offer', contentDisposition: 'attachment'},
 			],
 		})
 			.compile()

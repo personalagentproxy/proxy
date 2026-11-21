@@ -57,14 +57,10 @@ function requireAgent(owner: BlobOwner): Promise<Result<void, Refusal>> {
 	});
 }
 
-// The file's name as the PUT says it, without any folders before it; none where it says none.
+// The file's name as the PUT says it, which the blob keeps without any folders before it (blobs.ts `storeBlob`); none where it says none.
 function nameOf(request: Request): string | null {
 	const said = request.query.name;
-	if (typeof said !== 'string') {
-		return null;
-	}
-	const name = (said.split('/').at(-1) ?? '').trim().slice(0, 255);
-	return name === '' ? null : name;
+	return typeof said === 'string' ? said : null;
 }
 
 function receive(request: Request): Promise<Result<BlobStored, Refusal>> {

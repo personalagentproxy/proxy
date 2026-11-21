@@ -6,6 +6,7 @@ import {
 	constants as fsConstants,
 	createReadStream,
 	createWriteStream,
+	lstatSync,
 	statSync,
 } from 'node:fs';
 import {chmod, mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
@@ -194,6 +195,10 @@ function isDirectory(path: string): boolean {
 	return Result.wrap(() => statSync(path).isDirectory()).unwrapOr(false);
 }
 
+function exists(path: string): boolean {
+	return Result.wrap(() => lstatSync(path)).isOk();
+}
+
 function hashFile(path: string): Promise<Result<{size: number; sha256: string}, Error>> {
 	return Result.wrapAsync<{size: number; sha256: string}, Error>(async () => {
 		const hash = createHash('sha256');
@@ -287,6 +292,7 @@ export function nodeIo(): Io {
 		removeDir,
 		absolutePath: (path) => resolve(path),
 		isDirectory,
+		exists,
 		hashFile,
 		readStream,
 		readText,

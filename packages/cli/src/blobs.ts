@@ -27,7 +27,8 @@ blob's id. A blob is kept for a day.
 
 export const DOWNLOAD_HELP = `${DOWNLOAD}
 Brings a blob into the sandbox, as a tool made it, as attachments_blob of an email's attachment:
-into the current directory under its own name, or to a path or into a directory.
+into the current directory under its own name, or to a path or into a directory. Under its own
+name it never writes over a file that is there; a path given in full does.
 `;
 
 function errorText(cause: Error | string | null): string {
@@ -123,6 +124,13 @@ export function uploadCommand(parsed: Parsed, io: Io): Promise<Result<Json, Fail
 	});
 }
 
+// A blob's name as a file of the sandbox is called: the last of its path alone, so a blob never
+// says where on the disk it is saved, whatever its source called it; none where it has none.
+function localName(said: Json | undefined): string | null {
+	const name = typeof said === 'string' ? (said.split(/[/\\]/).at(-1) ?? '').trim() : '';
+	return name === '' || name === '.' || name === '..' ? null : name;
+}
+
 /** `pap download`: a blob brought into the sandbox. */
 export function downloadCommand(parsed: Parsed, io: Io): Promise<Result<Json, Failure>> {
 	return Do(async ($) => {
@@ -132,15 +140,24 @@ export function downloadCommand(parsed: Parsed, io: Io): Promise<Result<Json, Fa
 		}
 		const answer = $(await $(clientFrom(io)).call('download', [blob]));
 		const url = $(urlOf(answer));
-		const name =
-			isObject(answer) && typeof answer.name === 'string' && answer.name !== ''
-				? answer.name
-				: blob;
+		const name = localName(isObject(answer) ? answer.name : null) ?? blob;
 		// To a path as given; into a directory, or the current one, under the blob's own name.
 		const inside = to !== undefined && (to.endsWith('/') || io.isDirectory(io.absolutePath(to)));
+		const named = to === undefined || inside;
 		const local = io.absolutePath(
 			to === undefined ? name : inside ? `${to.replace(/\/+$/, '')}/${name}` : to,
 		);
+		// A blob's name is its source's, an email's sender's as likely as not: it never writes over
+		// a file that is there. A path given in full says which file to write.
+		if (named && io.exists(local)) {
+			return $(
+				Err(
+					failed(
+						`${local} is there already, and a blob isn’t saved over a file by its own name: give the path to save it to, as pap download ${blob} <path>.`,
+					),
+				),
+			);
+		}
 		const fetched = await Result.wrapAsync<Response, Error>(() => io.fetch(url, {}));
 		if (fetched.isErr()) {
 			return $(

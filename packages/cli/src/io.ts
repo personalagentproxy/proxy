@@ -42,6 +42,8 @@ export type Io = {
 	absolutePath: (path: string) => string;
 	/** Whether `path` is a directory that is there. */
 	isDirectory: (path: string) => boolean;
+	/** Whether anything is there at `path`. */
+	exists: (path: string) => boolean;
 	/** A file's size and its SHA-256 in hex, read through as a stream, never whole. */
 	hashFile: (path: string) => Promise<Result<{size: number; sha256: string}, Error>>;
 	/** A file's bytes as a stream, read from disk as they are asked for. A file that can't be read fails the stream. */

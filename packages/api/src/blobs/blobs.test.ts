@@ -282,6 +282,19 @@ describe.skipIf(!databaseUrl)('blobs, through a drive of Files', () => {
 		expect(unwrap(await tool('files_upload', {blob: readers}, readerId))).toStartWith('Added readers.txt.');
 	});
 
+	test('keeps of a name its source gave only a file’s name, never a path, and of a type only a media type', async () => {
+		const {storeBlob} = await import('./blobs');
+		const {streamOf} = await import('../native/files/content');
+		const sent = await upload('x', '../../home/user/.bashrc');
+		expect((await pap('download', [sent])).name).toBe('.bashrc');
+
+		// As an email's sender may call an attachment.
+		const stored = unwrap(await storeBlob({orgId, agentId}, {name: '/etc/cron.d/job', type: 'application/πdf; x'}, streamOf(Buffer.from('x'))));
+		expect([stored.name, stored.type]).toEqual(['job', 'application/octet-stream']);
+		const fetched = await fetch(local(String((await pap('download', [stored.id])).url)));
+		expect([fetched.status, fetched.headers.get('content-type'), await fetched.text()]).toEqual([200, 'application/octet-stream', 'x']);
+	});
+
 	test('hands a blob over to attach to an email, to the agent that made it alone', async () => {
 		const {attachedBlobs} = await import('../records/email-attachments');
 		const {loadRunTarget} = await import('../agent-side/tools');

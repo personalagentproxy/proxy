@@ -1,6 +1,6 @@
 import {describe, expect, test} from 'bun:test';
 
-import {chatFolder, isShownImage, mediaType, requireFileName} from './names';
+import {blobName, chatFolder, isShownImage, mediaType, requireFileName} from './names';
 
 describe('requireFileName', () => {
 	test('keeps a name as it is, trimmed', () => {
@@ -13,6 +13,30 @@ describe('requireFileName', () => {
 		for (const name of ['', '   ', '.', '..', 'a/b', 'a\\b', 'two\nlines', 'tab\there', 'x'.repeat(256)]) {
 			expect(requireFileName(name).unwrapErr().kind, JSON.stringify(name)).toBe('validation_error');
 		}
+	});
+});
+
+describe('blobName', () => {
+	test('keeps a file’s name as it is, and none where its source gave none', () => {
+		expect(blobName('Signed contract.pdf')).toBe('Signed contract.pdf');
+		expect(blobName('  report.pdf ')).toBe('report.pdf');
+		expect(blobName(null)).toBeNull();
+		expect(blobName('   ')).toBeNull();
+	});
+
+	test('keeps the last of a path alone, so a name never says where a file is saved', () => {
+		expect(blobName('../../home/user/.bashrc')).toBe('.bashrc');
+		expect(blobName('/etc/cron.d/job')).toBe('job');
+		expect(blobName('..\\..\\evil.txt')).toBe('evil.txt');
+		expect(blobName('..')).toBeNull();
+		expect(blobName('reports/')).toBeNull();
+	});
+
+	test('drops what shows as nothing, and cuts a long name between characters, never through one', () => {
+		expect(blobName('a\r\nb\u0000.txt')).toBe('ab.txt');
+		const long = blobName(`${'x'.repeat(254)}😀😀`);
+		expect([...(long ?? '')]).toHaveLength(255);
+		expect(long?.endsWith('😀')).toBe(true);
 	});
 });
 

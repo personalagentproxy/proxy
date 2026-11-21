@@ -28,6 +28,7 @@ import {
 	listMessageIds,
 	messageBody,
 	messageHtml,
+	ownAttachments,
 	modifyMessage,
 	PAGE_SIZE,
 	sendDraft,
@@ -38,7 +39,7 @@ import {
 	type MessagePart,
 } from '../connections/google/gmail-api';
 import {attachmentRecord, attachmentsText, type AttachmentFile, type AttachmentInfo, pickAttachment, readableKind, requireEmailId} from './attachment-text';
-import {type Attached, attachedBlobs, attachmentBlobRecord, attachmentOptions, requireAttachable} from './email-attachments';
+import {type Attached, attachedBlobs, attachmentBlobRecord, attachmentOptions, requireAttachable, shownBy} from './email-attachments';
 import {
 	type Change,
 	type Changes,
@@ -389,15 +390,18 @@ function createDraftRecord(target: RecordTarget, values: RecordValues): Promise<
 	});
 }
 
-// The attachments a draft has, fetched to write it again with: a picture its HTML shows by its id
-// keeps the id where the HTML is kept, and is a file like any other where it isn't.
-function keptAttachments(token: string, message: GmailMessage, withHtml: boolean): Promise<Result<Attached[], ApiError>> {
+// The attachments a draft has, fetched to write it again with: a picture the HTML kept shows by
+// its id keeps the id, and is a file like any other where the HTML isn't kept, or doesn't show
+// it. One Gmail hands over no bytes of is refused rather than written back empty.
+function keptAttachments(token: string, message: GmailMessage, html: string | null): Promise<Result<Attached[], ApiError>> {
 	return Do(async ($) => {
 		const kept: Attached[] = [];
-		for (const [index, attachment] of attachmentsOf(message.payload).entries()) {
+		for (const [index, attachment] of ownAttachments(message.payload).entries()) {
+			if (attachment.attachmentId === null && attachment.data === null && attachment.size > 0) {
+				return $(Err(ApiErr.validationError(`This draft’s attachment “${attachment.name}” can’t be read to keep it, so editing the draft here would drop it; edit it in Gmail`)));
+			}
 			const content = attachment.attachmentId ? $(await getAttachment(token, message.id, attachment.attachmentId)) : Buffer.from(attachment.data ?? '', 'base64url');
-			const cid = withHtml && attachment.cid !== null ? {cid: attachment.cid} : {};
-			kept.push({filename: attachment.name || `attachment-${index + 1}`, contentType: attachment.type || 'application/octet-stream', content, ...cid});
+			kept.push({filename: attachment.name || `attachment-${index + 1}`, contentType: attachment.type || 'application/octet-stream', content, ...shownBy(html, attachment.cid)});
 		}
 		return kept;
 	});
@@ -427,7 +431,7 @@ function updateDraftRecord(target: RecordTarget, recordId: string, values: Recor
 					const written = {...current, ...values};
 					const recipients = {to: namedAsBefore(written.to, current.to), cc: namedAsBefore(written.cc, current.cc), bcc: namedAsBefore(written.bcc, current.bcc)};
 					const html = written.body === current.body ? messageHtml(payload) : null;
-					const attached = [...$$(await keptAttachments(token, draft.message, html !== null)), ...added];
+					const attached = [...$$(await keptAttachments(token, draft.message, html)), ...added];
 					$$(requireAttachable(attached));
 					const source = $$(await compose(target.connection.account, {...written, ...recipients}, threadOf(payload), html, attached));
 					$$(await updateDraft(token, draftId, {source, threadId: threadId ?? null}));

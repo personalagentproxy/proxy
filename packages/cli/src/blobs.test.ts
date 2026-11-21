@@ -177,6 +177,41 @@ describe('pap download', () => {
 		expect(text('/work/contract.pdf')).toBe('%PDF signed contract');
 	});
 
+	test('saves a blob under the last of its name alone, whatever path its source called it, and never over a file that is there', async () => {
+		const named = (name: string) => (one: Asked) =>
+			one.url.endsWith('/api/cli/call')
+				? Response.json({result: {...download, name}})
+				: new Response('from a stranger');
+
+		const out = harness(named('../../home/user/.bashrc'), {'/work/notes.txt': 'mine'});
+		expect(await out.pap('download', 'blob-1')).toBe(0);
+		expect(JSON.parse(out.output.out).file).toBe('/work/.bashrc');
+		expect(out.text('/home/user/.bashrc')).toBeNull();
+
+		const absolute = harness(named('/etc/cron.d/job'));
+		expect(await absolute.pap('download', 'blob-1')).toBe(0);
+		expect(JSON.parse(absolute.output.out).file).toBe('/work/job');
+
+		const windows = harness(named('..\\..\\evil.txt'));
+		expect(await windows.pap('download', 'blob-1')).toBe(0);
+		expect(JSON.parse(windows.output.out).file).toBe('/work/evil.txt');
+
+		// Nothing left of the name is the blob's id; a file there by the name is kept.
+		const dots = harness(named('..'));
+		expect(await dots.pap('download', 'blob-1')).toBe(0);
+		expect(JSON.parse(dots.output.out).file).toBe('/work/blob-1');
+
+		const taken = harness(named('notes.txt'), {'/work/notes.txt': 'mine'});
+		expect(await taken.pap('download', 'blob-1')).toBe(1);
+		expect(taken.output.err).toBe(
+			'pap: /work/notes.txt is there already, and a blob isn’t saved over a file by its own name: give the path to save it to, as pap download blob-1 <path>.\n',
+		);
+		expect(taken.text('/work/notes.txt')).toBe('mine');
+		// A path given in full says which file to write.
+		expect(await taken.pap('download', 'blob-1', 'notes.txt')).toBe(0);
+		expect(taken.text('/work/notes.txt')).toBe('from a stranger');
+	});
+
 	test('says what PAP refused, and writes nothing', async () => {
 		const {output, text, pap} = harness(() =>
 			Response.json(

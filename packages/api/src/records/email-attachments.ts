@@ -26,7 +26,8 @@ export type Attached = {filename: string; contentType: string; content: Buffer; 
 
 /**
  * How much an email carries in attachments, as their bytes: what Gmail takes, and about what any
- * mailbox does. They are held whole while the message is written, so this is also what that costs.
+ * mailbox does. They are held whole while the message is written, and the message written of them
+ * beside them, a third larger, so writing one costs a few times this in memory.
  */
 export const MAX_ATTACHED_BYTES = 25 * 1024 * 1024;
 
@@ -88,7 +89,16 @@ export function attachedBlobs(target: RecordTarget, attach: string | undefined):
 	});
 }
 
-/** The files as nodemailer attaches them to a message: a picture the HTML shows, by its id, in the text, and any other below it. */
+/** The id a kept attachment is shown by in `html`, where the HTML that is kept shows it: a picture in the text, and no other file, whatever id it carries. */
+export function shownBy(html: string | null, cid: string | undefined | null): {cid?: string} {
+	return cid && html !== null && html.includes(`cid:${cid}`) ? {cid} : {};
+}
+
+/**
+ * The files as nodemailer attaches them to a message: a picture the HTML shows, by its id, in the
+ * text, and any other below it, said to be an attachment, which an email attached would otherwise
+ * be written into the text as, and read back as part of the message.
+ */
 export function attachmentOptions(attached: Attached[]): Mail.Options {
 	if (attached.length === 0) {
 		return {};
@@ -98,7 +108,7 @@ export function attachmentOptions(attached: Attached[]): Mail.Options {
 			filename,
 			contentType,
 			content,
-			...(cid === undefined ? {} : {cid, contentDisposition: 'inline' as const}),
+			...(cid === undefined ? {contentDisposition: 'attachment' as const} : {cid, contentDisposition: 'inline' as const}),
 		})),
 	};
 }

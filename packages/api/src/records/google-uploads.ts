@@ -156,7 +156,11 @@ function newFile(token: string, target: Extract<UploadTarget, {kind: 'create'}>,
 		if (given === '') {
 			return $(Err(ApiErr.validationError('A new file needs a name, with its extension, as report.pdf')));
 		}
-		const type = blobType(file, given);
+		const named = blobType(file, given);
+		// A file to convert may be named without the extension that says what it is, as a push names
+		// the Doc it becomes: then the blob's own name says, as notes.txt.md is Markdown, not text.
+		const own = blobType(file, file.name ?? '');
+		const type = target.convert && CONVERTED[named] === undefined && CONVERTED[own] !== undefined ? own : named;
 		if (isGoogleType(type)) {
 			return $(Err(ApiErr.validationError(GOOGLE_TYPE_REFUSAL)));
 		}
@@ -185,11 +189,12 @@ function fileOver(token: string, target: Extract<UploadTarget, {kind: 'write'}>,
 function create(editor: DriveEditor, target: Extract<UploadTarget, {kind: 'create'}>, blob: AgentBlob): Promise<Result<UploadMade, ApiError>> {
 	return Do(async ($) => {
 		const made = $(await newFile(editor.token, target, blob));
+		// The bytes are opened before any folder is made, so a store that can't give them leaves none behind.
+		const body = $(await openContent(blob));
 		let {folder} = made;
 		for (const name of target.folders) {
 			folder = $(await folderIn(editor, folder, name));
 		}
-		const body = $(await openContent(blob));
 		const file = $(await createContent(editor.token, {name: made.name, mimeType: made.mimeType, parent: folder.id}, {type: made.type, body, size: blob.size}));
 		await logDriveCreate(editor, file);
 		return $(madeOf(file));

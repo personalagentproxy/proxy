@@ -33,7 +33,7 @@ mock.module('../native/files/content', () => ({
 	},
 }));
 
-const {attachedBlobs, attachmentOptions, MAX_ATTACHED_BYTES, requireAttachable} = await import('./email-attachments');
+const {attachedBlobs, attachmentOptions, MAX_ATTACHED_BYTES, requireAttachable, shownBy} = await import('./email-attachments');
 
 const connection = {
 	id: 'mail-1',
@@ -119,9 +119,47 @@ describe('what is attached', () => {
 			]),
 		).toEqual({
 			attachments: [
-				{filename: 'offer.pdf', contentType: 'application/pdf', content: Buffer.from('a')},
+				{filename: 'offer.pdf', contentType: 'application/pdf', content: Buffer.from('a'), contentDisposition: 'attachment'},
 				{filename: 'logo.png', contentType: 'image/png', content: Buffer.from('b'), cid: 'logo@proxy', contentDisposition: 'inline'},
 			],
 		});
+	});
+
+	test('keeps the id of a picture only where the HTML kept shows it', () => {
+		const html = '<p>Hello</p><img src="cid:logo@proxy">';
+
+		expect(shownBy(html, 'logo@proxy')).toEqual({cid: 'logo@proxy'});
+		// A file below the text may carry an id too, as Gmail gives its attachments one.
+		expect(shownBy(html, 'f_abc')).toEqual({});
+		expect(shownBy(null, 'logo@proxy')).toEqual({});
+		expect(shownBy(html, undefined)).toEqual({});
+		expect(shownBy(html, null)).toEqual({});
+	});
+
+	test('an email attached stays an attachment, read back whole', async () => {
+		const {default: MailComposer} = await import('nodemailer/lib/mail-composer');
+		const {simpleParser} = await import('mailparser');
+		const inner = await new MailComposer({
+			from: 'sam@example.com',
+			to: 'alex@example.com',
+			subject: 'Inner',
+			text: 'The inner email.',
+			attachments: [{filename: 'inner.pdf', content: Buffer.from('%PDF inner')}],
+		})
+			.compile()
+			.build();
+		const outer = await new MailComposer({
+			from: 'alex@example.com',
+			to: 'jo@example.com',
+			subject: 'Fwd',
+			text: 'See attached.',
+			...attachmentOptions([{filename: 'inner.eml', contentType: 'message/rfc822', content: inner}]),
+		})
+			.compile()
+			.build();
+
+		const parsed = await simpleParser(outer);
+		expect(parsed.text?.trim()).toBe('See attached.');
+		expect(parsed.attachments.map((attachment) => [attachment.filename, attachment.contentType, attachment.content.equals(inner)])).toEqual([['inner.eml', 'message/rfc822', true]]);
 	});
 });

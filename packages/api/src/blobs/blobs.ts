@@ -8,7 +8,7 @@ import {createFileBlob, type FileBlobRow, getFileBlob} from '@proxy/db/files';
 
 import {blobBackend} from '../backends/backends';
 import {fillBlob, maxFileBytes, newBlobKey} from '../native/files/content';
-import {mediaType} from '../native/files/names';
+import {blobName, mediaType} from '../native/files/names';
 import {env} from '../utils/env';
 import {signBlobToken} from './token';
 
@@ -47,11 +47,17 @@ export function ownerOf(agent: Pick<SignedInAgent, 'orgId' | 'agentId'>): BlobOw
 	return {orgId: agent.orgId, agentId: agent.agentId};
 }
 
-/** Stores what `body` gives as a new blob of the owner's; refused where it is larger than a file may be. */
+/**
+ * Stores what `body` gives as a new blob of the owner's; refused where it is larger than a file
+ * may be. What its source called it is not trusted, an email's sender least: the name is kept as a
+ * file's name alone, never a path (`blobName`), and the type only as a media type.
+ */
 export function storeBlob(owner: BlobOwner, file: BlobFile, body: ReadableStream<Uint8Array>): Promise<Result<AgentBlob, ApiError>> {
 	return Do(async ($) => {
 		const backend = await blobBackend();
-		const blob = $(await createFileBlob({orgId: owner.orgId, backendId: backend.id, key: newBlobKey(owner.orgId), agentId: owner.agentId, name: file.name, type: file.type}));
+		const name = blobName(file.name);
+		const type = file.type === null ? null : mediaType('', file.type, 'bytes');
+		const blob = $(await createFileBlob({orgId: owner.orgId, backendId: backend.id, key: newBlobKey(owner.orgId), agentId: owner.agentId, name, type}));
 		const stored = $(await fillBlob(blob, body, maxFileBytes()));
 		return {...blob, size: stored.size, sha256: stored.sha256};
 	});

@@ -556,6 +556,11 @@ describe.skipIf(!databaseUrl)('pap files, on a Google connection', () => {
 		expect(JSON.parse(session?.body.toString() ?? '{}')).toMatchObject({name: 'Retro', mimeType: MIME.document, parents: ['1Reports']});
 		expect(session?.headers['x-upload-content-type']).toBe('text/markdown');
 
+		// What a file is, where the path no longer ends in it, is what its own name ends in.
+		const dotted = await push({path: 'My Drive/Reports/notes.txt.md', convert: '1'}, '# Notes', 'notes.txt.md');
+		expect(dotted.status).toBe(200);
+		expect((await dotted.json()).file).toMatchObject({name: 'notes.txt', type: MIME.document});
+
 		expect(await messageOf(await push({path: 'My Drive/Reports/scan.pdf', convert: '1'}, 'x', 'scan.pdf'))).toBe(
 			'convert makes a Doc of a docx or Markdown, a Sheet of an xlsx or CSV, and a Slides file of a pptx, and this is application/pdf: leave convert out to keep it as it is',
 		);

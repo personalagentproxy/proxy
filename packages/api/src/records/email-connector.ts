@@ -28,7 +28,7 @@ import {
 	type RecordValues,
 	type RunOnly,
 } from './connector';
-import {type Attached, attachedBlobs, attachmentBlobRecord, attachmentOptions, requireAttachable} from './email-attachments';
+import {type Attached, attachedBlobs, attachmentBlobRecord, attachmentOptions, requireAttachable, shownBy} from './email-attachments';
 import {gmailQuery, type EmailSearch, type MailSearch} from './email-search';
 import {replyCommands, replyContent, replyHeaders, type MailReply, type Quoted, type ReplyHeaders} from './email-reply';
 
@@ -51,6 +51,10 @@ import {replyCommands, replyContent, replyHeaders, type MailReply, type Quoted, 
  */
 
 const PAGE_SIZE = 50;
+
+// How long the SMTP server may be silent over an email with attachments before the send is given
+// up: one given up while the server is still taking it in would invite the agent to send it twice.
+const ATTACHED_SEND_TIMEOUT_MS = 120_000;
 
 const credentialSchema = z.object({
 	imapHost: z.string(),
@@ -621,14 +625,14 @@ function withAttachment(answer: (target: RecordTarget, email: string, number: nu
 		});
 }
 
-// The attachments a draft has, to write it again with: a picture its HTML shows by its id keeps
-// the id where the HTML is kept, and is a file like any other where it isn't.
-function keptAttachments(parsed: ParsedMail, withHtml: boolean): Attached[] {
+// The attachments a draft has, to write it again with: a picture the HTML kept shows by its id
+// keeps the id, and is a file like any other where the HTML isn't kept, or doesn't show it.
+function keptAttachments(parsed: ParsedMail, html: string | null): Attached[] {
 	return parsed.attachments.map((attachment, index) => ({
 		filename: attachment.filename ?? `attachment-${index + 1}`,
 		contentType: attachment.contentType,
 		content: attachment.content,
-		...(withHtml && attachment.cid ? {cid: attachment.cid} : {}),
+		...shownBy(html, attachment.cid),
 	}));
 }
 
@@ -788,7 +792,8 @@ async function deliver(
 			messageId,
 			...threadOptions(thread),
 		};
-		const transport = smtpTransport(credential);
+		// A server may take a while to answer once it has all of a message with attachments.
+		const transport = smtpTransport(credential, attached.length > 0 ? ATTACHED_SEND_TIMEOUT_MS : undefined);
 		const sent = await Result.wrapAsync(() => transport.sendMail(message));
 		transport.close();
 		$(sent.mapErr(smtpError));
@@ -816,7 +821,7 @@ async function sendDraft(session: Session, id: string): Promise<Result<null, Api
 		const draft = $(await getMessage(session, id));
 		const {parsed} = $(await parsedMessage(session, id));
 		const html = parsed.html || null;
-		$(await deliver(session.client, session.credential, draft.values, threadOf(parsed), html, keptAttachments(parsed, html !== null)));
+		$(await deliver(session.client, session.credential, draft.values, threadOf(parsed), html, keptAttachments(parsed, html)));
 
 		const removed = await Result.wrapAsync(() => session.client.messageDelete(String(uid), {uid: true}));
 		if (removed.isErr()) {
@@ -914,7 +919,7 @@ export const emailConnector = {
 						const {parsed} = $$(await parsedMessage(session, id));
 						const sameText = (values.body ?? '').trim() === (parsed.text ?? '').trim();
 						const html = sameText ? parsed.html || null : null;
-						const attached = [...keptAttachments(parsed, html !== null), ...added];
+						const attached = [...keptAttachments(parsed, html), ...added];
 						$$(requireAttachable(attached));
 						const draft = $$(await appendDraft(session, values, threadOf(parsed), html, attached));
 						$$(await deleteMessage(session, id));

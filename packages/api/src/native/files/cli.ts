@@ -12,7 +12,7 @@ import {log as serverLog, serializeError} from '../../observability/log';
 import {agentErrorMessage} from '../../script/agent-host';
 import type {CliRequest} from '../../server/middleware/require-cli';
 import {ownerOf, requireBlob} from '../../blobs/blobs';
-import {type Drive, type DriveListing, type FilePull, type UploadTarget, versionToWrite, type WriteAsk} from './drive';
+import {type Drive, type DriveListing, type FilePull, type UploadMade, type UploadTarget, versionToWrite, type WriteAsk} from './drive';
 import {requireFileSize, sendContent} from './content';
 
 /**
@@ -150,12 +150,13 @@ export async function handleCliPullFileRoute(request: CliRequest, response: Resp
 	}
 }
 
-// The file a blob was put in, as the CLI answers it, with its path.
-function pushedOf(drive: Drive, created: boolean, made: {fileId: string; version: string; link: string}): Promise<Result<CliPushed, ApiError>> {
-	return Do(async ($) => {
-		const file = $(await drive.file(made.fileId));
-		return {file: {...file, version: made.version}, created, link: made.link};
-	});
+// The file a blob was put in, as the CLI answers it: read back with its path, or, where it can't
+// be read just now, as the push made it at the path it went to, so a push that was made is never
+// answered, or logged, as one that failed.
+async function pushedOf(drive: Drive, created: boolean, made: UploadMade, path: string): Promise<CliPushed> {
+	const read = await drive.file(made.fileId);
+	const file: CliFile = read.unwrapOr({id: made.fileId, name: made.name, path, folder: false, version: made.version, size: null, type: null});
+	return {file: {...file, version: made.version}, created, link: made.link};
 }
 
 // Where a push goes and how, as its address says it (@proxy/contracts/cli).
@@ -170,7 +171,8 @@ type Put<T> = {
 	// What the log's entry says is pushed: the blob, or the file's name and size.
 	params: Record<string, unknown>;
 	gate: typeof gateRun;
-	at: (where: UploadTarget) => Promise<Result<T, ApiError>>;
+	// Done where the push goes, a file's place in the drive, at the path it has or is to have.
+	at: (where: UploadTarget, path: string) => Promise<Result<T, ApiError>>;
 };
 
 // A push, to where its address says: a new file at the path, the folders on the way made where
@@ -185,7 +187,7 @@ function pushTo<T>({target, drive}: Opened, where: PushWhere, put: Put<T>): Prom
 				if (convert) {
 					return $$(Err(ApiErr.validationError(`--convert makes a new file, and ${there.path} is there already: push to a new path, or without --convert to write over it.`)));
 				}
-				return $$(await put.at({kind: 'write', fileId: there.id, version: $$(versionToWrite(there, ask))}));
+				return $$(await put.at({kind: 'write', fileId: there.id, version: $$(versionToWrite(there, ask))}, there.path));
 			});
 
 		// The file of the id: its next version, at the version named, as a push of a file pulled by its id.
@@ -248,7 +250,7 @@ function pushTo<T>({target, drive}: Opened, where: PushWhere, put: Put<T>): Prom
 					if (inside !== null && !inside.folder) {
 						return $$(Err(ApiErr.validationError(`${inside.path} is a file, so nothing goes inside it.`)));
 					}
-					return $$(await put.at({kind: 'create', parentId: inside?.id ?? null, folders: missing.slice(0, -1), name, convert}));
+					return $$(await put.at({kind: 'create', parentId: inside?.id ?? null, folders: missing.slice(0, -1), name, convert}, at));
 				}),
 			),
 		);
@@ -270,11 +272,11 @@ export async function handleCliPushFileRoute(request: CliRequest, response: Resp
 			await pushTo(opened, query, {
 				params: {blob: query.blob},
 				gate: gateRun,
-				at: (where) =>
+				at: (where, path) =>
 					Do(async ($$) => {
 						// The agent's blob, found past the gate, where what is wrong with it is said.
 						const blob = $$(await requireBlob(ownerOf(target.caller.agent), query.blob));
-						return $$(await pushedOf(drive, where.kind === 'create', $$(await drive.upload(where, blob))));
+						return await pushedOf(drive, where.kind === 'create', $$(await drive.upload(where, blob)), path);
 					}),
 			}),
 		);

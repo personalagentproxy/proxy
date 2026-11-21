@@ -213,15 +213,30 @@ function contentId(part: MessagePart): string | null {
 	return id === '' ? null : id;
 }
 
-/** A message's attachments, inline images included, in the order of its parts. */
+function attachmentOf(part: MessagePart): GmailAttachment {
+	return {name: part.filename ?? '', type: part.mimeType ?? '', size: part.body?.size ?? 0, data: part.body?.data ?? null, attachmentId: part.body?.attachmentId ?? null, cid: contentId(part)};
+}
+
+/** A message's attachments, inline images included, in the order of its parts: those of an email attached to it too, each read by its own number. */
 export function attachmentsOf(part: MessagePart | undefined): GmailAttachment[] {
 	if (!part) {
 		return [];
 	}
-	const own = isAttachment(part)
-		? [{name: part.filename ?? '', type: part.mimeType ?? '', size: part.body?.size ?? 0, data: part.body?.data ?? null, attachmentId: part.body?.attachmentId ?? null, cid: contentId(part)}]
-		: [];
-	return [...own, ...(part.parts ?? []).flatMap(attachmentsOf)];
+	return [...(isAttachment(part) ? [attachmentOf(part)] : []), ...(part.parts ?? []).flatMap(attachmentsOf)];
+}
+
+/**
+ * The attachments that are the message's own, to write it again with: an email attached to it is
+ * one of them, whole, and what that email has attached stays inside it.
+ */
+export function ownAttachments(part: MessagePart | undefined): GmailAttachment[] {
+	if (!part) {
+		return [];
+	}
+	if (isAttachment(part)) {
+		return [attachmentOf(part)];
+	}
+	return (part.parts ?? []).flatMap(ownAttachments);
 }
 
 /** A message's HTML part, as its sender wrote it, or null for one without. */
