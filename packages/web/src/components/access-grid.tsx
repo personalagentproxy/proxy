@@ -359,9 +359,9 @@ export function AccessGridColumns({
 }
 
 // A column's name with a lock before it where the person may not change the column, saying on
-// hover who may.
-function Locked({setBy, children}: {setBy: string | null; children: ReactNode}) {
-	if (setBy === null) {
+// hover why (`says`).
+function Locked({says, children}: {says: string | null; children: ReactNode}) {
+	if (says === null) {
 		return children;
 	}
 	return (
@@ -371,19 +371,20 @@ function Locked({setBy, children}: {setBy: string | null; children: ReactNode}) 
 					<span className="inline-flex max-w-full min-w-0 items-center justify-center gap-0.5" />
 				}
 			>
-				<LockIcon
-					aria-label={`Set by ${setBy}`}
-					className="size-3 shrink-0 text-muted-foreground"
-				/>
+				<LockIcon aria-label={says} className="size-3 shrink-0 text-muted-foreground" />
 				{children}
 			</TooltipTrigger>
-			<TooltipContent>Set by {setBy}</TooltipContent>
+			<TooltipContent>{says}</TooltipContent>
 		</Tooltip>
 	);
 }
 
+// What the lock by Default says: only whoever shares the connection changes it, Default being what
+// every agent on it follows, theirs too.
+export const DEFAULT_LOCKED = 'Only the person sharing this connection can update the default';
+
 function DefaultHeading({setBy}: {setBy: string | null}) {
-	return <Locked setBy={setBy}>Default</Locked>;
+	return <Locked says={setBy === null ? null : DEFAULT_LOCKED}>Default</Locked>;
 }
 
 // An agent's column heading: its logo over its name, a link to its page; with `to` null, on the
@@ -398,7 +399,7 @@ function AgentHeading({
 	to: string | null;
 }) {
 	const name = (
-		<Locked setBy={setBy}>
+		<Locked says={setBy === null ? null : `Set by ${setBy}`}>
 			<span title={agent.name} className="block min-w-0 truncate">
 				{agent.name}
 			</span>

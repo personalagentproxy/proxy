@@ -5,7 +5,7 @@ import type {Action} from '@proxy/integrations';
 import {afterEach, describe, expect, mock, test} from 'bun:test';
 import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {createMemoryRouter, RouterProvider} from 'react-router';
-import {AccessGrid, type GridAgent} from '@/components/access-grid';
+import {AccessGrid, DEFAULT_LOCKED, type GridAgent} from '@/components/access-grid';
 
 afterEach(() => {
 	cleanup();
@@ -292,7 +292,8 @@ describe('AccessGrid', () => {
 	test('a column the person may not change has a lock by its name, and its boxes say on hover who sets them', async () => {
 		renderGrid({defaultsSetBy: 'Dana', agents: [{...claude, setBy: 'Dana'}, scout]});
 
-		expect(screen.getAllByLabelText('Set by Dana')).toHaveLength(2);
+		expect(screen.getAllByLabelText(DEFAULT_LOCKED)).toHaveLength(1);
+		expect(screen.getAllByLabelText('Set by Dana')).toHaveLength(1);
 		fireEvent.focus(box('Read by default'));
 		expect(await screen.findByText('Set by Dana')).toBeDefined();
 		fireEvent.blur(box('Read by default'));
