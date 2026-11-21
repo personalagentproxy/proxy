@@ -24,10 +24,10 @@ import {pathOf} from './text';
  * for its task, in the drive's history.
  */
 
-export type CliListed = z.infer<typeof cliFileListSchema>;
+export type DriveListing = z.infer<typeof cliFileListSchema>;
 
 /** What a path is in a drive: the files and folders on it that are there, from the top, and the names past the last of them that aren't. */
-export type CliResolved = {found: CliFile[]; missing: string[]};
+export type ResolvedPath = {found: CliFile[]; missing: string[]};
 
 /**
  * A pull: the file by its id; the version asked for, else what it holds now; what it is exported
@@ -35,13 +35,13 @@ export type CliResolved = {found: CliFile[]; missing: string[]};
  * pull wants one, as `pap files pull` does to note where a file came from. Without one, a drive
  * that has to look a path up says none.
  */
-export type CliPullAsked = {id: string; version: string | null; as: CliExport | null; tab: string | null; path: string | null};
+export type PullAsked = {id: string; version: string | null; as: CliExport | null; tab: string | null; path: string | null};
 
 /** A file's bytes as they come, and which file they are. */
-export type CliPull = {said: CliPulled; body: ReadableStream<Uint8Array>};
+export type FilePull = {said: CliPulled; body: ReadableStream<Uint8Array>};
 
 /** The version a write over a file names: the one pulled, if any, or, with force, whatever it holds now. */
-export type CliAsk = {version: string | null; force: boolean};
+export type WriteAsk = {version: string | null; force: boolean};
 
 /**
  * Where a blob goes: a new file in a folder, the top where `parentId` is null, inside the `folders`
@@ -65,13 +65,13 @@ export type Drive = {
 	/** The names of the file a push goes to, converted where `convert` says: refused where the drive has nothing to convert into, or no file goes there. */
 	pushNames: (names: string[], convert: boolean) => Result<string[], ApiError>;
 	/** What a path names, as far as it goes. */
-	resolve: (names: string[]) => Promise<Result<CliResolved, ApiError>>;
+	resolve: (names: string[]) => Promise<Result<ResolvedPath, ApiError>>;
 	/** A file by its id, with its path. */
 	file: (id: string) => Promise<Result<CliFile, ApiError>>;
 	/** What the folder at a path holds. */
-	list: (names: string[]) => Promise<Result<CliListed, ApiError>>;
+	list: (names: string[]) => Promise<Result<DriveListing, ApiError>>;
 	/** A file's bytes, as they come. */
-	pull: (asked: CliPullAsked) => Promise<Result<CliPull, ApiError>>;
+	pull: (asked: PullAsked) => Promise<Result<FilePull, ApiError>>;
 	/**
 	 * What putting a file there would be refused for, checked before its bytes are sent, as `upload`
 	 * checks it again once they are: where it goes, what it is called, the version read, and what its
@@ -86,7 +86,7 @@ export type Drive = {
  * The version a write over `there` is made at: the one pulled, or with force, whatever it holds
  * now; refused where the file changed since it was pulled, or was never pulled.
  */
-export function versionToWrite(there: CliFile, ask: CliAsk): Result<string, ApiError> {
+export function versionToWrite(there: CliFile, ask: WriteAsk): Result<string, ApiError> {
 	const held = there.version ?? '';
 	const named = ask.force ? held : ask.version;
 	if (named === held) {

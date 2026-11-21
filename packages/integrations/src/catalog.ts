@@ -1595,7 +1595,7 @@ const google: Integration = {
 			name: 'files_blob',
 			title: 'Make blob of file',
 			description:
-				'Makes a blob of a Drive file’s bytes: a file of its own bytes as they are, now or at an earlier version; a Doc, Sheet or Slides file as Drive exports it now, a Doc as Markdown, a Sheet as xlsx and a Slides file as pptx unless as says otherwise, and a Sheet as CSV its first tab or the one tab names, up to the 10 MB Drive exports. A blob is a file passed between tools for a day, usable only by you: files_upload puts it in a drive, another tool takes it where it goes, and pap.download(blob) gives a URL to fetch it into a shell. Answers with the blob’s id.',
+				'Makes a blob of a Drive file’s bytes: a file of its own bytes as they are, now or at an earlier version; a Doc, Sheet or Slides file as Drive exports it now, a Doc as Markdown, a Sheet as xlsx and a Slides file as pptx unless as says otherwise, and a Sheet as CSV its first tab or the one tab names, up to the 10 MB Drive exports. A blob is a file passed between tools for a day, usable only by you: files_upload puts it in a drive, and pap.download(blob) gives a URL to fetch it into a shell. Answers with the blob’s id.',
 			action: 'readFiles',
 			readOnly: true,
 			inputSchema: {
@@ -2342,7 +2342,7 @@ const files: Integration = {
 			name: 'files_blob',
 			title: 'Make blob of file',
 			description:
-				'Makes a blob of a file’s bytes, as they are: what it holds now, or an earlier version. A blob is a file passed between tools for a day, usable only by you: files_upload puts it in a drive, another tool takes it where it goes, and pap.download(blob) gives a URL to fetch it into a shell. Answers with the blob’s id.',
+				'Makes a blob of a file’s bytes, as they are: what it holds now, or an earlier version. A blob is a file passed between tools for a day, usable only by you: files_upload puts it in a drive, and pap.download(blob) gives a URL to fetch it into a shell. Answers with the blob’s id.',
 			action: 'readFiles',
 			readOnly: true,
 			inputSchema: {

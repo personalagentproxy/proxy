@@ -20,7 +20,7 @@ import {
 } from '../connections/google/drive-api';
 import {callGoogle, TOO_LARGE_TO_READ} from '../connections/google/google-client';
 import {getSheets, getValues, rowsRange} from '../connections/google/sheets-api';
-import type {CliListed, CliPull, CliPullAsked, CliResolved, Drive, DriveAt} from '../native/files/drive';
+import type {DriveListing, FilePull, PullAsked, ResolvedPath, Drive, DriveAt} from '../native/files/drive';
 import {mediaType} from '../native/files/names';
 import {pathInDrive} from './google-files';
 import {sizeOf} from './google-history';
@@ -182,7 +182,7 @@ function childNamed(token: string, inside: Inside, where: string, name: string):
 }
 
 /** What a path names, as far as it goes, and what is inside the last of it, where that is a folder. */
-type Walked = CliResolved & {inside: Inside | null};
+type Walked = ResolvedPath & {inside: Inside | null};
 
 function walk(token: string, names: string[]): Promise<Result<Walked, ApiError>> {
 	return Do(async ($) => {
@@ -291,7 +291,7 @@ function exported(token: string, file: DriveFileState, format: CliExport): Promi
 }
 
 // A Doc, Sheet or Slides file, as Drive exports it now.
-function pullExport(token: string, file: DriveFileState, asked: CliPullAsked, path: string): Promise<Result<CliPull, ApiError>> {
+function pullExport(token: string, file: DriveFileState, asked: PullAsked, path: string): Promise<Result<FilePull, ApiError>> {
 	return Do(async ($) => {
 		const exports = EXPORTS[file.mimeType];
 		if (exports === undefined) {
@@ -324,7 +324,7 @@ function pullExport(token: string, file: DriveFileState, asked: CliPullAsked, pa
 }
 
 // A file with bytes of its own, as they are: now, or at one of its revisions.
-function pullBytes(token: string, file: DriveFileState, asked: CliPullAsked, path: string): Promise<Result<CliPull, ApiError>> {
+function pullBytes(token: string, file: DriveFileState, asked: PullAsked, path: string): Promise<Result<FilePull, ApiError>> {
 	return Do(async ($) => {
 		if (asked.as !== null || asked.tab !== null) {
 			return $(Err(ApiErr.validationError(`“${file.name}” is a file of its own bytes, ${file.mimeType}, and is handed over as they are: leave as and tab out.`)));
@@ -389,7 +389,7 @@ export function googleDrive(at: DriveAt): Drive {
 
 		list: (names) =>
 			withToken((token) =>
-				Do(async ($): Promise<CliListed> => {
+				Do(async ($): Promise<DriveListing> => {
 					const at = names.join('/');
 					if (names.length === 0) {
 						return {path: '', files: PLACES.map(placeFile)};
