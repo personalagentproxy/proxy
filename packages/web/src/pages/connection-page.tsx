@@ -28,6 +28,7 @@ import {FileBrowser} from '@/components/file-browser';
 import {SandboxList} from '@/components/sandbox-list';
 import {SuccessLine} from '@/components/success-line';
 import {VaultEntries} from '@/components/vault-entries';
+import {VaultSecrets} from '@/components/vault-secrets';
 import {connectionTitle, defaultActions, integrationOf, ownSettings, reaches} from '@/lib/access';
 import {useHuman} from '@/hooks/use-human';
 import {reachedRepositories} from '@/lib/github';
@@ -58,6 +59,7 @@ function ConnectionDetail() {
 		tasks,
 		members,
 		vaultEntries,
+		vaultSecrets,
 		sandboxes,
 		github,
 		files,
@@ -102,6 +104,7 @@ function ConnectionDetail() {
 	const tabs: Array<
 		PageTab<
 			| 'entries'
+			| 'secrets'
 			| 'sandboxes'
 			| 'files'
 			| 'repositories'
@@ -114,6 +117,9 @@ function ConnectionDetail() {
 		...(vaultEntries === null
 			? []
 			: [{id: 'entries' as const, label: 'Entries', count: vaultEntries.length}]),
+		...(vaultSecrets === null
+			? []
+			: [{id: 'secrets' as const, label: 'Secrets', count: vaultSecrets.length}]),
 		...(sandboxes === null
 			? []
 			: [{id: 'sandboxes' as const, label: 'Sandboxes', count: sandboxes.length}]),
@@ -236,6 +242,9 @@ function ConnectionDetail() {
 						entries={vaultEntries}
 						made={!connection.builtIn}
 					/>
+				)}
+				{tab === 'secrets' && vaultSecrets !== null && (
+					<VaultSecrets connectionId={connection.id} secrets={vaultSecrets} />
 				)}
 				{tab === 'sandboxes' && sandboxes !== null && (
 					<SandboxList connectionId={connection.id} sandboxes={sandboxes} />

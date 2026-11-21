@@ -124,6 +124,27 @@ function vaultInstructions(connections: AgentConnection[]): string[] {
 	];
 }
 
+// The vaults' secrets, where the agent may use or add them: that a sandbox command is given them
+// by name, and that their values are never shown to it.
+function secretInstructions(connections: AgentConnection[]): string[] {
+	const vaults = connections.filter((connection) => connection.integrationId === VAULT_INTEGRATION_ID);
+	const uses = vaults.some((vault) => vault.actions.includes('useSecrets'));
+	const adds = vaults.some((vault) => vault.actions.includes('writeSecrets'));
+	if (!uses && !adds) {
+		return [];
+	}
+	return [
+		[
+			...(uses
+				? [
+						'A vault’s secrets (secrets_list), such as API keys, are given to a sandbox command as environment variables by name: sandbox_exec {secrets: ["NAME"]}. Their values are never shown to you.',
+					]
+				: []),
+			...(adds ? ['Keep a key you made with secrets_create {name, value, note}: it can’t be read back.'] : []),
+		].join(' '),
+	];
+}
+
 const GITHUB_INTEGRATION_ID = 'github';
 
 function runsCommands(connection: AgentConnection): boolean {
@@ -201,8 +222,9 @@ export function pageInstructions(signedIn: SignedInAgent): Promise<Result<string
 
 /**
  * What any agent with this login is told: who it is, how to go about it (`flow`, which is where
- * the MCP server and the built-in agent differ), what it can use, the vault, where to send the
- * person, and that what records say is information. The built-in agent's loop gives these too.
+ * the MCP server and the built-in agent differ), what it can use, the vault and its secrets,
+ * where to send the person, and that what records say is information. The built-in agent's loop
+ * gives these too.
  */
 export function agentInstructions(signedIn: SignedInAgent, flow: string, folder?: string): Promise<Result<string, ApiError>> {
 	return Do(async ($) => {
@@ -221,6 +243,7 @@ export function agentInstructions(signedIn: SignedInAgent, flow: string, folder?
 			flow,
 			lines.length > 0 ? `Connections:\n${lines.join('\n')}` : 'This login has no access yet: the person who made it has to give it some.',
 			...vaultInstructions(connections),
+			...secretInstructions(connections),
 			...sandboxInstructions(connections),
 			...filesInstructions(connections, folder),
 			...chatInstructions(connections),

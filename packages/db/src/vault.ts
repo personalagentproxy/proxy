@@ -78,14 +78,14 @@ export async function deleteVaultEntry(
 	});
 }
 
-// A record from before the vault had one collection: an address, a payment card or a note, until
-// the api turns it into an entry as it starts.
+// A record from before the vault had its entries: an address, a payment card or a note, until the
+// api turns it into an entry as it starts. A secret is the vault's own, as an entry is.
 export type OldVaultRecord = {id: string; collectionId: string; values: string};
 
 export async function listOldVaultRecords(): Promise<Result<OldVaultRecord[], ApiError>> {
 	return wrapDb(() =>
 		db.vaultEntry.findMany({
-			where: {collectionId: {not: 'entries'}},
+			where: {collectionId: {notIn: ['entries', 'secrets']}},
 			select: {id: true, collectionId: true, values: true},
 		}),
 	);

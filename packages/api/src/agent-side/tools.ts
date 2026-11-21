@@ -484,6 +484,16 @@ function requireApplies(condition: Condition | undefined, record: DataRecord): R
 	return Err(ApiErr.validationError(`Only for ${condition?.values.join(' or ')}`));
 }
 
+// A record as an agent is given it: without what is never given to one, as a vault's secret's
+// value (`Field.secret`), which the person reads on the connection's page and a command uses by name.
+function withoutSecrets(collection: Collection, record: DataRecord): DataRecord {
+	const hidden = collection.fields.filter((field) => field.secret).map((field) => field.key);
+	if (hidden.length === 0) {
+		return record;
+	}
+	return {...record, values: Object.fromEntries(Object.entries(record.values).filter(([key]) => !hidden.includes(key)))};
+}
+
 // A list opened inside a record, in a nested collection, is logged with that record's title.
 function list(run: StoreRun, params: Record<string, string>): Promise<Result<ToolResult, ApiError>> {
 	return Do(async ($) => {
@@ -491,7 +501,7 @@ function list(run: StoreRun, params: Record<string, string>): Promise<Result<Too
 		const query = {search: searchOf(params), page: params.page ?? null, filter: filterField ? (params[filterField] ?? null) : null, parent: params.parent ?? null};
 		const page = $(await logFailure(run, await run.connector.list(run.target, query), null, query.search));
 		$(await log(run, 'allowed', page.trail?.at(-1)?.title ?? null, query.search));
-		return page;
+		return {...page, records: page.records.map((record) => withoutSecrets(run.target.collection, record))};
 	});
 }
 
@@ -499,7 +509,7 @@ function get(run: StoreRun, recordId: string): Promise<Result<ToolResult, ApiErr
 	return Do(async ($) => {
 		const record = $(await logFailure(run, await run.connector.get(run.target, recordId), null));
 		$(await log(run, 'allowed', recordTitle(run.target.collection, record.values)));
-		return {record};
+		return {record: withoutSecrets(run.target.collection, record)};
 	});
 }
 
@@ -526,7 +536,7 @@ function create(run: StoreRun, params: Record<string, string>): Promise<Result<T
 		$(await requireFieldActions(run, values));
 		const record = $(await logFailure(run, await runner(run.target, values, params.parent ?? null), recordTitle(run.target.collection, values)));
 		$(await log(run, 'allowed', recordTitle(run.target.collection, record.values)));
-		return {record};
+		return {record: withoutSecrets(run.target.collection, record)};
 	});
 }
 
@@ -543,7 +553,7 @@ function update(run: StoreRun, params: Record<string, string>): Promise<Result<T
 		$(await requireFieldActions(run, values, before.values));
 		const record = $(await logFailure(run, await runner(run.target, recordId, values, before), recordTitle(collection, values)));
 		$(await log(run, 'allowed', recordTitle(collection, record.values)));
-		return {record};
+		return {record: withoutSecrets(collection, record)};
 	});
 }
 

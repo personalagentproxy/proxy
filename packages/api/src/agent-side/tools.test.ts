@@ -320,6 +320,16 @@ describe('runAgentTool', () => {
 		expect(getAgentTask).toHaveBeenCalledWith('org-1', 'agent-1', 'task-1');
 	});
 
+	test('a secret is given without its value, which only the person reads', async () => {
+		const {runAgentTool} = await import('./tools');
+		const secret = {id: 'secret-1', values: {name: 'API_KEY', value: 'sk-never-shown', note: 'For the reports'}, updatedAt: '2026-11-17T10:00:00.000Z'};
+		connector.get.mockResolvedValueOnce(Ok(secret));
+		connector.list.mockResolvedValueOnce(Ok({records: [secret], nextPage: null}));
+
+		expect((await runAgentTool(caller, 'vault-1', 'secrets_get', {id: 'secret-1'})).unwrap()).toEqual({record: {...secret, values: {name: 'API_KEY', note: 'For the reports'}}});
+		expect(JSON.stringify((await runAgentTool(caller, 'vault-1', 'secrets_list', {})).unwrap())).not.toContain('sk-never-shown');
+	});
+
 	test('a run for a task the agent does not have, or one finished already, is refused unlogged', async () => {
 		const {runAgentTool} = await import('./tools');
 		getAgentTask.mockResolvedValue(Ok(null));
@@ -806,11 +816,13 @@ describe("an integration's own tools", () => {
 			'entries_create',
 			'entries_update',
 			'entries_delete',
+			'secrets_list',
+			'secrets_get',
 			'entries_count',
 			'entries_purge',
 		]);
 		getAgentById.mockResolvedValue(Ok({...agent, grants: []}));
-		expect((await listAgentTools(signedIn, 'vault-1')).unwrap().map((tool) => tool.name)).toEqual(['entries_list', 'entries_get', 'entries_count']);
+		expect((await listAgentTools(signedIn, 'vault-1')).unwrap().map((tool) => tool.name)).toEqual(['entries_list', 'entries_get', 'secrets_list', 'secrets_get', 'entries_count']);
 	});
 
 	test('run by the runner with the params as given, for the caller on the connection, and logged by name with them', async () => {

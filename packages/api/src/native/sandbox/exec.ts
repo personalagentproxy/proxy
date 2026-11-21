@@ -12,6 +12,8 @@ import type {NativeToolRunner} from '../tool';
 import {holdForTask} from './lease';
 import {requireBackend, wakeSandbox} from './machines';
 import {ensurePap, withPapOnPath} from './pap';
+import {maskSecrets, secretEnv} from './secret-values';
+import {secretsFor} from './secrets';
 
 /**
  * The console, `sandbox_exec`: a command run in a sandbox of the connection's for the caller's
@@ -22,7 +24,9 @@ import {ensurePap, withPapOnPath} from './pap';
  * the `pap` CLI on its PATH, installed first where it isn't this server's (pap.ts); without it, no
  * credential and nothing installed. The activity log has the command as the agent gave it. The
  * token is signed once the sandbox is woken and pap installed, so it lasts as long as the command
- * may.
+ * may. With `secrets`, it is given the vaults' secrets named, as environment variables
+ * (secrets.ts), and what it writes back has their values shown by their names; the log has the
+ * names alone, as the agent gave them.
  */
 
 const paramsSchema = z.object({
@@ -32,6 +36,7 @@ const paramsSchema = z.object({
 	cwd: z.string().optional(),
 	timeout: z.number().positive().max(SANDBOX_EXEC_MAX_SECONDS).optional(),
 	pap: z.boolean().optional(),
+	secrets: z.array(z.string().min(1)).max(50).optional(),
 });
 
 // How much of each stream the model is given; the gate cuts the whole answer further.
@@ -65,9 +70,12 @@ export const runSandboxCommand: NativeToolRunner = ({caller, connection, params}
 	Do(async ($): Promise<string> => {
 		const parsed = parseSchema(paramsSchema, params);
 		if (parsed.isErr()) {
-			return $(Err(ApiErr.validationError(`sandbox_exec takes sandbox, command, and stdin, cwd, timeout and pap where wanted: ${parsed.error.kind === 'parse_error' ? parsed.error.message : ''}`)));
+			return $(
+				Err(ApiErr.validationError(`sandbox_exec takes sandbox, command, and stdin, cwd, timeout, pap and secrets where wanted: ${parsed.error.kind === 'parse_error' ? parsed.error.message : ''}`)),
+			);
 		}
-		const {sandbox: sandboxId, command, stdin, cwd, timeout = SANDBOX_EXEC_DEFAULT_SECONDS, pap = false} = parsed.value;
+		const {sandbox: sandboxId, command, stdin, cwd, timeout = SANDBOX_EXEC_DEFAULT_SECONDS, pap = false, secrets: asked = []} = parsed.value;
+		const secrets = $(await secretsFor(caller, asked));
 		const config = pap ? $(requireCliTokenConfig()) : null;
 		const bundle = pap ? $(await papBundle()) : null;
 		const backend = $(await requireBackend());
@@ -78,8 +86,10 @@ export const runSandboxCommand: NativeToolRunner = ({caller, connection, params}
 			$(await ensurePap(backend, running, bundle));
 		}
 		const claims = {agentId: caller.agent.agentId, orgId: caller.agent.orgId, ownerUserId: caller.agent.ownerUserId, taskId: caller.taskId, sandboxId: running.id, connectionId: connection.id};
-		const sent = config === null ? {command} : {command: withPapOnPath(command), env: cliCommandEnv(config, claims, timeout)};
+		const given = secretEnv(secrets);
+		const plain = secrets.length === 0 ? {command} : {command, env: given};
+		const sent = config === null ? plain : {command: withPapOnPath(command), env: {...given, ...cliCommandEnv(config, claims, timeout)}};
 		const output = $(await backend.exec(running.backendRef, {...sent, stdin, cwd, timeoutMs: Math.round(timeout * 1000)}));
 		$(await touchSandbox(running.id));
-		return describeOutput(output, timeout);
+		return describeOutput({...output, stdout: maskSecrets(output.stdout, secrets), stderr: maskSecrets(output.stderr, secrets)}, timeout);
 	});
