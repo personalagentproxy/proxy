@@ -57,8 +57,10 @@ export type Command = {
 	action: string;
 	// The action it needs beside its own, as sending a reply needs Read, for the email it answers.
 	requires?: string;
-	// What a `record` one takes beside the record's id, each required, as sending a message to a
-	// thread takes its text.
+	// What it takes, where not the collection's fields: a `record` one beside the record's id, each
+	// required, as sending a message to a thread takes its text; a `new` one in place of the fields,
+	// each as a field is, left out where not given, as opening a thread takes its message, its agent
+	// and its place, which aren't a thread's fields as a list reads them.
 	params?: Field[];
 	// The records it applies to, when not every one.
 	where?: Condition;

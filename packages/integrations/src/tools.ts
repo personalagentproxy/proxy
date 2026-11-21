@@ -281,7 +281,11 @@ function collectionTools(integration: Integration, collection: Collection): Coll
 					description:
 						command.description ??
 						`${command.label} a new ${collection.singular} from the fields given, without saving it first.${what}`,
-					inputSchema: objectSchema(valueProperties(integration, collection)),
+					inputSchema: objectSchema(
+						command.params
+							? Object.fromEntries(command.params.map((field) => [field.key, fieldProperty(field)]))
+							: valueProperties(integration, collection),
+					),
 					readOnly: command.readOnly,
 					...(command.requires ? {requires: command.requires} : {}),
 				});

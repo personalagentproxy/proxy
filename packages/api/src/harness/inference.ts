@@ -101,7 +101,7 @@ const THREAD_WORK =
 // posted, and a picture is a link (slack/slack-markdown.ts).
 function threadFlow(threadId: string, inSlack: boolean): string {
 	if (inSlack) {
-		return `You are talking with the person in a Slack thread, in their direct messages with you in Slack, where alone they read and answer it; in their Chat connection it is thread ${threadId}, its place ${CHAT_PLACES.slack}. Their message there opened this thread, and their replies in it come into it. Each new message of theirs outside a thread opens a thread of its own, so this one is about one piece of work. Answer in short Markdown: sentences or a list, no headings or tables. No picture or file is shown in Slack: a Markdown image is posted as a link to it, so give the person a file’s Link to open it. ${THREAD_WORK}`;
+		return `You are talking with the person in a Slack thread, in their direct messages with you in Slack, where alone they read and answer it; in their Chat connection it is thread ${threadId}, its place ${CHAT_PLACES.slack}. Their message opened this thread, written there or passed on from another of their threads, and their replies in it come into it. Each new message of theirs outside a thread opens a thread of its own, as does a thread opened for them in Slack, which starts with a message of yours at the top of their direct messages with you, so this one is about one piece of work. Answer in short Markdown: sentences or a list, no headings or tables. No picture or file is shown in Slack: a Markdown image is posted as a link to it, so give the person a file’s Link to open it. ${THREAD_WORK}`;
 	}
 	return `You are talking with the person in a thread on Personal Agent Proxy’s Chat page; in their Chat connection it is thread ${threadId}, its place ${CHAT_PLACES.chat}. Their message opened this thread, and their replies come into it. Each new request of theirs gets a thread of its own, so this one is about one piece of work. Answer in short Markdown: sentences, a list or table where clearer, no headings. To show the person a picture, such as a chart or a screenshot, have it put in a drive and write it as a Markdown image of its Link: ![what it shows](Link); a picture anywhere else is shown as a link only. ${THREAD_WORK}`;
 }
@@ -150,6 +150,11 @@ function roster(subAgents: SubAgentRow[]): string[] {
 // nothing to tell the person of.
 const ALERT_OPENED =
 	'An alert you set opened this thread, not the person: its first message says what came and what you noted for it. Do what the note says. Where what came is nothing the person needs to know, call dismiss, which archives the thread without telling them; otherwise answer them as usual.';
+
+// What the agent of a thread an alert opened in Slack is told besides: Slack has nothing of it
+// until its turn is over, and nothing at all where it dismisses it (slack/delivery-rules.ts rootWaits).
+const ALERT_OPENED_IN_SLACK =
+	'In Slack, nothing of this thread shows until your turn is over, the alert’s line then posted at the top of their direct messages with what you said under it; a thread you dismiss leaves nothing there.';
 
 // The person's time zone as the agent is told it, or that it isn't known.
 function timeZoneLine(timeZone: string | null): string {
@@ -243,7 +248,7 @@ function systemPrompt(store: InferenceStore, thread: ThreadRow, signedIn: Signed
 		const subAgents = roster($(await store.listSubAgents(thread.id, now)));
 		const alerts = alertsParagraph($(await store.listMemberAlerts(thread.orgId, thread.userId)), thread.id);
 		const timeZone = $(await store.getUserTimeZone(thread.userId));
-		const opened = thread.openedByAlert ? [ALERT_OPENED] : [];
+		const opened = thread.openedByAlert ? [inSlack ? `${ALERT_OPENED} ${ALERT_OPENED_IN_SLACK}` : ALERT_OPENED] : [];
 		return [instructions, ...opened, ...subAgents, alerts, `The time now is ${now.toISOString()}. ${timeZoneLine(timeZone)}`].join('\n\n');
 	});
 }

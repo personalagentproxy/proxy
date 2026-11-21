@@ -198,6 +198,8 @@ describe('a thread’s alert calls', () => {
 		terms: [],
 		split: null,
 		lastMatchedAt: null,
+		slackAppId: null,
+		slackChannel: null,
 		createdAt: now,
 	};
 	const watchable = {id: 'conn-a', integrationId: 'google', account: 'a@example.com', shared: true, actions: [EMAILS_READ], tools: null, name: null};

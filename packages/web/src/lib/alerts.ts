@@ -2,10 +2,10 @@ import type {Alert} from '@proxy/contracts/alerts';
 
 // Where an alert comes, as the Alerts page and its dialog show it.
 
-/** Where an alert comes, in a few words, under its title: its thread, by its title, or a new thread each time. */
+/** Where an alert comes, in a few words, under its title: its thread, by its title, or a new thread each time, in Slack for one set in a thread there. */
 export function threadOf(alert: Alert): string {
 	if (alert.thread === null) {
-		return 'New thread each time';
+		return alert.opensInSlack ? 'New thread in Slack each time' : 'New thread each time';
 	}
 	return `In “${alert.thread.title || 'Thread'}”`;
 }

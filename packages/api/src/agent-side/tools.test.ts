@@ -167,7 +167,8 @@ const send = mock();
 const sendNew = mock();
 const read = mock();
 const sendReply = mock();
-const connector = {list: mock(), get: mock(), create: mock(), update: mock(), remove: mock(), commands: {archive, send, markDone, unarchive}, newCommands: {sendNew, read, send: sendReply}};
+const open = mock();
+const connector = {list: mock(), get: mock(), create: mock(), update: mock(), remove: mock(), commands: {archive, send, markDone, unarchive}, newCommands: {sendNew, read, send: sendReply, open}};
 
 // A member's Chat, which no agent may do anything with by default.
 const chatConnection = {...vaultConnection, id: 'chat-1', integrationId: 'chat', account: 'Acme', defaults: []};
@@ -696,6 +697,66 @@ describe('a message sent to a thread, through the Chat connection', () => {
 
 		expect((await runAgentTool(caller, 'chat-1', 'threads_send', {id: 'thread-2', text: 'Hello'})).unwrapErr()).toMatchObject({kind: 'validation_error'});
 		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({collectionId: 'threads', action: 'send', recordTitle: 'Upgrade vite', outcome: 'failed', error: 'validation_error'});
+	});
+});
+
+describe('a thread opened from a thread, through the Chat connection', () => {
+	const thread = {
+		id: 'thread-3',
+		values: {title: 'Draft the renewal email', agent: 'Legal', standing: 'In progress', place: 'Slack'},
+		updatedAt: '2026-10-01T00:00:00.000Z',
+		url: 'https://app.slack.com/client/T01/D01',
+	};
+	const builtIn = (actions: string[]) => ({...agent, providerId: 'proxy', grants: actions.map((actionId) => ({connectionId: 'chat-1', actionId, allowed: true}))});
+
+	beforeEach(() => {
+		useConnection(chatConnection);
+		getAgentById.mockResolvedValue(Ok(builtIn(['readThreads', 'writeThreads'])));
+	});
+
+	test('is opened by the connector with its message, agent and place, for the caller’s task, and logged with the new thread’s title', async () => {
+		const {runAgentTool} = await import('./tools');
+		open.mockResolvedValue(Ok(thread));
+
+		expect((await runAgentTool(caller, 'chat-1', 'threads_open', {text: 'Draft the renewal email', agent: 'Legal', place: 'Slack'})).unwrap()).toEqual({record: thread});
+
+		const [target, values] = open.mock.calls[0] ?? [];
+		expect(target).toMatchObject({by: {taskId: 'task-1'}, collection: {id: 'threads'}});
+		expect(values).toEqual({text: 'Draft the renewal email', agent: 'Legal', place: 'Slack'});
+		expect(logAgentRequest.mock.calls.map(([logged]) => [logged.collectionId, logged.action, logged.recordTitle, logged.outcome, logged.taskId])).toEqual([
+			['threads', 'open', 'Draft the renewal email', 'allowed', 'task-1'],
+		]);
+	});
+
+	test('takes its agent and place as left out where not given, and a place only by its word', async () => {
+		const {runAgentTool} = await import('./tools');
+		open.mockResolvedValue(Ok(thread));
+
+		(await runAgentTool(caller, 'chat-1', 'threads_open', {text: 'Draft it'})).unwrap();
+		expect(open.mock.calls[0]?.[1]).toEqual({text: 'Draft it', agent: '', place: ''});
+		expect((await runAgentTool(caller, 'chat-1', 'threads_open', {text: 'Draft it', place: 'Email'})).unwrapErr()).toMatchObject({
+			kind: 'validation_error',
+			message: 'place must be one of Chat, Slack',
+		});
+		expect((await runAgentTool(caller, 'chat-1', 'threads_open', {text: 'Draft it', title: 'Renewal'})).unwrapErr()).toMatchObject({kind: 'validation_error'});
+		expect(open).toHaveBeenCalledTimes(1);
+	});
+
+	test('is refused without Write in threads, and logged as denied', async () => {
+		const {runAgentTool} = await import('./tools');
+		getAgentById.mockResolvedValue(Ok(builtIn(['readThreads', 'markThreads'])));
+
+		expect((await runAgentTool(caller, 'chat-1', 'threads_open', {text: 'Hello'})).unwrapErr().kind).toBe('forbidden');
+		expect(open).not.toHaveBeenCalled();
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({collectionId: 'threads', action: 'open', outcome: 'denied'});
+	});
+
+	test('the connector refuses is logged as failed, with its kind', async () => {
+		const {runAgentTool} = await import('./tools');
+		open.mockResolvedValue(Err(ApiErr.validationError('Finance isn’t in Slack')));
+
+		expect((await runAgentTool(caller, 'chat-1', 'threads_open', {text: 'Hello', place: 'Slack'})).unwrapErr()).toMatchObject({message: 'Finance isn’t in Slack'});
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({collectionId: 'threads', action: 'open', outcome: 'failed', error: 'validation_error'});
 	});
 });
 

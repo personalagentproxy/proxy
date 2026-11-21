@@ -648,6 +648,35 @@ export async function listPersonasById(
 	).map((personas) => personas.map(toPersona));
 }
 
+/**
+ * The organization's personas the member sees, their own and those shared with the organization,
+ * by the id or the name `named`, the name in any case: the one named, or none, or several of one
+ * name. As a thread of theirs opens another with the persona they named.
+ */
+export async function findMemberPersonas(
+	orgId: string,
+	userId: string,
+	named: string,
+): Promise<Result<PersonaRow[], ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.persona.findMany({
+				where: {
+					AND: [
+						seenBy(orgId, userId),
+						{OR: [{id: named}, {name: {equals: named, mode: 'insensitive'}}]},
+					],
+				},
+				select: personaSelect,
+				orderBy: {id: 'asc'},
+			}),
+		)
+	).map((personas) => {
+		const byId = personas.filter((persona) => persona.id === named);
+		return (byId.length > 0 ? byId : personas).map(toPersona);
+	});
+}
+
 /** One of the organization's personas the member sees; `Ok(null)` for none, another member's own among them. */
 export async function getPersona(
 	orgId: string,
@@ -1721,6 +1750,88 @@ export async function passOnToThread(
 			}
 			const entry = {kind: 'person' as const, text, passedOnFromId: passing.thread.id};
 			return {sent: await wakeWith(tx, thread, entry, wakes)};
+		}),
+	);
+}
+
+/** Where a thread opened in Slack goes: the persona's app, and the member's DM with it, by its channel. */
+export type SlackOpening = {appId: string; channel: string};
+
+/** The thread that would pass a message on now (passingThread), with where it lives in Slack, null for one in the app. */
+export type PassingThread = {thread: ThreadRow; slack: SlackOpening | null};
+
+/**
+ * The thread of the member's whose task `taskId` is, as it would pass a message on now, with where
+ * it lives, or why it can't (passingThread): what a thread opened from it takes where nothing else
+ * is asked for, its persona and its place, is read before it is opened, as finding the DM in Slack
+ * may ask Slack.
+ */
+export async function getPassingThread(
+	member: {orgId: string; userId: string},
+	taskId: string,
+): Promise<Result<PassingThread | {refused: PassOnRefusal}, ApiError>> {
+	return wrapDb(async () => {
+		const passing = await passingThread(db, member, taskId);
+		if ('refused' in passing) {
+			return passing;
+		}
+		const slack = await db.slackThreadPlace.findUnique({
+			where: {threadId: passing.thread.id},
+			select: {appId: true, channel: true},
+		});
+		return {thread: passing.thread, slack};
+	});
+}
+
+/**
+ * Opens a thread with a message passed on from the thread of the member's whose task `taskId` is,
+ * in their chat `chatId`, whichever persona's it is, in one transaction with its checks, as a
+ * message in the app opens one (openThreadIn): its first entry their message, naming the thread it
+ * came from, which wakes its agent; what they had typed in that chat stays as it is. In Slack where
+ * `slack` says: its place is made with it, before its first entry, with no root message yet, so the
+ * app never shows it, and the delivery sweep posts that message as its root before anything else
+ * (api slack/delivery.ts), by the place's id given with the thread. Refused where the thread can't
+ * pass one on (passingThread); `Ok(null)` for no such chat of theirs.
+ */
+export async function openPassedOnThread(
+	member: {orgId: string; userId: string},
+	taskId: string,
+	open: {chatId: string; text: string; opening: ThreadOpening; slack: SlackOpening | null},
+	wakes: Wakes,
+): Promise<
+	Result<
+		| {opened: {thread: ThreadRow; entry: EntryRow; placeId: string | null}}
+		| {refused: PassOnRefusal}
+		| null,
+		ApiError
+	>
+> {
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			const passing = await passingThread(tx, member, taskId);
+			if ('refused' in passing) {
+				return passing;
+			}
+			const chat = await lockChat(tx, open.chatId);
+			if (
+				chat === null ||
+				chat.parentThreadId !== null ||
+				chat.orgId !== member.orgId ||
+				chat.userId !== member.userId
+			) {
+				return null;
+			}
+			const thread = await openThreadIn(tx, chat, open.opening, false);
+			const place =
+				open.slack === null
+					? null
+					: await tx.slackThreadPlace.create({
+							data: {...open.slack, rootTs: null, threadId: thread.id},
+							select: {id: true},
+						});
+			const said = {kind: 'person' as const, text: open.text, passedOnFromId: passing.thread.id};
+			const entry = await appendEntry(tx, thread, said, wakes);
+			return {opened: {thread, entry, placeId: place?.id ?? null}};
 		}),
 	);
 }

@@ -1,15 +1,17 @@
 ---
 title: Chat
-description: Let an agent read your threads with the built-in agents, mark them done or archive them, pass a message on to one, and see and cancel the alerts set in them.
+description: Let an agent read your threads with the built-in agents, mark them done or archive them, pass a message on to one or open a new one, and see and cancel the alerts set in them.
 ---
 
 Chat is built in: your own threads with every agent Personal Agent Proxy runs for you, on the
 **Chat** page and in [Slack](/agents/slack), and the alerts set in them, as something an agent can
 read. It is what lets you ask about your threads in a thread: what is waiting for you, what was
 found in another one, which alerts are set; tidy them up, such as "archive everything that's
-done" ([Chat with the built-in agent](/agents/chat#asking-about-your-other-threads)); and send a
+done" ([Chat with the built-in agent](/agents/chat#asking-about-your-other-threads)); send a
 message on to another thread, such as "send this to the vite thread"
-([Sending a message to another thread](/agents/chat#sending-a-message-to-another-thread)).
+([Sending a message to another thread](/agents/chat#sending-a-message-to-another-thread)); and
+open a new one, such as "start this in Slack"
+([Opening a new thread from a thread](/agents/chat#opening-a-new-thread-from-a-thread)).
 
 You have one of your own in every organization, from when you join it. Nobody else sees
 it, and it can't be shared, renamed or deleted: your chats are yours alone, and so is this.
@@ -17,13 +19,13 @@ it, and it can't be shared, renamed or deleted: your chats are yours alone, and 
 An agent reads two things through it:
 
 - **Threads**: each by its title, the agent it is with, where it lives (Chat, or Slack for one that
-  began there), where it stands (In progress, Waiting for you, Watching, Done or Archived), the
+  began there or was opened there), where it stands (In progress, Waiting for you, Watching, Done or Archived), the
   sentence that says where it is, and when something was last said in it. Opened, a thread also has
   what was said in it: what you said, with which of it was passed on from another thread, what the
   agent answered and the alerts that came, never the calls the agent made. Each has a link to where it lives: its page in Chat, or its thread in Slack.
 - **Alerts**: each by its title, when it comes or what it watches, what was noted for it, and the
-  thread it comes to, or that it opens a new thread each time, with a link to the thread it comes
-  to, or was set in, where that lives.
+  thread it comes to, or that it opens a new thread each time, in Slack for one set in a thread
+  there, with a link to the thread it comes to, or was set in, where that lives.
 
 An agent can also change where a thread stands, as you would on the Chat page, in Chat or in
 Slack: mark it done, so it no longer waits for you; archive it, so the Chat page no longer lists it
@@ -44,6 +46,14 @@ to another of your threads, and only text; a sub-agent doesn't, and nothing is s
 thread whose latest message from you was itself passed on to it sends nothing on until you write
 in it yourself. Any other agent, even one allowed to, is refused. Each message sent is in the
 activity log, as any call is.
+
+By the same rules, it can open a new thread with your message: with its own agent or another of
+yours that you name, here or in Slack, where the thread it was asked in lives unless you ask for
+the other place. It is an ordinary thread whose first message is yours, marked with the thread it
+came from; in Slack, the agent's app posts your words in your direct messages with it and the
+thread goes on under them ([In Slack](/agents/slack#threads-opened-in-slack)). Its link is where it
+lives: in Slack, your direct messages with the agent until that first message is posted, a moment
+later, and its thread after.
 
 Otherwise an agent that finds what you asked about in another thread says so and links to that
 thread, and you go on with it there.

@@ -1,6 +1,7 @@
 import {beforeEach, describe, expect, mock, test} from 'bun:test';
-import {Ok} from 'ts-results-es';
+import {Err, Ok} from 'ts-results-es';
 
+import {ApiErr} from '@proxy/utils';
 import {findCollection, findIntegration, type Collection} from '@proxy/integrations';
 import type {MemberAlertRow} from '@proxy/db/alerts';
 import type {MemberThreadRow} from '@proxy/db/chat';
@@ -16,7 +17,33 @@ mock.module('@proxy/db/chat', () => ({listMemberThreads, getThreadAddress, getOr
 const getMemberThread = mock();
 const changeMemberThreadStanding = mock();
 const passOnToThread = mock();
-mock.module('@proxy/db/harness', () => ({getMemberThread, changeMemberThreadStanding, passOnToThread}));
+const getPassingThread = mock();
+const getPersona = mock();
+const findMemberPersonas = mock();
+const getMemberChat = mock();
+const ensureMemberChat = mock();
+const openPassedOnThread = mock();
+mock.module('@proxy/db/harness', () => ({
+	getMemberThread,
+	changeMemberThreadStanding,
+	passOnToThread,
+	getPassingThread,
+	getPersona,
+	findMemberPersonas,
+	getMemberChat,
+	ensureMemberChat,
+	openPassedOnThread,
+}));
+
+// The chat a new thread is opened in is the member's, begun where they have none (harness/member-chat.ts).
+const ensureChat = mock();
+mock.module('../../harness/member-chat', () => ({ensureChat}));
+
+// Where in Slack one is opened (slack/openings.ts), and its root message posted at once (slack/delivery.ts).
+const slackOpening = mock();
+mock.module('../../slack/openings', () => ({slackOpening}));
+const deliverNow = mock(async () => {});
+mock.module('../../slack/delivery', () => ({deliverNow}));
 
 const listMemberAlerts = mock();
 const deleteAlert = mock();
@@ -420,6 +447,142 @@ describe('a message sent to one of the Chat connection’s threads', () => {
 	});
 });
 
+describe('a thread one of the Chat connection’s threads opens', () => {
+	const look = {nose: 0.5, noseOut: 0.3, eye: 25, eyeTheta: 50, eyeLat: 8, eyes: 2 as const};
+	const persona = (id: string, name: string) => ({id, name, look, color: 'teal', harness: 'proxy', chatModel: 'claude', ownerUserId: null, createdById: null, createdAt: at(0)});
+	const sending = {
+		id: 'thread-1',
+		orgId: 'org-1',
+		agentId: 'login-1',
+		personaId: 'persona-1',
+		userId: 'user-1',
+		parentThreadId: 'chat-1',
+		subAgentOfId: null,
+		parentCallId: null,
+		title: 'Pricing review with Dana',
+		taskId: 'task-1',
+		harness: null,
+		harnessSession: null,
+		openedByAlert: false,
+		createdAt: at(0),
+	};
+	const chat = {...sending, id: 'chat-2', personaId: 'persona-2', parentThreadId: null, title: null, taskId: null};
+	const opened: ChatThreadRow = {
+		...sending,
+		id: 'thread-3',
+		personaId: 'persona-2',
+		parentThreadId: 'chat-2',
+		title: 'Draft the renewal email to Northwind',
+		taskId: 'task-3',
+		state: {kind: 'working'},
+		standing: {waitingForMember: false, summary: null, summarySeq: null, archived: false},
+		alerts: 0,
+		entries: [],
+		attachments: [],
+		subAgents: [],
+	};
+	const fromThread = {...threads, by: {agentId: 'login-1', taskId: 'task-1'}};
+	const inSlack = {appId: 'app-1', channel: 'D0001'};
+
+	beforeEach(() => {
+		getPassingThread.mockResolvedValue(Ok({thread: sending, slack: null}));
+		getPersona.mockResolvedValue(Ok(persona('persona-1', 'Finance')));
+		findMemberPersonas.mockResolvedValue(Ok([persona('persona-2', 'Legal')]));
+		ensureChat.mockResolvedValue(Ok(chat));
+		openPassedOnThread.mockResolvedValue(Ok({opened: {thread: opened, entry: {id: 'e9'}, placeId: null}}));
+		getMemberThread.mockResolvedValue(Ok(opened));
+		getThreadAddress.mockResolvedValue(Ok({orgSlug: 'acme', personaName: 'Legal', slack: null}));
+		slackOpening.mockResolvedValue(Ok(inSlack));
+	});
+
+	test('takes its message, its agent and its place, none of them a thread’s field', () => {
+		const open = threads.collection.commands?.find((command) => command.id === 'open');
+		expect(open).toMatchObject({on: 'new', action: 'writeThreads'});
+		expect(open?.params?.map(({key}) => key)).toEqual(['text', 'agent', 'place']);
+		expect(open?.params?.find(({key}) => key === 'place')?.options).toEqual(['Chat', 'Slack']);
+	});
+
+	test('is opened in Chat with the named agent, its message the member’s passed on, its title and task cut from it, and answered with it by its page', async () => {
+		const {threadsConnector} = await import('./connector');
+
+		const record = (await threadsConnector.newCommands.open(fromThread, {text: ' Draft the renewal email to Northwind ', agent: ' legal ', place: ''})).unwrap();
+
+		expect(findMemberPersonas).toHaveBeenCalledWith('org-1', 'user-1', 'legal');
+		expect(ensureChat).toHaveBeenCalledWith(expect.anything(), {orgId: 'org-1', userId: 'user-1'}, persona('persona-2', 'Legal'));
+		expect(openPassedOnThread).toHaveBeenCalledWith(
+			{orgId: 'org-1', userId: 'user-1'},
+			'task-1',
+			{chatId: 'chat-2', text: 'Draft the renewal email to Northwind', opening: expect.objectContaining({title: 'Draft the renewal email to Northwind'}), slack: null},
+			expect.any(Function),
+		);
+		expect(slackOpening).not.toHaveBeenCalled();
+		expect(deliverNow).not.toHaveBeenCalled();
+		expect(record).toMatchObject({id: 'thread-3', values: {agent: 'Legal', place: 'Chat'}, url: 'https://app.example.test/acme/chat/persona-2/threads/thread-3'});
+	});
+
+	test('is with the sending thread’s agent and in its place where neither is asked for: in Slack for one from Slack, posted there at once', async () => {
+		const {threadsConnector} = await import('./connector');
+		getPassingThread.mockResolvedValue(Ok({thread: sending, slack: inSlack}));
+		openPassedOnThread.mockResolvedValue(Ok({opened: {thread: opened, entry: {id: 'e9'}, placeId: 'place-3'}}));
+		getThreadAddress.mockResolvedValue(Ok({orgSlug: 'acme', personaName: 'Finance', slack: {teamId: 'T0001', channel: 'D0001', rootTs: null}}));
+
+		const record = (await threadsConnector.newCommands.open(fromThread, {text: 'Draft the renewal email', agent: '', place: ''})).unwrap();
+
+		expect(getPersona).toHaveBeenCalledWith('org-1', 'user-1', 'persona-1');
+		expect(findMemberPersonas).not.toHaveBeenCalled();
+		expect(slackOpening).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, persona('persona-1', 'Finance'), inSlack);
+		expect(openPassedOnThread.mock.calls[0]?.[2]).toMatchObject({slack: inSlack});
+		expect(deliverNow).toHaveBeenCalledWith('place-3', 'https://app.example.test');
+		// Its root message not posted yet, its url is the DM it is to be in.
+		expect(record).toMatchObject({values: {place: 'Slack'}, url: 'https://app.slack.com/client/T0001/D0001'});
+	});
+
+	test('is in the other place where it is asked for: in Chat from Slack, in Slack from Chat', async () => {
+		const {threadsConnector} = await import('./connector');
+
+		getPassingThread.mockResolvedValue(Ok({thread: sending, slack: inSlack}));
+		(await threadsConnector.newCommands.open(fromThread, {text: 'Open this in the app', agent: '', place: 'Chat'})).unwrap();
+		expect(slackOpening).not.toHaveBeenCalled();
+		expect(openPassedOnThread.mock.calls[0]?.[2]).toMatchObject({slack: null});
+
+		getPassingThread.mockResolvedValue(Ok({thread: sending, slack: null}));
+		(await threadsConnector.newCommands.open(fromThread, {text: 'Start this in Slack', agent: '', place: 'Slack'})).unwrap();
+		expect(slackOpening).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, persona('persona-1', 'Finance'), null);
+		expect(openPassedOnThread.mock.calls[1]?.[2]).toMatchObject({slack: inSlack});
+	});
+
+	test('is refused in plain words from a caller that is no thread, a sub-agent, along a chain, for an agent that isn’t the member’s, and where Slack can’t have it', async () => {
+		const {threadsConnector} = await import('./connector');
+		const open = (values: Record<string, string>, target: typeof fromThread | typeof threads = fromThread) =>
+			threadsConnector.newCommands.open(target, {text: 'Draft it', agent: '', place: '', ...values});
+
+		expect((await open({}, threads)).unwrapErr()).toMatchObject({kind: 'validation_error', message: expect.stringContaining('Only the agent of one of your threads')});
+		expect(getPassingThread).not.toHaveBeenCalled();
+
+		getPassingThread.mockResolvedValueOnce(Ok({refused: 'sub_agent'}));
+		expect((await open({})).unwrapErr()).toMatchObject({message: expect.stringContaining('tell the agent you work for')});
+		getPassingThread.mockResolvedValueOnce(Ok({refused: 'passed_on'}));
+		expect((await open({})).unwrapErr()).toMatchObject({message: expect.stringContaining('until you write in it directly')});
+
+		findMemberPersonas.mockResolvedValueOnce(Ok([]));
+		expect((await open({agent: 'Ops'})).unwrapErr()).toMatchObject({message: 'You have no agent called “Ops”: name one of yours, by its name or id'});
+		findMemberPersonas.mockResolvedValueOnce(Ok([persona('persona-2', 'Legal'), persona('persona-3', 'Legal')]));
+		expect((await open({agent: 'Legal'})).unwrapErr()).toMatchObject({message: expect.stringContaining('name it by its id')});
+		getPersona.mockResolvedValueOnce(Ok(null));
+		expect((await open({})).unwrapErr()).toMatchObject({message: expect.stringContaining('no longer one you talk to')});
+
+		slackOpening.mockResolvedValueOnce(Err(ApiErr.validationError('Finance isn’t in Slack')));
+		expect((await open({place: 'Slack'})).unwrapErr()).toMatchObject({message: 'Finance isn’t in Slack'});
+
+		openPassedOnThread.mockResolvedValueOnce(Ok({refused: 'passed_on'}));
+		expect((await open({})).unwrapErr()).toMatchObject({message: expect.stringContaining('until you write in it directly')});
+
+		expect((await open({text: '  '})).unwrapErr()).toMatchObject({kind: 'validation_error', message: 'Give the message as text'});
+		expect(openPassedOnThread).toHaveBeenCalledTimes(1);
+		expect(deliverNow).not.toHaveBeenCalled();
+	});
+});
+
 describe('the Chat connection’s alerts', () => {
 	const look = {nose: 0.5, noseOut: 0.3, eye: 25, eyeTheta: 50, eyeLat: 8, eyes: 2 as const};
 	const alert: MemberAlertRow = {
@@ -440,6 +603,8 @@ describe('the Chat connection’s alerts', () => {
 		terms: [],
 		split: null,
 		lastMatchedAt: null,
+		slackAppId: null,
+		slackChannel: null,
 		createdAt: at(0),
 		persona: {id: 'persona-1', name: 'Finance', look, color: 'teal', harness: 'proxy', chatModel: 'claude', ownerUserId: null, createdById: null, createdAt: at(0)},
 		thread: {id: 'thread-2', title: 'Check the review every morning', slack: null},
@@ -475,7 +640,8 @@ describe('the Chat connection’s alerts', () => {
 		listMemberAlerts.mockResolvedValue(
 			Ok([
 				{...alert, thread: inSlack, setIn: inSlack},
-				{...alert, id: 'alert-2', threadId: null, thread: null, setIn: inSlack},
+				{...alert, id: 'alert-2', threadId: null, thread: null, setIn: inSlack, slackAppId: 'app-1', slackChannel: 'D0001'},
+				{...alert, id: 'alert-3', threadId: null, thread: null},
 			]),
 		);
 
@@ -484,7 +650,10 @@ describe('the Chat connection’s alerts', () => {
 		expect(records.map(({id, url}) => [id, url])).toEqual([
 			['alert-1', SLACK_URL],
 			['alert-2', SLACK_URL],
+			['alert-3', 'https://app.example.test/acme/chat/persona-1/threads/thread-2'],
 		]);
+		// One set in a Slack thread opens its new threads there; one set in the app, in the app.
+		expect(records.map(({values}) => values.thread)).toEqual(['Check the review every morning', 'A new thread in Slack each time', 'A new thread each time']);
 	});
 
 	test('are cancelled as the member’s, whichever thread one was set in', async () => {

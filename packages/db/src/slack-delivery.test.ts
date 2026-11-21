@@ -8,13 +8,19 @@ import {
 	appendTurnEntries,
 	createPersona,
 	ensureMemberChat,
+	listChatThreads,
 	listPendingMessages,
+	openPassedOnThread,
 	type ThreadRow,
 } from './harness';
 import {linkSlackWorkspace, markSlackAppRemoved, startSlackApp} from './slack';
 import {
 	claimSlackDeliveries,
+	claimSlackDelivery,
+	dropSlackRoot,
 	markSlackDelivered,
+	noteSlackRoot,
+	noteSlackRootTried,
 	readSlackUndelivered,
 	releaseSlackDelivery,
 	stopSlackDelivery,
@@ -114,6 +120,49 @@ describe.skipIf(!databaseUrl)('delivery to Slack, against the database', () => {
 			data: {threadId, kind: extra.kind ?? 'assistant', text, callId: extra.callId},
 			select: {id: true, seq: true},
 		});
+	}
+
+	// A thread another, from Slack, opened in Slack with the member's words: its place, with no
+	// root message yet, the thread, and the one it came from. Its agent isn't woken.
+	async function openedInSlack(text: string) {
+		const from = await placedThread();
+		const {taskId} = await db.agentThread.findUniqueOrThrow({
+			where: {id: from.threadId},
+			select: {taskId: true},
+		});
+		const opened = unwrap(
+			await openPassedOnThread(
+				{orgId, userId: owner},
+				taskId ?? '',
+				{
+					chatId: chat.id,
+					text,
+					opening: {
+						title: text,
+						task: {
+							orgId,
+							agentId,
+							ownerUserId: owner,
+							personaId,
+							parentId: null,
+							title: text,
+							goal: text,
+							via: 'harness',
+						},
+					},
+					slack: {appId, channel: 'D01'},
+				},
+				() => false,
+			),
+		);
+		if (opened === null || 'refused' in opened || opened.opened.placeId === null) {
+			throw new Error('Not opened in Slack');
+		}
+		return {
+			placeId: opened.opened.placeId,
+			threadId: opened.opened.thread.id,
+			fromId: from.threadId,
+		};
 	}
 
 	// Takes every place due, as a worker would, and lets go of all but those of `keep`.
@@ -723,5 +772,117 @@ describe.skipIf(!databaseUrl)('delivery to Slack, against the database', () => {
 		expect(unwrap(await getSlackSessionPlace(other.threadId))).toBeNull();
 		await db.slackApp.update({where: {id: appId}, data: {botToken: 'sealed-bot', removedAt: null}});
 		expect(unwrap(await getSlackSessionPlace(other.threadId))?.id).toBe(other.placeId);
+	});
+
+	test('a thread opened in Slack from another is there from the start with no root, which one worker of two takes, and only its holder notes, once', async () => {
+		const {placeId, threadId, fromId} = await openedInSlack('Draft the renewal email');
+		expect(await db.slackThreadPlace.findUniqueOrThrow({where: {id: placeId}})).toMatchObject({
+			channel: 'D01',
+			rootTs: null,
+			rootTriedAt: null,
+			deliveredSeq: 0,
+		});
+		// No session before its root is posted, as there is no Slack thread to set it on.
+		expect(unwrap(await getSlackSessionPlace(threadId))).toBeNull();
+
+		// Two instances at once: one takes it.
+		const [one, two] = await Promise.all([
+			claimSlackDelivery(placeId, 'worker-a', LEASE),
+			claimSlackDelivery(placeId, 'worker-b', LEASE),
+		]);
+		const taken = [unwrap(one), unwrap(two)];
+		expect(taken.filter((place) => place !== null)).toHaveLength(1);
+		const holder = unwrap(one) === null ? 'worker-b' : 'worker-a';
+		const other = holder === 'worker-a' ? 'worker-b' : 'worker-a';
+		expect(taken.find((place) => place !== null)).toMatchObject({
+			rootTs: null,
+			rootTriedAt: null,
+			thread: {openedByAlert: false},
+		});
+		expect((await claimOnly('worker-c', [placeId])).length).toBe(0);
+
+		// What it posts first: the member's words, passed on.
+		const [first] = unwrap(await readSlackUndelivered(threadId, 0, 50)).entries;
+		expect(first).toMatchObject({
+			kind: 'person',
+			text: 'Draft the renewal email',
+			passedOn: {threadId: fromId},
+		});
+
+		// Only the holder notes that it tries, keeping when it first did.
+		expect(unwrap(await noteSlackRootTried(placeId, other))).toBe(false);
+		expect(unwrap(await noteSlackRootTried(placeId, holder))).toBe(true);
+		const tried = (await db.slackThreadPlace.findUniqueOrThrow({where: {id: placeId}})).rootTriedAt;
+		expect(tried).not.toBeNull();
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		expect(unwrap(await noteSlackRootTried(placeId, holder))).toBe(true);
+		expect(
+			(await db.slackThreadPlace.findUniqueOrThrow({where: {id: placeId}})).rootTriedAt,
+		).toEqual(tried);
+
+		// Only the holder notes the root, with the mark past it, and once.
+		const mark = {deliveredSeq: first?.seq ?? 0, partSeq: null, partsPosted: 0};
+		expect(unwrap(await noteSlackRoot(placeId, other, '1800000009.000100', mark, LEASE))).toBe(
+			'lost',
+		);
+		expect(unwrap(await noteSlackRoot(placeId, holder, '1800000009.000100', mark, LEASE))).toBe(
+			'noted',
+		);
+		expect(unwrap(await noteSlackRoot(placeId, holder, '1800000009.000200', mark, LEASE))).toBe(
+			'lost',
+		);
+		expect(await db.slackThreadPlace.findUniqueOrThrow({where: {id: placeId}})).toMatchObject({
+			rootTs: '1800000009.000100',
+			deliveredSeq: mark.deliveredSeq,
+			attempts: 0,
+		});
+		expect(unwrap(await getSlackSessionPlace(threadId))?.rootTs).toBe('1800000009.000100');
+
+		// A reply under the root the app posted continues the thread.
+		const reply = await fromSlack('Make it shorter', '1800000009.000100');
+		expect(reply).toMatchObject({kind: 'continued', threadId});
+		unwrap(await releaseSlackDelivery(placeId, holder, 0, 0));
+	});
+
+	test('a root that became another thread’s root meanwhile is not noted', async () => {
+		const {placeId} = await openedInSlack('Book the hotel in Porto');
+		const replied = await placedThread();
+		await claimOnly('worker-a', [placeId]);
+		expect(
+			unwrap(
+				await noteSlackRoot(
+					placeId,
+					'worker-a',
+					replied.rootTs,
+					{deliveredSeq: 0, partSeq: null, partsPosted: 0},
+					LEASE,
+				),
+			),
+		).toBe('taken');
+		unwrap(await releaseSlackDelivery(placeId, 'worker-a', 0, 0));
+	});
+
+	test('a thread whose root can’t be posted gives up its place to its holder alone, and then shows in the app; one with no root is taken even where its app was removed, so it is given up, while one posted is left', async () => {
+		const given = await openedInSlack('Compare the two quotes');
+		expect(unwrap(await listChatThreads(chat.id, [])).map(({id}) => id)).not.toContain(
+			given.threadId,
+		);
+		await claimOnly('worker-a', [given.placeId]);
+		expect(unwrap(await dropSlackRoot(given.placeId, 'worker-b'))).toBe(false);
+		expect(unwrap(await dropSlackRoot(given.placeId, 'worker-a'))).toBe(true);
+		expect(await db.slackThreadPlace.count({where: {id: given.placeId}})).toBe(0);
+		const shown = unwrap(await listChatThreads(chat.id, [])).find(({id}) => id === given.threadId);
+		expect(shown?.entries[0]).toMatchObject({kind: 'person', passedOn: {threadId: given.fromId}});
+
+		// The app removed: what it never posted the root of is still taken, to be given up; what it did is not.
+		const pending = await openedInSlack('Find a venue for twelve');
+		const posted = await placedThread();
+		await answer(posted.threadId, 'Looking.');
+		unwrap(await markSlackAppRemoved(appId));
+		const claimed = await claimOnly('worker-a', [pending.placeId, posted.placeId]);
+		expect(claimed.map(({id}) => id)).toEqual([pending.placeId]);
+		expect(claimed[0]?.app.removedAt).not.toBeNull();
+		unwrap(await dropSlackRoot(pending.placeId, 'worker-a'));
+		await db.slackApp.update({where: {id: appId}, data: {botToken: 'sealed-bot', removedAt: null}});
 	});
 });

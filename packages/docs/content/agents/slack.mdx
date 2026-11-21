@@ -45,7 +45,8 @@ you're back on the Chat page with the agent in Slack, under its handle.
 
 The app asks Slack for as little as it needs: to read the messages people send it in its direct
 messages, to post its answers, Slack's agent experience, and to open its direct messages with a
-member. It can't read channels, files or anyone's email address.
+member, to start a thread opened there for them from another thread. It can't read channels, files
+or anyone's email address.
 
 ### Get it approved, where a Slack admin has to
 
@@ -81,6 +82,30 @@ to a Slack thread is posted there by the agent's app as a quote, under a line sa
 message and which thread it was passed on from, since the app can't post as you, and the agent
 takes it up as it would your reply. One sent from a Slack thread shows in the app as your message,
 with a line linking back to the Slack thread.
+
+### Threads opened in Slack
+
+A thread can open a new one in Slack when you ask it to, such as "start this in Slack" in a task on
+the Chat page, or "open a new thread for this" in a Slack thread
+([Opening a new thread from a thread](/agents/chat#opening-a-new-thread-from-a-thread)). The
+agent's app posts your words at the top of your direct messages with it, under a line saying they
+are your message and which thread they were passed on from, and the thread hangs under that
+message: the agent's answers come there, and your replies there go on with it, as in a thread you
+began yourself. A Slack thread can as well open one on the Chat page, where it is an ordinary task.
+
+An alert set in a Slack thread that opens a new thread each time, such as a weekly check or a watch
+on your email, opens each of them in Slack too, in your direct messages with the same agent: the
+alert's line, as Slack shows an alert, at the top, and what the agent made of it under it. Nothing
+of such a thread is posted until the agent has finished its turn, so where it finds what came is
+nothing you need to know and dismisses the thread, nothing is posted at all.
+
+For a thread to open in Slack, Slack has to be on for the organization, the agent has to be in
+Slack, and you have to be linked to your Slack account in its workspace, which you are once you
+have [confirmed who you are](#confirming-who-you-are) there; otherwise the agent tells you why, and
+opens nothing. The first message is posted once, a moment after the thread is opened. If it can't be
+posted at all, because the app was removed from Slack, the conversation is gone, you're no longer
+linked, Slack is turned off for the organization or Slack keeps refusing it, the thread is a task on
+the Chat page instead, with everything said in it. An alert's thread goes there the same way.
 
 ### Confirming who you are
 
@@ -157,8 +182,9 @@ works the same, and Personal Agent Proxy tries again a day later in case they we
 
 Only direct messages: the agent can't be mentioned in channels or added to group messages. Files
 don't go either way. Slack has no button to mark a thread done, though an agent in any of your
-threads does it when you ask, and Slack's button to stop an agent at work isn't offered. A thread stays where it began: a task you start in the app doesn't appear in
-Slack, and a thread that began in Slack doesn't appear in the app.
+threads does it when you ask, and Slack's button to stop an agent at work isn't offered. A thread
+stays where it is: a task in the app doesn't appear in Slack, and a thread in Slack doesn't appear in
+the app, though either can [open a new one](#threads-opened-in-slack) in the other.
 
 ## Updating it
 

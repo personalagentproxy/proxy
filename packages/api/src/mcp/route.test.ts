@@ -172,14 +172,16 @@ describe('handleMcpRoute', () => {
 		expect(reads).toContain('The rest are in chat-1, where you can list them all and read any.');
 		expect(reads).not.toContain('threads_send');
 
-		// With Write in threads, a message the person asks it to pass on can be sent to one of them.
+		// With Write in threads, a message the person asks it to pass on can be sent to one of them,
+		// or open a new one, in this place with this agent unless asked otherwise.
 		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [{...chat, actions: ['readThreads', 'writeThreads']}]}));
 		expect((await agentInstructions(signedIn, 'Work.', {folder: undefined, otherThreads})).unwrap()).toContain(
-			'threads_send {id, text} sends one of them a message the person asks you to pass on: it lands there as their own, saying it came from this thread, and wakes its agent, and nothing comes back here, so tell the person where it went, with the thread’s url. Pass on their own words where they gave them.',
+			'threads_send {id, text} sends one of them a message the person asks you to pass on: it lands there as their own, saying it came from this thread, and wakes its agent, and nothing comes back here, so tell the person where it went, with the thread’s url. Pass on their own words where they gave them. threads_open {text, agent, place} opens a new thread with such a message instead, for a different piece of work: in this thread’s place with its agent, unless the person asks for another of their agents or the other place, Chat or Slack.',
 		);
-		// Outside a thread, and to a sub-agent, told of no other threads, nothing is said of sending.
+		// Outside a thread, and to a sub-agent, told of no other threads, nothing is said of sending or opening.
 		expect((await agentInstructions(signedIn, 'Work.')).unwrap()).not.toContain('threads_send');
 		expect((await agentInstructions(signedIn, 'Work.', {folder: undefined, otherThreads: []})).unwrap()).not.toContain('threads_send');
+		expect((await agentInstructions(signedIn, 'Work.', {folder: undefined, otherThreads: []})).unwrap()).not.toContain('threads_open');
 
 		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [{...chat, actions: ['readAlerts']}]}));
 		expect((await agentInstructions(signedIn, 'Work.', {folder: undefined, otherThreads})).unwrap()).not.toContain('Pricing review with Dana');

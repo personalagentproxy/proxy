@@ -71,6 +71,11 @@ export type AlertRow = {
 	split: AlertSplit | null;
 	// When a watch last matched a record; null before the first match, and for a timed alert.
 	lastMatchedAt: Date | null;
+	// Where one that opens new threads opens them in Slack, set in a thread that lives there: the
+	// persona's app, by our id for it, and the member's DM with it; null and null for one that opens
+	// them in the app, or comes to its thread, and the app null once it is forgotten here.
+	slackAppId: string | null;
+	slackChannel: string | null;
 	createdAt: Date;
 };
 
@@ -132,6 +137,8 @@ const alertSelect = {
 	terms: true,
 	split: true,
 	lastMatchedAt: true,
+	slackAppId: true,
+	slackChannel: true,
 	createdAt: true,
 } as const satisfies Prisma.AgentAlertSelect;
 
@@ -156,12 +163,21 @@ function whenData(alert: NewAlert): Partial<Prisma.AgentAlertUncheckedCreateInpu
 }
 
 // Sets the alert in the thread, coming to it or to its chat: a timed one due at its time, or a
-// watch with the polls of its connections, made where there are none yet. With the thread locked.
+// watch with the polls of its connections, made where there are none yet. One that opens new
+// threads, set in a thread that lives in Slack, opens them in Slack too, in the same DM. With the
+// thread locked.
 async function createAlert(
 	tx: Prisma.TransactionClient,
 	thread: ThreadRow,
 	alert: NewAlert,
 ): Promise<AlertRow> {
+	const slack =
+		alert.opens === 'new_thread'
+			? await tx.slackThreadPlace.findUnique({
+					where: {threadId: thread.id},
+					select: {appId: true, channel: true},
+				})
+			: null;
 	const made = await tx.agentAlert.create({
 		data: {
 			orgId: thread.orgId,
@@ -171,6 +187,8 @@ async function createAlert(
 			setInThreadId: thread.id,
 			title: alert.title,
 			brief: alert.brief,
+			slackAppId: slack?.appId ?? null,
+			slackChannel: slack?.channel ?? null,
 			...whenData(alert),
 		},
 		select: alertSelect,
@@ -356,10 +374,26 @@ export async function claimDueAlerts(
 	);
 }
 
+// Where in Slack a thread the alert opens goes: the DM it keeps, with the app, while the app is
+// still here; null for the app. Whether Slack takes it now is the delivery sweep's to find, which
+// gives the thread to the app where it doesn't (api slack/delivery.ts).
+async function alertSlack(
+	tx: Prisma.TransactionClient,
+	alert: AlertRow,
+): Promise<{appId: string; channel: string} | null> {
+	if (alert.slackAppId === null || alert.slackChannel === null) {
+		return null;
+	}
+	const app = await tx.slackApp.count({where: {id: alert.slackAppId}});
+	return app === 0 ? null : {appId: alert.slackAppId, channel: alert.slackChannel};
+}
+
 // Lands what an alert comes to, with its chat locked: into the thread it comes to, as an event
 // that wakes it (wakeWith), or, for one that opens new threads, as the first entry of a thread it
-// opens in the chat, which wakes that thread's agent. False where the thread or the chat is gone,
-// or the alert opens new threads and nothing says how.
+// opens in the chat, which wakes that thread's agent; in Slack, for one set in a Slack thread, its
+// place made before its first entry, with no root message yet, which the delivery sweep posts
+// once the agent's turn is over, unless it dismissed the thread. False where the thread or the chat
+// is gone, or the alert opens new threads and nothing says how.
 async function land(
 	tx: Prisma.TransactionClient,
 	alert: AlertRow,
@@ -379,6 +413,13 @@ async function land(
 		return false;
 	}
 	const thread = await openThreadIn(tx, chat, landing.opening, true);
+	const slack = await alertSlack(tx, alert);
+	if (slack !== null) {
+		await tx.slackThreadPlace.create({
+			data: {...slack, rootTs: null, threadId: thread.id},
+			select: {id: true},
+		});
+	}
 	await appendEntry(tx, thread, {kind: 'event', text: landing.text}, wakes);
 	return true;
 }

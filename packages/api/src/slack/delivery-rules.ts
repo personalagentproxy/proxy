@@ -1,6 +1,7 @@
 import {hasExperiment, organizationExperiments} from '@proxy/utils';
 import type {PassedOn, ShownEntryRow} from '@proxy/db/harness';
 import type {SlackDelivery, SlackDeliveryMark, SlackUndelivered} from '@proxy/db/slack-delivery';
+import type {SlackSessionState} from '@proxy/db/slack-sessions';
 
 import {shownParts, type ShownPart, type SubAgentRef} from '../harness/thread-shown';
 import type {SlackError} from './slack-api';
@@ -111,6 +112,24 @@ export function deliversTo(place: Pick<SlackDelivery, 'org' | 'member' | 'app'>)
 		return false;
 	}
 	return place.member.linked && place.member.inOrganization;
+}
+
+/**
+ * Whether the root message of a thread an alert opened in Slack, the alert's line, is posted now:
+ * not while its agent's turn runs, or its sub-agents', as the agent may yet dismiss it, and a
+ * thread it dismisses leaves nothing in Slack, so the member never finds a message there with
+ * nothing under it; once the turn is over, or asleep until it wakes, posted with whatever it said,
+ * unless the thread was dismissed, archived, when nothing of it is (`dismissed`). A thread another
+ * opened, with the member's words, is posted at once, and isn't asked.
+ */
+export function rootWaits(thread: Pick<SlackSessionState, 'state' | 'subAgentsAtWork' | 'archived'>): 'post' | 'at_work' | 'dismissed' {
+	if (thread.state.kind === 'working' || thread.subAgentsAtWork) {
+		return 'at_work';
+	}
+	if (thread.archived) {
+		return 'dismissed';
+	}
+	return 'post';
 }
 
 /**

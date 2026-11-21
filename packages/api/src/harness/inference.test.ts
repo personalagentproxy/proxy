@@ -142,6 +142,8 @@ describe('runInference', () => {
 			terms: [],
 			split: null,
 			lastMatchedAt: null,
+			slackAppId: null,
+			slackChannel: null,
 			createdAt: now,
 			persona: {
 				id: 'persona-1',
@@ -294,6 +296,23 @@ describe('runInference', () => {
 		expect(inSlack).toContain('No picture or file is shown in Slack');
 		expect(inSlack).toContain('The person doesn’t see its messages in Slack');
 		expect(inSlack).not.toContain('Chat page');
+	});
+
+	test('the agent of a thread an alert opened is told so, and in Slack that nothing of it shows there until its turn is over, nor at all once dismissed', async () => {
+		const {runInference} = await import('./inference');
+		getJobThread.mockResolvedValue(Ok({...thread, openedByAlert: true}));
+		const system = () => String((askForTurn.mock.calls.at(-1)?.[0] as {messages: Array<{content: string | null}>}).messages[0]?.content);
+
+		await runInference(store, on(harness), job, 'w1', false, clock);
+		expect(system()).toContain('An alert you set opened this thread, not the person');
+		expect(system()).not.toContain('In Slack, nothing of this thread shows');
+
+		store.isSlackThread.mockResolvedValue(Ok(true));
+		await runInference(store, on(harness), job, 'w1', false, clock);
+		expect(system()).toContain('An alert you set opened this thread, not the person');
+		expect(system()).toContain(
+			'In Slack, nothing of this thread shows until your turn is over, the alert’s line then posted at the top of their direct messages with what you said under it; a thread you dismiss leaves nothing there.',
+		);
 	});
 
 	test('a sub-agent, which never talks with the person, is told nothing of where its thread lives or of the person’s other threads', async () => {

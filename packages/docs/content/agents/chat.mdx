@@ -33,8 +33,8 @@ and by the organization's owner, who can't make it theirs alone unless they made
 General. One whose maker has left the organization is for everyone in it, and nobody can make it
 theirs alone. Deleting a shared agent deletes every member's chat with it. A shared agent can
 also be [added to Slack](/agents/slack), as an app of its own; while it is there, it stays shared.
-Each member writes to it there in a direct message, and the threads that begin in Slack live there:
-they aren't listed here.
+Each member writes to it there in a direct message, and the threads that live in Slack, begun there
+or opened there from another thread or by an alert, aren't listed here.
 
 Your chat with an agent is yours alone, as a direct message is, a shared agent's too: nobody else
 in the organization sees it. In it, the agent acts as you, so it reaches what you use: the connections
@@ -167,10 +167,29 @@ comes back to the list. A thread in [Slack](/agents/slack) gets it posted as a q
 saying it is yours and where it came from. No answer comes back to the thread you asked in: its
 agent tells you where the message went, with a link, and you follow it there.
 
-Only a thread's own agent passes a message on, to another of your own threads, and only text; a
-sub-agent doesn't, and nothing is sent to one. A thread whose latest message from you was itself
-passed on to it doesn't pass one on in turn until you write in it yourself, so a message never
-travels from thread to thread on its own.
+### Opening a new thread from a thread
+
+When something you say belongs to a different piece of work, ask the thread to open a new one for
+it, such as "open a new task for this" or "start a thread with Legal about the contract". Its agent
+opens it with your words through your [Chat connection](/connections/chat): with the same agent,
+unless you name another of yours, and where the thread you asked in lives, unless you ask for the
+other place: "start this in Slack" from a task here, or "open this in the app" from a thread in
+Slack.
+
+Opened here, it is an ordinary task in that agent's chat, listed with the rest and named as any
+task is: its first message is yours, with the line saying which thread it was passed on from, and
+its agent takes it up as your own first message, on the agent's model. Its answer is unread until
+you open it, as one in a task an alert opened is. Whatever you had typed in that chat's box and not
+sent stays there. Opened in Slack, the agent's app posts your words in your direct messages with
+it, under a line saying they are yours and where they came from, and the thread goes on under that
+message, as one you began there ([In Slack](/agents/slack#threads-opened-in-slack)). Either way,
+nothing comes back to the thread you asked in: its agent tells you where the new one is, with a
+link.
+
+Only a thread's own agent passes a message on or opens a thread, among your own threads, and only
+text; a sub-agent doesn't, and nothing is sent to one. A thread whose latest message from you was
+itself passed on to it doesn't pass one on or open one until you write in it yourself, so a message
+never travels from thread to thread on its own.
 
 A thread can go on for as long as you like. Once it has grown long, the agent reads a summary of
 the earlier part in place of it, and keeps the last turns as they were; the thread shows everything

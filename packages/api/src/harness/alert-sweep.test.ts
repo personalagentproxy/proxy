@@ -79,6 +79,8 @@ const watch: AlertRow = {
 	terms: ['loan'],
 	split: null,
 	lastMatchedAt: null,
+	slackAppId: null,
+	slackChannel: null,
 	createdAt: now,
 };
 const items = [

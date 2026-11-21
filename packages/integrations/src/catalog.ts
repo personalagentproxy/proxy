@@ -2756,14 +2756,45 @@ function threadSendCommand(): Command {
 	};
 }
 
+// What one of the person's threads opens, from the thread to which they said it: a new thread, for
+// another piece of work, whose first message is theirs, marked with the thread it was passed on
+// from, which wakes its agent. With the same agent and in the same place, unless they asked for
+// another agent of theirs or the other place: in Slack the app posts their words at the top of
+// their DM with the agent, and the thread hangs under that message. By the same rules as a send.
+function threadOpenCommand(): Command {
+	return {
+		id: 'open',
+		on: 'new',
+		label: 'Open a thread',
+		description: `Open a new thread of yours for a different piece of work, with a message: it is your message there, saying which thread it was passed on from, and its agent takes it up; nothing comes back here. With this thread’s agent and in this thread’s place, unless you asked for another agent of yours, by its name or id, or the other place: ${CHAT_PLACES.chat}, or ${CHAT_PLACES.slack}, where the app posts your words in your direct messages with the agent and the thread goes on under them. Only from one of your threads, and not from one whose latest message from you was itself passed on to it, until you write in it directly. Text only. Answers with the new thread; one in Slack has its url there once its first message is posted, your direct messages with the agent until then.`,
+		action: 'writeThreads',
+		params: [
+			{key: 'text', label: 'The message, in your own words where you gave them', type: 'longtext'},
+			{
+				key: 'agent',
+				label: 'The agent, by its name or id; this thread’s where left out',
+				type: 'text',
+			},
+			{
+				key: 'place',
+				label: 'Where it lives; this thread’s place where left out',
+				type: 'select',
+				options: Object.values(CHAT_PLACES),
+			},
+		],
+		done: 'Opened {}',
+		tried: 'open {}',
+	};
+}
+
 // Chat: the person's own threads with their agents, on the Chat page or in Slack, and the alerts
 // set in them, as records, so that an agent can be asked about the others: what waits for the
 // person, what was found in one, which alerts are set. Every member has one, theirs alone, made
 // with their membership as their vault is. A thread is read, and where it stands is changed as the
 // person would on the Chat page, marked done, archived or brought back, wherever it lives, though
 // not one still in progress. One thread sends another a message the person asked it to pass on, as
-// theirs; otherwise whoever reads one points the person to it by its url, its page in Chat or its
-// thread in Slack, and they go on there. An alert is seen and cancelled; one is set in a thread, by
+// theirs, or opens a new one with it, in Chat or in Slack; otherwise whoever reads one points the
+// person to it by its url, its page in Chat or its thread in Slack, and they go on there. An alert is seen and cancelled; one is set in a thread, by
 // its agent, since it comes back to that thread or opens new ones in its chat.
 const chat: Integration = {
 	id: CHAT_INTEGRATION_ID,
@@ -2788,7 +2819,7 @@ const chat: Integration = {
 		{
 			id: 'writeThreads',
 			label: 'Write in threads',
-			description: 'Send a message to one of your threads as yours',
+			description: 'Send a message to one of your threads as yours, or open a new one',
 			risk: 'medium',
 			requires: 'readThreads',
 		},
@@ -2817,7 +2848,7 @@ const chat: Integration = {
 			openIn: 'Chat',
 			read: 'readThreads',
 			writes: {},
-			commands: [...threadStandingCommands(), threadSendCommand()],
+			commands: [...threadStandingCommands(), threadSendCommand(), threadOpenCommand()],
 			searchHint: 'Matches the words in the title or the summary, in any case.',
 			fields: [
 				{key: 'title', label: 'Title', type: 'text', system: true},

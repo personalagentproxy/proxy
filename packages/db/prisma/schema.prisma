@@ -1194,17 +1194,26 @@ model AgentAlert {
   split         AlertSplit?
   // When a watch last matched a record; null for a timed alert, and before the first match.
   lastMatchedAt DateTime?
+  // Where one that opens new threads opens them in Slack, as it was set in a thread that lives
+  // there: the persona's app and the member's DM with it, each new thread a message the app posts
+  // at the top of the DM (api slack/delivery.ts); null for one set in the app, and once the app is
+  // forgotten here. Kept on the alert, so it stays where the thread it was set in is archived or
+  // deleted.
+  slackAppId    String?
+  slackChannel  String?
 
   createdAt DateTime @default(now())
 
-  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  chat   AgentThread  @relation("AlertChat", fields: [chatId], references: [id], onDelete: Cascade)
-  thread AgentThread? @relation("AlertThread", fields: [threadId], references: [id], onDelete: Cascade)
-  setIn  AgentThread? @relation("AlertSetIn", fields: [setInThreadId], references: [id], onDelete: SetNull)
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  chat     AgentThread  @relation("AlertChat", fields: [chatId], references: [id], onDelete: Cascade)
+  thread   AgentThread? @relation("AlertThread", fields: [threadId], references: [id], onDelete: Cascade)
+  setIn    AgentThread? @relation("AlertSetIn", fields: [setInThreadId], references: [id], onDelete: SetNull)
+  slackApp SlackApp?    @relation(fields: [slackAppId], references: [id], onDelete: SetNull)
 
   @@index([chatId])
   @@index([threadId])
   @@index([setInThreadId])
+  @@index([slackAppId])
   @@index([orgId, userId])
   @@index([nextAt])
 }
@@ -1343,6 +1352,7 @@ model SlackApp {
   workspace SlackWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   threads   SlackThreadPlace[]
   messages  SlackMessage[]
+  alerts    AgentAlert[]
 
   @@index([orgId])
   @@index([workspaceId])
@@ -1378,7 +1388,11 @@ model SlackMemberLink {
 // sub-agents its agent starts: the app never shows them nor writes to them. A reply in that Slack
 // thread continues the thread, and what the member would read of the thread is posted back there.
 // One place per thread, and one thread per Slack thread. `rootTs` is null for a place whose root
-// message the app has yet to post.
+// message the app has yet to post: a thread another of the member's threads opened in Slack, or an
+// alert set in a Slack thread did, whose first message the delivery sweep posts at the top of the
+// DM (api slack/delivery.ts); `rootTriedAt` is when that was first tried, so that a try whose
+// answer never came is looked for in the DM before it is tried again, and the root is posted once.
+// Where it can't be posted at all, the place goes, and the thread lives in the app.
 // How far the thread is delivered to Slack: every entry up to `deliveredSeq` is, and of the entry
 // `partSeq`, its first `partsPosted` messages. The delivery sweep takes a place from `nextAt`,
 // moving it on as it takes it, so it is one instance's (`claimedBy`) for a while, and later where
@@ -1393,9 +1407,10 @@ model SlackMemberLink {
 model SlackThreadPlace {
   id       String  @id @default(cuid())
   appId    String
-  channel  String
-  rootTs   String?
-  threadId String  @unique
+  channel     String
+  rootTs      String?
+  rootTriedAt DateTime?
+  threadId    String    @unique
 
   deliveredSeq Int       @default(0)
   partSeq      Int?

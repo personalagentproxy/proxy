@@ -62,8 +62,9 @@ function splitText(split: NonNullable<Alert['split']>): string {
 
 // An alert in full: what it is, when it comes again where it repeats, where it watches and for
 // which words, where it comes, into its thread, with a link to it, or as a new thread each time,
-// and the thread it was set in, each linked where it lives, in Chat or in Slack, what the agent
-// noted for it, who set it, with a link to the chat, and when it last matched.
+// on the Chat page or in Slack, and the thread it was set in, each linked where it lives, in Chat
+// or in Slack, what the agent noted for it, who set it, with a link to the chat, and when it last
+// matched.
 export function AlertDetailDialog({alert, onClose}: Props) {
 	return (
 		<Dialog
@@ -123,7 +124,9 @@ function AlertDetailContent({alert}: {alert: Alert}) {
 				)}
 				<Detail label="Comes to">
 					{alert.thread === null ? (
-						<span>A new thread each time</span>
+						<span>
+							{alert.opensInSlack ? 'A new thread in Slack each time' : 'A new thread each time'}
+						</span>
 					) : (
 						<ThreadLink thread={{...alert.thread, personaId: alert.persona.id}} />
 					)}

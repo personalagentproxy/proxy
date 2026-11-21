@@ -27,6 +27,7 @@
 		"./slack": "./src/slack.ts",
 		"./slack-delivery": "./src/slack-delivery.ts",
 		"./slack-messages": "./src/slack-messages.ts",
+		"./slack-openings": "./src/slack-openings.ts",
 		"./slack-sessions": "./src/slack-sessions.ts",
 		"./task": "./src/task.ts",
 		"./user": "./src/user.ts",

@@ -29,6 +29,7 @@ const alerts: Alert[] = [
 		brief: 'Tell me what it says.',
 		persona,
 		opens: 'new_thread',
+		opensInSlack: false,
 		thread: null,
 		setIn: {id: 't-9', title: 'Bank follow-up', slackUrl: null},
 		at: null,
@@ -46,6 +47,7 @@ const alerts: Alert[] = [
 		brief: 'Remind them of the call.',
 		persona,
 		opens: 'this_thread',
+		opensInSlack: false,
 		thread: {id: 't-1', title: 'Pricing review with Dana', slackUrl: null},
 		setIn: {id: 't-1', title: 'Pricing review with Dana', slackUrl: null},
 		at: '2026-11-05T09:00:00.000Z',
@@ -63,6 +65,7 @@ const alerts: Alert[] = [
 		brief: 'Sum up the week.',
 		persona,
 		opens: 'new_thread',
+		opensInSlack: false,
 		thread: null,
 		setIn: {id: 't-1', title: 'Pricing review with Dana', slackUrl: null},
 		at: '2026-11-09T08:00:00.000Z',
@@ -184,6 +187,38 @@ describe('AlertsPage', () => {
 			[...dialog.querySelectorAll('a')].find((a) => a.textContent === name)?.getAttribute('href');
 		expect(link('General')).toBe('/acme/chat/persona-1');
 		expect(link('Bank follow-up')).toBe('/acme/chat/persona-1/threads/t-9');
+	});
+
+	test('one set in a Slack thread says its new threads open in Slack, and links the thread it was set in there', async () => {
+		const slackUrl = 'https://app.slack.com/client/T0001/D0001/thread/D0001-1761040800.000100';
+		const inSlack: Alert = {
+			id: 'alert-4',
+			title: 'Invoices from Northwind',
+			brief: 'Tell me the amount.',
+			persona,
+			opens: 'new_thread',
+			opensInSlack: true,
+			thread: null,
+			setIn: {id: 't-8', title: 'Northwind billing', slackUrl},
+			at: null,
+			every: null,
+			split: 'per_check',
+			collection: 'emails',
+			connections: [{id: 'conn-a', integrationId: 'google', name: 'Google (a@example.com)'}],
+			terms: ['invoice'],
+			lastMatchedAt: null,
+			createdAt: '2026-11-04T10:00:00.000Z',
+		};
+		renderPage([inSlack]);
+		const row = (await screen.findByText('Invoices from Northwind')).closest('button');
+		expect(row?.textContent).toContain('New thread in Slack each time');
+		fireEvent.click(row as HTMLElement);
+		const dialog = await screen.findByRole('dialog');
+		expect(dialog.textContent).toContain('A new thread in Slack each time');
+		const setIn = [...dialog.querySelectorAll('a')].find(
+			(a) => a.textContent === 'Northwind billing in Slack',
+		);
+		expect(setIn?.getAttribute('href')).toBe(slackUrl);
 	});
 
 	test('a timed alert in full links to the thread it comes to, and one that repeats says how', async () => {

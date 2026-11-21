@@ -25,6 +25,8 @@ const watch: AlertRow = {
 	terms: ['@bank.com', 'loan'],
 	split: null,
 	lastMatchedAt: null,
+	slackAppId: null,
+	slackChannel: null,
 	createdAt: now,
 };
 

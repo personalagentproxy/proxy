@@ -3,7 +3,7 @@ import {z} from 'zod';
 
 import {type ApiError, Do} from '@proxy/utils';
 import type {SignedInAgent} from '@proxy/db/agent';
-import {CHAT_INTEGRATION_ID, FILES_INTEGRATION_ID, INTEGRATIONS, SANDBOX_INTEGRATION_ID, VAULT_ENTRY_TYPES, VAULT_INTEGRATION_ID} from '@proxy/integrations';
+import {CHAT_INTEGRATION_ID, CHAT_PLACES, FILES_INTEGRATION_ID, INTEGRATIONS, SANDBOX_INTEGRATION_ID, VAULT_ENTRY_TYPES, VAULT_INTEGRATION_ID} from '@proxy/integrations';
 import type {AgentConnection} from '@proxy/contracts/agent-side';
 
 import {connectionSummary} from '../agent-side/summaries';
@@ -197,8 +197,9 @@ function filesInstructions(connections: AgentConnection[], folder: string | unde
 // bring it back, and that they go on with a thread where it lives, by its url. In a thread, its
 // agent is told the person's latest other threads too (`otherThreads`, harness/inference.ts), each
 // a line, that the rest are here, and, where it may write in them, that it can send one of them a
-// message the person asks it to pass on, which lands there as theirs and gets no answer back here.
-// A sub-agent is told of no other threads, so nothing of sending, which it can't.
+// message the person asks it to pass on, which lands there as theirs and gets no answer back here,
+// or open a new thread with one, in this place or the other, with this persona or another. A
+// sub-agent is told of no other threads, so nothing of sending or opening, which it can't.
 function chatInstructions(connections: AgentConnection[], otherThreads: string[]): string[] {
 	const chats = connections.filter((connection) => connection.integrationId === CHAT_INTEGRATION_ID && connection.actions.includes('readThreads'));
 	if (chats.length === 0) {
@@ -218,7 +219,7 @@ function chatInstructions(connections: AgentConnection[], otherThreads: string[]
 						`The rest are in ${ids}, where you can list them all and read any${marks ? ', and mark one done, archive it or bring it back' : ''}.`,
 						...(writes
 							? [
-									'threads_send {id, text} sends one of them a message the person asks you to pass on: it lands there as their own, saying it came from this thread, and wakes its agent, and nothing comes back here, so tell the person where it went, with the thread’s url. Pass on their own words where they gave them.',
+									`threads_send {id, text} sends one of them a message the person asks you to pass on: it lands there as their own, saying it came from this thread, and wakes its agent, and nothing comes back here, so tell the person where it went, with the thread’s url. Pass on their own words where they gave them. threads_open {text, agent, place} opens a new thread with such a message instead, for a different piece of work: in this thread’s place with its agent, unless the person asks for another of their agents or the other place, ${CHAT_PLACES.chat} or ${CHAT_PLACES.slack}.`,
 								]
 							: []),
 					].join('\n'),

@@ -24,8 +24,10 @@ import {
 	createPersona,
 	ensureMemberChat,
 	failJob,
+	getChatDraft,
 	getChatThread,
 	getMemberThread,
+	getPassingThread,
 	getShownThread,
 	getThreadDraft,
 	hasChatThread,
@@ -39,6 +41,7 @@ import {
 	lockThread,
 	markThreadRead,
 	markThreadDone,
+	openPassedOnThread,
 	openThread,
 	passOnToThread,
 	replyInThread,
@@ -1442,6 +1445,210 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		});
 		await db.agentTask.deleteMany({where: {id: {in: [task.id, subTask.id]}}});
 		await db.user.delete({where: {id: other.id}});
+	});
+
+	test('a thread opens another with the member’s message, in their chat with any persona of theirs: an ordinary thread whose opener is theirs, passed on, which wakes it, runs on the persona’s model and is named by the small model, the chat’s draft left as it is', async () => {
+		const member = {orgId, userId};
+		const look = {nose: 0.5, noseOut: 0.3, eye: 25, eyeTheta: 50, eyeLat: 8, eyes: 2 as const};
+		const legal = unwrap(await createPersona(orgId, userId, {name: 'Legal', look, color: 'plum'}));
+		const legalChat = unwrap(await ensureMemberChat({orgId, agentId, personaId: legal.id, userId}));
+		unwrap(await saveChatDraft(legalChat.id, 'Check the NDA'));
+		const from = await open('Opens: plan the renewal');
+		await answer(from, 'worker-op1', 'Shall I draft the email too?');
+		const text = 'Draft the renewal email to Northwind';
+		const legalOpening = {...opening(text), task: {...opening(text).task, personaId: legal.id}};
+
+		// What the sending thread passes on from, read before: its persona, and no place in Slack.
+		expect(unwrap(await getPassingThread(member, from.taskId ?? ''))).toMatchObject({
+			thread: {id: from.id, personaId: chat.personaId},
+			slack: null,
+		});
+
+		const opened = unwrap(
+			await openPassedOnThread(
+				member,
+				from.taskId ?? '',
+				{chatId: legalChat.id, text, opening: legalOpening, slack: null},
+				readyForInference,
+			),
+		);
+		if (opened === null || 'refused' in opened) {
+			throw new Error('Not opened');
+		}
+		const {thread} = opened.opened;
+		expect(opened.opened.placeId).toBeNull();
+		expect(thread).toMatchObject({
+			parentThreadId: legalChat.id,
+			personaId: legal.id,
+			title: text,
+			openedByAlert: false,
+		});
+		expect(await db.agentTask.findUniqueOrThrow({where: {id: thread.taskId ?? ''}})).toMatchObject({
+			personaId: legal.id,
+			goal: text,
+			finishedAt: null,
+		});
+		expect(
+			await db.agentThread.findUniqueOrThrow({
+				where: {id: thread.id},
+				select: {chosenHarness: true, chosenModel: true},
+			}),
+		).toEqual({chosenHarness: legal.harness, chosenModel: legal.chatModel});
+		expect(unwrap(await threadNeedsTitle(thread.id))).toBe(true);
+		expect(
+			await db.agentJob.count({where: {threadId: thread.id, kind: 'inference', status: 'queued'}}),
+		).toBe(1);
+		expect(unwrap(await getChatDraft(legalChat.id))).toBe('Check the NDA');
+		// Nothing lands in the thread it came from.
+		expect(unwrap(await listEntries(from.id)).map(({text: said}) => said)).toEqual([
+			'Opens: plan the renewal',
+			'Shall I draft the email too?',
+		]);
+
+		// Shown in the app as any thread, its opener the member's, saying where it came from; its
+		// agent's answer unread, as one to a thread an alert opened is.
+		const listed = unwrap(await listChatThreads(legalChat.id, []));
+		expect(listed.map(({id}) => id)).toEqual([thread.id]);
+		expect(listed[0]?.entries[0]).toMatchObject({
+			kind: 'person',
+			text,
+			passedOn: {threadId: from.id, thread: {id: from.id, title: 'Opens: plan the renewal'}},
+		});
+		expect(
+			unwrap(await listAnswers(orgId, userId)).find(({personaId}) => personaId === legal.id),
+		).toBeUndefined();
+		await answer(thread, 'worker-op2', 'Here is a draft.');
+		expect(
+			unwrap(await listAnswers(orgId, userId)).find(({personaId}) => personaId === legal.id)
+				?.unread,
+		).toEqual([
+			expect.objectContaining({
+				threadId: thread.id,
+				answer: expect.objectContaining({text: 'Here is a draft.'}),
+			}),
+		]);
+
+		// The thread it opened, whose latest message from the member was passed on, opens none in turn.
+		expect(unwrap(await getPassingThread(member, thread.taskId ?? ''))).toEqual({
+			refused: 'passed_on',
+		});
+		expect(
+			unwrap(
+				await openPassedOnThread(
+					member,
+					thread.taskId ?? '',
+					{chatId: chat.id, text: 'And one more', opening: opening('And one more'), slack: null},
+					readyForInference,
+				),
+			),
+		).toEqual({refused: 'passed_on'});
+
+		// A caller that is no thread, and a chat that isn't the member's, or is a thread, open nothing.
+		const task = await db.agentTask.create({
+			data: {
+				orgId,
+				agentId,
+				ownerUserId: userId,
+				title: 'Not a thread',
+				goal: 'Not a thread',
+				via: 'mcp',
+			},
+		});
+		expect(unwrap(await getPassingThread(member, task.id))).toEqual({refused: 'not_a_thread'});
+		const other = await db.user.create({data: {email: `chat-threads-open-${stamp}@example.test`}});
+		const theirs = unwrap(
+			await ensureMemberChat({orgId, agentId, personaId: chat.personaId, userId: other.id}),
+		);
+		for (const chatId of [theirs.id, from.id]) {
+			expect(
+				unwrap(
+					await openPassedOnThread(
+						member,
+						from.taskId ?? '',
+						{chatId, text: 'Hi', opening: opening('Hi'), slack: null},
+						readyForInference,
+					),
+				),
+			).toBeNull();
+		}
+		expect(await db.agentThread.count({where: {parentThreadId: theirs.id}})).toBe(0);
+
+		await db.agentJob.updateMany({
+			where: {threadId: {in: [from.id, thread.id]}},
+			data: {status: 'done'},
+		});
+		await db.agentThread.deleteMany({where: {userId: other.id}});
+		await db.user.delete({where: {id: other.id}});
+	});
+
+	test('a thread opened in Slack from another has its place from the start, with no root message yet: the app never shows it, while the Chat connection reads it with its place', async () => {
+		const member = {orgId, userId};
+		const from = await open('Opens in Slack: the offsite');
+		const workspace = await db.slackWorkspace.create({
+			data: {
+				orgId,
+				teamId: `T-open-${stamp}`,
+				name: 'Northwind',
+				slackUserId: 'U00',
+				credential: 'sealed',
+				expiresAt: new Date(),
+				rotateAt: new Date(),
+			},
+		});
+		const app = await db.slackApp.create({
+			data: {
+				orgId,
+				personaId: chat.personaId,
+				workspaceId: workspace.id,
+				manifestVersion: 1,
+				manifestName: 'Finance',
+			},
+		});
+		const text = 'Book the venue for twelve';
+
+		const opened = unwrap(
+			await openPassedOnThread(
+				member,
+				from.taskId ?? '',
+				{chatId: chat.id, text, opening: opening(text), slack: {appId: app.id, channel: 'D02'}},
+				readyForInference,
+			),
+		);
+		if (opened === null || 'refused' in opened) {
+			throw new Error('Not opened');
+		}
+		const {thread, placeId} = opened.opened;
+		expect(await db.slackThreadPlace.findUniqueOrThrow({where: {id: placeId ?? ''}})).toMatchObject(
+			{
+				threadId: thread.id,
+				channel: 'D02',
+				rootTs: null,
+				rootTriedAt: null,
+			},
+		);
+		expect(unwrap(await listChatThreads(chat.id, [])).map(({id}) => id)).not.toContain(thread.id);
+		expect(unwrap(await getChatThread(chat.id, thread.id, []))).toBeNull();
+		expect(unwrap(await isSlackThread(thread.id))).toBe(true);
+		expect(unwrap(await getThreadAddress({id: thread.id, orgId}))).toMatchObject({
+			slack: {teamId: `T-open-${stamp}`, channel: 'D02', rootTs: null},
+		});
+		expect(unwrap(await replyInThread(chat.id, thread.id, 'Hi', readyForInference))).toBeNull();
+		// A thread in Slack passes on from its place there, which a thread it opens takes by default.
+		const placed = await open('Opens in Slack: the hotel');
+		await db.slackThreadPlace.create({
+			data: {appId: app.id, channel: 'D02', rootTs: '1800000000.000100', threadId: placed.id},
+		});
+		expect(unwrap(await getPassingThread(member, placed.taskId ?? ''))).toMatchObject({
+			thread: {id: placed.id},
+			slack: {appId: app.id, channel: 'D02'},
+		});
+
+		await db.agentJob.updateMany({
+			where: {threadId: {in: [from.id, thread.id, placed.id]}},
+			data: {status: 'done'},
+		});
+		await db.slackApp.delete({where: {id: app.id}});
+		await db.slackWorkspace.delete({where: {id: workspace.id}});
 	});
 
 	test('a message passed on to a thread at work waits, pending, for its turn to read it at its next step, then takes its place in the log, as a reply does', async () => {

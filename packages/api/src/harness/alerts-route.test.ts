@@ -32,6 +32,8 @@ const alert: MemberAlertRow = {
 	terms: [],
 	split: null,
 	lastMatchedAt: null,
+	slackAppId: null,
+	slackChannel: null,
 	createdAt: now,
 	persona: {id: 'persona-1', name: 'Travel', look, color: 'teal', harness: 'proxy', chatModel: 'claude', ownerUserId: null, createdById: null, createdAt: now},
 	thread: {id: 'thread-1', title: 'Plan the offsite in Lisbon', slack},

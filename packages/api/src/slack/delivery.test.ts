@@ -14,7 +14,7 @@ mock.module('../utils/secret-crypto', () => ({
 	decryptSecret: (stored: string): Result<string, ApiError> => Ok(stored.replace(/^enc:/, '')),
 }));
 
-const {deliverPlace, sweepSlackDeliveries} = await import('./delivery');
+const {deliverNow, deliverPlace, sweepSlackDeliveries} = await import('./delivery');
 type DeliveryStore = import('./delivery').DeliveryStore;
 
 const APP = 'https://proxy.example.com';
@@ -74,13 +74,14 @@ function world(entries: ShownEntryRow[], fields: Partial<SlackDelivery> = {}, st
 		threadId: 'thread-1',
 		channel: 'D01',
 		rootTs: '1700000000.000100',
+		rootTriedAt: null,
 		deliveredSeq: 0,
 		partSeq: null,
 		partsPosted: 0,
 		attempts: 0,
 		session: {status: 'active', title: 'Book the train to Lyon', setAt: new Date(), attempts: 0, retryAt: null},
 		app: {id: 'app-1', botToken: 'enc:xoxb-bot', removedAt: null, sessionsOffUntil: null},
-		thread: {orgId: 'org-1', userId: 'user-1'},
+		thread: {orgId: 'org-1', userId: 'user-1', openedByAlert: false},
 		org: {experiments: ['slack'], insider: false},
 		member: {linked: true, inOrganization: true},
 		...fields,
@@ -90,6 +91,8 @@ function world(entries: ShownEntryRow[], fields: Partial<SlackDelivery> = {}, st
 		released: [] as Array<{delayMs: number; attempts: number}>,
 		stopped: null as string | null,
 		removed: false,
+		dropped: false,
+		roots: [] as string[],
 		statuses: [] as SlackSessionStatus[],
 	};
 	const thread: SlackSessionState = {
@@ -104,6 +107,21 @@ function world(entries: ShownEntryRow[], fields: Partial<SlackDelivery> = {}, st
 	};
 	const store: DeliveryStore = {
 		claim: async () => Ok([place]),
+		claimOne: async () => Ok(place),
+		rootTried: async () => {
+			place.rootTriedAt ??= new Date();
+			return Ok(true);
+		},
+		noteRoot: async (_id, _worker, rootTs, mark) => {
+			done.roots.push(rootTs);
+			done.marks.push({...mark});
+			Object.assign(place, mark, {rootTs, attempts: 0});
+			return Ok('noted');
+		},
+		dropRoot: async () => {
+			done.dropped = true;
+			return Ok(true);
+		},
 		read: async (_threadId, afterSeq, limit) => Ok({entries: entries.filter((one) => one.seq > afterSeq).slice(0, limit), subAgents}),
 		mark: async (_id, _worker, mark) => {
 			done.marks.push({...mark});
@@ -124,7 +142,7 @@ function world(entries: ShownEntryRow[], fields: Partial<SlackDelivery> = {}, st
 			done.removed = true;
 			return Ok(undefined);
 		},
-		place: async () => Ok(place),
+		place: async () => (place.rootTs === null ? Ok(null) : Ok({...place, rootTs: place.rootTs})),
 		state: async () => Ok(thread),
 		noteSet: async (_id, status, at, made) => {
 			done.statuses.push(status);
@@ -327,6 +345,206 @@ describe('delivering a thread to Slack', () => {
 	}
 });
 
+describe('the root message of a thread opened in Slack from another', () => {
+	const from = {threadId: 'thread-9', thread: {id: 'thread-9', personaId: 'persona-1', title: 'Pricing review with Dana', slack: null}};
+	const lead = 'Your message, passed on from “Pricing review with Dana”:\n> Draft the renewal email to Northwind';
+	const pending: Partial<SlackDelivery> = {rootTs: null, session: {status: null, title: null, setAt: null, attempts: 0, retryAt: null}};
+	const opener = () => entry({kind: 'person', text: 'Draft the renewal email to Northwind', passedOn: from});
+
+	// What was asked of Slack's history, each by the place its metadata was looked for.
+	const looked = () => slack.sent.filter(({url}) => url.endsWith('/conversations.history'));
+
+	test('is the member’s words passed on, posted at the top of the DM naming its place, and what follows goes under it, the session last', async () => {
+		const first = opener();
+		const answer = entry({text: 'Here is a draft.'});
+		const {place, done, run} = world([first, answer], pending);
+		slack.answers = [() => Response.json({ok: true, ts: '1700000009.000100'})];
+
+		await run();
+
+		expect(asked()).toEqual([lead, 'Here is a draft.', 'status:active']);
+		const [root, under, status] = slack.sent;
+		expect(root?.body.has('thread_ts')).toBe(false);
+		expect(JSON.parse(root?.body.get('metadata') ?? '{}')).toEqual({event_type: 'thread_opened', event_payload: {place: 'place-1'}});
+		expect(under?.body.get('thread_ts')).toBe('1700000009.000100');
+		expect(status?.body.get('thread_ts')).toBe('1700000009.000100');
+		expect(done.roots).toEqual(['1700000009.000100']);
+		expect(done.marks[0]).toEqual({deliveredSeq: first.seq, partSeq: null, partsPosted: 0});
+		expect(place.rootTriedAt).not.toBeNull();
+		expect(looked()).toEqual([]);
+	});
+
+	test('is posted before anything else: while it fails, nothing of the thread is posted', async () => {
+		const {done, run} = world([opener(), entry({text: 'Here is a draft.'})], pending);
+		slack.answers = [refusal('internal_error')];
+
+		await run();
+
+		expect(asked()).toEqual([lead]);
+		expect(done.roots).toEqual([]);
+		expect(done.marks).toEqual([]);
+		expect(done.released).toEqual([{delayMs: 5_000, attempts: 1}]);
+	});
+
+	test('is posted once: after a try whose answer never came, it is found in the DM by its place and not posted again', async () => {
+		const {done, run} = world([opener(), entry({text: 'Here is a draft.'})], pending);
+		slack.answers = [
+			() => {
+				throw new Error('socket hang up');
+			},
+		];
+		await run();
+		expect(posted()).toEqual([lead]);
+		expect(done.roots).toEqual([]);
+
+		slack.sent = [];
+		slack.answers = [
+			() =>
+				Response.json({
+					ok: true,
+					messages: [
+						{type: 'message', ts: '1700000010.000200', text: 'Something else'},
+						{type: 'message', ts: '1700000010.000100', bot_id: 'B01', metadata: {event_type: 'thread_opened', event_payload: {place: 'place-1'}}},
+					],
+				}),
+		];
+		await run();
+
+		expect(looked()).toHaveLength(1);
+		expect(looked()[0]?.body.get('include_all_metadata')).toBe('true');
+		expect(looked()[0]?.body.get('channel')).toBe('D01');
+		expect(done.roots).toEqual(['1700000010.000100']);
+		expect(posted()).toEqual(['Here is a draft.']);
+		expect(slack.sent.find(({url}) => url.endsWith('/chat.postMessage'))?.body.get('thread_ts')).toBe('1700000010.000100');
+	});
+
+	test('is posted again where an earlier try isn’t in the DM', async () => {
+		const {done, run} = world([opener()], {...pending, rootTriedAt: new Date()});
+		slack.answers = [() => Response.json({ok: true, messages: [{type: 'message', ts: '1700000010.000300', metadata: {event_type: 'thread_opened', event_payload: {place: 'place-2'}}}]})];
+
+		await run();
+
+		expect(looked()).toHaveLength(1);
+		expect(posted()).toEqual([lead]);
+		expect(done.roots).toHaveLength(1);
+	});
+
+	test('is posted without its metadata where Slack won’t take that', async () => {
+		const {done, run} = world([opener()], pending);
+		slack.answers = [refusal('metadata_must_be_sent_from_app')];
+
+		await run();
+
+		expect(posted()).toEqual([lead, lead]);
+		expect(slack.sent[1]?.body.has('metadata')).toBe(false);
+		expect(done.roots).toHaveLength(1);
+	});
+
+	const givenUp: Array<[string, Partial<SlackDelivery>, Array<() => Response>]> = [
+		['where the DM is gone', {}, [refusal('channel_not_found')]],
+		['where Slack takes it in no form', {}, [refusal('invalid_blocks'), refusal('no_text')]],
+		['where the member is no longer linked to Slack', {member: {linked: false, inOrganization: true}}, []],
+		['where Slack is off for the organization', {org: {experiments: [], insider: false}}, []],
+		['where the app was removed in Slack', {app: {id: 'app-1', botToken: null, removedAt: new Date(), sessionsOffUntil: null}}, []],
+		['after the last try', {attempts: 5}, [refusal('internal_error')]],
+	];
+	for (const [name, fields, answers] of givenUp) {
+		test(`gives the thread to the app ${name}, posting nothing more`, async () => {
+			const {done, run} = world([opener(), entry({text: 'Here is a draft.'})], {...pending, ...fields});
+			slack.answers = answers;
+
+			await run();
+
+			expect(done.dropped).toBe(true);
+			expect(done.roots).toEqual([]);
+			expect(posted().filter((text) => text === 'Here is a draft.')).toEqual([]);
+		});
+	}
+
+	test('marks the app removed where Slack no longer takes its token, which then gives the thread to the app', async () => {
+		const {done, run} = world([opener()], pending);
+		slack.answers = [refusal('token_revoked')];
+
+		await run();
+
+		expect(done.removed).toBe(true);
+		expect(done.roots).toEqual([]);
+	});
+
+	test('gives the thread to the app where the message became another thread’s root meanwhile', async () => {
+		const {store, done, run} = world([opener()], pending);
+		store.noteRoot = async () => Ok('taken');
+
+		await run();
+
+		expect(done.dropped).toBe(true);
+	});
+});
+
+describe('the root message of a thread an alert set in a Slack thread opened', () => {
+	const pending: Partial<SlackDelivery> = {rootTs: null, session: {status: null, title: null, setAt: null, attempts: 0, retryAt: null}};
+	const fired = () => entry({kind: 'event', text: 'The alert “Weekly pricing check” is due now, which you set to come every week. What you noted for it: compare the prices.'});
+	const opened = (fields: Partial<SlackDelivery> = {}) => ({...pending, thread: {orgId: 'org-1', userId: 'user-1', openedByAlert: true}, ...fields});
+
+	test('waits while its agent’s turn runs, or its sub-agents’, posting nothing and leaving no message at the top of the DM', async () => {
+		for (const standing of [{state: {kind: 'working' as const}}, {subAgentsAtWork: true}]) {
+			const {done, run} = world([fired(), entry({text: 'Checking the prices.'})], opened(), standing);
+
+			await run();
+
+			expect(slack.sent).toEqual([]);
+			expect(done.marks).toEqual([]);
+			expect(done.dropped).toBe(false);
+			expect(done.released).toEqual([{delayMs: 3_000, attempts: 0}]);
+		}
+	});
+
+	test('is the alert’s line, posted at the top of the DM once the turn is over, with what its agent said under it, the session last', async () => {
+		const answer = entry({text: 'Two prices went up.'});
+		const {done, run} = world([fired(), answer], opened());
+		slack.answers = [() => Response.json({ok: true, ts: '1700000020.000100'})];
+
+		await run();
+
+		expect(asked()).toEqual(['Alert: “Weekly pricing check” is due', 'Two prices went up.', 'status:active']);
+		expect(slack.sent[0]?.body.has('thread_ts')).toBe(false);
+		expect(slack.sent[1]?.body.get('thread_ts')).toBe('1700000020.000100');
+		expect(done.roots).toEqual(['1700000020.000100']);
+	});
+
+	test('is posted alone where the agent said nothing more and left the thread be, as the app shows it', async () => {
+		const {done, run} = world([fired()], opened());
+
+		await run();
+
+		expect(posted()).toEqual(['Alert: “Weekly pricing check” is due']);
+		expect(done.roots).toHaveLength(1);
+	});
+
+	test('is never posted for a thread its agent dismissed: what it said is passed over, and nothing is left in Slack', async () => {
+		const first = fired();
+		const said = entry({text: 'Nothing new.', toolCalls: [{id: 'call-1', name: 'dismiss', arguments: '{}'}]});
+		const {done, run} = world([first, said], opened(), {archived: true});
+
+		await run();
+
+		expect(slack.sent).toEqual([]);
+		expect(done.roots).toEqual([]);
+		expect(done.dropped).toBe(false);
+		expect(done.marks).toEqual([{deliveredSeq: said.seq, partSeq: null, partsPosted: 0}]);
+		expect(done.released).toEqual([{delayMs: 0, attempts: 0}]);
+	});
+
+	test('gives the thread to the app at once where Slack can’t take it, as one passed on is', async () => {
+		const {done, run} = world([fired()], opened({member: {linked: false, inOrganization: true}}), {state: {kind: 'working'}});
+
+		await run();
+
+		expect(done.dropped).toBe(true);
+		expect(slack.sent).toEqual([]);
+	});
+});
+
 describe('the session, as the sweep keeps it', () => {
 	test('is set after the answer that ends a turn is posted, and only where it differs', async () => {
 		const answer = entry({text: 'Booked the 9:40.'});
@@ -474,6 +692,16 @@ describe('the sweep', () => {
 		const {store} = world([entry({text: 'Hello.'})]);
 		await sweepSlackDeliveries(store, 'worker-1', APP);
 		expect(posted()).toEqual(['Hello.']);
+	});
+
+	test('delivers one place at once where it is free, and leaves one another holds to it', async () => {
+		const {store} = world([entry({text: 'Hello.'})]);
+		await deliverNow('place-1', APP, store);
+		expect(posted()).toEqual(['Hello.']);
+
+		slack.sent = [];
+		await deliverNow('place-1', APP, {...store, claimOne: async () => Ok(null)});
+		expect(posted()).toEqual([]);
 	});
 
 	test('posts nothing where it could not take the places', async () => {
