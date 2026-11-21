@@ -3,7 +3,7 @@ import {describe, expect, test} from 'bun:test';
 import {Err, Ok} from 'ts-results-es';
 
 import {fakeIo} from './fake-io';
-import {gitEnv, gitSubcommand} from './git';
+import {gitArgs, gitEnv, gitSubcommand} from './git';
 import type {Env} from './io';
 import {run} from './run';
 
@@ -109,6 +109,64 @@ describe('gitEnv', () => {
 	});
 });
 
+describe('gitArgs', () => {
+	const identity = {name: 'Dana Octo', email: '1+octo-dana@users.noreply.github.com'};
+	const config = [
+		'--config',
+		'user.name=Dana Octo',
+		'--config',
+		'user.email=1+octo-dana@users.noreply.github.com',
+	];
+
+	test('a clone is given the identity for its own config, before the caller’s options', () => {
+		expect(gitArgs(['clone', 'https://github.com/a/b'], {}, identity)).toEqual([
+			'clone',
+			...config,
+			'https://github.com/a/b',
+		]);
+		expect(
+			gitArgs(
+				['-C', 'work', '-c', 'x=y', 'clone', '-q', '--config', 'user.name=Me', 'u'],
+				{},
+				identity,
+			),
+		).toEqual([
+			'-C',
+			'work',
+			'-c',
+			'x=y',
+			'clone',
+			...config,
+			'-q',
+			'--config',
+			'user.name=Me',
+			'u',
+		]);
+	});
+
+	test('the environment’s author goes first, as gh’s for the clones it runs', () => {
+		expect(
+			gitArgs(['clone', 'u'], {GIT_AUTHOR_NAME: 'Bot', GIT_AUTHOR_EMAIL: 'bot@example.com'}, null),
+		).toEqual([
+			'clone',
+			'--config',
+			'user.name=Bot',
+			'--config',
+			'user.email=bot@example.com',
+			'u',
+		]);
+	});
+
+	test('anything but a clone, or a clone with no one to commit as, is left as it is', () => {
+		const cases: string[][] = [['commit', '-m', 'x'], ['push'], ['--version'], ['remote', '-v']];
+		for (const args of cases) {
+			expect(gitArgs(args, {}, identity)).toBe(args);
+		}
+		expect(gitArgs(['clone', 'u'], {}, null)).toEqual(['clone', 'u']);
+		expect(gitArgs(['clone', 'u'], {GIT_AUTHOR_NAME: 'Bot'}, null)).toEqual(['clone', 'u']);
+	});
+});
+
 describe('pap git', () => {
 	const IDENTITY = {
 		login: 'octo-dana',
@@ -202,6 +260,20 @@ describe('pap git', () => {
 		expect(env.PAP_GITHUB_CONNECTION).toBe('github-2');
 		expect(env.GIT_CONFIG_VALUE_4).toBe('x-pap-connection: github-2');
 		expect(spawned[0]?.args).toEqual(['-C', 'repo', 'commit', '-m', 'Fix']);
+	});
+
+	test('a clone writes the account into its own config, so plain git there commits as it', async () => {
+		const {spawned, pap} = harness();
+
+		await pap('git', 'clone', 'https://github.com/a/b');
+		expect(spawned[0]?.args).toEqual([
+			'clone',
+			'--config',
+			'user.name=Dana Octo',
+			'--config',
+			`user.email=${IDENTITY.email}`,
+			'https://github.com/a/b',
+		]);
 	});
 
 	test('pull gets both, and the connection from the environment', async () => {

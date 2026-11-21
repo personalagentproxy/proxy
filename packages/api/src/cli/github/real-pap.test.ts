@@ -130,6 +130,24 @@ describe('pap git, the real git as the person', () => {
 		expect(logAgentRequest.mock.calls.map(([entry]) => [entry.collectionId, entry.action, entry.query, entry.outcome])).toContainEqual(['git', 'push', 'fix-login', 'allowed']);
 	});
 
+	test('a clone commits as the account with plain git too, its config naming it and nothing of the sign-in', async () => {
+		await runPap(['git', 'clone', '-q', 'https://github.com/acme/demo', 'plain-clone']);
+		const clone = repo('plain-clone');
+		writeFileSync(join(clone, 'plain.txt'), 'plain\n');
+		const plainEnv = {PATH: GIT_DIR, HOME: home, GIT_CONFIG_NOSYSTEM: '1'};
+
+		await git(['add', '.'], clone, plainEnv);
+		const committed = await git(['commit', '-q', '-m', 'plain'], clone, plainEnv);
+
+		expect(committed).toMatchObject({status: 0, stderr: ''});
+		expect((await git(['log', '-1', '--format=%an <%ae>|%cn <%ce>'], clone, plainEnv)).stdout.trim()).toBe(`${IDENTITY}|${IDENTITY}`);
+		const config = readFileSync(join(clone, '.git', 'config'), 'utf8');
+		expect(config).toContain('name = Dana Octo');
+		expect(config).not.toContain('Bearer');
+		expect(config).not.toContain(papUrl);
+		expect(existsSync(join(home, '.gitconfig'))).toBe(false);
+	});
+
 	test('without Push, the push is refused in PAP’s words and nothing reaches GitHub', async () => {
 		await runPap(['git', 'clone', '-q', 'https://github.com/acme/demo', 'read-clone']);
 		const clone = repo('read-clone');

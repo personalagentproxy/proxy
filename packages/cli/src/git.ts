@@ -14,13 +14,17 @@ import {findProgram, namedConnection, SHIM_DIR_ENV} from './programs';
 
 /**
  * `pap git`: the real git, run with its arguments, stdio and exit code as they are, signed in to
- * GitHub as the connection's account for this one run. Nothing is written to any git config: git
- * is given, through `GIT_CONFIG_COUNT` and its keys, GitHub's URLs (https and both SSH forms)
- * rewritten to PAP's git relay and the command's token as a header sent to the relay alone
- * (@proxy/contracts/cli-github), so whatever reaches GitHub goes through PAP, a partial clone's
- * objects fetched later among it; and the identity route's author and committer, unless the
- * environment sets them, or with none where PAP won't say. Only `git remote`, `-v` and `get-url`
- * are left their URLs, so they still show github.com, which gh reads to know the repository.
+ * GitHub as the connection's account for this one run. Nothing of the sign-in is written to any
+ * git config: git is given, through `GIT_CONFIG_COUNT` and its keys, GitHub's URLs (https and both
+ * SSH forms) rewritten to PAP's git relay and the command's token as a header sent to the relay
+ * alone (@proxy/contracts/cli-github), so whatever reaches GitHub goes through PAP, a partial
+ * clone's objects fetched later among it; and the identity route's author and committer, unless
+ * the environment sets them, or with none where PAP won't say. Only `git remote`, `-v` and
+ * `get-url` are left their URLs, so they still show github.com, which gh reads to know the
+ * repository. The one thing written is who commits are made as, into a new clone's own config
+ * (`user.name` and `user.email`, through `git clone --config`): agents run git's local commands,
+ * `add` and `commit` among them, as plain git, which would otherwise have no identity and leave
+ * the agent to make one up.
  */
 
 // git's options before the subcommand that take the next argument as their value.
@@ -159,6 +163,33 @@ export function commitIdentity(io: Io): Promise<Identity> {
 	return fetchIdentity(io);
 }
 
+/**
+ * git's arguments: `args` as they are, but for a clone, which is given who commits are made as for
+ * its own config, so plain git in it commits as the account too. The identity is the
+ * environment's author where it sets one, as gh's does for the clones it runs, otherwise PAP's;
+ * none where neither says. The caller's own `--config` comes after it, and wins.
+ */
+export function gitArgs(args: string[], env: Env, identity: Identity): string[] {
+	const command = gitSubcommand(args);
+	if (command?.name !== 'clone') {
+		return args;
+	}
+	const name = env.GIT_AUTHOR_NAME || identity?.name;
+	const email = env.GIT_AUTHOR_EMAIL || identity?.email;
+	if (!name || !email) {
+		return args;
+	}
+	const upToClone = args.slice(0, args.length - command.rest.length);
+	return [
+		...upToClone,
+		'--config',
+		`user.name=${name}`,
+		'--config',
+		`user.email=${email}`,
+		...command.rest,
+	];
+}
+
 /** What git is to be run with for `args`. */
 export function gitSetup(args: string[], io: Io): Promise<Result<GitSetup, Failure>> {
 	return Do(async ($) => {
@@ -175,7 +206,7 @@ export function realGit(io: Io): string | null {
 }
 
 export const GIT_NOTE = `pap git <args>: git, signed in to GitHub as your GitHub connection's account; plain git is signed out.
-Clone https://github.com/<owner>/<repo>; commits are made as that account.
+Clone https://github.com/<owner>/<repo>; commits are made as that account, in such a clone with plain git too.
 With several GitHub connections: pap --connection <id> git <args>
 `;
 
@@ -195,7 +226,11 @@ export async function gitMain(args: string[], io: Io): Promise<number> {
 		io.err(`pap: ${setup.error.message}\n`);
 		return setup.error.exit;
 	}
-	const ran = await io.spawn(git, args, gitEnv(io.env, setup.value));
+	const ran = await io.spawn(
+		git,
+		gitArgs(args, io.env, setup.value.identity),
+		gitEnv(io.env, setup.value),
+	);
 	if (ran.isErr()) {
 		io.err(`pap: could not run ${git}: ${ran.error.message}\n`);
 		return EXIT.failed;
