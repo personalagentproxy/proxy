@@ -16,6 +16,7 @@ import {PLAID_INTEGRATION} from './plaid/integration';
 import {POSTGRES_INTEGRATION} from './postgres/integration';
 import {CHAT_INTEGRATION} from '../native/chat/integration';
 import {FILES_INTEGRATION} from '../native/files/integration';
+import {MEMORY_INTEGRATION} from '../native/memory/integration';
 import {SANDBOX_INTEGRATION} from '../native/sandbox/integration';
 import {VAULT_INTEGRATION} from '../native/vault/integration';
 
@@ -43,6 +44,7 @@ function modules(): Record<IntegrationId, ApiIntegration> {
 		plaid: PLAID_INTEGRATION,
 		sandbox: SANDBOX_INTEGRATION,
 		files: FILES_INTEGRATION,
+		memory: MEMORY_INTEGRATION,
 		chat: CHAT_INTEGRATION,
 	};
 }

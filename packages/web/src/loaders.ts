@@ -12,6 +12,7 @@ import {
 import {getConnection, listConnections} from '@/client/connections-client';
 import {getDriveFileHistory, listDriveHistory} from '@/client/drive-history-client';
 import {getFile, listFiles, listTrashedFiles} from '@/client/files-client';
+import {getMemory} from '@/client/memory-client';
 import {getGitHubInstallations} from '@/client/github-client';
 import {listAlerts} from '@/client/alerts-client';
 import {getChatThread, listPersonas, listThreads} from '@/client/harness-client';
@@ -21,6 +22,7 @@ import {getInvitation, getOrg, listMembers, listOrgs} from '@/client/orgs-client
 import {listRecords} from '@/client/records-client';
 import {
 	FILES_INTEGRATION_ID,
+	MEMORY_INTEGRATION_ID,
 	SANDBOX_INTEGRATION_ID,
 	VAULT_INTEGRATION_ID,
 	VAULT_SECRETS_COLLECTION_ID,
@@ -162,14 +164,23 @@ export const connectionLoader = later(
 				error: shown?.isErr() ? describeApiError(shown.error) : null,
 			};
 		};
-		const [vaultEntries, vaultSecrets, sandboxes, github, files, history] = await Promise.all([
-			kept(VAULT_INTEGRATION_ID, 'entries'),
-			kept(VAULT_INTEGRATION_ID, VAULT_SECRETS_COLLECTION_ID),
-			kept(SANDBOX_INTEGRATION_ID, 'sandboxes'),
-			reached(),
-			drive(),
-			driveHistory(),
-		]);
+		// A memory's notes, each whole, About you among them.
+		const remembered = async () => {
+			if (found?.integrationId !== MEMORY_INTEGRATION_ID) {
+				return null;
+			}
+			return unwrapLoaderResult(await getMemory(org, found.id)).notes;
+		};
+		const [vaultEntries, vaultSecrets, sandboxes, github, files, history, memory] =
+			await Promise.all([
+				kept(VAULT_INTEGRATION_ID, 'entries'),
+				kept(VAULT_INTEGRATION_ID, VAULT_SECRETS_COLLECTION_ID),
+				kept(SANDBOX_INTEGRATION_ID, 'sandboxes'),
+				reached(),
+				drive(),
+				driveHistory(),
+				remembered(),
+			]);
 		return {
 			connection: found,
 			connections: unwrapLoaderResult(connections).connections,
@@ -184,6 +195,7 @@ export const connectionLoader = later(
 			github,
 			files,
 			history,
+			memory,
 		};
 	},
 );

@@ -109,7 +109,7 @@ function MakerMark({maker}: {maker: FileMaker}) {
 
 // The agents that made what a file holds, the latest in front, overlapping, the first few drawn
 // and the rest counted, named under the pointer; nothing for a file only members made.
-function Makers({makers}: {makers: FileMaker[]}) {
+export function Makers({makers}: {makers: FileMaker[]}) {
 	if (makers.length === 0) {
 		return null;
 	}

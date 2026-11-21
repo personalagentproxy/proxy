@@ -1,4 +1,5 @@
 import {
+	BrainIcon,
 	FolderIcon,
 	KeyRoundIcon,
 	MailIcon,
@@ -58,13 +59,14 @@ const NEEDED_BY: Partial<Record<IntegrationId, Need>> = {
 const MCP_MARK = '/favicon.svg';
 
 // The integrations whose logo isn't `public/integrations/<id>.svg` as it is: an icon for those
-// that are no one brand's, the vault, the sandboxes, the files and Chat being ours and Email any mailbox, and our mark for custom
+// that are no one brand's, the vault, the sandboxes, the files, the memory and Chat being ours and Email any mailbox, and our mark for custom
 // MCP servers until a connection has its server's site's icon (`serverLogo`); or a mark in one
 // dark color (`ink`).
 const LOGOS: Partial<Record<IntegrationId, LucideIcon | IntegrationLogoImage>> = {
 	vault: KeyRoundIcon,
 	sandbox: SquareTerminalIcon,
 	files: FolderIcon,
+	memory: BrainIcon,
 	chat: MessageSquareIcon,
 	email: MailIcon,
 	mcp: {src: MCP_MARK, ink: true},

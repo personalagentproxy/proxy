@@ -86,6 +86,7 @@ import {
 	handleUploadFileRoute,
 	handleWriteFileRoute,
 } from '../native/files/route';
+import {handleMemoryRoute} from '../native/memory/route';
 import {chatFiles} from '../native/files/chat';
 import {handleBlobGetRoute, handleBlobPutRoute} from '../blobs/route';
 import {handleCliCheckPushRoute, handleCliListFilesRoute, handleCliPullFileRoute, handleCliPushFileRoute} from '../native/files/cli';
@@ -232,6 +233,9 @@ export function createApiRouter(): express.Router {
 	org.post(`${files}/:fileId/trash`, withAuthResult('Trash file route', handleTrashFileRoute));
 	org.post(`${files}/:fileId/untrash`, withAuthResult('Untrash file route', handleUntrashFileRoute));
 	org.post(`${files}/:fileId/restore`, withAuthResult('Restore file version route', handleRestoreFileRoute));
+	// A member's memory, for its connection's page (native/memory/route.ts); its notes are changed
+	// through the drive's routes above, being kept as a drive's files are.
+	org.get('/connections/:connectionId/memory', withAuthResult('Memory route', handleMemoryRoute));
 
 	// A Google connection's history of its files in Drive, for its page (records/google-history-route.ts).
 	const driveHistory = '/connections/:connectionId/drive-history';
