@@ -178,7 +178,9 @@ describe('handleMcpRoute', () => {
 
 		const github = {id: 'github-1', integrationId: 'github', account: 'octo-dana', shared: false, actions: ['read'], tools: null, name: null};
 		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [sandboxes, github]}));
-		expect(await instructions()).toContain('pap --help has the rest. In a sandbox, pap git and pap gh are git and gh as your GitHub connection’s account; plain git and gh are signed out.');
+		expect(await instructions()).toContain(
+			'pap --help has the rest. In a sandbox, pap git and pap gh are git and gh as your GitHub connection’s account; plain git and gh are signed out. A clone made with pap git commits as that account, with plain git too, so don’t set a name or email of your own.',
+		);
 		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [sandboxes, {...github, actions: []}]}));
 		expect(await instructions()).not.toContain('pap git');
 

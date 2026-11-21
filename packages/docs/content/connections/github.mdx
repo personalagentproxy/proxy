@@ -62,7 +62,9 @@ An agent works in a repository from a command run with `pap` turned on in one of
   `git@github.com:acme/demo.git`), then `pap git push` and `pap git fetch` in the clone. Commits
   made with `pap git commit`, and anything else of git's that makes commits or tags, are made as
   your GitHub account, with GitHub's noreply address for it rather than your own email, unless
-  the command sets `GIT_AUTHOR_NAME` and the like itself.
+  the command sets `GIT_AUTHOR_NAME` and the like itself. `pap git clone` writes that name and
+  address into the clone's own config as `user.name` and `user.email`, so commits made there
+  with plain git are yours too; nothing of the sign-in is written.
 - `pap gh` is GitHub's own command line tool, signed in as you: `pap gh pr create`, `pap gh issue
 list`, `pap gh api …`. The git it runs itself, as for `pap gh repo clone`, is `pap git`.
 
