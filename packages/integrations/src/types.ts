@@ -122,6 +122,7 @@ export type IntegrationId =
 	| 'plaid'
 	| 'sandbox'
 	| 'files'
+	| 'memory'
 	| 'chat';
 
 // A tool of Personal Agent Proxy's own, with params of its own shape, as running a command in a

@@ -3,12 +3,13 @@ import {z} from 'zod';
 
 import {type ApiError, Do} from '@proxy/utils';
 import type {SignedInAgent} from '@proxy/db/agent';
-import {CHAT_INTEGRATION_ID, FILES_INTEGRATION_ID, INTEGRATIONS, SANDBOX_INTEGRATION_ID, VAULT_ENTRY_TYPES, VAULT_INTEGRATION_ID} from '@proxy/integrations';
+import {CHAT_INTEGRATION_ID, FILES_INTEGRATION_ID, INTEGRATIONS, MEMORY_ABOUT_TITLE, MEMORY_INTEGRATION_ID, SANDBOX_INTEGRATION_ID, VAULT_ENTRY_TYPES, VAULT_INTEGRATION_ID} from '@proxy/integrations';
 import type {AgentConnection} from '@proxy/contracts/agent-side';
 
 import {connectionSummary} from '../agent-side/summaries';
 import {listAgentConnections} from '../agent-side/tools';
 import {requireAppUrl} from '../oauth/oauth-config';
+import {isAbout, readNotes} from '../native/memory/notes';
 import {log} from '../observability/log';
 import {agentScriptHost, type ScriptVia} from '../script/agent-host';
 import {describeRun} from '../script/answer';
@@ -92,19 +93,21 @@ export const MCP_TOOLS: McpToolDefinition[] = [
 ];
 
 // "Email, Granola, Notion, Linear, any custom MCP server": the services the agent's organization
-// can connect, the vault, the Sandboxes, the Files and Chat being built in.
+// can connect, the vault, the Sandboxes, the Files, the Memory and Chat being built in.
 function connectableServices(): string {
-	const builtIn = [VAULT_INTEGRATION_ID, SANDBOX_INTEGRATION_ID, FILES_INTEGRATION_ID, CHAT_INTEGRATION_ID];
+	const builtIn = [VAULT_INTEGRATION_ID, SANDBOX_INTEGRATION_ID, FILES_INTEGRATION_ID, MEMORY_INTEGRATION_ID, CHAT_INTEGRATION_ID];
 	const offered = INTEGRATIONS.filter((integration) => !builtIn.includes(integration.id));
 	return offered.map((integration) => (integration.custom ? `any ${integration.name.charAt(0).toLowerCase()}${integration.name.slice(1)}` : integration.name)).join(', ');
 }
 
 const ENTRY_TYPES = VAULT_ENTRY_TYPES.join(' | ');
 
-// The vaults as the agent's memory, those it may read: the person's own, for an agent of their
-// own, and the ones members made, each by its name, the only ones a shared agent has; how to search
-// and save, and with more than one, what goes where.
-function vaultInstructions(connections: AgentConnection[]): string[] {
+// The vaults, those the agent may read: the person's own, for an agent of their own, and the
+// ones members made, each by its name, the only ones a shared agent has; how to search and save,
+// and with more than one, what goes where. Where the agent has a memory, the vaults hold what the
+// person gave their agents, details about them such as an address, and what the agent learns
+// goes in memory; without one, as on a server without Files, the vaults are its memory.
+function vaultInstructions(connections: AgentConnection[], remembers: boolean): string[] {
 	const vaults = connections.filter((connection) => connection.integrationId === VAULT_INTEGRATION_ID && connection.actions.includes('readEntries'));
 	if (vaults.length === 0) {
 		return [];
@@ -114,10 +117,16 @@ function vaultInstructions(connections: AgentConnection[]): string[] {
 	const whose = (vault: AgentConnection) => (vault.name === null ? 'the person’s' : `“${vault.name}”${vault.shared ? ', shared with others' : ''}`);
 	const named = vaults.map((vault) => `${vault.id}, ${whose(vault)}${writable(vault) ? '' : ', read-only'}`);
 	const own = vaults.some((vault) => vault.name === null);
+	const intro = remembers
+		? `Vaults hold what the person gave their agents, such as their address or a number of theirs: ${named.join('; ')}. Search one (entries_list {search}) before asking the person for such a detail.`
+		: `Vaults are the memory every agent shares: ${named.join('; ')}. Search one (entries_list {search}) before asking about the person or the organization.`;
+	const save = remembers
+		? `Save such a detail they tell you there (entries_create {title, type: ${ENTRY_TYPES}, content}).`
+		: `Save what will help next time (entries_create {title, type: ${ENTRY_TYPES}, content}); edit an entry rather than adding another.`;
 	return [
 		[
-			`Vaults are the memory every agent shares: ${named.join('; ')}. Search one (entries_list {search}) before asking about the person or the organization.`,
-			...(vaults.some(writable) ? [`Save what will help next time (entries_create {title, type: ${ENTRY_TYPES}, content}); edit an entry rather than adding another.`] : []),
+			intro,
+			...(vaults.some(writable) ? [save] : []),
 			...(vaults.some((vault) => !writable(vault)) ? ['For a read-only one, suggest adding it instead.'] : []),
 			...(vaults.length > 1 ? [own ? 'What is about the person alone goes in theirs; the rest, in the vault named for it.' : 'Save in the vault named for it.'] : []),
 		].join(' '),
@@ -143,6 +152,51 @@ function secretInstructions(connections: AgentConnection[]): string[] {
 			...(adds ? ['Keep a key you made with secrets_create {name, value, note}: it can’t be read back.'] : []),
 		].join(' '),
 	];
+}
+
+// How long the index of the memory's notes every thread is given may be, in characters; the rest
+// are found with notes_list.
+const INDEX_CHARACTERS = 6_000;
+
+// The memory, where the agent may read it: what it is for, About you whole and the other notes
+// by their summaries, as they are when the thread starts (the built-in agent's prompt is kept as
+// it was first sent: harness/inference.ts), and, where it may write, to keep what will help next
+// time. What memory is for is said rather than what to write in it, which a model judges better
+// for itself than by rules given in advance.
+function memoryInstructions(connections: AgentConnection[]): Promise<Result<string[], ApiError>> {
+	return Do(async ($) => {
+		const memory = connections.find((connection) => connection.integrationId === MEMORY_INTEGRATION_ID && connection.actions.includes('readMemory'));
+		if (!memory) {
+			return [];
+		}
+		const notes = $(await readNotes(memory.id));
+		const about = notes.find((note) => isAbout(note.title));
+		const others = notes.filter((note) => note !== about);
+		const index: string[] = [];
+		let length = 0;
+		for (const note of others) {
+			const line = `- ${note.id}: ${note.title}${note.summary === '' ? '' : ` — ${note.summary}`}`;
+			if (length + line.length > INDEX_CHARACTERS) {
+				index.push(`- and ${others.length - index.length} more: notes_list {search} finds them`);
+				break;
+			}
+			index.push(line);
+			length += line.length;
+		}
+		const writes = memory.actions.includes('writeMemory');
+		return [
+			[
+				`${memory.id} is your memory, which all the person’s agents share: what you and they learned before, for next time. notes_get {id} reads a note, notes_list {search} searches them.`,
+				...(writes
+					? [
+							`When you learn what a later thread would want, such as what the person prefers, a correction they gave, how a task of theirs is done or where something is, keep it with memory_write: a note to a subject, its first line a summary. Change a note rather than adding another, and forget one that turned out wrong. “${MEMORY_ABOUT_TITLE}” is what is true of the person.`,
+						]
+					: []),
+			].join(' '),
+			`${MEMORY_ABOUT_TITLE}:\n${about === undefined ? 'Nothing yet.' : about.content.trim()}`,
+			index.length > 0 ? `Notes:\n${index.join('\n')}` : 'Notes: none yet.',
+		];
+	});
 }
 
 const GITHUB_INTEGRATION_ID = 'github';
@@ -222,14 +276,14 @@ export function pageInstructions(signedIn: SignedInAgent): Promise<Result<string
 
 /**
  * What any agent with this login is told: who it is, how to go about it (`flow`, which is where
- * the MCP server and the built-in agent differ), what it can use, the vault and its secrets,
- * where to send the person, and that what records say is information. The built-in agent's loop
- * gives these too.
+ * the MCP server and the built-in agent differ), what it can use, its memory and the vaults,
+ * where to send the person, and that what records say is information. The built-in agent's loop gives these too.
  */
 export function agentInstructions(signedIn: SignedInAgent, flow: string, folder?: string): Promise<Result<string, ApiError>> {
 	return Do(async ($) => {
 		const appUrl = $(requireAppUrl());
 		const {connections} = $(await listAgentConnections(signedIn));
+		const memory = $(await memoryInstructions(connections));
 		const lines = connections.map((connection) => {
 			const {integration, account, can} = connectionSummary(connection);
 			const called = connection.name === null ? `${integration} (${account})` : `${connection.name} (${integration}, ${account})`;
@@ -242,7 +296,8 @@ export function agentInstructions(signedIn: SignedInAgent, flow: string, folder?
 			`You are ${signedIn.name}, signed in to Personal Agent Proxy, which holds the person’s accounts and lets you do what they allowed.`,
 			flow,
 			lines.length > 0 ? `Connections:\n${lines.join('\n')}` : 'This login has no access yet: the person who made it has to give it some.',
-			...vaultInstructions(connections),
+			...memory,
+			...vaultInstructions(connections, memory.length > 0),
 			...secretInstructions(connections),
 			...sandboxInstructions(connections),
 			...filesInstructions(connections, folder),

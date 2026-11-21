@@ -4,7 +4,7 @@ import type {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
 import {parseLook, toAvatarColor} from '@proxy/utils/harness';
-import {FILES_INTEGRATION_ID} from '@proxy/integrations';
+import {FILES_INTEGRATION_ID, MEMORY_INTEGRATION_ID} from '@proxy/integrations';
 import {
 	contentQuerySchema,
 	createFolderBodySchema,
@@ -70,13 +70,15 @@ import {isShownImage, mediaType, requireFileName} from './names';
 
 type Drive = {connectionId: string; change: FileChangeBy};
 
-// The drive the address names, among the connections the person uses, and who they are.
+// The drive the address names, among the connections the person uses, and who they are: a
+// drive, or a member's memory, whose notes are kept as a drive's files are and read, written,
+// given back and put in the trash on its page by these routes too.
 function driveOf(request: AuthenticatedRequest): Promise<Result<Drive, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
 		const connectionId = request.params.connectionId ?? '';
 		const {connection, integration} = $(await loadConnection(viewer, connectionId));
-		if (integration.id !== FILES_INTEGRATION_ID) {
+		if (integration.id !== FILES_INTEGRATION_ID && integration.id !== MEMORY_INTEGRATION_ID) {
 			return $(Err(ApiErr.notFound('connection', connectionId)));
 		}
 		return {connectionId: connection.id, change: {orgId: connection.orgId, connectionId: connection.id, by: {userId: viewer.userId}}};
@@ -101,7 +103,8 @@ function toFile(entry: FileEntry, above?: FileNodeRow[]): DriveFile {
 	};
 }
 
-function toMaker(maker: FileMakerRow): FileMaker {
+/** An agent that made what a file holds, as the person's pages draw it. */
+export function toMaker(maker: FileMakerRow): FileMaker {
 	if (maker.kind === 'persona') {
 		return {...maker, look: parseLook(maker.look), color: toAvatarColor(maker.color)};
 	}

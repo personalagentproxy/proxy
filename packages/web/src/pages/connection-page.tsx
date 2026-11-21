@@ -25,6 +25,7 @@ import {PageTabs} from '@/components/page-tabs';
 import {RecentActivity} from '@/components/recent-activity';
 import {DriveHistory} from '@/components/drive-history';
 import {FileBrowser} from '@/components/file-browser';
+import {MemoryNotes} from '@/components/memory-notes';
 import {SandboxList} from '@/components/sandbox-list';
 import {SuccessLine} from '@/components/success-line';
 import {VaultEntries} from '@/components/vault-entries';
@@ -64,6 +65,7 @@ function ConnectionDetail() {
 		github,
 		files,
 		history,
+		memory,
 	} = useLoaded<typeof connectionLoader>();
 	const navigate = useNavigate();
 	const reload = useReload();
@@ -105,6 +107,7 @@ function ConnectionDetail() {
 	// connection, which is never shared, has no Sharing.
 	const tabs: Array<
 		PageTab<
+			| 'notes'
 			| 'entries'
 			| 'secrets'
 			| 'sandboxes'
@@ -116,6 +119,7 @@ function ConnectionDetail() {
 			| 'activity'
 		>
 	> = [
+		...(memory === null ? [] : [{id: 'notes' as const, label: 'Notes', count: memory.length}]),
 		...(vaultEntries === null
 			? []
 			: [{id: 'entries' as const, label: 'Entries', count: vaultEntries.length}]),
@@ -247,6 +251,9 @@ function ConnectionDetail() {
 				)}
 				{tab === 'secrets' && vaultSecrets !== null && (
 					<VaultSecrets connectionId={connection.id} secrets={vaultSecrets} />
+				)}
+				{tab === 'notes' && memory !== null && (
+					<MemoryNotes connectionId={connection.id} notes={memory} />
 				)}
 				{tab === 'sandboxes' && sandboxes !== null && (
 					<SandboxList connectionId={connection.id} sandboxes={sandboxes} />

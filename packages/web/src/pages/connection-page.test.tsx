@@ -3,6 +3,7 @@
 import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
 import type {Member} from '@proxy/contracts/orgs';
+import type {MemoryNote} from '@proxy/contracts/memory';
 import type {DataRecord} from '@proxy/contracts/records';
 import type {DriveHistoryLoaded} from '@/components/drive-history';
 import {DEFAULT_LOOK} from '@proxy/utils/harness';
@@ -81,6 +82,7 @@ function renderConnectionPage(
 	github: GitHubReach | null = null,
 	files: Drive | null = null,
 	history: DriveHistoryLoaded | null = null,
+	memory: MemoryNote[] | null = null,
 	vaultSecrets: DataRecord[] | null = vaultEntries === null ? null : [],
 ) {
 	const loads = {count: 0};
@@ -108,6 +110,7 @@ function renderConnectionPage(
 								github,
 								files,
 								history,
+								memory,
 							};
 						}),
 						shouldRevalidate: shouldRevalidateTabs,
@@ -865,6 +868,7 @@ describe('a vault’s page', () => {
 			null,
 			null,
 			null,
+			null,
 			[key],
 		);
 
@@ -873,6 +877,70 @@ describe('a vault’s page', () => {
 		expect(document.body.textContent).not.toContain('sk-test-123');
 		fireEvent.click(screen.getByRole('button', {name: 'Show'}));
 		expect(await screen.findByText('sk-test-123')).toBeDefined();
+	});
+});
+
+describe('a memory’s page', () => {
+	const memory: Connection = {
+		...mailbox,
+		integrationId: 'memory',
+		account: 'Acme',
+		defaults: ['readMemory', 'writeMemory'],
+		builtIn: true,
+	};
+	const note = (id: string, title: string, content: string, about = false): MemoryNote => ({
+		id,
+		title,
+		summary: content.split('\n')[0] ?? '',
+		content,
+		version: `v-${id}`,
+		modifiedAt: '2026-11-17T10:00:00.000Z',
+		makers: [
+			{kind: 'persona', id: 'persona-1', name: 'Coding Agent', look: DEFAULT_LOOK, color: 'blue'},
+		],
+		about,
+	});
+
+	test('opens on its notes, About you first, then each note by its title and summary with who wrote it', async () => {
+		renderConnectionPage(
+			'/acme/connections/conn-1',
+			memory,
+			[claude],
+			null,
+			null,
+			null,
+			null,
+			null,
+			[
+				note('note-1', 'About you', 'Works in Berlin, prefers short answers.', true),
+				note('note-2', 'Releases', 'Tag the commit, then deploy from main.\nMore detail here.'),
+			],
+		);
+
+		expect(await screen.findByText('Works in Berlin, prefers short answers.')).toBeDefined();
+		const row = screen.getByRole('button', {name: /Releases/});
+		expect(row.textContent).toContain('Tag the commit, then deploy from main.');
+		expect(row.textContent).not.toContain('More detail here.');
+		expect(tabs().map(([label]) => label)).toEqual(['Notes2', 'Permissions', 'Recent activity']);
+	});
+
+	test('says what it is for while it is empty', async () => {
+		renderConnectionPage(
+			'/acme/connections/conn-1',
+			memory,
+			[claude],
+			null,
+			null,
+			null,
+			null,
+			null,
+			[],
+		);
+
+		expect(
+			await screen.findByText(/Your agents write down what they learn about you here/),
+		).toBeDefined();
+		expect(screen.getByText(/Your agents keep what they learn here as they work/)).toBeDefined();
 	});
 });
 

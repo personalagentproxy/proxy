@@ -593,6 +593,47 @@ export function searchFiles(
 	});
 }
 
+/** A file at the top of a drive with what it holds now and the blob with its bytes. */
+export type TopFile = FileNodeRow & {head: StoredVersionRow & {blob: FileBlobRow}};
+
+/**
+ * The files at the top of a drive, outside the trash, each with what it holds now and the blob
+ * with its bytes, the latest changed first, at most `take`: for a drive read whole, as a member's
+ * memory is (api native/memory). Folders, and files with nothing in them, are left out.
+ */
+export function listTopFiles(
+	connectionId: string,
+	take: number,
+): Promise<Result<TopFile[], ApiError>> {
+	return wrapDb(async () => {
+		const nodes = await db.fileNode.findMany({
+			where: {
+				connectionId,
+				parentId: null,
+				folder: false,
+				trashedAt: null,
+				headVersionId: {not: null},
+			},
+			select: nodeSelect,
+			orderBy: [{updatedAt: 'desc'}, {id: 'asc'}],
+			take,
+		});
+		const ids = nodes.flatMap((node) => (node.headVersionId === null ? [] : [node.headVersionId]));
+		const versions = await db.fileVersion.findMany({
+			where: {id: {in: ids}},
+			select: {...versionSelect, blob: {select: blobSelect}},
+		});
+		const byId = new Map(versions.map((version) => [version.id, version]));
+		return nodes.flatMap((node) => {
+			const head = node.headVersionId === null ? undefined : byId.get(node.headVersionId);
+			if (!head || head.blob === null || !isStored(head)) {
+				return [];
+			}
+			return [{...node, head: {...head, blob: head.blob}}];
+		});
+	});
+}
+
 /** What was put in the trash, each by itself, last trashed first, with where it was. */
 export function listTrash(connectionId: string): Promise<Result<FileFound[], ApiError>> {
 	return wrapDb(async () => {

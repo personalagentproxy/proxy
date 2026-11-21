@@ -2079,7 +2079,7 @@ const vault: Integration = {
 	id: VAULT_INTEGRATION_ID,
 	name: 'Vault',
 	description:
-		'What agents should know, and the secrets they may use, kept in Personal Agent Proxy',
+		'What your agents may know about you, and the secrets they may use, kept in Personal Agent Proxy',
 	native: true,
 	made: {one: 'vault', holds: 'entries and secrets'},
 	actions: [
@@ -2666,6 +2666,97 @@ const mcp: Integration = {
 	collections: [],
 };
 
+export const MEMORY_INTEGRATION_ID = 'memory';
+
+/** The note every thread is given whole: what the person's agents know about them. */
+export const MEMORY_ABOUT_TITLE = 'About you';
+
+/** How long "About you" may be, in characters, and any other note. */
+export const MEMORY_ABOUT_CHARACTERS = 3_000;
+export const MEMORY_NOTE_CHARACTERS = 20_000;
+
+/** How long a note's first line, its summary in the index every thread is given, may be. */
+export const MEMORY_SUMMARY_CHARACTERS = 200;
+
+// Memory lives in Personal Agent Proxy itself: notes the person's agents keep for next time, one
+// memory of each member's own, which all their agents share. Kept as a drive is (FileNode,
+// FileVersion, FileChange), so every version of a note stays and who wrote each is known, but an
+// integration of its own: agents read and write notes, not files, and the person reads them on
+// its page. Every thread is given "About you" whole and an index of the other notes, each by its
+// first line, its summary (mcp/tools.ts); the rest is read when needed.
+const memory: Integration = {
+	id: MEMORY_INTEGRATION_ID,
+	name: 'Memory',
+	description: 'What your agents learn as they work, kept for next time',
+	native: true,
+	actions: [
+		{id: 'readMemory', label: 'Read memory', description: 'Read and search the notes', risk: 'low'},
+		{
+			id: 'writeMemory',
+			label: 'Write memory',
+			description: 'Write, change and forget notes; every version before is kept',
+			risk: 'medium',
+			requires: 'readMemory',
+		},
+	],
+	collections: [
+		{
+			id: 'notes',
+			name: 'Notes',
+			singular: 'note',
+			titleField: 'title',
+			summaryField: 'summary',
+			searchHint: 'Words in a note’s title or text, in any case.',
+			read: 'readMemory',
+			// Written by memory_write, which names who wrote it and the version it read.
+			writes: {},
+			fields: [
+				{key: 'title', label: 'Title', type: 'text', system: true},
+				{key: 'summary', label: 'Summary', type: 'text', system: true},
+				{key: 'content', label: 'Content', type: 'longtext', system: true},
+				// What memory_write has to name to write over it.
+				{key: 'version', label: 'Version', type: 'text', system: true},
+				{key: 'writtenBy', label: 'Written by', type: 'text', system: true},
+				{key: 'modified', label: 'Modified', type: 'datetime', system: true},
+			],
+		},
+	],
+	tools: [
+		{
+			name: 'memory_write',
+			title: 'Write note',
+			description: `Writes a note called title. Its first line is its summary, which every thread is given in the index; the rest is read when needed. A new title makes a note; to change one, give the version notes_get answered with: where it changed since, the write is refused, and you read it again. Every version before is kept. “${MEMORY_ABOUT_TITLE}” is the note every thread is given whole: what is true of the person, at most ${MEMORY_ABOUT_CHARACTERS} characters; any other, at most ${MEMORY_NOTE_CHARACTERS}.`,
+			action: 'writeMemory',
+			inputSchema: {
+				type: 'object',
+				properties: {
+					title: {type: 'string', description: 'The note’s title, as Screenshots of the web app'},
+					content: {type: 'string', description: 'The whole note, its summary on the first line'},
+					version: {
+						type: 'string',
+						description: 'The version you read, to change a note that is there',
+					},
+				},
+				required: ['title', 'content'],
+			},
+		},
+		{
+			name: 'memory_forget',
+			title: 'Forget note',
+			description: `Forgets a note that is wrong or no longer of use: it goes to the trash, where the person can take it back for ${FILES_TRASH_DAYS} days.`,
+			action: 'writeMemory',
+			inputSchema: {
+				type: 'object',
+				properties: {id: {type: 'string', description: 'The note’s id'}},
+				required: ['id'],
+			},
+		},
+	],
+};
+
+/** What agents may do with a member's memory by default: read it and write it, since nothing written there is lost. */
+export const MEMORY_DEFAULT_ACTIONS: string[] = memory.actions.map((action) => action.id);
+
 export const CHAT_INTEGRATION_ID = 'chat';
 
 /** Where a thread stands, as its record says it and a list of threads is narrowed by: the Chat page's own words, Watching for one done but with alerts that come to it, and Archived for one the person archived, which the Chat page's list leaves out. */
@@ -2780,6 +2871,7 @@ export const INTEGRATIONS: Integration[] = [
 	mysql,
 	sandbox,
 	files,
+	memory,
 	chat,
 	mcp,
 ];
