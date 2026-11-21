@@ -750,3 +750,37 @@ describe("an integration's own tools", () => {
 		expect(integrationTools(stray).some((tool) => tool.kind === 'native')).toBe(false);
 	});
 });
+
+describe('chat', () => {
+	const chat = integration('chat');
+
+	test('a message is sent to a thread by its id with its text, both required, with Write in threads', () => {
+		const send = findTool(chat, 'threads_send');
+		expect(send).toMatchObject({
+			kind: 'command',
+			operation: 'send',
+			action: 'writeThreads',
+			risk: 'medium',
+			readOnly: false,
+			reachesOthers: false,
+		});
+		expect(send?.inputSchema).toMatchObject({
+			properties: {id: {type: 'string'}, text: {type: 'string'}},
+			required: ['id', 'text'],
+		});
+		expect(send?.description).toStartWith(
+			'Send a message: one thread, by its id. It lands in that thread as your message',
+		);
+	});
+
+	test('writing in threads counts only with reading them', () => {
+		expect(
+			allowedTools(chat, effectiveActions(chat, [], {writeThreads: true})).map((tool) => tool.name),
+		).toEqual([]);
+		expect(
+			allowedTools(chat, effectiveActions(chat, [], {readThreads: true, writeThreads: true})).map(
+				(tool) => tool.name,
+			),
+		).toContain('threads_send');
+	});
+});

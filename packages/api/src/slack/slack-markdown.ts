@@ -130,3 +130,11 @@ export function splitForSlack(text: string, limit: number = SLACK_MARKDOWN_LIMIT
 export function toPlainSlackText(markdown: string): string {
 	return toSlackText(markdown);
 }
+
+/** The text with each line quoted, as Markdown, a blank one too, so a quote of several paragraphs stays one. */
+export function quoted(text: string): string {
+	return text
+		.split('\n')
+		.map((line) => (line === '' ? '>' : `> ${line}`))
+		.join('\n');
+}

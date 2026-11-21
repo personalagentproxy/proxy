@@ -4,7 +4,7 @@ import type {Result} from 'ts-results-es';
 import {type ApiError, wrapDb} from '@proxy/utils';
 
 import {db} from '.';
-import {type ShownEntryRow, toToolCalls} from './harness';
+import {type ShownEntryRow, toToolCalls, withPassedOn} from './harness';
 import {type SlackSessionPlace, sessionPlaceSelect, toSessionPlace} from './slack-sessions';
 
 /**
@@ -216,9 +216,12 @@ export type SlackUndelivered = {entries: ShownEntryRow[]; subAgents: SlackSubAge
 /**
  * The thread's entries past `afterSeq`, at most `limit`, in order, without what is pending, read
  * in one statement, so none is seen without every earlier one of the thread (as this module says),
- * and its sub-agents, read after, so every sub-agent an entry read names is among them. Every kind
- * is read, so the mark can move past what isn't shown; the words of what the member said, of a
- * call's result or of a summary aren't, nor the calls of anything but an answer.
+ * and its sub-agents, read after, so every sub-agent an entry read names is among them; each entry
+ * with the thread it was passed on from, where another of the member's threads passed it on. Every
+ * kind is read, so the mark can move past what isn't shown; the words of what the member said in
+ * Slack, of a call's result or of a summary aren't, nor the calls of anything but an answer. What
+ * the member said that was passed on from another thread is read with its words, since it is
+ * delivered.
  */
 export async function readSlackUndelivered(
 	threadId: string,
@@ -237,10 +240,15 @@ export async function readSlackUndelivered(
 				callId: string | null;
 				text: string;
 				toolCalls: string | null;
+				passedOnFromId: string | null;
 			}>
 		>`
-			SELECT e."id", e."seq", e."kind", e."pending", e."isError", e."createdAt", e."callId",
-				CASE WHEN e."kind" IN ('event', 'assistant') THEN e."text" ELSE '' END AS "text",
+			SELECT e."id", e."seq", e."kind", e."pending", e."isError", e."createdAt", e."callId", e."passedOnFromId",
+				CASE
+					WHEN e."kind" IN ('event', 'assistant') THEN e."text"
+					WHEN e."kind" = 'person' AND e."passedOnFromId" IS NOT NULL THEN e."text"
+					ELSE ''
+				END AS "text",
 				CASE WHEN e."kind" = 'assistant' THEN e."toolCalls" ELSE NULL END AS "toolCalls"
 			FROM "AgentEntry" AS e
 			WHERE e."threadId" = ${threadId} AND e."seq" > ${afterSeq} AND NOT e."pending"
@@ -252,7 +260,10 @@ export async function readSlackUndelivered(
 			orderBy: {createdAt: 'asc'},
 		});
 		return {
-			entries: rows.map((row) => ({...row, toolCalls: toToolCalls(row.toolCalls)})),
+			entries: (await withPassedOn(rows)).map((row) => ({
+				...row,
+				toolCalls: toToolCalls(row.toolCalls),
+			})),
 			subAgents,
 		};
 	});

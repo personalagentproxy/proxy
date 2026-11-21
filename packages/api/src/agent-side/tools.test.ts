@@ -649,6 +649,56 @@ describe('where a thread stands, through the Chat connection', () => {
 	});
 });
 
+describe('a message sent to a thread, through the Chat connection', () => {
+	const thread = (standing: string) => ({id: 'thread-2', values: {title: 'Upgrade vite', standing, place: 'Chat'}, updatedAt: '2026-10-01T00:00:00.000Z'});
+	const builtIn = (actions: string[]) => ({...agent, providerId: 'proxy', grants: actions.map((actionId) => ({connectionId: 'chat-1', actionId, allowed: true}))});
+
+	beforeEach(() => {
+		useConnection(chatConnection);
+		getAgentById.mockResolvedValue(Ok(builtIn(['readThreads', 'writeThreads'])));
+		connector.get.mockResolvedValue(Ok(thread('In progress')));
+	});
+
+	test('is sent by the connector with its text, for the caller’s task, to a thread whatever it stands, and logged with the thread’s title', async () => {
+		const {runAgentTool} = await import('./tools');
+		send.mockResolvedValue(Ok(thread('In progress')));
+
+		expect((await runAgentTool(caller, 'chat-1', 'threads_send', {id: 'thread-2', text: 'Yes, include the docs site too'})).unwrap()).toEqual({record: thread('In progress')});
+
+		const [target, recordId, values] = send.mock.calls[0] ?? [];
+		expect(target).toMatchObject({by: {taskId: 'task-1'}, collection: {id: 'threads'}});
+		expect(recordId).toBe('thread-2');
+		expect(values).toEqual({text: 'Yes, include the docs site too'});
+		expect(logAgentRequest.mock.calls.map(([logged]) => [logged.collectionId, logged.action, logged.recordTitle, logged.outcome, logged.taskId])).toEqual([
+			['threads', 'send', 'Upgrade vite', 'allowed', 'task-1'],
+		]);
+	});
+
+	test('needs its text', async () => {
+		const {runAgentTool} = await import('./tools');
+
+		expect((await runAgentTool(caller, 'chat-1', 'threads_send', {id: 'thread-2'})).unwrapErr()).toMatchObject({kind: 'validation_error'});
+		expect(send).not.toHaveBeenCalled();
+	});
+
+	test('is refused without Write in threads, and logged as denied', async () => {
+		const {runAgentTool} = await import('./tools');
+		getAgentById.mockResolvedValue(Ok(builtIn(['readThreads', 'markThreads'])));
+
+		expect((await runAgentTool(caller, 'chat-1', 'threads_send', {id: 'thread-2', text: 'Hello'})).unwrapErr().kind).toBe('forbidden');
+		expect(send).not.toHaveBeenCalled();
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({collectionId: 'threads', action: 'send', outcome: 'denied'});
+	});
+
+	test('the connector refuses is logged as failed, with its kind', async () => {
+		const {runAgentTool} = await import('./tools');
+		send.mockResolvedValue(Err(ApiErr.validationError('Only the agent of one of your threads can send a message to another')));
+
+		expect((await runAgentTool(caller, 'chat-1', 'threads_send', {id: 'thread-2', text: 'Hello'})).unwrapErr()).toMatchObject({kind: 'validation_error'});
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({collectionId: 'threads', action: 'send', recordTitle: 'Upgrade vite', outcome: 'failed', error: 'validation_error'});
+	});
+});
+
 describe('nested collections', () => {
 	test('a list opened inside a record is logged with where it was opened', async () => {
 		useConnection(notionConnection);

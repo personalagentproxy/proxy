@@ -154,8 +154,23 @@ It can also mark your other threads done, archive them or bring archived ones ba
 same connection, so "archive everything that's done" is one request. A thread still in progress,
 or whose sub-agents are still at work, is left as it is. Marking a thread done keeps the alerts that
 come to it, so it is watching; archiving one cancels them, as the Chat page does, so the agent
-archives none that alerts still come to until you have had them cancelled. An agent never writes
-what was said into another thread.
+archives none that alerts still come to until you have had them cancelled.
+
+### Sending a message to another thread
+
+Ask a thread to pass something on, such as "send this to the vite thread" or "tell the offsite
+thread the rooms are held", and its agent sends your words to that thread through your
+[Chat connection](/connections/chat). There it is your message, with a quiet line under it saying
+which thread it was passed on from, linked to it, and it takes that thread up as your reply would:
+its agent goes on with it, reading it at its next step if it is at work, and an archived thread
+comes back to the list. A thread in [Slack](/agents/slack) gets it posted as a quote, under a line
+saying it is yours and where it came from. No answer comes back to the thread you asked in: its
+agent tells you where the message went, with a link, and you follow it there.
+
+Only a thread's own agent passes a message on, to another of your own threads, and only text; a
+sub-agent doesn't, and nothing is sent to one. A thread whose latest message from you was itself
+passed on to it doesn't pass one on in turn until you write in it yourself, so a message never
+travels from thread to thread on its own.
 
 A thread can go on for as long as you like. Once it has grown long, the agent reads a summary of
 the earlier part in place of it, and keeps the last turns as they were; the thread shows everything

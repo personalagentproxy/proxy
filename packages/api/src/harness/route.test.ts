@@ -6,7 +6,7 @@ import {ATTACHMENT_MARK} from '@proxy/utils/harness';
 
 import type {HarnessBackend} from '@proxy/backends/harness/backend';
 import {fakeHarness} from '@proxy/backends/harness/fake';
-import type {ChatThreadRow, EntryRow, ThreadRow} from '@proxy/db/harness';
+import type {ChatThreadRow, EntryRow, ShownEntryRow, ThreadRow} from '@proxy/db/harness';
 
 import type {HarnessRegistry} from '../backends/harness';
 import type {ChatFiles} from './attachments';
@@ -102,7 +102,7 @@ const files = {
 };
 
 // An entry of the log, as the store gives it.
-function logEntry(entry: Pick<EntryRow, 'id' | 'seq' | 'kind' | 'text'> & Partial<EntryRow>): EntryRow {
+function logEntry(entry: Pick<EntryRow, 'id' | 'seq' | 'kind' | 'text'> & Partial<EntryRow & ShownEntryRow>): EntryRow & ShownEntryRow {
 	return {
 		threadId: 'chat-1',
 		pending: false,
@@ -116,6 +116,8 @@ function logEntry(entry: Pick<EntryRow, 'id' | 'seq' | 'kind' | 'text'> & Partia
 		harness: null,
 		model: null,
 		jobId: null,
+		passedOnFromId: null,
+		passedOn: null,
 		createdAt: now,
 		...entry,
 	};
@@ -847,6 +849,32 @@ describe('the chat’s threads', () => {
 			working: false,
 			empty: false,
 		});
+	});
+
+	test('say where what another of the person’s threads passed on came from: the thread by its title as it is now, linked in Chat or in Slack, or none where it is deleted since', async () => {
+		const {handleGetChatThreadRoute} = routes;
+		const passed = (id: string, seq: number, passedOn: ShownEntryRow['passedOn']) => logEntry({id, seq, threadId: 'thread-4', kind: 'person', text: 'Yes, include the docs site too', passedOn});
+		const vite = chatThread({
+			id: 'thread-4',
+			title: 'Upgrade vite',
+			entries: [
+				logEntry({id: 'e6', seq: 6, threadId: 'thread-4', kind: 'person', text: 'Upgrade vite to 7'}),
+				passed('e7', 7, {threadId: 'thread-1', thread: {id: 'thread-1', personaId: 'persona-2', title: 'Pricing review with Dana', slack: null}}),
+				passed('e8', 8, {threadId: 'thread-5', thread: {id: 'thread-5', personaId: 'persona-1', title: 'Book the train', slack: {teamId: 'T0001', channel: 'D0001', rootTs: '1761040800.000100'}}}),
+				passed('e9', 9, {threadId: 'thread-0', thread: null}),
+			],
+		});
+		store.getChatThread.mockResolvedValue(Ok(vite));
+
+		const view = (await handleGetChatThreadRoute(request({personaId: 'persona-1', threadId: 'thread-4'}))).unwrap();
+
+		expect(view.messages.map((message) => message.passedOn)).toEqual([
+			undefined,
+			{thread: {id: 'thread-1', personaId: 'persona-2', title: 'Pricing review with Dana', slackUrl: null}},
+			{thread: {id: 'thread-5', personaId: 'persona-1', title: 'Book the train', slackUrl: 'https://app.slack.com/client/T0001/D0001/thread/D0001-1761040800.000100'}},
+			{thread: null},
+		]);
+		expect(view.messages.map((message) => message.kind)).toEqual(['person', 'person', 'person', 'person']);
 	});
 
 	test('give what runs a thread as the server offers the organization: its persona’s where it has none of its own, and the first harness offered where its own isn’t', async () => {

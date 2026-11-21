@@ -374,6 +374,7 @@ describe('running a call inline', () => {
 			harness: null,
 			model: null,
 			jobId: null,
+			passedOnFromId: null,
 			createdAt: now,
 		};
 	}
@@ -397,6 +398,30 @@ describe('running a call inline', () => {
 			['c1', ['m1', 'm2']],
 			['c2', ['m3']],
 		]);
+	});
+
+	test('a call is answered with what another of the person’s threads passed on meanwhile, led in as theirs from that thread, as their own words are; where that thread can’t be read, it waits', async () => {
+		const delivered = new Map<string, string[]>();
+		const steering = toolSurfaceFor(store, thread, {id: 'job-1'}, 'w1', () => now, delivered);
+		const passed = {...landed('m1', 'person', 'Yes, include the docs site too'), passedOnFromId: 'thread-7'};
+		store.listPendingMessages.mockResolvedValue(Ok([passed]));
+		store.listPassedOnThreads.mockResolvedValueOnce(Err(ApiErr.dbError(new Error('down'))));
+		store.listPassedOnThreads.mockResolvedValueOnce(Ok([{id: 'thread-7', personaId: 'persona-1', title: 'Upgrade vite', slack: null}]));
+
+		const first = await steering.execute({id: 'c1', name: 'send_to_person', arguments: '{"text":"Looking."}'});
+		expect(first.unwrap()).toEqual({text: 'Sent.', isError: false});
+		expect(delivered.size).toBe(0);
+
+		const second = await steering.execute({id: 'c2', name: 'send_to_person', arguments: '{"text":"Still looking."}'});
+		expect(second.unwrap()).toEqual({
+			text: 'Sent.',
+			isError: false,
+			meanwhile: [
+				'The person’s message, passed on to this thread from their thread thread-7, “Upgrade vite”, at their asking rather than typed here; nothing you answer goes back there.\n\nYes, include the docs site too',
+			],
+		});
+		expect(store.listPassedOnThreads).toHaveBeenLastCalledWith(['thread-7']);
+		expect([...delivered]).toEqual([['c2', ['m1']]]);
 	});
 
 	test('a call that ends the turn carries nothing, and what came can’t be read is left to wait, the answer going without it', async () => {

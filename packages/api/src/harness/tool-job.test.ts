@@ -63,6 +63,7 @@ function entryWith(calls: Array<{id: string; name: string; arguments: string}>):
 		harness: null,
 		model: null,
 		jobId: null,
+		passedOnFromId: null,
 		createdAt: now,
 	};
 }

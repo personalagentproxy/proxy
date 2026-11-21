@@ -286,10 +286,17 @@ function collectionTools(integration: Integration, collection: Collection): Coll
 					...(command.requires ? {requires: command.requires} : {}),
 				});
 			}
+			const params = command.params ?? [];
 			return make('command', command.id, {
 				title: command.label,
 				description: `${command.label}: one ${collection.singular}, by its id.${command.description ? ` ${command.description}` : what}${conditionText(collection, command.where)}`,
-				inputSchema: objectSchema({id: ID_PROPERTY}, ['id']),
+				inputSchema: objectSchema(
+					{
+						id: ID_PROPERTY,
+						...Object.fromEntries(params.map((field) => [field.key, fieldProperty(field)])),
+					},
+					['id', ...params.map((field) => field.key)],
+				),
 				where: command.where,
 			});
 		}),

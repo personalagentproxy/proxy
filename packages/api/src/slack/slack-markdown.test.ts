@@ -2,7 +2,7 @@ import {describe, expect, test} from 'bun:test';
 
 import {ATTACHMENT_MARK} from '@proxy/utils/harness';
 
-import {SLACK_MARKDOWN_LIMIT, splitForSlack, toPlainSlackText, toSlackMarkdown} from './slack-markdown';
+import {quoted, SLACK_MARKDOWN_LIMIT, splitForSlack, toPlainSlackText, toSlackMarkdown} from './slack-markdown';
 
 const APP = 'https://proxy.example.com';
 const mark = ATTACHMENT_MARK;
@@ -78,5 +78,12 @@ describe('a message cut to Slack’s size', () => {
 describe('a message Slack won’t take as Markdown', () => {
 	test('plain text escapes Slack’s control characters and nothing else', () => {
 		expect(toPlainSlackText('**Fares** < 100 & [more](https://x.example.com)')).toBe('**Fares** &lt; 100 &amp; [more](https://x.example.com)');
+	});
+});
+
+describe('a quote', () => {
+	test('quotes each line, a blank one too, so it is one paragraph', () => {
+		expect(quoted('Book it\n\nThe 9:40')).toBe('> Book it\n>\n> The 9:40');
+		expect(splitForSlack(quoted('Book it\n\nThe 9:40'))).toEqual(['> Book it\n>\n> The 9:40']);
 	});
 });

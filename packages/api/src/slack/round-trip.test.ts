@@ -15,7 +15,10 @@ import type {ApiError} from '@proxy/utils';
 // going `active`, `processing` and `active` after them; a reply in the Slack thread continues the
 // same thread; the app neither shows the thread nor takes a reply in it, since it lives in Slack
 // alone; and archived through the member's Chat connection its session goes `active`, until a
-// reply in Slack brings it back, as one in the app does. Run with the database up (`bun run --cwd packages/db db:dev`) and the environment
+// reply in Slack brings it back, as one in the app does. A message a Chat thread's agent passes on
+// to a Slack thread through the Chat connection is posted there, quoted under a lead, and wakes it;
+// one passed on from the Slack thread lands in the Chat thread, saying where from, and goes to
+// Slack not at all. Run with the database up (`bun run --cwd packages/db db:dev`) and the environment
 // loaded, `bun --env-file=../../.env test --isolate src/slack/round-trip.test.ts` from this
 // package. Without DATABASE_URL, as `bun run test` runs, it is skipped. Everything made here is
 // one organization's, deleted at the end. The sweep is run for this test's place alone: any other
@@ -114,6 +117,33 @@ describe.skipIf(!databaseUrl)('a message from Slack, to a thread and back', () =
 		const {readyForInference} = await import('@proxy/utils/harness');
 		const jobId = await claim(threadId);
 		expect(unwrap(await completeInference(jobId, 'test-worker', threadId, {text, toolCalls: [], inputTokens: 1, outputTokens: 1, system: null}, {end: {outcome: text}}, readyForInference))).toBe(true);
+	}
+
+	// The member's Chat connection's threads, as a call made for `taskId` reaches them, or as one
+	// made for no task, as a sweep's.
+	async function threads(taskId?: string) {
+		const {findCollection, findIntegration} = await import('@proxy/integrations');
+		const chat = findIntegration('chat');
+		const collection = chat && findCollection(chat, 'threads');
+		if (!collection) {
+			throw new Error('No threads collection');
+		}
+		const connection = {
+			id: 'chat-1',
+			integrationId: 'chat',
+			orgId,
+			ownerUserId: owner,
+			sharedWithEveryone: false,
+			shares: [],
+			account: 'Slack round trip test',
+			createdAt: new Date(),
+			tools: null,
+			name: null,
+			defaults: [],
+			credentialRejectedAt: null,
+			credential: null,
+		};
+		return {connection, collection, ...(taskId === undefined ? {} : {by: {agentId, taskId}})};
 	}
 
 	// One sweep for this test's place alone.
@@ -321,28 +351,7 @@ describe.skipIf(!databaseUrl)('a message from Slack, to a thread and back', () =
 		await sweep();
 		expect(asked()).toEqual(['status:suspended']);
 		const {threadsConnector} = await import('../native/chat/connector');
-		const {findCollection, findIntegration} = await import('@proxy/integrations');
-		const chat = findIntegration('chat');
-		const collection = chat && findCollection(chat, 'threads');
-		if (!collection) {
-			throw new Error('No threads collection');
-		}
-		const connection = {
-			id: 'chat-1',
-			integrationId: 'chat',
-			orgId,
-			ownerUserId: owner,
-			sharedWithEveryone: false,
-			shares: [],
-			account: 'Slack round trip test',
-			createdAt: new Date(),
-			tools: null,
-			name: null,
-			defaults: [],
-			credentialRejectedAt: null,
-			credential: null,
-		};
-		const archived = unwrap(await threadsConnector.commands.archive({connection, collection}, thread.id));
+		const archived = unwrap(await threadsConnector.commands.archive(await threads(), thread.id));
 		expect(archived?.values).toMatchObject({standing: 'Archived', place: 'Slack'});
 		await sweep();
 		expect(asked()).toEqual(['status:active']);
@@ -352,5 +361,70 @@ describe.skipIf(!databaseUrl)('a message from Slack, to a thread and back', () =
 		await answer(thread.id, 'Moved to Saturday.');
 		await sweep();
 		expect(asked()).toEqual(['Moved to Saturday.', 'status:active']);
+	});
+
+	test('a message passed on from a Chat thread is posted in the Slack thread as the member’s, quoted, and wakes it; one passed on from the Slack thread lands in the Chat thread with where it came from', async () => {
+		const {db} = await import('@proxy/db');
+		const {getChatThread, openThread} = await import('@proxy/db/harness');
+		const {readyForInference} = await import('@proxy/utils/harness');
+		const {threadsConnector} = await import('../native/chat/connector');
+
+		// A thread in Slack, answered.
+		await send({text: 'Find a hotel in Porto', ts: '1800000000.100100'});
+		const inSlack = await db.agentThread.findFirstOrThrow({where: {orgId, userId: owner, title: 'Find a hotel in Porto'}, select: {id: true, parentThreadId: true}});
+		await answer(inSlack.id, 'Two by the river, both free in May.');
+		await sweep();
+		asked();
+
+		// A thread in Chat, with the same persona, answered.
+		const chatId = inSlack.parentThreadId ?? '';
+		const title = 'Plan the team offsite';
+		const opening = {title, task: {orgId, agentId, ownerUserId: owner, personaId, parentId: null, title, goal: title, via: 'harness' as const}};
+		const inChat = unwrap(await openThread(chatId, title, opening, readyForInference))?.thread;
+		if (!inChat?.taskId) {
+			throw new Error('No thread in Chat');
+		}
+		await answer(inChat.id, 'Porto in May, for twelve?');
+
+		// From the Chat thread to the Slack thread: posted there as the member's, quoted, and it wakes.
+		const sent = unwrap(await threadsConnector.commands.send(await threads(inChat.taskId), inSlack.id, {text: 'Yes, twelve people, two nights'}));
+		expect(sent?.values).toMatchObject({place: 'Slack', standing: 'In progress'});
+		await sweep();
+		const quote = slack.asked.find(({method}) => method === 'chat.postMessage');
+		expect(Object.fromEntries(quote?.body ?? [])).toMatchObject({
+			channel,
+			thread_ts: '1800000000.100100',
+			markdown_text: 'Your message, passed on from “Plan the team offsite”:\n> Yes, twelve people, two nights',
+		});
+		expect(asked()).toEqual(['Your message, passed on from “Plan the team offsite”:\n> Yes, twelve people, two nights', 'status:processing']);
+		await sweep();
+		expect(asked()).toEqual([]);
+		await answer(inSlack.id, 'Holding six rooms for two nights.');
+		await sweep();
+		expect(asked()).toEqual(['Holding six rooms for two nights.', 'status:active']);
+
+		// The Slack thread's latest from the member was passed on to it: it passes nothing on, until they write in it.
+		const slackTask = async () => (await db.agentThread.findUniqueOrThrow({where: {id: inSlack.id}, select: {taskId: true}})).taskId ?? '';
+		expect((await threadsConnector.commands.send(await threads(await slackTask()), inChat.id, {text: 'Rooms are held'})).unwrapErr()).toMatchObject({
+			message: expect.stringContaining('until you write in it directly'),
+		});
+		await send({text: 'Tell the offsite thread the rooms are held', ts: '1800000000.100500', thread_ts: '1800000000.100100'});
+		expect(asked()).toEqual(['status:processing']);
+
+		// From the Slack thread to the Chat thread: there as the member's, with where it came from; nothing goes to Slack.
+		const back = unwrap(await threadsConnector.commands.send(await threads(await slackTask()), inChat.id, {text: 'The rooms are held, six for two nights'}));
+		expect(back?.values).toMatchObject({place: 'Chat', standing: 'In progress'});
+		const shown = unwrap(await getChatThread(chatId, inChat.id, []));
+		expect(shown?.entries.at(-1)).toMatchObject({
+			kind: 'person',
+			text: 'The rooms are held, six for two nights',
+			passedOn: {threadId: inSlack.id, thread: {id: inSlack.id, title: 'Find a hotel in Porto', slack: {teamId: `T-${stamp}`, channel, rootTs: '1800000000.100100'}}},
+		});
+		expect(await db.agentJob.count({where: {threadId: inChat.id, kind: 'inference', status: 'queued'}})).toBe(1);
+		await sweep();
+		expect(asked()).toEqual([]);
+
+		// A call made for no thread's task is refused, and nothing is sent.
+		expect((await threadsConnector.commands.send(await threads(), inChat.id, {text: 'Hello'})).unwrapErr()).toMatchObject({kind: 'validation_error'});
 	});
 });

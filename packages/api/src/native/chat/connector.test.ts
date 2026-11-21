@@ -4,7 +4,7 @@ import {Ok} from 'ts-results-es';
 import {findCollection, findIntegration, type Collection} from '@proxy/integrations';
 import type {MemberAlertRow} from '@proxy/db/alerts';
 import type {MemberThreadRow} from '@proxy/db/chat';
-import type {ChatThreadRow} from '@proxy/db/harness';
+import type {ChatThreadRow, ShownEntryRow} from '@proxy/db/harness';
 
 mock.module('../../utils/env', () => ({env: {APP_URL: 'https://app.example.test'}}));
 
@@ -15,7 +15,8 @@ mock.module('@proxy/db/chat', () => ({listMemberThreads, getThreadAddress, getOr
 
 const getMemberThread = mock();
 const changeMemberThreadStanding = mock();
-mock.module('@proxy/db/harness', () => ({getMemberThread, changeMemberThreadStanding}));
+const passOnToThread = mock();
+mock.module('@proxy/db/harness', () => ({getMemberThread, changeMemberThreadStanding, passOnToThread}));
 
 const listMemberAlerts = mock();
 const deleteAlert = mock();
@@ -172,7 +173,18 @@ describe('the Chat connection’s threads', () => {
 
 	test('open with what was said in one, as the member sees it, and say where there is none such of theirs', async () => {
 		const {threadsConnector} = await import('./connector');
-		const entry = (id: string, seq: number, kind: 'person' | 'assistant', text: string) => ({id, seq, kind, text, pending: false, toolCalls: null, callId: null, isError: false, createdAt: at(seq)});
+		const entry = (id: string, seq: number, kind: 'person' | 'assistant', text: string) => ({
+			id,
+			seq,
+			kind,
+			text,
+			pending: false,
+			toolCalls: null,
+			callId: null,
+			isError: false,
+			passedOn: null,
+			createdAt: at(seq),
+		});
 		const thread: ChatThreadRow = {
 			id: 'thread-1',
 			orgId: 'org-1',
@@ -304,6 +316,107 @@ describe('where one of the Chat connection’s threads stands', () => {
 		expect(threadLine(listed({id: 'thread-2', title: 'Book the train to Lyon', state: {kind: 'working'}, last: {seq: 3, pending: false, createdAt: at(3)}}))).toBe(
 			'thread-2: “Book the train to Lyon” with Finance, in Chat, In progress',
 		);
+	});
+});
+
+describe('a message sent to one of the Chat connection’s threads', () => {
+	const entry = (id: string, seq: number, text: string, passedOn: ShownEntryRow['passedOn'] = null): ShownEntryRow => ({
+		id,
+		seq,
+		kind: 'person',
+		text,
+		pending: false,
+		toolCalls: null,
+		callId: null,
+		isError: false,
+		passedOn,
+		createdAt: at(seq),
+	});
+	const target: ChatThreadRow = {
+		id: 'thread-2',
+		orgId: 'org-1',
+		agentId: 'login-1',
+		personaId: 'persona-2',
+		userId: 'user-1',
+		parentThreadId: 'chat-2',
+		subAgentOfId: null,
+		parentCallId: null,
+		title: 'Upgrade vite',
+		taskId: 'task-2',
+		harness: null,
+		harnessSession: null,
+		openedByAlert: false,
+		createdAt: at(0),
+		state: {kind: 'working'},
+		standing: {waitingForMember: false, summary: null, summarySeq: null, archived: false},
+		alerts: 0,
+		entries: [
+			entry('e1', 1, 'Upgrade vite to 7'),
+			entry('e2', 2, 'Yes, include the docs site too', {threadId: 'thread-1', thread: {id: 'thread-1', personaId: 'persona-1', title: 'Pricing review with Dana', slack: null}}),
+			entry('e3', 3, 'And the website', {threadId: 'thread-0', thread: null}),
+		],
+		attachments: [],
+		subAgents: [],
+	};
+	// The member's Chat as an agent's call reaches it, for the task of one of its threads.
+	const fromThread = {...threads, by: {agentId: 'login-1', taskId: 'task-1'}};
+
+	beforeEach(() => {
+		getMemberThread.mockResolvedValue(Ok(target));
+		passOnToThread.mockResolvedValue(Ok({sent: {id: 'e2'}}));
+	});
+
+	test('is passed on as the member’s from the thread whose task the call is, and answered with the thread it went to, by its url', async () => {
+		const {threadsConnector} = await import('./connector');
+
+		const record = (await threadsConnector.commands.send(fromThread, 'thread-2', {text: '  Yes, include the docs site too '})).unwrap();
+
+		expect(passOnToThread).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'task-1', 'thread-2', 'Yes, include the docs site too', expect.any(Function));
+		expect(record?.url).toBe('https://app.example.test/acme/chat/persona-2/threads/thread-2');
+	});
+
+	test('says in its record which of what the member said was passed on, and from where', async () => {
+		const {threadsConnector} = await import('./connector');
+
+		const record = (await threadsConnector.get(threads, 'thread-2')).unwrap();
+
+		expect(record.values.messages?.split('\n\n')).toEqual([
+			'Person: Upgrade vite to 7',
+			'Person (passed on from thread thread-1, “Pricing review with Dana”): Yes, include the docs site too',
+			'Person (passed on from another thread, deleted since): And the website',
+		]);
+	});
+
+	test('is refused in plain words for a call no thread’s agent makes, a sub-agent’s, to the thread itself, and from a thread whose latest message was passed on to it', async () => {
+		const {threadsConnector} = await import('./connector');
+
+		// A member on a page, and a sweep, make no call for a task.
+		for (const caller of [threads, {...threads, by: {userId: 'user-1'}}]) {
+			expect((await threadsConnector.commands.send(caller, 'thread-2', {text: 'Hello'})).unwrapErr()).toMatchObject({
+				kind: 'validation_error',
+				message: expect.stringContaining('Only the agent of one of your threads'),
+			});
+		}
+		expect(passOnToThread).not.toHaveBeenCalled();
+
+		passOnToThread.mockResolvedValue(Ok({refused: 'not_a_thread'}));
+		expect((await threadsConnector.commands.send(fromThread, 'thread-2', {text: 'Hello'})).unwrapErr()).toMatchObject({message: expect.stringContaining('Only the agent of one of your threads')});
+		passOnToThread.mockResolvedValue(Ok({refused: 'sub_agent'}));
+		expect((await threadsConnector.commands.send(fromThread, 'thread-2', {text: 'Hello'})).unwrapErr()).toMatchObject({message: expect.stringContaining('tell the agent you work for')});
+		passOnToThread.mockResolvedValue(Ok({refused: 'itself'}));
+		expect((await threadsConnector.commands.send(fromThread, 'thread-1', {text: 'Hello'})).unwrapErr()).toMatchObject({message: expect.stringContaining('That is this thread')});
+		passOnToThread.mockResolvedValue(Ok({refused: 'passed_on'}));
+		expect((await threadsConnector.commands.send(fromThread, 'thread-2', {text: 'Hello'})).unwrapErr()).toMatchObject({message: expect.stringContaining('until you write in it directly')});
+		passOnToThread.mockResolvedValue(Ok(null));
+		expect((await threadsConnector.commands.send(fromThread, 'thread-9', {text: 'Hello'})).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'record'});
+	});
+
+	test('is refused without words, or with more than a message holds', async () => {
+		const {threadsConnector} = await import('./connector');
+
+		expect((await threadsConnector.commands.send(fromThread, 'thread-2', {text: '   '})).unwrapErr()).toMatchObject({kind: 'validation_error'});
+		expect((await threadsConnector.commands.send(fromThread, 'thread-2', {text: 'a'.repeat(20_001)})).unwrapErr()).toMatchObject({kind: 'validation_error'});
+		expect(passOnToThread).not.toHaveBeenCalled();
 	});
 });
 

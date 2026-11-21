@@ -62,7 +62,7 @@ function asked(): string[] {
 let seq = 0;
 function entry(fields: Partial<ShownEntryRow>): ShownEntryRow {
 	seq += 1;
-	return {id: `entry-${seq}`, seq, kind: 'assistant', pending: false, text: '', toolCalls: null, callId: null, isError: false, createdAt: new Date('2026-11-16T10:00:00Z'), ...fields};
+	return {id: `entry-${seq}`, seq, kind: 'assistant', pending: false, text: '', toolCalls: null, callId: null, isError: false, passedOn: null, createdAt: new Date('2026-11-16T10:00:00Z'), ...fields};
 }
 
 // The thread's place in Slack and its entries, as a database would keep them, with what the sweep
@@ -173,6 +173,24 @@ describe('delivering a thread to Slack', () => {
 			{deliveredSeq: reply.seq, partSeq: null, partsPosted: 0},
 		]);
 		expect(done.released).toEqual([{delayMs: 0, attempts: 0}]);
+
+		slack.sent = [];
+		await run();
+		expect(posted()).toEqual([]);
+	});
+
+	test('posts what another of the member’s threads passed on, quoted under a lead, in its place among the answers, once, and still not what they wrote in Slack', async () => {
+		const asked = entry({kind: 'person', text: 'Upgrade vite to 7'});
+		const answer = entry({text: 'Shall I include the docs site?'});
+		const passed = entry({kind: 'person', text: 'Yes, include it', passedOn: {threadId: 'thread-9', thread: {id: 'thread-9', personaId: 'persona-1', title: 'Pricing review with Dana', slack: null}}});
+		const after = entry({text: 'Including the docs site.'});
+		const reply = entry({kind: 'person', text: 'Thanks'});
+		const {done, run} = world([asked, answer, passed, after, reply]);
+
+		await run();
+
+		expect(posted()).toEqual(['Shall I include the docs site?', 'Your message, passed on from “Pricing review with Dana”:\n> Yes, include it', 'Including the docs site.']);
+		expect(done.marks.map(({deliveredSeq}) => deliveredSeq)).toEqual([answer.seq, passed.seq, after.seq, reply.seq]);
 
 		slack.sent = [];
 		await run();

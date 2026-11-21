@@ -1,4 +1,4 @@
-import type {ChatAttachment, ThreadStanding} from '@proxy/contracts/harness';
+import type {ChatAttachment, PassedOn, ThreadStanding} from '@proxy/contracts/harness';
 import {attachedParts} from '@proxy/utils/harness';
 import {
 	ArchiveIcon,
@@ -13,6 +13,7 @@ import {Link} from 'react-router';
 import {SentChip} from '@/components/chat/attachments';
 import {Bubble, BubbleContent} from '@/components/chat/bubble';
 import {FileViewer, type ViewedFile} from '@/components/chat/file-viewer';
+import {ThreadLink} from '@/components/chat/thread-link';
 import {Trace, TraceLine, TraceTitle} from '@/components/chat/trace';
 import {markedTime} from '@/lib/thread-time';
 import {PillButton} from '@proxy/ui/components/pill-button';
@@ -190,9 +191,51 @@ function RowButton({
 /**
  * What the person said, on the left, in a grey bubble, as they typed it, with the files they
  * attached where they put them. A file opens in the viewer, which steps through the message's files
- * in the order they sit in it, those deleted since left out.
+ * in the order they sit in it, those deleted since left out. One another of their threads passed on
+ * to this one has a quiet line under it saying which (`PassedOnLine`).
  */
-export function PersonBubble({text, attachments}: {text: string; attachments: ChatAttachment[]}) {
+export function PersonBubble({
+	text,
+	attachments,
+	passedOn,
+}: {
+	text: string;
+	attachments: ChatAttachment[];
+	passedOn?: PassedOn;
+}) {
+	if (passedOn === undefined) {
+		return <SaidBubble text={text} attachments={attachments} />;
+	}
+	return (
+		<div className="flex min-w-0 flex-col items-start gap-1.5">
+			<SaidBubble text={text} attachments={attachments} />
+			<PassedOnLine passedOn={passedOn} />
+		</div>
+	);
+}
+
+/**
+ * The line under a message of the person's that another of their threads passed on, as quiet as
+ * the other lines in a thread: the thread's title as it is now, linked where it lives, in Chat or in
+ * Slack; another thread, unlinked, where it is deleted since.
+ */
+export function PassedOnLine({passedOn}: {passedOn: PassedOn}) {
+	return (
+		<p className="flex max-w-[40rem] min-w-0 items-baseline gap-1 text-xs text-muted-foreground">
+			<span className="shrink-0">Passed on from</span>{' '}
+			{passedOn.thread === null ? (
+				<span>another thread</span>
+			) : (
+				<ThreadLink
+					thread={passedOn.thread}
+					className="min-w-0 truncate text-foreground hover:underline"
+				/>
+			)}
+		</p>
+	);
+}
+
+function SaidBubble({text, attachments}: {text: string; attachments: ChatAttachment[]}) {
 	const [viewing, setViewing] = useState<number | null>(null);
 	const parts = useMemo(() => attachedParts(text, attachments), [text, attachments]);
 	const files = useMemo(

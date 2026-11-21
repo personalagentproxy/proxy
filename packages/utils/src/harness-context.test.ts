@@ -6,6 +6,7 @@ import {
 	type ContextEntry,
 	type AttachedFile,
 	EVENT_LEAD,
+	passedOnText,
 	SUB_AGENT_LEAD,
 	toMessages,
 	toTranscript,
@@ -266,6 +267,27 @@ describe('toTranscript', () => {
 		expect(transcript.startsWith('A summary of what came before')).toBe(true);
 		expect(transcript).toContain('The person asked for one.\n\nPerson:\nTwo');
 		expect(transcript).not.toContain('rows one');
+	});
+});
+
+describe('passedOnText', () => {
+	test('leads what another of the person’s threads passed on in as theirs, from that thread by its id and title, not typed here', () => {
+		expect(passedOnText('Yes, include it', {id: 'thread-7', title: 'Upgrade vite'})).toBe(
+			'The person’s message, passed on to this thread from their thread thread-7, “Upgrade vite”, at their asking rather than typed here; nothing you answer goes back there.\n\nYes, include it',
+		);
+	});
+
+	test('says the thread is deleted since where it is', () => {
+		expect(passedOnText('Yes, include it', null)).toStartWith(
+			'The person’s message, passed on to this thread from another of their threads, deleted since,',
+		);
+	});
+
+	test('is read as the person’s message, never as an event', () => {
+		const said = passedOnText('Yes, include it', {id: 'thread-7', title: 'Upgrade vite'});
+		expect(toMessages([entry(1, 'person', said)], {clearOld: false})).toEqual([
+			{role: 'user', content: said},
+		]);
 	});
 });
 

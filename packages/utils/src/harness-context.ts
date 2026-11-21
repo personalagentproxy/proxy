@@ -84,6 +84,23 @@ export function eventLead(entry: {callId: string | null}): string {
 	return entry.callId === null ? EVENT_LEAD : SUB_AGENT_LEAD;
 }
 
+/**
+ * What the person said as the model reads it where another of their threads passed it on to this
+ * one, at their asking: led in as theirs, from that thread, by its id and title, or from one deleted
+ * since, so the model takes it as the person's but not as typed here, and knows that nothing it
+ * answers goes back there. Here, as the log's reading is, so every harness reads it the same way.
+ */
+export function passedOnText(
+	said: string,
+	from: {id: string; title: string | null} | null,
+): string {
+	const where =
+		from === null
+			? 'from another of their threads, deleted since'
+			: `from their thread ${from.id}, “${from.title ?? ''}”`;
+	return `The person’s message, passed on to this thread ${where}, at their asking rather than typed here; nothing you answer goes back there.\n\n${said}`;
+}
+
 // The call an entry answers, by the id the model gave it, found in the log.
 function callOf(entries: ContextEntry[], callId: string | null): ToolCall | undefined {
 	return entries

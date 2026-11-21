@@ -15,6 +15,7 @@ import {chatFolder} from '../native/files/names';
 import {log, serializeError} from '../observability/log';
 import {alertsParagraph} from './alerts';
 import {picturesOf, withAttached} from './attachments';
+import {withPassedOnLeads} from './passed-on';
 import {afterAnswer, isSubAgent, jobLost, planCalls, SHOWN_CALLS, subAgentModels} from './thread-rules';
 import type {HarnessStore} from './store';
 import {type Delivered, type ToolSurfaceStore, toolSurfaceFor} from './tool-surface';
@@ -422,8 +423,9 @@ function askOnLog(
 			const now = clock();
 			const signedIn = $(requirePresent($(await store.getThreadAgent(thread)), ApiErr.notFound('agent', thread.agentId)));
 			const system = $(await systemPrompt(store, thread, signedIn, now));
-			// What the person attached is read with what they said.
+			// What the person attached is read with what they said, and where it was passed on from.
 			const attached = $(await store.listAttachments(thread.id));
+			const read = $(await withPassedOnLeads(store, entries));
 			// A model that sees pictures is given those of the person's last turns beside their words.
 			const sees = choice.harness.models.some((model) => model.id === choice.model && model.images === true);
 			const pictures = picture !== undefined && sees && attached.length > 0 ? $(await picturesOf(entries, attached, picture)) : [];
@@ -440,7 +442,7 @@ function askOnLog(
 						job: job.id,
 						...(choice.auth === null ? {} : {auth: choice.auth}),
 						session: thread.harness === choice.harness.id ? thread.harnessSession : null,
-						entries: withAttached(entries, attached, pictures),
+						entries: withAttached(read, attached, pictures),
 						woken,
 						system,
 						tools: toolSurfaceFor(store, thread, job, workerId, clock, delivered, subAgentModels(choice.harness.models, choice.model)),

@@ -123,7 +123,13 @@ const Said = memo(function Said({message, fresh}: {message: ThreadMessage; fresh
 
 function saidPart(message: ThreadMessage) {
 	if (message.kind === 'person') {
-		return <PersonBubble text={message.text} attachments={message.attachments} />;
+		return (
+			<PersonBubble
+				text={message.text}
+				attachments={message.attachments}
+				passedOn={message.passedOn}
+			/>
+		);
 	}
 	if (message.subAgent) {
 		return (

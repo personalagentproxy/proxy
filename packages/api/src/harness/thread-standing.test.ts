@@ -3,7 +3,7 @@ import {Err, Ok} from 'ts-results-es';
 
 import {ApiErr} from '@proxy/utils';
 import {ATTACHMENT_MARK} from '@proxy/utils/harness';
-import type {ChatThreadRow, EntryRow, ThreadRow} from '@proxy/db/harness';
+import type {ChatThreadRow, EntryRow, ShownEntryRow, ThreadRow} from '@proxy/db/harness';
 
 import {log} from '../observability/log';
 import {type FakeStore, fakeStore} from './fake-store';
@@ -30,7 +30,7 @@ const row: ThreadRow = {
 };
 
 // An entry of the log, as the store gives it.
-function logEntry(entry: Pick<EntryRow, 'id' | 'seq' | 'kind' | 'text'> & Partial<EntryRow>): EntryRow {
+function logEntry(entry: Pick<EntryRow, 'id' | 'seq' | 'kind' | 'text'> & Partial<EntryRow & ShownEntryRow>): EntryRow & ShownEntryRow {
 	return {
 		threadId: 'thread-1',
 		pending: false,
@@ -44,6 +44,8 @@ function logEntry(entry: Pick<EntryRow, 'id' | 'seq' | 'kind' | 'text'> & Partia
 		harness: null,
 		model: null,
 		jobId: null,
+		passedOnFromId: null,
+		passedOn: null,
 		createdAt: now,
 		...entry,
 	};

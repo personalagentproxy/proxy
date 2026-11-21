@@ -168,7 +168,18 @@ describe('handleMcpRoute', () => {
 		);
 
 		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [{...chat, actions: ['readThreads']}]}));
-		expect((await agentInstructions(signedIn, 'Work.', {folder: undefined, otherThreads})).unwrap()).toContain('The rest are in chat-1, where you can list them all and read any.');
+		const reads = (await agentInstructions(signedIn, 'Work.', {folder: undefined, otherThreads})).unwrap();
+		expect(reads).toContain('The rest are in chat-1, where you can list them all and read any.');
+		expect(reads).not.toContain('threads_send');
+
+		// With Write in threads, a message the person asks it to pass on can be sent to one of them.
+		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [{...chat, actions: ['readThreads', 'writeThreads']}]}));
+		expect((await agentInstructions(signedIn, 'Work.', {folder: undefined, otherThreads})).unwrap()).toContain(
+			'threads_send {id, text} sends one of them a message the person asks you to pass on: it lands there as their own, saying it came from this thread, and wakes its agent, and nothing comes back here, so tell the person where it went, with the thread’s url. Pass on their own words where they gave them.',
+		);
+		// Outside a thread, and to a sub-agent, told of no other threads, nothing is said of sending.
+		expect((await agentInstructions(signedIn, 'Work.')).unwrap()).not.toContain('threads_send');
+		expect((await agentInstructions(signedIn, 'Work.', {folder: undefined, otherThreads: []})).unwrap()).not.toContain('threads_send');
 
 		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [{...chat, actions: ['readAlerts']}]}));
 		expect((await agentInstructions(signedIn, 'Work.', {folder: undefined, otherThreads})).unwrap()).not.toContain('Pricing review with Dana');

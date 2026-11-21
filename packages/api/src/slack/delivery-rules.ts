@@ -1,18 +1,21 @@
 import {hasExperiment, organizationExperiments} from '@proxy/utils';
+import type {PassedOn, ShownEntryRow} from '@proxy/db/harness';
 import type {SlackDelivery, SlackDeliveryMark, SlackUndelivered} from '@proxy/db/slack-delivery';
 
 import {shownParts, type ShownPart, type SubAgentRef} from '../harness/thread-shown';
 import type {SlackError} from './slack-api';
 import {isTokenGone} from './slack-errors';
-import {splitForSlack, toSlackMarkdown} from './slack-markdown';
+import {quoted, splitForSlack, toSlackMarkdown} from './slack-markdown';
 
 /**
  * What a thread that lives in Slack comes to there, with no Slack and no database in it: the
  * messages its entries are, in order, each as Markdown for `markdown_text`, from what the member
  * reads of the thread (harness/thread-shown.ts). What the agent answered, what it told the member as
  * it went, and a failure go as they are written; an alert that fired, as the one line the Chat page
- * reads it as, under a short lead. Not what the member said, which they wrote in Slack and is there
- * already (the app never shows a Slack thread, so nothing is said in one from it), nor the lines for
+ * reads it as, under a short lead; and a message of the member's that another of their threads
+ * passed on to this one, quoted under a lead saying whose it is and where from, since the app can't
+ * post as the member. Not what the member said in the thread, which they wrote in Slack and is
+ * there already (the app never shows a Slack thread, so nothing is said in one from it), nor the lines for
  * the sub-agents the agent started or wrote to, which Slack shows as the thread at work instead
  * (session-rules.ts), nor anything pending. An entry may be several messages, numbered in order
  * (`part`), and its last says the entry is done, so the mark can move message by message
@@ -25,6 +28,12 @@ export type SlackOutgoing = {seq: number; part: number; last: boolean; markdown:
 /** The lead before an alert that fired in the thread. */
 export const ALERT_LEAD = 'Alert:';
 
+/** The lead over a message of the member's that another of their threads passed on: theirs, and from which, by its title as it is now, or another one where it is deleted since. */
+export function passedOnLead(passedOn: PassedOn): string {
+	const from = passedOn.thread === null ? 'another thread' : `“${passedOn.thread.title || 'Untitled thread'}”`;
+	return `Your message, passed on from ${from}:`;
+}
+
 // What one thing the thread shows says in Slack; null for nothing, as for marks of files alone and
 // a sub-agent's line.
 function markdownOf<S extends SubAgentRef>(part: ShownPart<S>, appUrl: string): string | null {
@@ -36,14 +45,26 @@ function markdownOf<S extends SubAgentRef>(part: ShownPart<S>, appUrl: string): 
 		return line === '' ? null : `${ALERT_LEAD} ${line}`;
 	}
 	const words = toSlackMarkdown(part.text, appUrl);
-	return words === '' ? null : words;
+	if (words === '') {
+		return null;
+	}
+	if (part.passedOn !== null) {
+		return `${passedOnLead(part.passedOn)}\n${quoted(words)}`;
+	}
+	return words;
+}
+
+// What isn't delivered: anything pending, and what the member said in Slack, which is there
+// already; what another of their threads passed on to this one is not, and goes.
+function passedOver(entry: ShownEntryRow): boolean {
+	return entry.pending || (entry.kind === 'person' && entry.passedOn === null);
 }
 
 /** The Slack messages the thread's entries come to, in order, each entry's numbered from 0. */
 export function outgoingOf(read: SlackUndelivered, appUrl: string): SlackOutgoing[] {
 	const thread = {subAgentOfId: null, subAgents: read.subAgents};
 	return read.entries.flatMap((entry) => {
-		if (entry.pending || entry.kind === 'person') {
+		if (passedOver(entry)) {
 			return [];
 		}
 		const texts = shownParts(thread, entry).flatMap((part) => {

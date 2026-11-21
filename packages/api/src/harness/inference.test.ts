@@ -86,6 +86,7 @@ function entry(
 		harness: null,
 		model: null,
 		jobId: null,
+		passedOnFromId: null,
 		createdAt: now,
 	};
 }
@@ -308,6 +309,39 @@ describe('runInference', () => {
 		expect(store.isSlackThread).not.toHaveBeenCalled();
 	});
 
+	test('the model reads what another of the person’s threads passed on as theirs, led in with the thread it came from, or one deleted since, and what they typed here as it is', async () => {
+		const {runInference} = await import('./inference');
+		const passed = {...entry('person', 'Yes, include the docs site too'), passedOnFromId: 'thread-7'};
+		const orphan = {...entry('person', 'And the website'), passedOnFromId: 'thread-0'};
+		listEntries.mockResolvedValue(Ok([entry('person', 'Upgrade vite to 7'), entry('assistant', 'Shall I include the docs site?'), passed, orphan]));
+		store.listPassedOnThreads.mockResolvedValue(Ok([{id: 'thread-7', personaId: 'persona-1', title: 'Pricing review with Dana', slack: null}]));
+
+		(await runInference(store, on(harness), job, 'w1', false, clock)).unwrap();
+
+		expect(store.listPassedOnThreads).toHaveBeenCalledWith(['thread-7', 'thread-0']);
+		const request = askForTurn.mock.calls[0]?.[0] as {messages: Array<{role: string; content: string | null}>};
+		expect(request.messages.slice(1)).toEqual([
+			{role: 'user', content: 'Upgrade vite to 7'},
+			{role: 'assistant', content: 'Shall I include the docs site?'},
+			{
+				role: 'user',
+				content:
+					'The person’s message, passed on to this thread from their thread thread-7, “Pricing review with Dana”, at their asking rather than typed here; nothing you answer goes back there.\n\nYes, include the docs site too',
+			},
+			{
+				role: 'user',
+				content:
+					'The person’s message, passed on to this thread from another of their threads, deleted since, at their asking rather than typed here; nothing you answer goes back there.\n\nAnd the website',
+			},
+		]);
+
+		// A log with nothing passed on reads no thread.
+		store.listPassedOnThreads.mockClear();
+		listEntries.mockResolvedValue(Ok([entry('person', 'Hi')]));
+		(await runInference(store, on(harness), job, 'w1', false, clock)).unwrap();
+		expect(store.listPassedOnThreads).not.toHaveBeenCalled();
+	});
+
 	test('a message to the person without text is answered with the error at once', async () => {
 		const {runInference} = await import('./inference');
 		askForTurn.mockResolvedValue(Ok({text: '', toolCalls: [{id: 'c2', name: 'send_to_person', arguments: '{}'}], inputTokens: 10, outputTokens: 2}));
@@ -483,6 +517,22 @@ describe('runInference', () => {
 			expect(read[0]).toBe('Hi');
 			expect(read[1]).toStartWith('What does this say?\n\nThe person attached a file, kept in their drive.');
 			expect(read[1]).toContain('pricing.md (text/markdown, 42 B): connection drive-1, id file-1, version v1. Its text:\n"""\n# Pricing review with Dana\n"""');
+		});
+
+		test('gives the harness what another of the person’s threads passed on with the thread it came from written over it', async () => {
+			const {runInference} = await import('./inference');
+			const fake = fakeHarness();
+			listEntries.mockResolvedValue(Ok([entry('person', 'Upgrade vite to 7'), {...entry('person', 'Yes, include it'), passedOnFromId: 'thread-7'}]));
+			store.listPassedOnThreads.mockResolvedValue(Ok([{id: 'thread-7', personaId: 'persona-1', title: 'Pricing review with Dana', slack: null}]));
+			fake.script([{kind: 'text', text: 'Including it.'}, done]);
+
+			(await runInference(store, on(fake), job, 'w1', false, clock)).unwrap();
+
+			const read = fake.turns[0]?.entries.map((given) => given.text) ?? [];
+			expect(read).toEqual([
+				'Upgrade vite to 7',
+				'The person’s message, passed on to this thread from their thread thread-7, “Pricing review with Dana”, at their asking rather than typed here; nothing you answer goes back there.\n\nYes, include it',
+			]);
 		});
 
 		test('gives a model that sees pictures those of the person’s last two turns beside their words, and a model that doesn’t none; a picture that is lost is left out', async () => {

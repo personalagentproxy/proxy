@@ -75,6 +75,13 @@ it there, and can mark it done or archive it when you ask; an alert set in it li
 the **Alerts** page too. The agent of a Slack thread knows it is in Slack: it writes for Slack, and
 links to a file rather than showing it.
 
+Messages go between Slack and the app the same way: ask a thread to send something to another
+([Sending a message to another thread](/agents/chat#sending-a-message-to-another-thread)). One sent
+to a Slack thread is posted there by the agent's app as a quote, under a line saying it is your
+message and which thread it was passed on from, since the app can't post as you, and the agent
+takes it up as it would your reply. One sent from a Slack thread shows in the app as your message,
+with a line linking back to the Slack thread.
+
 ### Confirming who you are
 
 The first time you write to any of your organization's agents in a Slack workspace, the app

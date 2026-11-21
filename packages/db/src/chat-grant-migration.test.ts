@@ -4,11 +4,14 @@ import {PGlite} from '@electric-sql/pglite';
 import {afterAll, beforeAll, describe, expect, test} from 'bun:test';
 
 // The migrations that grant the built-in agent an action Chat gained, on the Chat connections made
-// before it (v081 Mark done and archive), each run on rows as they were: a database of its own, in
-// this process, which PGlite keeps in memory, made with every migration before it, as
-// general-maker-migration.test.ts makes one. Nothing here needs the local database. An action
-// Chat gains later is granted by a migration as these are, and tested by adding it here.
-const GRANTS = [{migration: 'v081_grant_chat_mark_threads', actionId: 'markThreads'}];
+// before it (v081 Mark done and archive, v082 Write in threads), each run on rows as they were: a
+// database of its own, in this process, which PGlite keeps in memory, made with every migration
+// before it, as general-maker-migration.test.ts makes one. Nothing here needs the local database.
+// An action Chat gains later is granted by a migration as these are, and tested by adding it here.
+const GRANTS = [
+	{migration: 'v081_grant_chat_mark_threads', actionId: 'markThreads'},
+	{migration: 'v082_grant_chat_write_threads', actionId: 'writeThreads'},
+];
 
 const migrations = new URL('../prisma/migrations/', import.meta.url);
 

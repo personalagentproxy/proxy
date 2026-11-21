@@ -22,6 +22,7 @@ import type {
 	JobRow,
 	LastMessage,
 	NewTurnEntry,
+	PassedOnThread,
 	Persona,
 	PersonaModel,
 	PersonaRow,
@@ -101,6 +102,8 @@ export type HarnessStore = {
 	ensureMemberChat: (data: {orgId: string; agentId: string; personaId: string; userId: string}) => Promise<Result<ThreadRow, ApiError>>;
 	/** What the person attached in a thread, each with the entry it was said with. */
 	listAttachments: (threadId: string) => Promise<Result<AttachmentRow[], ApiError>>;
+	/** The threads messages were passed on from, by their ids, those not deleted since. */
+	listPassedOnThreads: (ids: string[]) => Promise<Result<PassedOnThread[], ApiError>>;
 	/** A thread opened in the member's chat with what they said, with the files they attached to it, as its first entry. */
 	openThread: (chatId: string, text: string, opening: ThreadOpening, attachments?: EntryAttachment[]) => Promise<Result<{thread: ThreadRow; entry: EntryRow} | null, ApiError>>;
 	/** What the member replies in one of their chat's threads, with the files they attached to it. */
@@ -213,6 +216,7 @@ export const harnessStore: HarnessStore = {
 	getMemberChat: harness.getMemberChat,
 	ensureMemberChat: harness.ensureMemberChat,
 	listAttachments: harness.listAttachments,
+	listPassedOnThreads: harness.listPassedOnThreads,
 	openThread: (chatId, text, opening, attachments) => harness.openThread(chatId, text, opening, readyForInference, attachments),
 	replyInThread: (chatId, threadId, text, attachments) => harness.replyInThread(chatId, threadId, text, readyForInference, attachments),
 	listChatThreads: harness.listChatThreads,

@@ -997,6 +997,11 @@ model AgentEntry {
   // The job that wrote the entry (AgentJob; as a column: the two live and die with the thread),
   // with its attempts and its error; null for what the person wrote.
   jobId    String?
+  // A `person` entry another of the member's threads passed on to this one as their message, at
+  // their asking: that thread (AgentThread; as a column, with no relation, so that the entry still
+  // says it was passed on once that thread is deleted, when nothing is found by it). Null for what
+  // the member wrote in the thread itself, and for every other kind.
+  passedOnFromId String?
 
   createdAt DateTime @default(now())
 

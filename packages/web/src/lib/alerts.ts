@@ -10,7 +10,7 @@ export function threadOf(alert: Alert): string {
 	return `In “${alert.thread.title || 'Thread'}”`;
 }
 
-/** The address of the thread an alert comes to, in its agent's chat, for one in Chat; the chat's for one that opens a new thread each time. One in Slack is linked there instead (alert-detail-dialog.tsx AlertThreadLink). */
+/** The address of the thread an alert comes to, in its agent's chat, for one in Chat; the chat's for one that opens a new thread each time. One in Slack is linked there instead (components/chat/thread-link.tsx). */
 export function threadTo(org: string, alert: Alert): string {
 	const chat = `/${org}/chat/${alert.persona.id}`;
 	return alert.thread === null ? chat : `${chat}/threads/${alert.thread.id}`;

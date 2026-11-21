@@ -57,6 +57,9 @@ export type Command = {
 	action: string;
 	// The action it needs beside its own, as sending a reply needs Read, for the email it answers.
 	requires?: string;
+	// What a `record` one takes beside the record's id, each required, as sending a message to a
+	// thread takes its text.
+	params?: Field[];
 	// The records it applies to, when not every one.
 	where?: Condition;
 	// The activity log's line, `{}` standing for the record: "Marked {} as read", and what a refused

@@ -1,10 +1,12 @@
 import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
+import {readyForInference} from '@proxy/utils/harness';
+import {MAX_MESSAGE} from '@proxy/contracts/harness';
 import {CHAT_PLACES, CHAT_STANDINGS} from '@proxy/integrations';
 import {deleteAlert, listMemberAlerts, type MemberAlertRow} from '@proxy/db/alerts';
 import {getOrgSlug, getThreadAddress, listMemberThreads, type MemberThreadRow, type ThreadStandingFilter} from '@proxy/db/chat';
-import {changeMemberThreadStanding, getMemberThread, type SlackThreadRow, type StandingChange} from '@proxy/db/harness';
+import {changeMemberThreadStanding, getMemberThread, passOnToThread, type PassOnRefusal, type SlackThreadRow, type StandingChange} from '@proxy/db/harness';
 
 import {alertComes} from '../../harness/alerts';
 import {SHOWN_CALLS} from '../../harness/thread-rules';
@@ -22,7 +24,9 @@ import {type CommandRunner, requireFirstPage, type DataRecord, type ListQuery, t
  * url is where it lives, its page in Chat or its thread in Slack, which is where the person goes on
  * with it. Where it stands is changed by its commands, as the member changes it on the Chat page,
  * on any of their threads wherever it lives; for one in Slack its session's status there follows,
- * as the delivery sweep keeps it (slack/sessions.ts).
+ * as the delivery sweep keeps it (slack/sessions.ts). A thread's agent sends another thread a
+ * message the member asked it to pass on, which lands there as theirs (db/harness passOnToThread),
+ * and is delivered to Slack for one that lives there (slack/delivery-rules.ts).
  */
 
 // How many threads a page of the list holds.
@@ -156,6 +160,46 @@ function standingCommand(change: StandingChange): CommandRunner {
 		});
 }
 
+// Why a message isn't passed on, in words the agent can tell the person.
+const PASS_ON_REFUSALS: Record<PassOnRefusal | 'itself', string> = {
+	not_a_thread: 'Only the agent of one of your threads can send a message to another: give the task of the thread it is sent from',
+	sub_agent: 'A sub-agent doesn’t send messages to the person’s threads: tell the agent you work for, which can',
+	passed_on: 'Your latest message in this thread was passed on to it from another thread, so it can’t pass one on in turn until you write in it directly',
+	itself: 'That is this thread: a message is sent to another of your threads',
+};
+
+// The task of the thread passing a message on: the one an agent's call is made for, refused where
+// the call is a member's on a page, or none's.
+function passingTask(target: RecordTarget): Result<string, ApiError> {
+	const by = target.by;
+	if (by === undefined || !('taskId' in by)) {
+		return Err(ApiErr.validationError(PASS_ON_REFUSALS.not_a_thread));
+	}
+	return Ok(by.taskId);
+}
+
+// Passes the message on to the thread, as the member's, from the thread whose task the call is
+// made for, and answers with the thread it went to, whose url is where the person reads it.
+const sendCommand: CommandRunner = (target, recordId, values) =>
+	Do(async ($) => {
+		const text = (values?.text ?? '').trim();
+		if (text === '') {
+			return $(Err(ApiErr.validationError('Give the message as text')));
+		}
+		if (text.length > MAX_MESSAGE) {
+			return $(Err(ApiErr.validationError(`A message is at most ${MAX_MESSAGE} characters`)));
+		}
+		const taskId = $(passingTask(target));
+		const passed = $(await passOnToThread(memberOf(target), taskId, recordId, text, readyForInference));
+		if (passed === null) {
+			return $(Err(ApiErr.notFound('record', recordId)));
+		}
+		if ('refused' in passed) {
+			return $(Err(ApiErr.validationError(PASS_ON_REFUSALS[passed.refused])));
+		}
+		return $(await getThread(target, recordId));
+	});
+
 export const threadsConnector = {
 	list: (target, query: ListQuery) =>
 		Do(async ($) => {
@@ -177,7 +221,7 @@ export const threadsConnector = {
 			};
 		}),
 	get: getThread,
-	commands: {markDone: standingCommand('done'), archive: standingCommand('archive'), unarchive: standingCommand('unarchive')},
+	commands: {markDone: standingCommand('done'), archive: standingCommand('archive'), unarchive: standingCommand('unarchive'), send: sendCommand},
 } satisfies RecordStore;
 
 function alertRecord(alert: MemberAlertRow, url: string): DataRecord {

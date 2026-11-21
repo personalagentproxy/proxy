@@ -198,6 +198,49 @@ describe.skipIf(!databaseUrl)('delivery to Slack, against the database', () => {
 		await db.$disconnect();
 	});
 
+	test('reads what another of the member’s threads passed on with its words and the thread it came from, as it is now, and still not what they said in Slack', async () => {
+		const {threadId} = await placedThread();
+		const from = await db.agentThread.create({
+			data: {
+				orgId,
+				agentId,
+				personaId,
+				userId: owner,
+				parentThreadId: chat.id,
+				title: 'Upgrade vite',
+			},
+			select: {id: true},
+		});
+		await db.agentEntry.create({
+			data: {
+				threadId,
+				kind: 'person',
+				text: 'Yes, include the docs site too',
+				passedOnFromId: from.id,
+			},
+		});
+		await db.agentEntry.create({
+			data: {
+				threadId,
+				kind: 'person',
+				text: 'And the website',
+				passedOnFromId: 'a-thread-deleted-since',
+			},
+		});
+
+		const read = unwrap(await readSlackUndelivered(threadId, 0, 50)).entries;
+		expect(read.map(({kind, text, passedOn}) => [kind, text, passedOn])).toEqual([
+			['person', '', null],
+			[
+				'person',
+				'Yes, include the docs site too',
+				{threadId: from.id, thread: {id: from.id, personaId, title: 'Upgrade vite', slack: null}},
+			],
+			['person', 'And the website', {threadId: 'a-thread-deleted-since', thread: null}],
+		]);
+		await db.agentThread.deleteMany({where: {id: {in: [threadId, from.id]}}});
+	});
+
 	test('takes a place only once there is something past its mark, and one worker of two takes it', async () => {
 		const {placeId, threadId} = await placedThread();
 		// Its first entry, from Slack, is past the mark: taken, read, and passed over.

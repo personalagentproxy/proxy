@@ -194,9 +194,11 @@ function filesInstructions(connections: AgentConnection[], folder: string | unde
 
 // The person's Chat, where the agent may read their threads, in Chat or in Slack: that what they
 // ask about work done in another thread is found there, where it may mark one done, archive it or
-// bring it back, and that they go on with a thread where it lives, by its url, since what was said
-// in one isn't written from here. In a thread, its agent is told the person's latest other threads
-// too (`otherThreads`, harness/inference.ts), each a line, and that the rest are here.
+// bring it back, and that they go on with a thread where it lives, by its url. In a thread, its
+// agent is told the person's latest other threads too (`otherThreads`, harness/inference.ts), each
+// a line, that the rest are here, and, where it may write in them, that it can send one of them a
+// message the person asks it to pass on, which lands there as theirs and gets no answer back here.
+// A sub-agent is told of no other threads, so nothing of sending, which it can't.
 function chatInstructions(connections: AgentConnection[], otherThreads: string[]): string[] {
 	const chats = connections.filter((connection) => connection.integrationId === CHAT_INTEGRATION_ID && connection.actions.includes('readThreads'));
 	if (chats.length === 0) {
@@ -204,6 +206,7 @@ function chatInstructions(connections: AgentConnection[], otherThreads: string[]
 	}
 	const ids = chats.map((chat) => chat.id).join(', ');
 	const marks = chats.some((chat) => chat.actions.includes('markThreads'));
+	const writes = chats.some((chat) => chat.actions.includes('writeThreads'));
 	return [
 		`${ids} has the person’s threads with their agents, each a piece of work, in Chat or in Slack: threads_list {search, standing} gives each with where it stands in a sentence and its place, threads_get {id} what was said in one${marks ? ', and threads_mark_done, threads_archive and threads_unarchive {id} change where one stands, though not one in progress, and archive none still watching' : ''}. Asked about something from another thread, look there. A thread is gone on with in the thread itself, where it lives: give the person its url rather than doing its work here.`,
 		...(otherThreads.length === 0
@@ -213,6 +216,11 @@ function chatInstructions(connections: AgentConnection[], otherThreads: string[]
 						'The person’s latest other threads, the latest first:',
 						...otherThreads.map((line) => `- ${line}`),
 						`The rest are in ${ids}, where you can list them all and read any${marks ? ', and mark one done, archive it or bring it back' : ''}.`,
+						...(writes
+							? [
+									'threads_send {id, text} sends one of them a message the person asks you to pass on: it lands there as their own, saying it came from this thread, and wakes its agent, and nothing comes back here, so tell the person where it went, with the thread’s url. Pass on their own words where they gave them.',
+								]
+							: []),
 					].join('\n'),
 				]),
 	];

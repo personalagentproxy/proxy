@@ -164,7 +164,8 @@ export const chatAttachmentSchema = z.object({
 
 export type ChatAttachment = z.infer<typeof chatAttachmentSchema>;
 
-const MAX_MESSAGE = 20_000;
+/** How long a message is at most, as the person writes it or another of their threads passes it on. */
+export const MAX_MESSAGE = 20_000;
 
 /** How many files one message carries at most. */
 export const MAX_ATTACHMENTS = 10;
@@ -281,6 +282,24 @@ export const threadDoneBodySchema = z.object({cancelAlerts: z.boolean().optional
 export const threadTitleBodySchema = z.object({title: z.string().trim().min(1).max(200)});
 
 /**
+ * Where something the person said came from where another of their threads passed it on to this
+ * one, at their asking: that thread, by its id, the persona whose chat it is in, its title as it is
+ * now, and, for one that lives in Slack, its link there; null where it is deleted since.
+ */
+export const passedOnSchema = z.object({
+	thread: z
+		.object({
+			id: z.string(),
+			personaId: z.string(),
+			title: z.string(),
+			slackUrl: z.string().nullable(),
+		})
+		.nullable(),
+});
+
+export type PassedOn = z.infer<typeof passedOnSchema>;
+
+/**
  * Something said in a thread, as its page shows it: what the person said, with the files they
  * attached to it; what the persona answered, or told them as it went, with the files its words
  * show, which is what went wrong where its turn failed; or an event, an alert set in the thread
@@ -300,6 +319,9 @@ export const threadMessageSchema = z.object({
 	// work, or asleep until it wakes: shown as a line that opens it, in place of what it said, which
 	// the persona reads.
 	subAgent: z.object({id: z.string(), title: z.string(), working: z.boolean()}).optional(),
+	// What the person said that another of their threads passed on to this one, at their asking:
+	// where from, shown as a quiet line under it. Left out for what they wrote in the thread.
+	passedOn: passedOnSchema.optional(),
 });
 
 export type ThreadMessage = z.infer<typeof threadMessageSchema>;

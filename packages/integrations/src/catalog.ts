@@ -2735,15 +2735,36 @@ function threadStandingCommands(): Command[] {
 	];
 }
 
+// What one of the person's threads sends another, from the thread to which they said it: their
+// message, which lands there as theirs, marked with the thread it was passed on from, and wakes
+// that thread's agent as their reply would. Nothing comes back. Only a thread's agent sends one, in
+// its thread's task, and not one whose latest message from the person was itself passed on to it,
+// so no message goes along a chain of threads.
+function threadSendCommand(): Command {
+	return {
+		id: 'send',
+		on: 'record',
+		label: 'Send a message',
+		description:
+			'It lands in that thread as your message, saying which thread it was passed on from, and its agent takes it up as it would your reply, bringing an archived one back; nothing comes back here. Only from one of your threads, to another, and not from one whose latest message from you was itself passed on to it, until you write in it directly. Text only.',
+		action: 'writeThreads',
+		params: [
+			{key: 'text', label: 'The message, in your own words where you gave them', type: 'longtext'},
+		],
+		done: 'Sent a message to {}',
+		tried: 'send a message to {}',
+	};
+}
+
 // Chat: the person's own threads with their agents, on the Chat page or in Slack, and the alerts
 // set in them, as records, so that an agent can be asked about the others: what waits for the
 // person, what was found in one, which alerts are set. Every member has one, theirs alone, made
 // with their membership as their vault is. A thread is read, and where it stands is changed as the
 // person would on the Chat page, marked done, archived or brought back, wherever it lives, though
-// not one still in progress; what was said in it is not written here: whoever reads one points the
-// person to it by its url, its page in Chat or its thread in Slack, and they go on there. An alert
-// is seen and cancelled; one is set in a thread, by its agent, since it comes back to that thread
-// or opens new ones in its chat.
+// not one still in progress. One thread sends another a message the person asked it to pass on, as
+// theirs; otherwise whoever reads one points the person to it by its url, its page in Chat or its
+// thread in Slack, and they go on there. An alert is seen and cancelled; one is set in a thread, by
+// its agent, since it comes back to that thread or opens new ones in its chat.
 const chat: Integration = {
 	id: CHAT_INTEGRATION_ID,
 	name: 'Chat',
@@ -2762,6 +2783,13 @@ const chat: Integration = {
 			description:
 				'Mark your threads done, archive them and bring them back, but not one still in progress',
 			risk: 'low',
+			requires: 'readThreads',
+		},
+		{
+			id: 'writeThreads',
+			label: 'Write in threads',
+			description: 'Send a message to one of your threads as yours',
+			risk: 'medium',
 			requires: 'readThreads',
 		},
 		{
@@ -2789,7 +2817,7 @@ const chat: Integration = {
 			openIn: 'Chat',
 			read: 'readThreads',
 			writes: {},
-			commands: threadStandingCommands(),
+			commands: [...threadStandingCommands(), threadSendCommand()],
 			searchHint: 'Matches the words in the title or the summary, in any case.',
 			fields: [
 				{key: 'title', label: 'Title', type: 'text', system: true},
@@ -2838,7 +2866,8 @@ const chat: Integration = {
  * a member's Chat by default: everything. Any other agent starts with nothing, since a thread may
  * say what came from a connection that agent was never given. Granted as a member's Chat is made
  * (api orgs/starter-connections.ts); an action added here is granted on those made before by a
- * migration of its own, as v081_grant_chat_mark_threads grants Mark done and archive.
+ * migration of its own, as v081_grant_chat_mark_threads grants Mark done and archive, and
+ * v082_grant_chat_write_threads Write in threads.
  */
 export const CHAT_BUILT_IN_ACTIONS: string[] = chat.actions.map((action) => action.id);
 

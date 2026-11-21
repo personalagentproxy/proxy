@@ -125,6 +125,9 @@ export type EntryRow = LogEntry & {
 	// The job that wrote the entry; for what the person said, or an event, the turn that was given
 	// it as it ran, beside a call's answer (appendTurnEntries); null otherwise.
 	jobId: string | null;
+	// A `person` entry another of the member's threads passed on to this one, at their asking: that
+	// thread, by its id, which may be deleted since; null for what they wrote in the thread itself.
+	passedOnFromId: string | null;
 	createdAt: Date;
 };
 
@@ -190,8 +193,8 @@ export type SubAgentRow = ThreadRow & {state: ThreadState};
  */
 export type Wakes = (tail: LogEntry[]) => boolean;
 
-/** An entry to land in a thread. */
-export type NewEntry = {kind: AgentEntryKind; text: string};
+/** An entry to land in a thread; a `person` one passed on from another of the member's threads names it (passOnToThread). */
+export type NewEntry = {kind: AgentEntryKind; text: string; passedOnFromId?: string};
 
 /** The harness and the model a turn ran on, by their ids, kept with what the model answered. */
 export type RanOn = {harness: string; model: string};
@@ -278,7 +281,8 @@ function inChatSql(chat: Prisma.Sql, t: Prisma.Sql): Prisma.Sql {
 // of a chat's threads is picked by these, `IN_APP` for Prisma where sub-agents are left out already,
 // `inAppSql` for the thread `t` in SQL, and `isInApp` for one thread by its id. Slack's own code,
 // the agent's turns, the worker, the alerts' sweep and the member's Chat connection, which says
-// where each thread lives, read every thread.
+// where each thread lives, read every thread; the Chat connection changes where any stands, and
+// passes a message on to any (passOnToThread), wherever it lives.
 const IN_APP = {slackPlace: {is: null}} satisfies Prisma.AgentThreadWhereInput;
 
 function inAppSql(t: Prisma.Sql): Prisma.Sql {
@@ -384,6 +388,7 @@ export const entrySelect = {
 	harness: true,
 	model: true,
 	jobId: true,
+	passedOnFromId: true,
 	createdAt: true,
 } as const;
 
@@ -1632,6 +1637,95 @@ export async function replyInThread(
 }
 
 /**
+ * Why a thread can't pass a message on to another of the member's threads: the call is made for no
+ * thread of theirs, its task being none's; it is made for a sub-agent, whose task is its own, which
+ * works for its thread's agent and never talks with the member; or the latest the member said in
+ * the thread was itself passed on to it.
+ */
+export type PassOnRefusal = 'not_a_thread' | 'sub_agent' | 'passed_on';
+
+// Whether the latest the member said in the thread, pending or not, was passed on to it from
+// another of their threads, rather than written in it: such a thread passes nothing on in turn,
+// until they write in it directly, so that no message travels along a chain of threads. Only what
+// the member said counts: an alert's event and a sub-agent's answer are events, and a message
+// they steered the turn with as it ran is theirs, written in the thread.
+async function lastPassedOn(tx: Tx, threadId: string): Promise<boolean> {
+	const last = await tx.agentEntry.findFirst({
+		where: {threadId, kind: 'person'},
+		orderBy: {seq: 'desc'},
+		select: {passedOnFromId: true},
+	});
+	return (last?.passedOnFromId ?? null) !== null;
+}
+
+// The thread of the member's whose task `taskId` is, which passes a message on: refused where the
+// call is no thread's of theirs, where it is a sub-agent's, and where the latest the member said in
+// it was passed on to it (lastPassedOn).
+async function passingThread(
+	tx: Tx,
+	member: {orgId: string; userId: string},
+	taskId: string,
+): Promise<{thread: ThreadRow} | {refused: PassOnRefusal}> {
+	const found = await tx.agentThread.findFirst({
+		where: {...member, taskId, parentThreadId: {not: null}},
+		select: threadSelect,
+	});
+	if (!found) {
+		return {refused: 'not_a_thread'};
+	}
+	if (found.subAgentOfId !== null) {
+		return {refused: 'sub_agent'};
+	}
+	if (await lastPassedOn(tx, found.id)) {
+		return {refused: 'passed_on'};
+	}
+	return {thread: toThread(found)};
+}
+
+/**
+ * Passes a message on, from the thread of the member's whose task `taskId` is, to another of their
+ * threads, whichever persona's chat it is of and wherever it lives, in one transaction with its
+ * checks: it lands there as theirs, a `person` entry naming the thread it came from, and wakes the
+ * thread's agent as their reply does (wakeWith), bringing an archived one back; one at work reads
+ * it at its next step, as it reads a reply that came meanwhile. The member hasn't read the thread
+ * for it, so it stays unread as far as it was, and what its agent answers is unread after. Nothing
+ * comes back to the thread that passed it on. Refused where that thread can't pass one on
+ * (passingThread), and for itself; `Ok(null)` for no such thread of theirs to pass it to, a
+ * sub-agent's among them.
+ */
+export async function passOnToThread(
+	member: {orgId: string; userId: string},
+	taskId: string,
+	threadId: string,
+	text: string,
+	wakes: Wakes,
+): Promise<Result<{sent: EntryRow} | {refused: PassOnRefusal | 'itself'} | null, ApiError>> {
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			const passing = await passingThread(tx, member, taskId);
+			if ('refused' in passing) {
+				return passing;
+			}
+			if (passing.thread.id === threadId) {
+				return {refused: 'itself' as const};
+			}
+			const thread = await lockThread(tx, threadId);
+			if (
+				thread === null ||
+				thread.parentThreadId === null ||
+				thread.subAgentOfId !== null ||
+				thread.orgId !== member.orgId ||
+				thread.userId !== member.userId
+			) {
+				return null;
+			}
+			const entry = {kind: 'person' as const, text, passedOnFromId: passing.thread.id};
+			return {sent: await wakeWith(tx, thread, entry, wakes)};
+		}),
+	);
+}
+
+/**
  * Where a thread stands as written when its turn last ended: whether its agent waits for the
  * member, and the sentence saying where it is, with the `seq` of the last entry it was written
  * from; null before one was written, and where it couldn't be.
@@ -1644,14 +1738,33 @@ export type ThreadStandingRow = {
 	archived: boolean;
 };
 
-/** An entry as a thread shows it: what was said, by whom and when, without what the model was sent or how it ran. */
+/**
+ * A thread a message was passed on from, as the thread it was passed on to names it: its title as
+ * it is now, its persona, which its address in the app is under, and its place in Slack, for one
+ * that lives there.
+ */
+export type PassedOnThread = {
+	id: string;
+	personaId: string;
+	title: string | null;
+	slack: SlackThreadRow | null;
+};
+
+/** Where a message was passed on from: the thread, by its id, and as it is now; null where it is deleted since. */
+export type PassedOn = {threadId: string; thread: PassedOnThread | null};
+
+/**
+ * An entry as a thread shows it: what was said, by whom and when, and where it was passed on from,
+ * for what another of the member's threads passed on; without what the model was sent or how it ran.
+ */
 export type ShownEntryRow = Pick<
 	EntryRow,
 	'id' | 'seq' | 'kind' | 'pending' | 'text' | 'toolCalls' | 'callId' | 'isError' | 'createdAt'
->;
+> & {passedOn: PassedOn | null};
 
-// The columns of an entry a thread shows it by, as `ShownEntryRow` has them: not the system prompt
-// each answer keeps, which is long, nor the rest of how it was run.
+// The columns of an entry a thread shows it by, as `ShownEntryRow` has them, but where it was
+// passed on from by the id alone (withPassedOn): not the system prompt each answer keeps, which is
+// long, nor the rest of how it was run.
 const shownEntrySelect = {
 	id: true,
 	seq: true,
@@ -1661,8 +1774,50 @@ const shownEntrySelect = {
 	toolCalls: true,
 	callId: true,
 	isError: true,
+	passedOnFromId: true,
 	createdAt: true,
 } as const;
+
+/** The threads messages were passed on from, by their ids, those not deleted since. */
+export function listPassedOnThreads(ids: string[]): Promise<Result<PassedOnThread[], ApiError>> {
+	return wrapDb(() => readPassedOnThreads(ids));
+}
+
+async function readPassedOnThreads(ids: string[]): Promise<PassedOnThread[]> {
+	const wanted = [...new Set(ids)];
+	if (wanted.length === 0) {
+		return [];
+	}
+	const threads = await db.agentThread.findMany({
+		where: {id: {in: wanted}},
+		select: {id: true, personaId: true, title: true, slackPlace: slackThreadSelect},
+	});
+	return threads.map(({slackPlace, ...thread}) => ({...thread, slack: toSlackThread(slackPlace)}));
+}
+
+/**
+ * The entries with where each was passed on from, in place of the id it is kept by: the thread as
+ * it is now, its title among that, read once for them all, or none where it is deleted since. For
+ * what shows a message passed on as such: the Chat page, the Slack thread it is delivered to, the
+ * Chat connection.
+ */
+export async function withPassedOn<E extends {passedOnFromId: string | null}>(
+	entries: E[],
+): Promise<Array<Omit<E, 'passedOnFromId'> & {passedOn: PassedOn | null}>> {
+	const threads = await readPassedOnThreads(
+		entries.flatMap(({passedOnFromId}) => (passedOnFromId === null ? [] : [passedOnFromId])),
+	);
+	return entries.map(({passedOnFromId, ...entry}) => ({
+		...entry,
+		passedOn:
+			passedOnFromId === null
+				? null
+				: {
+						threadId: passedOnFromId,
+						thread: threads.find((thread) => thread.id === passedOnFromId) ?? null,
+					},
+	}));
+}
 
 /**
  * One of a chat's threads, with what it is up to, where it stands, the entries of it the member
@@ -1745,6 +1900,7 @@ async function readChatThreads(
 			select: {id: true, title: true, parentCallId: true, subAgentOfId: true, jobs: openJobsSelect},
 			orderBy: {createdAt: 'asc'},
 		});
+		const passedOn = await withPassedOn(threads.flatMap(({entries}) => entries));
 		return threads.map(
 			({jobs, entries, waitingForMember, summary, summarySeq, archived, _count, ...thread}) => {
 				const shown = new Set(entries.map((entry) => entry.id));
@@ -1756,7 +1912,9 @@ async function readChatThreads(
 					state: threadState(jobs, now),
 					standing: {waitingForMember, summary, summarySeq, archived},
 					alerts: _count.alerts,
-					entries: entries.map((entry) => ({...entry, toolCalls: toToolCalls(entry.toolCalls)})),
+					entries: passedOn
+						.filter((entry) => shown.has(entry.id))
+						.map((entry) => ({...entry, toolCalls: toToolCalls(entry.toolCalls)})),
 					attachments: attachments.filter((attachment) => shown.has(attachment.entryId)),
 				};
 			},

@@ -12,7 +12,7 @@ import {Err, Ok} from 'ts-results-es';
 
 import {ApiErr} from '@proxy/utils';
 import {CALL_INTERRUPTED, OUTCOME_UNKNOWN} from '@proxy/utils/harness';
-import {type ContextEntry, EVENT_LEAD} from '@proxy/utils/harness-context';
+import {type ContextEntry, EVENT_LEAD, passedOnText} from '@proxy/utils/harness-context';
 
 import type {HarnessEntry, HarnessEvent, HarnessTurn} from './backend';
 import {claudeAgentSdkHarness, type ClaudeAgentSdkDeps, proxyToolServer, type SdkPrompt, type SdkQuery} from './claude-agent-sdk';
@@ -508,6 +508,24 @@ describe('claudeAgentSdkHarness', () => {
 		await collect(fake, turnInput());
 
 		expect(await given(fake.calls[0]?.prompt)).toEqual([{type: 'user', message: {role: 'user', content: 'Hi'}, parent_tool_use_id: null}]);
+	});
+
+	test('reads a message another of the person’s threads passed on as the api led it in, as the proxy harness does, and the record keeps it so', async () => {
+		const fake = fakeQuery();
+		fake.script(messages([init(), result()]));
+		fake.script(messages([init(), result()]));
+		const passed = entry('person', passedOnText('Yes, include the docs site too', {id: 'thread-7', title: 'Upgrade vite'}));
+
+		await collect(fake, {...turnInput(), entries: [passed]});
+		expect(await words(fake.calls[0]?.prompt)).toBe(
+			'The person’s message, passed on to this thread from their thread thread-7, “Upgrade vite”, at their asking rather than typed here; nothing you answer goes back there.\n\nYes, include the docs site too',
+		);
+
+		// Behind a step of the model's own, written out in the record as what the person said.
+		const step = entry('assistant', 'Including it.', {toolCalls: [{id: 'c1', name: 'read', arguments: '{}'}], jobId: 'job-0'});
+		const answered = entry('tool_result', 'Read.', {callId: 'c1', jobId: 'job-0'});
+		await collect(fake, {...turnInput(), entries: [passed, step, answered]});
+		expect(await words(fake.calls[1]?.prompt)).toContain('Person:\nThe person’s message, passed on to this thread from their thread thread-7');
 	});
 
 	test('a turn tried again is given what the attempt before did, as the record, with the calls the api closed as interrupted, so it goes on rather than doing it again', async () => {

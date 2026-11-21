@@ -32,6 +32,7 @@ import {
 	listAnswers,
 	listChatThreads,
 	listEntries,
+	listPendingMessages,
 	listPersonas,
 	listThreadsWithoutSummary,
 	listThreadsWithoutTitle,
@@ -39,6 +40,7 @@ import {
 	markThreadRead,
 	markThreadDone,
 	openThread,
+	passOnToThread,
 	replyInThread,
 	saveChatDraft,
 	saveThreadDraft,
@@ -224,7 +226,8 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		const listed = unwrap(await getChatThread(chat.id, thread.id, []));
 		expect(listed?.state).toEqual({kind: 'working'});
 		expect(listed?.attachments).toEqual([{...file, entryId: entry.id, gone: true}]);
-		// Each entry as a thread shows it, without what the model was sent for it.
+		// Each entry as a thread shows it, with where it was passed on from, without what the model
+		// was sent for it.
 		expect(Object.keys(listed?.entries[0] ?? {}).toSorted()).toEqual(
 			[
 				'callId',
@@ -232,6 +235,7 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 				'id',
 				'isError',
 				'kind',
+				'passedOn',
 				'pending',
 				'seq',
 				'text',
@@ -1223,6 +1227,268 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		await db.agentThread.deleteMany({
 			where: {id: {in: [waiting.id, working.id, inSlack.id, subAgent.id]}},
 		});
+	});
+
+	test('a thread passes the member’s message on to another of theirs, which takes it as their reply: it wakes, comes back from the archive and waits for nobody, stays unread as far as it was, and nothing comes back', async () => {
+		const member = {orgId, userId};
+		const unreadIn = async (id: string) =>
+			unwrap(await listAnswers(orgId, userId))
+				.find((one) => one.personaId === chat.personaId)
+				?.unread.find((one) => one.threadId === id) ?? null;
+		const from = await open('Pass on: upgrade vite to 7');
+		const to = await open('Pass on: write the release notes');
+		await answer(from, 'worker-p1', 'Shall I include the docs site?');
+		await answer(to, 'worker-p2', 'Which version do the notes cover?');
+		unwrap(
+			await writeThreadStanding(
+				to.id,
+				{summary: 'Asks which version the notes cover.', waitingForMember: true},
+				await lastSeq(to),
+			),
+		);
+		expect(unwrap(await changeMemberThreadStanding(member, to.id, 'archive'))).toBe('changed');
+		const fromBefore = unwrap(await listEntries(from.id)).length;
+
+		const passed = unwrap(
+			await passOnToThread(
+				member,
+				from.taskId ?? '',
+				to.id,
+				'Version 7, with the docs site',
+				readyForInference,
+			),
+		);
+
+		expect(passed).toMatchObject({
+			sent: {
+				kind: 'person',
+				text: 'Version 7, with the docs site',
+				passedOnFromId: from.id,
+				pending: false,
+			},
+		});
+		const shown = unwrap(await getMemberThread(member, to.id, []));
+		expect(shown?.standing).toMatchObject({archived: false, waitingForMember: false});
+		expect(shown?.entries.at(-1)).toMatchObject({
+			kind: 'person',
+			text: 'Version 7, with the docs site',
+			passedOn: {
+				threadId: from.id,
+				thread: {id: from.id, personaId: chat.personaId, title: from.title, slack: null},
+			},
+		});
+		expect(shown?.entries[0]?.passedOn).toBeNull();
+		expect(await openTurns(to.id)).toBe(1);
+		expect((await taskOf(to)).finishedAt).toBeNull();
+		expect(unwrap(await listChatThreads(chat.id, [])).map((one) => one.id)).toContain(to.id);
+		// The member hasn't read it for that: its answer before stays unread, and so is the next.
+		expect((await unreadIn(to.id))?.answer.text).toBe('Which version do the notes cover?');
+		await answer(to, 'worker-p2', 'Version 7 it is, docs site included.');
+		expect((await unreadIn(to.id))?.answer.text).toBe('Version 7 it is, docs site included.');
+		// Nothing lands in the thread that passed it on, nor wakes it.
+		expect(unwrap(await listEntries(from.id))).toHaveLength(fromBefore);
+		expect(await openTurns(from.id)).toBe(0);
+
+		// The thread it came from is named as it is now: renamed since, by its new title.
+		unwrap(await renameThread(chat.id, from.id, 'Vite 7 upgrade'));
+		expect(
+			unwrap(await getChatThread(chat.id, to.id, []))?.entries.at(-2)?.passedOn?.thread?.title,
+		).toBe('Vite 7 upgrade');
+
+		// Once the thread it came from is deleted, it still says it was passed on, from none.
+		const gone = await open('Pass on: a thread deleted later');
+		unwrap(
+			await passOnToThread(
+				member,
+				gone.taskId ?? '',
+				from.id,
+				'Use the 7.1 notes',
+				readyForInference,
+			),
+		);
+		await db.agentThread.delete({where: {id: gone.id}});
+		expect(unwrap(await getMemberThread(member, from.id, []))?.entries.at(-1)?.passedOn).toEqual({
+			threadId: gone.id,
+			thread: null,
+		});
+		await db.agentThread.deleteMany({where: {id: {in: [from.id, to.id]}}});
+	});
+
+	test('a message is passed on only by a thread of the member’s, not a sub-agent, to another of theirs; not by a thread whose latest message from them was passed on to it, until they write in it, whatever came between', async () => {
+		const member = {orgId, userId};
+		const from = await open('Chain: plan the offsite');
+		const to = await open('Chain: book the venue');
+		const send = async (sender: {id: string}, threadId: string) => {
+			const {taskId} = await db.agentThread.findUniqueOrThrow({
+				where: {id: sender.id},
+				select: {taskId: true},
+			});
+			return unwrap(
+				await passOnToThread(
+					member,
+					taskId ?? '',
+					threadId,
+					'For twelve people',
+					readyForInference,
+				),
+			);
+		};
+
+		// A caller whose task is no thread's, nor a thread of the member's.
+		const task = await db.agentTask.create({
+			data: {
+				orgId,
+				agentId,
+				ownerUserId: userId,
+				title: 'Not a thread',
+				goal: 'Not a thread',
+				via: 'mcp',
+			},
+		});
+		expect(unwrap(await passOnToThread(member, task.id, to.id, 'Hi', readyForInference))).toEqual({
+			refused: 'not_a_thread',
+		});
+		expect(
+			unwrap(
+				await passOnToThread(
+					{orgId, userId: 'another-user'},
+					from.taskId ?? '',
+					to.id,
+					'Hi',
+					readyForInference,
+				),
+			),
+		).toEqual({refused: 'not_a_thread'});
+		// Never to itself.
+		expect(await send(from, from.id)).toEqual({refused: 'itself'});
+		// A sub-agent sends nothing, and is sent nothing: it is no thread of the member's.
+		const subTask = await db.agentTask.create({
+			data: {
+				orgId,
+				agentId,
+				ownerUserId: userId,
+				parentId: from.taskId,
+				title: 'Venues in Lisbon',
+				goal: 'Venues in Lisbon',
+				via: 'harness',
+			},
+		});
+		const subAgent = await db.agentThread.create({
+			data: {
+				orgId,
+				agentId,
+				personaId: chat.personaId,
+				userId,
+				parentThreadId: chat.id,
+				subAgentOfId: from.id,
+				parentCallId: 'call-chain',
+				title: 'Venues in Lisbon',
+				taskId: subTask.id,
+			},
+		});
+		expect(await send(subAgent, to.id)).toEqual({refused: 'sub_agent'});
+		expect(await send(from, subAgent.id)).toBeNull();
+		// Never to another member's thread, nor to a chat, nor to none.
+		const other = await db.user.create({data: {email: `chat-threads-pass-${stamp}@example.test`}});
+		const otherChat = unwrap(
+			await ensureMemberChat({orgId, agentId, personaId: chat.personaId, userId: other.id}),
+		);
+		const theirs = await db.agentThread.create({
+			data: {
+				orgId,
+				agentId,
+				personaId: chat.personaId,
+				userId: other.id,
+				parentThreadId: otherChat.id,
+				title: 'Theirs',
+			},
+		});
+		expect(await send(from, theirs.id)).toBeNull();
+		expect(await send(from, chat.id)).toBeNull();
+		expect(await send(from, 'no-such-thread')).toBeNull();
+		expect(
+			await db.agentEntry.count({where: {threadId: {in: [theirs.id, chat.id, subAgent.id]}}}),
+		).toBe(0);
+
+		// Passed on to `to`, which then can't pass one on in turn.
+		expect(await send(from, to.id)).toMatchObject({sent: {passedOnFromId: from.id}});
+		expect(await send(to, from.id)).toEqual({refused: 'passed_on'});
+		// An alert that came, or a sub-agent's answer, is no message from the member: still refused.
+		const landed = await db.$transaction(async (tx) => {
+			const locked = await lockThread(tx, to.id);
+			if (!locked) {
+				throw new Error('no thread');
+			}
+			await appendEntry(tx, locked, {kind: 'event', text: 'The venue wrote back.'}, () => false);
+			return appendEntry(
+				tx,
+				locked,
+				{kind: 'event', text: 'Three venues.', callId: 'call-venues'},
+				() => false,
+			);
+		});
+		expect(landed.kind).toBe('event');
+		expect(await send(to, from.id)).toEqual({refused: 'passed_on'});
+		// Once the member writes in it directly, it can, even while it is at work, as what they
+		// steer its turn with is theirs.
+		await claim(to.id, 'worker-chain');
+		unwrap(
+			await replyInThread(chat.id, to.id, 'Pass it back to the offsite thread', readyForInference),
+		);
+		expect(await send(to, from.id)).toMatchObject({sent: {passedOnFromId: to.id}});
+
+		await db.agentThread.deleteMany({
+			where: {id: {in: [from.id, to.id, subAgent.id, theirs.id, otherChat.id]}},
+		});
+		await db.agentTask.deleteMany({where: {id: {in: [task.id, subTask.id]}}});
+		await db.user.delete({where: {id: other.id}});
+	});
+
+	test('a message passed on to a thread at work waits, pending, for its turn to read it at its next step, then takes its place in the log, as a reply does', async () => {
+		const member = {orgId, userId};
+		const from = await open('Mid-turn: collect the receipts');
+		const to = await open('Mid-turn: file the expenses');
+		const job = await claim(to.id, 'worker-m1');
+
+		const passed = unwrap(
+			await passOnToThread(
+				member,
+				from.taskId ?? '',
+				to.id,
+				'Include the taxi receipt',
+				readyForInference,
+			),
+		);
+		expect(passed).toMatchObject({sent: {pending: true}});
+		// What the turn is given at its next step, as it is given what the member steers it with.
+		expect(
+			unwrap(await listPendingMessages(to.id)).map((entry) => [entry.text, entry.passedOnFromId]),
+		).toEqual([['Include the taxi receipt', from.id]]);
+
+		unwrap(
+			await completeInference(
+				job.id,
+				'worker-m1',
+				to.id,
+				said('Filed four.'),
+				{end: {outcome: 'Filed four.'}},
+				readyForInference,
+			),
+		);
+		expect(
+			unwrap(await listEntries(to.id)).map((entry) => [
+				entry.kind,
+				entry.text,
+				entry.passedOnFromId,
+			]),
+		).toEqual([
+			['person', 'Mid-turn: file the expenses', null],
+			['assistant', 'Filed four.', null],
+			['person', 'Include the taxi receipt', from.id],
+		]);
+		expect(await openTurns(to.id)).toBe(1);
+		expect((await taskOf(to)).finishedAt).toBeNull();
+		await db.agentThread.deleteMany({where: {id: {in: [from.id, to.id]}}});
 	});
 
 	test('a member’s Chat connection, made with their membership, is given to the organization’s built-in agent alone', async () => {

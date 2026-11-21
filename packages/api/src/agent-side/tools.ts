@@ -528,7 +528,7 @@ function executeKind(run: ToolRun, params: Record<string, string>): Promise<Resu
 	if (kind === 'delete') {
 		return remove(stored, params.id ?? '');
 	}
-	return command(stored, params.id ?? '');
+	return command(stored, params);
 }
 
 // The params a write sets, without the record's id or the one a new record goes in.
@@ -619,12 +619,15 @@ function remove(run: StoreRun, recordId: string): Promise<Result<ToolResult, Api
 	});
 }
 
-function command(run: StoreRun, recordId: string): Promise<Result<ToolResult, ApiError>> {
+// A command on a record, with what it takes beside the record's id, where it takes anything, as
+// sending a message to a thread takes its text.
+function command(run: StoreRun, params: Record<string, string>): Promise<Result<ToolResult, ApiError>> {
 	return Do(async ($) => {
 		const runner = $(requirePresent(run.connector.commands?.[run.tool.operation], ApiErr.notFound('tool', run.tool.name)));
+		const recordId = params.id ?? '';
 		const before = $(await logFailure(run, await run.connector.get(run.target, recordId), null));
 		$(requireApplies(run.tool.where, before));
-		const record = $(await logFailure(run, await runner(run.target, recordId), recordTitle(run.target.collection, before.values)));
+		const record = $(await logFailure(run, await runner(run.target, recordId, fieldsOf(params)), recordTitle(run.target.collection, before.values)));
 		$(await log(run, 'allowed', recordTitle(run.target.collection, before.values)));
 		return {record};
 	});
