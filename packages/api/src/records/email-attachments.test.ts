@@ -3,6 +3,10 @@ import {Err, Ok} from 'ts-results-es';
 
 import {ApiErr} from '@proxy/utils';
 
+// The server's settings, which the blob store reads: none of them from a `.env`, which a checkout
+// that only runs the tests has none of.
+mock.module('../utils/env', () => ({env: {NODE_ENV: 'test', APP_URL: 'https://app.example.com', FILES_MAX_MB: 100}}));
+
 // The agent's blobs, by id, as the blob store hands them over: found only for the agent that made them.
 type Stored = {name: string | null; type: string | null; bytes: Buffer; agentId: string};
 const blobs: Record<string, Stored> = {};

@@ -150,6 +150,10 @@ const credential = {imapHost: 'imap.fastmail.com', smtpHost: 'smtp.fastmail.com'
 
 mock.module('../utils/secret-crypto', () => ({decryptSecret: () => Ok(JSON.stringify(credential))}));
 
+// The server's settings, which the blob store the attachments module reaches reads: none of them
+// from a `.env`, which a checkout that only runs the tests has none of.
+mock.module('../utils/env', () => ({env: {NODE_ENV: 'test', APP_URL: 'https://app.example.com'}}));
+
 // The files the blobs an email names in `attach` are attached as; finding an agent's blobs is
 // email-attachments.test.ts's.
 const attachable: Record<string, Attached> = {

@@ -4,12 +4,15 @@ import {Err, Ok, Result} from 'ts-results-es';
 import {ApiErr, type ApiError, Do} from '@proxy/utils';
 import {formatBytes} from '@proxy/utils/bytes';
 
-import {blobType, requireBlob} from '../blobs/blobs';
-import {openContent} from '../native/files/content';
-import type {RecordTarget} from './connector';
+import {blobType, requireBlob, storeBlob} from '../blobs/blobs';
+import {openContent, streamOf} from '../native/files/content';
+import type {AttachmentFile} from './attachment-text';
+import type {DataRecord, RecordTarget} from './connector';
 
 /**
- * The files an email goes out with, whatever the mailbox: an agent's blobs (blobs/), named in the
+ * An email's attachments as an agent's blobs (blobs/), both ways, whatever the mailbox: one of an
+ * email's attachments made a blob, as the `attachments` collection's `blob` command does, and the
+ * files an email goes out with: an agent's blobs, named in the
  * `attach` an email or a reply is written with, their ids separated by commas, and the attachments
  * a draft has already, which an edit of it and sending it keep. A blob is attached under its own
  * name, as the tool that made it said it, `attachments_blob` of another email's attachment,
@@ -98,4 +101,22 @@ export function attachmentOptions(attached: Attached[]): Mail.Options {
 			...(cid === undefined ? {} : {cid, contentDisposition: 'inline' as const}),
 		})),
 	};
+}
+
+/**
+ * An attachment made a blob of the agent's, as the `attachments` collection's `blob` command
+ * answers it: to put in a drive with files_upload, attach to another email, or fetch with
+ * pap.download, whatever kind of file it is.
+ */
+export function attachmentBlobRecord(target: RecordTarget, email: string, number: number, file: AttachmentFile): Promise<Result<DataRecord, ApiError>> {
+	return Do(async ($) => {
+		const {by} = target;
+		if (by === undefined || !('agentId' in by)) {
+			return $(Err(ApiErr.validationError('A blob is an agent’s: only an agent makes one')));
+		}
+		const owner = {orgId: target.connection.orgId, agentId: by.agentId};
+		const blob = $(await storeBlob(owner, {name: file.name || null, type: file.type || null}, streamOf(file.bytes)));
+		const values = {email, attachment: String(number), name: file.name, type: file.type, size: formatBytes(blob.size), blob: blob.id};
+		return {id: `${email}/${number}`, values, updatedAt: new Date().toISOString()};
+	});
 }

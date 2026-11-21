@@ -13,7 +13,7 @@ import type {EmailCredential} from '../connections/email/credential';
 import {imapClientOptions, imapError, smtpError, smtpTransport} from '../connections/email/mail-check';
 import {log, serializeError} from '../observability/log';
 import {decryptSecret} from '../utils/secret-crypto';
-import {attachmentBlobRecord, attachmentRecord, attachmentsText, pickAttachment, requireEmailId, type AttachmentFile} from './attachment-text';
+import {attachmentRecord, attachmentsText, pickAttachment, requireEmailId, type AttachmentFile} from './attachment-text';
 import {
 	type Change,
 	type Changes,
@@ -28,7 +28,7 @@ import {
 	type RecordValues,
 	type RunOnly,
 } from './connector';
-import {type Attached, attachedBlobs, attachmentOptions, requireAttachable} from './email-attachments';
+import {type Attached, attachedBlobs, attachmentBlobRecord, attachmentOptions, requireAttachable} from './email-attachments';
 import {gmailQuery, type EmailSearch, type MailSearch} from './email-search';
 import {replyCommands, replyContent, replyHeaders, type MailReply, type Quoted, type ReplyHeaders} from './email-reply';
 

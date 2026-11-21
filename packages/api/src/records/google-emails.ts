@@ -37,8 +37,8 @@ import {
 	type GmailMessage,
 	type MessagePart,
 } from '../connections/google/gmail-api';
-import {attachmentBlobRecord, attachmentRecord, attachmentsText, type AttachmentFile, type AttachmentInfo, pickAttachment, readableKind, requireEmailId} from './attachment-text';
-import {type Attached, attachedBlobs, attachmentOptions, requireAttachable} from './email-attachments';
+import {attachmentRecord, attachmentsText, type AttachmentFile, type AttachmentInfo, pickAttachment, readableKind, requireEmailId} from './attachment-text';
+import {type Attached, attachedBlobs, attachmentBlobRecord, attachmentOptions, requireAttachable} from './email-attachments';
 import {
 	type Change,
 	type Changes,
