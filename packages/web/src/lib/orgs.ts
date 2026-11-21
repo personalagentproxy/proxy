@@ -49,19 +49,12 @@ export function manages(human: Human, item: Managed): boolean {
 }
 
 /**
- * Whether the person may change an agent's settings on a connection, as the api decides it: the
- * built-in agent's where they change the connection's defaults, any other agent's where they change
- * the agent.
+ * Whether the person may change an agent's settings on the connections they see, as the api decides
+ * it: the built-in agent's on any of them, which hold for everyone's Chat there, since a connection
+ * shared with them is theirs to use as they see fit; any other agent's where they change the agent.
  */
-export function managesAgentOn(
-	human: Human,
-	agent: AgentLogin,
-	connection: Pick<Connection, 'ownerUserId' | 'sharedWithEveryone'>,
-): boolean {
-	if (isBuiltInAgent(agent)) {
-		return manages(human, connection);
-	}
-	return manages(human, agent);
+export function managesAgentSettings(human: Human, agent: AgentLogin): boolean {
+	return isBuiltInAgent(agent) || manages(human, agent);
 }
 
 // "Sam", "Sam or Alex", "Sam, Alex or Kim": who may do something, in a sentence.
@@ -80,9 +73,8 @@ function ownersBeside(members: Member[], named: string | null): string[] {
 }
 
 /**
- * Who may change a connection's defaults and the built-in agent's settings on it, by name, for a
- * person who may not (`manages`): whoever's it is, and for one shared with every member, the
- * organization's owner beside them.
+ * Who may change a connection's defaults, by name, for a person who may not (`manages`): whoever's
+ * it is, and for one shared with every member, the organization's owner beside them.
  */
 export function connectionSetBy(
 	connection: Pick<Connection, 'ownerUserId' | 'owner' | 'sharedWithEveryone'>,
@@ -97,18 +89,10 @@ export function connectionSetBy(
 }
 
 /**
- * Who may change an agent's settings on a connection, by name, for a person who may not
- * (`managesAgentOn`): the built-in agent's are the connection's (`connectionSetBy`); a shared
- * agent's, whoever made it and the organization's owner.
+ * Who may change a shared agent's settings, by name, for a person who may not
+ * (`managesAgentSettings`): whoever made it and the organization's owner.
  */
-export function agentSetBy(
-	agent: AgentLogin,
-	connection: Pick<Connection, 'ownerUserId' | 'owner' | 'sharedWithEveryone'>,
-	members: Member[],
-): string {
-	if (isBuiltInAgent(agent)) {
-		return connectionSetBy(connection, members);
-	}
+export function agentSetBy(agent: AgentLogin, members: Member[]): string {
 	const maker = agent.createdBy === null ? [] : [agent.createdBy];
 	const names = [...maker, ...ownersBeside(members, agent.createdById)];
 	return eitherOf(names.length > 0 ? names : ['The organization’s owner']);

@@ -212,7 +212,7 @@ describe('ConnectionPage', () => {
 		).toBe('true');
 	});
 
-	test('Chat, which the Chat page’s personas act through, has a column on every connection, changed by whoever changes its defaults', async () => {
+	test('Chat, which the Chat page’s personas act through, has a column on every connection, changed by anyone who uses it, though Default stays its owner’s', async () => {
 		const chat: AgentLogin = {
 			...claude,
 			id: 'agent-chat',
@@ -236,7 +236,7 @@ describe('ConnectionPage', () => {
 		).toBe(false);
 		cleanup();
 
-		// Dana's mailbox, shared with the person by name: Dana's to change, Chat's settings there too.
+		// Dana's mailbox, shared with the person by name: Default is Dana's to change, Chat's settings the person's too.
 		const danas: Connection = {
 			...mailbox,
 			ownerUserId: 'user-2',
@@ -248,10 +248,13 @@ describe('ConnectionPage', () => {
 
 		expect(
 			(await screen.findByRole('checkbox', {name: 'Send for Chat'})).hasAttribute('data-readonly'),
+		).toBe(false);
+		expect(
+			screen.getByRole('checkbox', {name: 'Send by default'}).hasAttribute('data-readonly'),
 		).toBe(true);
 		expect(
 			screen.getByText(
-				'Dana sets Default and Chat here. Ask them to change what agents may do with it.',
+				'Dana sets Default here. You set Chat’s column, for everyone’s Chat on it, beyond Default if you like.',
 			),
 		).toBeDefined();
 	});

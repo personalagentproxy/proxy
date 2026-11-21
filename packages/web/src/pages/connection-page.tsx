@@ -28,7 +28,14 @@ import {FileBrowser} from '@/components/file-browser';
 import {SandboxList} from '@/components/sandbox-list';
 import {SuccessLine} from '@/components/success-line';
 import {VaultEntries} from '@/components/vault-entries';
-import {connectionTitle, defaultActions, integrationOf, ownSettings, reaches} from '@/lib/access';
+import {
+	connectionTitle,
+	defaultActions,
+	integrationOf,
+	isBuiltInAgent,
+	ownSettings,
+	reaches,
+} from '@/lib/access';
 import {useHuman} from '@/hooks/use-human';
 import {reachedRepositories} from '@/lib/github';
 import {useLoaded} from '@/hooks/use-loaded';
@@ -42,7 +49,7 @@ import {
 	connectionSetBy,
 	hasOtherPeople,
 	manages,
-	managesAgentOn,
+	managesAgentSettings,
 } from '@/lib/orgs';
 import type {connectionLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
@@ -87,16 +94,14 @@ function ConnectionDetail() {
 
 	// The agents that reach it, a column each of its permissions: the person's own, the shared ones
 	// where every member has it, theirs to change where the agent is, and Chat, the one the Chat
-	// page's personas all act through, theirs to change where the connection is. Where a column
-	// isn't theirs, it names who changes it.
+	// page's personas all act through, theirs to change on any connection they use, for everyone's
+	// Chat there. Where a column isn't theirs, it names who changes it.
 	const columns: GridAgent[] = agents
 		.filter((agent) => agent.revokedAt === null && reaches(agent, connection))
 		.map((agent) => ({
 			agent,
 			own: ownSettings(agent, connection.id),
-			setBy: managesAgentOn(human, agent, connection)
-				? null
-				: agentSetBy(agent, connection, members),
+			setBy: managesAgentSettings(human, agent) ? null : agentSetBy(agent, members),
 		}));
 	const activeOrg = human.org;
 	// One's own connection is one's to change and share, and one shared with every member is the
@@ -384,27 +389,24 @@ function permissionsIntro(connection: Connection, custom: boolean): string {
 	].join(' ');
 }
 
-// "Default", "Default and Chat", "Default, Chat and Scout".
-function bothOf(names: string[]): string {
-	if (names.length < 2) {
-		return names[0] ?? '';
-	}
-	return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
-}
-
-// For someone a connection is shared with, who doesn't change it: who sets Default and the columns
-// that go with it, Chat's among them, and what they may change themselves, their own agents'
-// columns, or else whom to ask. Null where the defaults are theirs to set.
+// For someone a connection is shared with, who doesn't change it: who sets Default, and what they
+// set themselves, beyond Default if they like: Chat's column, which holds for everyone's Chat on
+// the connection, and their own agents'. Null where the defaults are theirs to set.
 function lockedNote(defaultsSetBy: string | null, columns: GridAgent[]): string | null {
 	if (defaultsSetBy === null) {
 		return null;
 	}
-	const withDefault = columns
-		.filter((column) => column.setBy === defaultsSetBy)
-		.map(({agent}) => agent.name);
-	const sets = `${defaultsSetBy} sets ${bothOf(['Default', ...withDefault])} here.`;
-	if (columns.some((column) => column.setBy === null)) {
-		return `${sets} You set your own agents’ columns.`;
+	const sets = `${defaultsSetBy} sets Default here.`;
+	const chat = columns.some(({agent}) => isBuiltInAgent(agent));
+	const yours = columns.some(({agent, setBy}) => setBy === null && !isBuiltInAgent(agent));
+	if (chat && yours) {
+		return `${sets} You set Chat’s column, for everyone’s Chat on it, and your own agents’, beyond Default if you like.`;
+	}
+	if (chat) {
+		return `${sets} You set Chat’s column, for everyone’s Chat on it, beyond Default if you like.`;
+	}
+	if (yours) {
+		return `${sets} You set your own agents’ columns, beyond Default if you like.`;
 	}
 	return `${sets} Ask them to change what agents may do with it.`;
 }
