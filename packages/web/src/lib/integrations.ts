@@ -1,6 +1,6 @@
 import {
 	FolderIcon,
-	LibraryIcon,
+	KeyRoundIcon,
 	MailIcon,
 	MessageSquareIcon,
 	SquareTerminalIcon,
@@ -62,7 +62,7 @@ const MCP_MARK = '/favicon.svg';
 // MCP servers until a connection has its server's site's icon (`serverLogo`); or a mark in one
 // dark color (`ink`).
 const LOGOS: Partial<Record<IntegrationId, LucideIcon | IntegrationLogoImage>> = {
-	vault: LibraryIcon,
+	vault: KeyRoundIcon,
 	sandbox: SquareTerminalIcon,
 	files: FolderIcon,
 	chat: MessageSquareIcon,

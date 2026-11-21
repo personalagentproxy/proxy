@@ -22,8 +22,7 @@ import {Label} from '@proxy/ui/components/label';
 import {PillButton} from '@proxy/ui/components/pill-button';
 import {Textarea} from '@proxy/ui/components/textarea';
 
-const EMPTY =
-	'No secrets yet. Add an API key or a token, and turn on Use secrets for the agents that may run commands with it.';
+const EMPTY = 'No secrets yet.';
 
 const HIDDEN = '••••••••••••';
 
