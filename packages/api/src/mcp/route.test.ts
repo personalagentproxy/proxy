@@ -11,7 +11,8 @@ const listAgentConnections = mock();
 const listAgentTools = mock();
 const runAgentTool = mock();
 
-mock.module('../agent-side/tools', () => ({agentViewer: mock(), listAgentConnections, listAgentTools, runAgentTool}));
+const refreshAgentTools = mock();
+mock.module('../agent-side/tools', () => ({agentViewer: mock(), listAgentConnections, listAgentTools, refreshAgentTools, runAgentTool}));
 
 const sendAgentFeedback = mock();
 
@@ -323,6 +324,28 @@ describe('handleMcpRoute', () => {
 			tools: [['emails_list', 'Lists emails']],
 			ran: [{tool: 'emails_list'}, {tool: 'emails_archive'}],
 		});
+	});
+
+	test('asks a custom server for its tools again, for an open task, answering with those the agent has and the names of the rest', async () => {
+		refreshAgentTools.mockResolvedValue(
+			Ok({
+				tools: [{name: 'search_docs', title: 'Search docs', description: 'Searches the docs', readOnly: true, risk: 'low', inputSchema: {type: 'object', properties: {}}}],
+				notAllowed: ['get_timeline'],
+			}),
+		);
+		const answer = await script(`const {tools, notAllowed} = await pap.refreshTools('mcp-1'); return {tools: tools.map((tool) => tool.name), notAllowed};`, 'task-1');
+
+		expect(requireOpenTask).toHaveBeenCalledWith(signedIn, 'task-1');
+		expect(refreshAgentTools).toHaveBeenCalledWith(signedIn, 'mcp-1');
+		expect(JSON.parse(answer.text)).toEqual({tools: ['search_docs'], notAllowed: ['get_timeline']});
+	});
+
+	test('asking for tools again needs an open task, and is refused before the server is asked', async () => {
+		requireOpenTask.mockResolvedValue(Err(ApiErr.notFound('task', 'task-9')));
+		const answer = await script(`return await pap.refreshTools('mcp-1');`, 'task-9');
+
+		expect(answer.text).toContain('No task task-9');
+		expect(refreshAgentTools).not.toHaveBeenCalled();
 	});
 
 	test('finishes the script’s task and sends feedback for it', async () => {

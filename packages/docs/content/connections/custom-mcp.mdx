@@ -67,7 +67,9 @@ The activity log shows each run by the tool's name, with the params the agent ga
 
 <Callout>
 A server's tools can change. The connection's page has a button that asks the server for its tools
-again and keeps the new list. A tool that appears later is off until you turn it on, and the
+again and keeps the new list. Agents ask too: their list is asked for again once it is an hour old,
+when an agent calls a tool the list doesn't have or the server says it no longer has, and when an
+agent asks with `pap.refreshTools`. A tool that appears later is off until you turn it on, and the
 settings for a tool the server no longer lists are dropped, so they can't carry over to a different
 tool the server later lists by that name.
 </Callout>

@@ -48,10 +48,10 @@ agent's next request.
 
 Under the text field, the page tells the agent what it would be told connecting over MCP: the
 connections the login can use, each with what it may do with it, the vault, and what a script can
-call: `pap.startTask`, `pap.connections`, `pap.tools`, `pap.call`, `pap.finishTask` and
-`pap.feedback`. A script is JavaScript or TypeScript run as the body of an async function, so one
-script can look in several accounts at once and answer with only what the agent needs. The answer is
-what the script logged, then what it returned, or the error it threw.
+call: `pap.startTask`, `pap.connections`, `pap.tools`, `pap.refreshTools`, `pap.call`,
+`pap.finishTask` and `pap.feedback`. A script is JavaScript or TypeScript run as the body of an
+async function, so one script can look in several accounts at once and answer with only what the
+agent needs. The answer is what the script logged, then what it returned, or the error it threw.
 
 ## Tasks
 

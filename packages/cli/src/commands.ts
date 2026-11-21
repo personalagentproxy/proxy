@@ -139,7 +139,7 @@ async function filesMain(args: string[], io: Io): Promise<number> {
 }
 
 const CONNECTIONS = 'pap connections';
-const TOOLS = 'pap tools <connection>';
+const TOOLS = 'pap tools <connection> [--refresh]';
 const CALL = 'pap call <connection> <tool> [json|-] [--all]';
 const FEEDBACK = 'pap feedback <message> [--connection <id>] [--tool <name>]';
 
@@ -158,12 +158,16 @@ export const COMMANDS: Record<string, Command> = {
 	tools: jsonCommand('tools', {
 		usage: TOOLS,
 		summary: "a connection's tools and their params",
-		help: `${TOOLS}\nA connection's tools, with the params each takes.\n`,
-		flags: {},
+		help: `${TOOLS}
+A connection's tools, with the params each takes.
+--refresh  for a custom MCP server: asks it for its tools again, as {tools, notAllowed}, notAllowed the ones the person hasn't turned on for you.
+`,
+		flags: {refresh: 'switch'},
 		run: (parsed, io) =>
 			Do(async ($) => {
 				const [connection = ''] = $(positionals(parsed, 1, 1, TOOLS));
-				return $(await $(clientFrom(io)).call('tools', [connection]));
+				const method = parsed.switches.has('refresh') ? 'refreshTools' : 'tools';
+				return $(await $(clientFrom(io)).call(method, [connection]));
 			}),
 	}),
 	call: jsonCommand('call', {

@@ -7,6 +7,7 @@
 export const PAP_METHODS = [
 	'connections',
 	'tools',
+	'refreshTools',
 	'call',
 	'startTask',
 	'finishTask',

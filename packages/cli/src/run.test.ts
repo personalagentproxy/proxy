@@ -42,10 +42,11 @@ describe('pap', () => {
 		expect(output).toEqual({out: '[{"connection":"mail-1","integration":"Email"}]\n', err: ''});
 	});
 
-	test('tools, call and feedback send their arguments as a script passes them', async () => {
+	test('tools, a refresh of them, call and feedback send their arguments as a script passes them', async () => {
 		const {sent, pap} = harness(() => ok(null));
 
 		await pap('tools', 'mail-1');
+		await pap('tools', 'mcp-1', '--refresh');
 		await pap('call', 'mail-1', 'emails_list', '{"search":"invoice"}');
 		await pap('call', 'mail-1', 'emails_list');
 		await pap(
@@ -62,6 +63,7 @@ describe('pap', () => {
 
 		expect(sent.map((one) => one.body)).toEqual([
 			{method: 'tools', args: ['mail-1']},
+			{method: 'refreshTools', args: ['mcp-1']},
 			{method: 'call', args: ['mail-1', 'emails_list', {search: 'invoice'}]},
 			{method: 'call', args: ['mail-1', 'emails_list', {}]},
 			{
