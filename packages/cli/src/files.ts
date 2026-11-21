@@ -1,7 +1,6 @@
 import {Err, Ok, Result} from 'ts-results-es';
 
 import {
-	CLI_CONVERSIONS,
 	CLI_EXPORTS,
 	CLI_FILE_HEADER,
 	CLI_FILES_PATH,
@@ -21,16 +20,15 @@ import {
 	refused,
 	usage,
 } from './io';
-import {type Put, sendFile} from './send-file';
+import {readLocal, uploadFile} from './blobs';
 
 /**
- * `pap files`: a drive's files by path, for code in a sandbox, which a tool can't move: a tool's
- * answer is text, and a file is bytes. `ls` lists a folder, `pull` brings a file's bytes into the
- * sandbox, and `push` sends a file's bytes to the drive, as a new file or as the next version of
- * the one that is there, through an upload as files_upload makes one (send-file.ts). A drive is a
- * Files connection or a Google one, whose paths start at Drive's own places, as
- * `My Drive/Reports/q3.pdf`; a Google Doc, Sheet or Slides file comes down as Drive exports it,
- * and a new file pushed can be made one.
+ * `pap files`: a drive's files by path, for code in a sandbox. `ls` lists a folder, `pull` brings
+ * a file's bytes into the sandbox, and `push` puts a file in the drive, as a new file or as the
+ * next version of the one that is there: asked about before any of it is sent, then made a blob,
+ * as `pap upload` makes one (blobs.ts), and the blob put in the drive, as files_upload puts one. A drive is a Files connection or a
+ * Google one, whose paths start at Drive's own places, as `My Drive/Reports/q3.pdf`; a Google Doc,
+ * Sheet or Slides file comes down as Drive exports it, and a new file pushed can be made one.
  *
  * A push over a file is made by whoever read what it holds, as the write tool has it. pap keeps
  * that for the agent: a pull notes, beside pap's own files in the home directory, which file each
@@ -45,7 +43,7 @@ export const LS = 'pap files ls <connection> [path]';
 export const PULL =
 	'pap files pull <connection> <path> [to] [--id <file>] [--version <version>] [--as <format>] [--tab <tab>]';
 export const PUSH =
-	'pap files push <file> [<connection> <path>] [--id <file>] [--as doc|sheet|slides] [--force]';
+	'pap files push <file> [<connection> <path>] [--id <file>] [--convert] [--force]';
 
 export const FILES_HELP = `${FILES}
 A drive's files by path, as Reports/2026/q3.csv, from the drive's top. A Google connection's Drive
@@ -62,10 +60,10 @@ starts at its places: My Drive/Reports/q3.pdf, Shared drives/<drive>/..., Shared
       a file's bytes to the drive: back where it was pulled from, or to a path, where the folders on the way are made
       a file that is there gets its next version; --force writes over one that changed since it was pulled;
       --id writes over the file of that id, on the connection given or the one it was pulled from
-      into Google Drive, a new file goes up as its bytes; --as makes it a Doc (of a .docx or .md), a Sheet
-      (.xlsx or .csv) or a Slides file (.pptx). A Doc, Sheet or Slides file is never pushed over: edit a Doc
-      in place with the docs_edit tool, a Sheet's cells with ranges_write, a Slides file's text with
-      slides_edit, or push the file to a new path with --as
+      into Google Drive, a new file goes up as its bytes; --convert makes it a Doc (of a .docx or .md), a
+      Sheet (.xlsx or .csv) or a Slides file (.pptx). A Doc, Sheet or Slides file is never pushed over: edit
+      a Doc in place with the docs_edit tool, a Sheet's cells with ranges_write, a Slides file's text with
+      slides_edit, or push the file to a new path with --convert
 Where a name matches more than one file, as Google Drive allows, the ids are listed: name the file with --id.
 The version before a push is always kept in the drive.
 `;
@@ -257,29 +255,6 @@ export function pullFile(parsed: Parsed, io: Io): Promise<Result<Json, Failure>>
 	});
 }
 
-// Where an upload's bytes go, as the start answered it.
-function putOf(answer: Json | undefined): Result<{upload: string; put: Put}, Failure> {
-	const put = isObject(answer) && isObject(answer.put) ? answer.put : undefined;
-	if (
-		!isObject(answer) ||
-		typeof answer.upload !== 'string' ||
-		put === undefined ||
-		typeof put.url !== 'string' ||
-		!isObject(put.headers)
-	) {
-		return Err(failed('PAP answered without where to send the file. Try again.'));
-	}
-	const headers = Object.fromEntries(
-		Object.entries(put.headers).flatMap(([name, value]) =>
-			typeof value === 'string' ? [[name, value]] : [],
-		),
-	);
-	return Ok({
-		upload: answer.upload,
-		put: {url: put.url, headers},
-	});
-}
-
 // Where a push goes: the file of an id, on a connection, or a path.
 type PushTarget = {connection: string; id: string} | {connection: string; path: string};
 
@@ -323,11 +298,10 @@ function pushTarget(
 }
 
 /**
- * `pap files push`: a file's bytes to the drive, back where it was pulled from, to a path, or over
- * the file of an id. An upload, as files_upload makes one: its size and SHA-256 read from disk
- * first, the upload started with them and the file's name, which says what its bytes are, the bytes
- * streamed to the URL it was answered with, and the file made by done, which checks what arrived
- * against what was said.
+ * `pap files push`: a file put in the drive, back where it was pulled from, at a path, or over the
+ * file of an id: asked about first, so a push the drive would refuse sends none of the file; then
+ * made a blob, its SHA-256 checked against what arrived, and the blob put there, the version pulled
+ * named where it goes back over the file it was pulled from.
  */
 export function pushFile(parsed: Parsed, io: Io): Promise<Result<Json, Failure>> {
 	return Do(async ($) => {
@@ -337,36 +311,23 @@ export function pushFile(parsed: Parsed, io: Io): Promise<Result<Json, Failure>>
 		if (given === undefined || (byId ? count > 2 : count === 2 || count > 3)) {
 			return $(Err(usage(`Usage: ${PUSH}`)));
 		}
-		const as = $(oneOf('as', parsed.values.as, CLI_CONVERSIONS));
 		const local = io.absolutePath(given);
 		const pulled = (await readNotes(io))[local];
 		const name = local.split('/').at(-1) ?? '';
 		const {target, held} = $(pushTarget(parsed, given, name, pulled));
-		const {size, sha256} = $(
-			(await io.hashFile(local)).mapErr((cause) =>
-				failed(`Could not read ${given}: ${cause.message}.`),
-			),
-		);
 		const client = $(clientFrom(io));
-		const query = {
+		const read = $(await readLocal(io, local));
+		const where = {
 			...('id' in target ? {id: target.id} : {path: target.path}),
-			size: String(size),
-			sha256,
-			file: name,
-			...(as === undefined ? {} : {as}),
+			...(parsed.switches.has('convert') ? {convert: '1'} : {}),
 			...(parsed.switches.has('force') ? {force: '1'} : held === undefined ? {} : {version: held}),
 		};
-		const started = $(
-			await okOr(client, filesPath(target.connection, 'uploads', query), {method: 'POST'}),
-		);
-		const {upload, put} = $(putOf(await jsonOf(started)));
-		$(await sendFile(io, local, size, put));
+		// Asked about before the file is sent, so a push that would be refused sends nothing.
+		const asked = {file: name, size: String(read.size), ...where};
+		$(await okOr(client, filesPath(target.connection, 'push/check', asked), {method: 'POST'}));
+		const {blob} = $(await uploadFile(io, client, read));
 		const response = $(
-			await okOr(
-				client,
-				filesPath(target.connection, `uploads/${encodeURIComponent(upload)}/done`, {}),
-				{method: 'POST'},
-			),
+			await okOr(client, filesPath(target.connection, 'push', {blob, ...where}), {method: 'POST'}),
 		);
 		const answer = await jsonOf(response);
 		const file = isObject(answer) && isObject(answer.file) ? answer.file : undefined;

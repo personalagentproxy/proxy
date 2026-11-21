@@ -13,7 +13,7 @@ import type {EmailCredential} from '../connections/email/credential';
 import {imapClientOptions, imapError, smtpError, smtpTransport} from '../connections/email/mail-check';
 import {log, serializeError} from '../observability/log';
 import {decryptSecret} from '../utils/secret-crypto';
-import {attachmentRecord, attachmentsText, pickAttachment, requireEmailId, type AttachmentFile} from './attachment-text';
+import {attachmentBlobRecord, attachmentRecord, attachmentsText, pickAttachment, requireEmailId, type AttachmentFile} from './attachment-text';
 import {
 	type Change,
 	type Changes,
@@ -21,6 +21,7 @@ import {
 	type DataRecord,
 	type ListQuery,
 	MAX_CHANGES,
+	type NewCommandRunner,
 	type RecordPage,
 	type RecordStore,
 	type RecordTarget,
@@ -598,20 +599,21 @@ async function getMessage(session: Session, id: string): Promise<Result<DataReco
 	});
 }
 
-/** One of an email's attachments, read as text: the `attachments` collection's one command. */
-function readAttachment(target: RecordTarget, values: RecordValues): Promise<Result<DataRecord, ApiError>> {
-	return Do(async ($) => {
-		const email = $(requireEmailId(values));
-		return $(
-			await withRecord(target, email, (session) =>
-				Do(async ($$) => {
-					const {parsed} = $$(await parsedMessage(session, email));
-					const {attachment, number} = $$(pickAttachment(attachmentFiles(parsed), values));
-					return $$(await attachmentRecord(email, number, attachment));
-				}),
-			),
-		);
-	});
+/** One of an email's attachments, as `answer` makes a record of it: read as text, or made a blob. */
+function withAttachment(answer: (target: RecordTarget, email: string, number: number, file: AttachmentFile) => Promise<Result<DataRecord, ApiError>>): NewCommandRunner {
+	return (target, values) =>
+		Do(async ($) => {
+			const email = $(requireEmailId(values));
+			return $(
+				await withRecord(target, email, (session) =>
+					Do(async ($$) => {
+						const {parsed} = $$(await parsedMessage(session, email));
+						const {attachment, number} = $$(pickAttachment(attachmentFiles(parsed), values));
+						return $$(await answer(target, email, number, attachment));
+					}),
+				),
+			);
+		});
 }
 
 // The headers that keep a reply in the thread of the email it answers.
@@ -903,7 +905,10 @@ export const emailConnector = {
 	reply: replyToMailbox,
 } satisfies RecordStore;
 
-export const emailAttachmentsConnector = {newCommands: {read: readAttachment}} satisfies RunOnly;
+// The `attachments` collection's commands: an attachment read as text, or made a blob.
+export const emailAttachmentsConnector = {
+	newCommands: {read: withAttachment((_target, email, number, file) => attachmentRecord(email, number, file)), blob: withAttachment(attachmentBlobRecord)},
+} satisfies RunOnly;
 
 // Send and Save as draft.
 export const emailRepliesConnector = {newCommands: replyCommands(replyToMailbox)} satisfies RunOnly;

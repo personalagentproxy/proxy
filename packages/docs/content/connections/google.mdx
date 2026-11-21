@@ -142,7 +142,9 @@ can allow each action separately:
   where it has none, with its attachments listed. Each comes with its link in Gmail, in this
   account, for the agent to give you; a draft's opens it to be written. An attachment is read as
   text: a spreadsheet's tabs as CSV, a PDF's or a Word document's text, a forwarded email, or a
-  text file as it is, the first 100,000 characters of it. Images and other files can't be read.
+  text file as it is, the first 100,000 characters of it. Images and other files can't be read,
+  but any attachment can be made a [blob](/connections/files#moving-files-between-connections),
+  to put in a drive.
 - **Mark read or unread**, **Star**, **Archive** and **Move email to Trash** act on messages in
   the inbox, and require Read email. Archived email stays in All Mail, and Gmail keeps Trash 30
   days before deleting it; nothing is deleted for good.
@@ -215,7 +217,7 @@ For Drive, Docs, Sheets and Slides:
   drive, uploads other files, such as PDFs and pictures, copies files into them, and adds rows to a
   spreadsheet's tabs, and requires Read files. A document is written as Markdown and a spreadsheet
   as CSV, and Google converts them as they are uploaded. Any other file goes up as its bytes
-  through a URL, as under [Uploading through a URL](#uploading-through-a-url).
+  from a blob, as under [Putting files in Drive](#putting-files-in-drive).
   Copying is done by Google, so a file of any size already in Drive is copied into a folder, a
   shared drive or My Drive, under its own name or a new one; folders aren't copied. A row is
   written as `Header: value` lines, under the headers of the tab's first row, and goes after the
@@ -226,10 +228,10 @@ For Drive, Docs, Sheets and Slides:
   refused, and renaming a file leaves its content alone. Shared drives aren't renamed or trashed. A
   row changes only in the values written differently, so a formula in another of its cells stays.
   It also edits a document's and a presentation's text in place and inserts and deletes a
-  spreadsheet's rows, columns and tabs, as under [Editing in place](#editing-in-place); uploads a
-  file's bytes over a file of its own bytes that is there; gives a
-  file an earlier version back; and undoes a change to a spreadsheet's cells, as under
-  [Uploading through a URL](#uploading-through-a-url) and [Version history](#version-history).
+  spreadsheet's rows, columns and tabs, as under [Editing in place](#editing-in-place); puts a
+  blob's bytes over a file of its own bytes that is there; gives a file an earlier version back;
+  and undoes a change to a spreadsheet's cells, as under [Putting files in Drive](#putting-files-in-drive)
+  and [Version history](#version-history).
 - **Move files to Trash** moves files and folders to Drive's Trash, where Drive keeps them 30 days
   before deleting them, and requires Read files. Nothing is deleted for good.
 
@@ -288,31 +290,22 @@ task first changes the file. Rows, columns and tabs inserted or deleted have no 
 reads what they took away in the copy, and you give the whole spreadsheet back from File > Version
 history.
 
-### Uploading through a URL
+### Putting files in Drive
 
-A file of its own bytes, a PDF, a picture, a video, a docx, goes up to Drive through a URL, from
-wherever the agent runs, with a shell and `curl`, as it does [into Files](/connections/files#uploading-through-a-url).
-The URL is Personal Agent Proxy's own: the bytes are kept there until the upload is finished, and
-only then sent on to Drive, so nothing reaches Drive that wasn't checked first. A file can be as
-large as the server takes, 100 MB unless its `FILES_MAX_MB` says otherwise.
+A file of its own bytes, a PDF, a picture, a video, a docx, goes into Drive as a
+[blob](/connections/files#moving-files-between-connections), the way files move between
+connections: an email's attachment made one with `attachments_blob`, a file of another drive with
+`files_blob`, or a file from the agent's shell sent to the URL `pap.upload()` gives. `files_upload`
+puts the blob in Drive, in the folder or shared drive given, My Drive if it names none, or over a
+file at the version given, checking that the agent may add files, or edit them to write over one,
+and that the file is still at that version. A copy is kept first, as under
+[Version history](#version-history), the bytes are sent on to Drive as they come, and the file is
+logged in its history as the agent's, for its task. The agent is answered with its id, version and
+link. A file can be as large as the server takes, 100 MB unless its `FILES_MAX_MB` says otherwise.
 
-1. The agent asks for an upload with `files_upload`, saying the file's name and the folder or
-   shared drive for a new file, My Drive if it names none, or the file and its version to write
-   over one, and the file's size in bytes, with its SHA-256 if it likes. Everything is checked
-   then, before any bytes are sent: that the agent may add files, or edit them to write over one;
-   that the folder is there; that the file is still at the version given; and what the bytes may
-   be, as below.
-2. It is answered with the URL and a line to run as it is:
-   `curl -X PUT --upload-file report.pdf '<url>'`. The URL is the only key to the upload, so it
-   needs no sign-in. It takes one file, no more bytes than were said, for one hour. Bytes all in
-   by then can still be finished for an hour more.
-3. The agent calls `files_upload_done`, which checks the size, and the SHA-256 if one was given,
-   against what arrived. Bytes that aren't what was said are refused, and nothing reaches Drive.
-   Otherwise the file in Drive is checked again: a file written over must still be at the version
-   given, or the upload is refused and the file left as it is. Then its copy is kept, as under
-   [Version history](#version-history), the bytes are sent on to Drive, and the file is logged in
-   its history as the agent's, for the task it started the upload for. The agent is answered with
-   its id, version and link.
+`files_blob` makes a blob of a file in Drive the other way: a file of its own bytes as it is, now
+or at an earlier revision, and a Doc, Sheet or Slides file as Drive exports it, as `pap files pull`
+below does.
 
 A new file keeps its own type, as its name's extension says, such as `report.pdf`, or as the agent
 says where the name has none. With `convert`, it becomes one of Google's own instead: a docx or
@@ -392,15 +385,15 @@ file's link too.
   CSV is its first tab, or the one `--tab` names. Google exports at most 10 MB of a file: past
   that, the agent is told to pull a PDF, or something smaller, as one tab. `pap` notes the file's
   id, the version it was at and what it was exported as.
-- `pap files push` sends a file back, as an [upload through a URL](#uploading-through-a-url). A
-  new file goes up as its bytes; with `--as doc`, `--as sheet` or `--as slides` a docx or Markdown
-  becomes a Doc, an xlsx or CSV a Sheet, and a pptx a Slides file. The folders on its way that
-  are missing are made first, as the agent's, and stay if the push is never finished. Over a file
-  that is there, the push names the version that was pulled, or is made with `--force`, and a
-  copy is kept first, as under [Version history](#version-history). A Doc, Sheet or Slides file
-  is never pushed over: the agent is pointed to `docs_edit` for a Doc's text, `ranges_write`,
-  `sheets_rows` and `sheets_tabs` for a Sheet, `slides_edit` for a Slides file's text, or to push
-  it as a new file with `--as`.
+- `pap files push` sends a file back, as a blob [put in Drive](#putting-files-in-drive). A new
+  file goes up as its bytes; with `--convert` a docx or Markdown becomes a Doc, an xlsx or CSV a
+  Sheet, and a pptx a Slides file. The folders on its way that are missing are made, as the
+  agent's. Over a file that is there, the push names the version that was pulled, or is made with
+  `--force`, and a copy is kept first, as under [Version history](#version-history). A Doc, Sheet
+  or Slides file is never pushed over: the agent is pointed to `docs_edit` for a Doc's text,
+  `ranges_write`, `sheets_rows` and `sheets_tabs` for a Sheet, `slides_edit` for a Slides file's
+  text, or to push it as a new file with `--convert`. All of it is checked before any of the file
+  is sent, so a push Drive would refuse sends nothing.
 
 A pull is a read, a push to a new path an added file, and a push over a file an edit, each checked
 against what the agent may do and in the activity log as from a sandbox.

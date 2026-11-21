@@ -61,6 +61,11 @@ export function scriptToolDescription(via: 'mcp' | 'web' | 'harness'): string {
 		'pap.call(connection, tool, params?) → what the tool answers',
 		...(withTasks ? ['pap.finishTask({outcome?}): ends the task, saying what was done.'] : []),
 		'pap.feedback({message, connection?, tool?}): tells the makers of Personal Agent Proxy what didn’t work as expected.',
+		...(via === 'harness'
+			? []
+			: [
+					"pap.upload() → {url}: a URL your shell PUTs a file to, as curl -T <path> '<url>?name=<file name>', answered with {blob}. pap.download(blob) → {url, name}: a URL to GET a blob’s bytes from. A blob is a file passed between tools for a day: one tool hands it over, as attachments_blob or files_blob, and another takes it, as files_upload.",
+				]),
 		`A failed call throws an Error with \`kind\` and \`message\`. ${via === 'mcp' ? 'Calls need a task: `task`, or one the script started. ' : ''}${via === 'web' ? 'Calls need a task: one this script or an earlier one started. ' : ''}Limits: ${Math.round(LIMITS.wallMs / 1000)} s, ${LIMITS.maxCalls} calls, ${LIMITS.maxConcurrentCalls} at once.`,
 	].join('\n');
 }

@@ -38,7 +38,7 @@ import {
 	type GmailMessage,
 	type MessagePart,
 } from '../connections/google/gmail-api';
-import {attachmentRecord, attachmentsText, pickAttachment, readableKind, requireEmailId} from './attachment-text';
+import {attachmentBlobRecord, attachmentRecord, attachmentsText, type AttachmentFile, type AttachmentInfo, pickAttachment, readableKind, requireEmailId} from './attachment-text';
 import {
 	type Change,
 	type Changes,
@@ -528,24 +528,41 @@ function messageOf(token: string, recordId: string): Promise<Result<GmailMessage
 	});
 }
 
-/** One of an email's attachments, read as text: the `attachments` collection's one command. */
-const readAttachment: NewCommandRunner = (target, values) =>
-	Do(async ($) => {
-		const email = $(requireEmailId(values));
-		return $(
-			await callGoogle(target.connection, (token) =>
-				Do(async ($$) => {
-					const message = $$(await messageOf(token, email));
-					const {attachment, number} = $$(pickAttachment(attachmentsOf(message.payload), values));
-					$$(readableKind(attachment));
-					const bytes = attachment.attachmentId ? $$(await getAttachment(token, message.id, attachment.attachmentId)) : Buffer.from(attachment.data ?? '', 'base64url');
-					return $$(await attachmentRecord(email, number, {...attachment, bytes}));
-				}),
-			),
-		);
-	});
+/**
+ * One of an email's attachments, as `answer` makes a record of it, its bytes fetched only where
+ * `wanted` takes it: read as text, or made a blob.
+ */
+function withAttachment(
+	wanted: (attachment: AttachmentInfo) => Result<void, ApiError>,
+	answer: (target: RecordTarget, email: string, number: number, file: AttachmentFile) => Promise<Result<DataRecord, ApiError>>,
+): NewCommandRunner {
+	return (target, values) =>
+		Do(async ($) => {
+			const email = $(requireEmailId(values));
+			return $(
+				await callGoogle(target.connection, (token) =>
+					Do(async ($$) => {
+						const message = $$(await messageOf(token, email));
+						const {attachment, number} = $$(pickAttachment(attachmentsOf(message.payload), values));
+						$$(wanted(attachment));
+						const bytes = attachment.attachmentId ? $$(await getAttachment(token, message.id, attachment.attachmentId)) : Buffer.from(attachment.data ?? '', 'base64url');
+						return $$(await answer(target, email, number, {...attachment, bytes}));
+					}),
+				),
+			);
+		});
+}
 
-export const gmailAttachmentsConnector = {newCommands: {read: readAttachment}} satisfies RunOnly;
+// The `attachments` collection's commands: an attachment read as text, where it can be, or made a blob, whatever it is.
+export const gmailAttachmentsConnector = {
+	newCommands: {
+		read: withAttachment(
+			(attachment) => readableKind(attachment).map(() => undefined),
+			(_target, email, number, file) => attachmentRecord(email, number, file),
+		),
+		blob: withAttachment(() => Ok(undefined), attachmentBlobRecord),
+	},
+} satisfies RunOnly;
 
 export const gmailConnector = {
 	list: listPage,

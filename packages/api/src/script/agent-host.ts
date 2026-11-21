@@ -7,6 +7,7 @@ import type {SignedInAgent} from '@proxy/db/agent';
 import type {PapMethod} from '@proxy/contracts/cli';
 
 import {sendAgentFeedback} from '../agent-side/feedback';
+import {blobDownloadUrl, blobUploadUrl, ownerOf} from '../blobs/blobs';
 import {connectionSummary, toolSummary} from '../agent-side/summaries';
 import {finishAgentTask, requireOpenTask, startAgentTask} from '../agent-side/tasks';
 import {type AgentCaller, agentViewer, listAgentConnections, listAgentTools, runAgentTool} from '../agent-side/tools';
@@ -26,6 +27,8 @@ import type {PapAnswer, ScriptHost} from './run-script';
  * - `pap.tools(connection)`: a connection's tools.
  * - `pap.call(connection, tool, params?)`: runs a tool, one that reads or one that changes something.
  * - `pap.feedback({message, connection?, tool?})`: feedback for the makers of Personal Agent Proxy.
+ * - `pap.upload()`: a URL to PUT files to, each made a blob of the agent's (blobs/).
+ * - `pap.download(blob)`: a URL to GET one of the agent's blobs from.
  * The task is the run's: the one it was started for, or the one the script started, kept here,
  * so a script can only use its agent's own, as any call can. The built-in agent's threads
  * have a task the loop keeps for them, so theirs start and finish none. Code in a sandbox calling
@@ -48,6 +51,8 @@ const ARGS = {
 	startTask: z.tuple([z.object({title: z.string(), goal: z.string(), parent: z.string().optional()})]),
 	finishTask: z.tuple([z.object({outcome: z.string().optional()}).optional()]),
 	feedback: z.tuple([z.object({message: z.string(), connection: z.string().optional(), tool: z.string().optional()})]),
+	upload: z.tuple([]),
+	download: z.tuple([z.string().min(1)]),
 };
 
 // How a model calls each `pap` function, as a script's (`pap.tools(connection)`) or the CLI's
@@ -60,6 +65,8 @@ const SCRIPT_USAGE: Record<PapMethod, string> = {
 	startTask: 'pap.startTask({title, goal, parent?})',
 	finishTask: 'pap.finishTask({outcome?})',
 	feedback: 'pap.feedback({message, connection?, tool?})',
+	upload: 'pap.upload()',
+	download: 'pap.download(blob)',
 };
 
 const CLI_USAGE: Record<PapMethod, string> = {
@@ -68,6 +75,8 @@ const CLI_USAGE: Record<PapMethod, string> = {
 	tools: '`pap tools <connection>`',
 	call: '`pap call <connection> <tool> [json]`',
 	feedback: '`pap feedback <message> [--connection <id>] [--tool <name>]`',
+	upload: '`pap upload <file>`',
+	download: '`pap download <blob> [to]`',
 };
 
 function usageFor(via: ScriptVia): Record<PapMethod, string> {
@@ -163,6 +172,15 @@ function answer(signedIn: SignedInAgent, options: HostOptions, state: HostState,
 		if (method === 'feedback') {
 			const [body] = $(argsOf(options.via, method, ARGS.feedback, args));
 			return $(await sendAgentFeedback(caller, {...body, ...(state.taskId === null ? {} : {task: state.taskId})}));
+		}
+		// A blob is the agent's, whatever task it was made for.
+		if (method === 'upload') {
+			$(argsOf(options.via, method, ARGS.upload, args));
+			return $(blobUploadUrl(ownerOf(signedIn)));
+		}
+		if (method === 'download') {
+			const [blob] = $(argsOf(options.via, method, ARGS.download, args));
+			return $(await blobDownloadUrl(ownerOf(signedIn), blob));
 		}
 		const taskId = $(requirePresent(state.taskId, ApiErr.validationError(noTask(options.via))));
 		if (method === 'finishTask') {

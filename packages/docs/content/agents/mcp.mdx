@@ -84,6 +84,8 @@ the script calls these functions:
 | `pap.call(connection, tool, params)`    | Runs one of those tools, one that reads, such as listing emails, or one that changes something, such as archiving or sending one.                                                                                            |
 | `pap.finishTask({outcome})`             | Marks the task done, saying what was done. The agent starts a new task for the next thing you ask for.                                                                                                                       |
 | `pap.feedback({message})`               | Tells the makers of Personal Agent Proxy about something that didn't work as the agent expected. It goes to them, not to you, and changes nothing in your accounts.                                                          |
+| `pap.upload()`                          | A URL the agent's own shell sends a file to, which makes it a [blob](/connections/files#moving-files-between-connections) for a tool such as `files_upload` to put in a drive.                                               |
+| `pap.download(blob)`                    | A URL the agent's own shell fetches a blob from, such as an email's attachment `attachments_blob` made one of.                                                                                                               |
 
 One script can do what would otherwise take the agent many calls, each waiting on the model: look
 through several accounts at once, go through what it found, and answer with only what it needs.

@@ -15,7 +15,6 @@
 		"./desktop-auth": "./src/desktop-auth.ts",
 		"./feedback": "./src/feedback.ts",
 		"./files": "./src/files.ts",
-		"./file-uploads": "./src/file-uploads.ts",
 		"./file-undo": "./src/file-undo.ts",
 		"./harness": "./src/harness.ts",
 		"./harness-transcript": "./src/harness-transcript.ts",

@@ -28,7 +28,7 @@ beforeEach(() => {
 		addContext({userId: 'u1'});
 		res.json({id: req.params.id, ctx: getContext()});
 	});
-	app.put('/api/uploads/:secret', (_req, res) => {
+	app.put('/api/blobs/:token', (_req, res) => {
 		res.json({ctx: getContext()});
 	});
 	app.get('/fail', (_req, res) => {
@@ -53,12 +53,12 @@ describe('requestLogger', () => {
 		expect(lines).toEqual([{msg: 'request finished', ctx: {status: 200, durationMs: expect.any(Number), aborted: false, route: '/things/:id'}}]);
 	});
 
-	it('never writes an upload’s secret, which is its URL’s credential', async () => {
-		const response = await fetch(`${base}/api/uploads/the-secret`, {method: 'PUT', body: 'bytes'});
+	it('never writes a blob’s token, which is its URL’s credential', async () => {
+		const response = await fetch(`${base}/api/blobs/the-token`, {method: 'PUT', body: 'bytes'});
 		const body = (await response.json()) as {ctx: Record<string, unknown>};
-		expect(body.ctx.path).toBe('/api/uploads/:secret');
-		expect(JSON.stringify(lines)).not.toContain('the-secret');
-		expect(lines[0]?.ctx).toMatchObject({route: '/api/uploads/:secret'});
+		expect(body.ctx.path).toBe('/api/blobs/:token');
+		expect(JSON.stringify(lines)).not.toContain('the-token');
+		expect(lines[0]?.ctx).toMatchObject({route: '/api/blobs/:token'});
 	});
 
 	it('keeps a request id the caller sent', async () => {

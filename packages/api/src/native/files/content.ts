@@ -3,9 +3,10 @@ import {Readable} from 'node:stream';
 import {pipeline} from 'node:stream/promises';
 
 import type {Request, Response} from 'express';
-import {Err, Result} from 'ts-results-es';
+import {Err, Ok, Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do} from '@proxy/utils';
+import {formatBytes} from '@proxy/utils/bytes';
 import {completeFileBlob, createFileBlob, type FileBlobRow} from '@proxy/db/files';
 
 import {blobBackend} from '../../backends/backends';
@@ -29,6 +30,14 @@ function megabytes(bytes: number): string {
 	return `${Math.round(bytes / (1024 * 1024))} MB`;
 }
 
+/** Refuses a file said to be larger than one may be, before any of it is sent, as its bytes are refused where they come (`fillBlob`). */
+export function requireFileSize(size: number): Result<void, ApiError> {
+	if (size <= maxFileBytes()) {
+		return Ok(undefined);
+	}
+	return Err(ApiErr.validationError(`A file is at most ${megabytes(maxFileBytes())}, and this one is ${formatBytes(size)}.`));
+}
+
 /** A blob stored, for a version to point at. */
 export type StoredContent = {blobId: string; size: number; sha256: string};
 
@@ -46,21 +55,12 @@ export function storeContent(orgId: string, body: ReadableStream<Uint8Array>, ma
 	});
 }
 
-/**
- * Stores what `body` gives in a blob whose row is made, as an upload's is at its start, and
- * completes the row; a validation error, saying `tooLarge`, where it is over `maxBytes`. A blob
- * filled again holds what was sent last, as after an upload that failed partway is sent again.
- */
-export function fillBlob(
-	blob: Pick<FileBlobRow, 'id' | 'backendId' | 'key'>,
-	body: ReadableStream<Uint8Array>,
-	maxBytes: number,
-	tooLarge = `A file is at most ${megabytes(maxBytes)}.`,
-): Promise<Result<StoredContent, ApiError>> {
+/** Stores what `body` gives in a blob whose row is made, and completes the row; a validation error where it is over `maxBytes`. */
+export function fillBlob(blob: Pick<FileBlobRow, 'id' | 'backendId' | 'key'>, body: ReadableStream<Uint8Array>, maxBytes: number): Promise<Result<StoredContent, ApiError>> {
 	return Do(async ($) => {
 		const backend = await blobBackend();
 		if (backend.id !== blob.backendId) {
-			return $(Err(ApiErr.unavailable('This upload was started for a store this server no longer uses: start it again.')));
+			return $(Err(ApiErr.unavailable('This blob was made for a store this server no longer uses: make it again.')));
 		}
 		const hasher = new Bun.CryptoHasher('sha256');
 		let size = 0;
@@ -79,7 +79,7 @@ export function fillBlob(
 		);
 		const put = await backend.put(blob.key, counted);
 		if (put.isErr() && size > maxBytes) {
-			return $(Err(ApiErr.validationError(tooLarge)));
+			return $(Err(ApiErr.validationError(`A file is at most ${megabytes(maxBytes)}.`)));
 		}
 		$(put);
 		const stored = $(await completeFileBlob(blob.id, {size, sha256: hasher.digest('hex')}));
@@ -87,16 +87,19 @@ export function fillBlob(
 	});
 }
 
-/** Stores text as a new blob, as UTF-8. */
-export function storeText(orgId: string, text: string, maxBytes: number): Promise<Result<StoredContent, ApiError>> {
-	const bytes = new TextEncoder().encode(text);
-	const body = new ReadableStream<Uint8Array>({
+/** Bytes held in memory, as a stream of them. */
+export function streamOf(bytes: Uint8Array): ReadableStream<Uint8Array> {
+	return new ReadableStream<Uint8Array>({
 		start(controller) {
 			controller.enqueue(bytes);
 			controller.close();
 		},
 	});
-	return storeContent(orgId, body, maxBytes);
+}
+
+/** Stores text as a new blob, as UTF-8. */
+export function storeText(orgId: string, text: string, maxBytes: number): Promise<Result<StoredContent, ApiError>> {
+	return storeContent(orgId, streamOf(new TextEncoder().encode(text)), maxBytes);
 }
 
 /** A blob's bytes, from the store that took them. */
@@ -135,7 +138,7 @@ export function uploadBody(request: Request): Result<ReadableStream<Uint8Array>,
 
 /**
  * A request's body as a stream of its bytes, read as they come, whatever its type says: for a
- * route mounted where no parser reads a body first, as an upload's URL is (upload-route.ts).
+ * route mounted where no parser reads a body first, as a blob's URL is (blobs/route.ts).
  */
 export function requestBytes(request: Request): Result<ReadableStream<Uint8Array>, ApiError> {
 	const chunks = request[Symbol.asyncIterator]();
@@ -159,6 +162,27 @@ export function requestBytes(request: Request): Result<ReadableStream<Uint8Array
 				},
 			}),
 	).mapErr((cause) => ApiErr.internalError(cause));
+}
+
+// A file's name as a download's header carries it: plain where it is, and in full beside it.
+function disposition(name: string, inline: boolean): string {
+	const plain = name.replace(/[^\x20-\x7e]|["\\]/g, '_');
+	return `${inline ? 'inline' : 'attachment'}; filename="${plain}"; filename*=UTF-8''${encodeURIComponent(name)}`;
+}
+
+/**
+ * The headers a file's bytes are sent with, to be saved under its name, or shown where `inline`
+ * says, as a picture a browser shows as it is: as its own type, never sniffed for another, and
+ * with a policy under which nothing in it runs, loads or posts, so a file someone else made is
+ * never a page of the app's.
+ */
+export function setDownloadHeaders(response: Response, file: {name: string; type: string; size: number}, inline: boolean): void {
+	response.setHeader('Content-Type', file.type);
+	response.setHeader('Content-Length', String(file.size));
+	response.setHeader('Content-Disposition', disposition(file.name, inline));
+	response.setHeader('X-Content-Type-Options', 'nosniff');
+	response.setHeader('Content-Security-Policy', "sandbox; default-src 'none'; frame-ancestors 'none'");
+	response.setHeader('Cache-Control', 'private, no-cache');
 }
 
 /**

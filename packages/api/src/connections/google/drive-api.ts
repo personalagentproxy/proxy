@@ -3,7 +3,7 @@ import {randomUUID} from 'node:crypto';
 import type {Result} from 'ts-results-es';
 import {z} from 'zod';
 
-import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
+import {type ApiError, Do} from '@proxy/utils';
 
 import {googleRequest, googleSession, googleStream, googleText, googleTransfer, googleUpload, googleWrite} from './google-client';
 
@@ -11,7 +11,7 @@ import {googleRequest, googleSession, googleStream, googleText, googleTransfer, 
  * The Drive v3 calls the `files` collection makes, and the reading of their answers. Every call
  * takes shared drives too. A document or a spreadsheet is made from Markdown or CSV with the
  * Google type it is to become, and Drive converts it. A file's bytes go up as they come, through a
- * resumable upload's session, as a copy given back and an upload finished do.
+ * resumable upload's session, as a copy given back and a blob put in Drive do.
  */
 
 const DRIVE = 'https://www.googleapis.com/drive/v3';
@@ -329,30 +329,16 @@ export function putContent(accessToken: string, fileId: string, content: {type: 
 
 // ---- New files from bytes as they come -------------------------------------------------------------
 
-const generatedIdsSchema = z.object({ids: z.array(z.string())});
-
-/** An id Drive reserves for a file not made yet, which a file made with it then has. */
-export function generateFileId(accessToken: string): Promise<Result<string, ApiError>> {
-	return Do(async ($) => {
-		const generated = $(await googleRequest(accessToken, driveUrl('/files/generateIds', {count: '1', space: 'drive', type: 'files'}), generatedIdsSchema));
-		return $(requirePresent(generated.ids[0], ApiErr.providerUnreachable(new Error('Google Drive reserved no id for a new file'))));
-	});
-}
-
 /**
- * Makes a new file of bytes of `type`, `size` of them, under the id Drive reserved for it where
- * there is one, in the folder given, as `file.mimeType`: the bytes' own type keeps them as they are, and a Google type
- * converts them, as a docx into a Doc. Sent through a resumable session, as Drive takes a file of
+ * Makes a new file of bytes of `type`, `size` of them, in the folder given, as `file.mimeType`:
+ * the bytes' own type keeps them as they are, and a Google type converts them, as a docx into a
+ * Doc. Sent through a resumable session, as Drive takes a file of
  * more than 5 MB, in one request as they come.
  */
-export function createContent(
-	accessToken: string,
-	file: NewFile & {id: string | null},
-	content: {type: string; body: ReadableStream<Uint8Array>; size: number},
-): Promise<Result<DriveFileState, ApiError>> {
+export function createContent(accessToken: string, file: NewFile, content: {type: string; body: ReadableStream<Uint8Array>; size: number}): Promise<Result<DriveFileState, ApiError>> {
 	return Do(async ($) => {
 		const url = driveUrl('/files', {uploadType: 'resumable', fields: STATE_FIELDS, supportsAllDrives: 'true'}, UPLOAD);
-		const session = $(await googleSession(accessToken, 'POST', url, {type: content.type, size: content.size, metadata: {...(file.id === null ? {} : {id: file.id}), ...metadataOf(file)}}));
+		const session = $(await googleSession(accessToken, 'POST', url, {type: content.type, size: content.size, metadata: metadataOf(file)}));
 		return $(await googleTransfer(accessToken, 'PUT', new URL(session), content, fileStateSchema));
 	});
 }

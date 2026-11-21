@@ -3,37 +3,37 @@ import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, apiErrorMessage, Do, parseSchema, requirePresent} from '@proxy/utils';
 import {findTool, type Tool, TOOLS_COLLECTION_ID} from '@proxy/integrations';
-import {CLI_FILE_HEADER, CLI_STATUS, cliListQuerySchema, cliPullQuerySchema, cliUploadQuerySchema, type CliUploadStarted} from '@proxy/contracts/cli';
+import {type CliFile, CLI_FILE_HEADER, CLI_STATUS, cliListQuerySchema, cliPullQuerySchema, cliPushCheckQuerySchema, cliPushQuerySchema, type CliPushed} from '@proxy/contracts/cli';
 
-import {actionsOf, gateRun, loadRunTarget, type RunEntry, type RunTarget, type TaskCaller} from '../../agent-side/tools';
+import {actionsOf, gateAsked, gateRun, loadRunTarget, type RunEntry, type RunTarget, type TaskCaller} from '../../agent-side/tools';
 import {apiIntegration} from '../../connections/integrations';
 import {unavailableActions} from '../../connections/unavailable';
 import {log as serverLog, serializeError} from '../../observability/log';
 import {agentErrorMessage} from '../../script/agent-host';
 import type {CliRequest} from '../../server/middleware/require-cli';
-import type {UploadRun, UploadTicket} from '../../uploads/tickets';
-import type {CliAsk, CliDrive, CliListed, CliPull, CliPush, CliPushed} from './cli-drive';
-import {sendContent} from './content';
+import {ownerOf, requireBlob} from '../../blobs/blobs';
+import {type CliAsk, type CliListed, type CliPull, type Drive, type UploadTarget, versionToWrite} from './drive';
+import {requireFileSize, sendContent} from './content';
 
 /**
  * A drive's files by path, for code in a sandbox (@proxy/contracts/cli, `pap files`): listing a
- * folder, a file's bytes down, and a file's bytes up, on a drive of Files or a Google Drive, each
- * reached through its `CliDrive` (cli-drive.ts). What a tool can't do, its answer being text, done
- * through a tool's gate (agent-side/tools.ts gateRun): as the token's agent, for the token's task,
- * checked against what the agent may do with the drive as it is now, and written in the activity
- * log as the read or the upload it is, coming in as `cli`. A push is an upload, as files_upload and
- * files_upload_done make one (uploads/tickets.ts): started by path, checked before any bytes are
- * sent, the bytes sent to the URL it is answered with, and the file made at done, as the agent's,
- * for that task, in the drive's history. A file written over is written by whoever names the
- * version it holds, as the write tool has it, unless the push says to write over what is there. A
- * file the person attached in the thread is read at that version whatever the agent may do in the
- * drive otherwise, as the read tool reads it (attached.ts).
+ * folder, a file's bytes down, and a blob put in the drive by path, on a drive of Files or a Google
+ * Drive, each reached through its `Drive` (drive.ts). What a tool can't do by path, done through a
+ * tool's gate (agent-side/tools.ts gateRun): as the token's agent, for the token's task, checked
+ * against what the agent may do with the drive as it is now, and written in the activity log as the
+ * read or the files_upload it is, coming in as `cli`. A push is asked about first, so one that
+ * would be refused is refused before its bytes move; then the file is sent to a blob, through the
+ * URL pap.upload() answers with (blobs/), and the blob put in the drive here, as the agent's, for
+ * that task, in the drive's history. A file written over is written by whoever names
+ * the version it holds, as the write tool has it, unless the push says to write over what is
+ * there. A file the person attached in the thread is read at that version whatever the agent may
+ * do in the drive otherwise, as the read tool reads it (attached.ts).
  */
 
 // Reading a drive, which tells an agent what is in it.
 const READ_ACTION = 'readFiles';
 
-type Opened = {drive: RunTarget; cli: CliDrive};
+type Opened = {drive: RunTarget; cli: Drive};
 
 // The drive the address names, as the token's agent reaches it now.
 function open(request: CliRequest): Promise<Result<Opened, ApiError>> {
@@ -41,7 +41,7 @@ function open(request: CliRequest): Promise<Result<Opened, ApiError>> {
 		const caller: TaskCaller = {agent: request.cli.agent, via: 'cli', taskId: request.cli.taskId};
 		const connectionId = request.params.connectionId ?? '';
 		const drive = $(await loadRunTarget(caller, connectionId));
-		const cliOf = apiIntegration(drive.integration.id)?.cli;
+		const cliOf = apiIntegration(drive.integration.id)?.drive;
 		if (cliOf === undefined) {
 			return $(Err(ApiErr.validationError(`${connectionId} is not a drive: pap files works on a Files or a Google connection (pap connections lists yours).`)));
 		}
@@ -124,7 +124,10 @@ export async function handleCliPullFileRoute(request: CliRequest, response: Resp
 							return $$(Err(ApiErr.validationError(`${found.name} is a folder: pap files ls lists it.`)));
 						}
 					}
-					return $$(await cli.pull({id: fileId, version: version ?? null, as: as ?? null, tab: tab ?? null, path: found?.path ?? null}));
+					// The path a file pulled by its id is at, noted with it; a file the drive can't find
+					// by itself, as an attached version in the trash, is read as the pull finds it.
+					const where = found?.path ?? (await cli.file(fileId)).map((file) => file.path).unwrapOr(null);
+					return $$(await cli.pull({id: fileId, version: version ?? null, as: as ?? null, tab: tab ?? null, path: where}));
 				}),
 			),
 		);
@@ -147,44 +150,62 @@ export async function handleCliPullFileRoute(request: CliRequest, response: Resp
 	}
 }
 
-// An upload started, as the CLI answers it.
-function startedOf(ticket: UploadTicket): CliUploadStarted {
-	return {upload: ticket.upload, put: {...ticket.put, expiresAt: ticket.put.expiresAt.toISOString()}};
+// The file a blob was put in, as the CLI answers it, with its path.
+function pushedOf(cli: Drive, created: boolean, made: {fileId: string; version: string; link: string}): Promise<Result<CliPushed, ApiError>> {
+	return Do(async ($) => {
+		const file = $(await cli.file(made.fileId));
+		return {file: {...file, version: made.version}, created, link: made.link};
+	});
 }
 
+// Where a push goes and how, as its address says it (@proxy/contracts/cli).
+type PushWhere = {path?: string; id?: string; version?: string; force?: '1'; convert?: '1'};
+
 /**
- * `POST /api/cli/files/:connectionId/uploads?path=|id=&size=&sha256=&version=&force=&file=&as=`: an
- * upload of a new file to the path, or of the next version of the one there, or of the file of the
- * id, checked as files_upload checks it and logged as one, before any bytes are sent; answered with
- * where to send them.
+ * What a push comes to once it is known where it goes: the blob put there, through the gate; or,
+ * asked about before its bytes are sent, only what the drive would refuse it for, through a gate
+ * that logs what is refused and what fails and leaves the rest to the push that follows.
  */
-export async function handleCliStartUploadRoute(request: CliRequest, response: Response): Promise<void> {
-	const started = await Do<CliUploadStarted, ApiError>(async ($) => {
-		const {drive, cli} = $(await open(request));
-		const query = $(parseSchema(cliUploadQuerySchema, request.query));
-		const push: CliPush = {size: query.size, sha256: query.sha256, file: query.file ?? null, as: query.as ?? null};
-		const ask: CliAsk = {version: query.version ?? null, force: query.force === '1'};
+type Put<T> = {
+	// What the log's entry says is pushed: the blob, or the file's name and size.
+	params: Record<string, unknown>;
+	gate: typeof gateRun;
+	at: (target: UploadTarget) => Promise<Result<T, ApiError>>;
+};
+
+// A push, to where its address says: a new file at the path, the folders on the way made where
+// they are missing, or the next version of the file there, or of the file of the id.
+function pushTo<T>({drive, cli}: Opened, where: PushWhere, put: Put<T>): Promise<Result<T, ApiError>> {
+	return Do<T, ApiError>(async ($) => {
+		const ask: CliAsk = {version: where.version ?? null, force: where.force === '1'};
+		const convert = where.convert === '1';
 		const tool = $(toolOf(drive, 'files_upload'));
-		const runOf = (entryId: string): UploadRun => ({caller: drive.caller, connection: drive.connection, entryId});
+		const write = (there: CliFile): Promise<Result<T, ApiError>> =>
+			Do(async ($$) => {
+				if (convert) {
+					return $$(Err(ApiErr.validationError(`--convert makes a new file, and ${there.path} is there already: push to a new path, or without --convert to write over it.`)));
+				}
+				return $$(await put.at({kind: 'write', fileId: there.id, version: $$(versionToWrite(there, ask))}));
+			});
 
 		// The file of the id: its next version, at the version named, as a push of a file pulled by its id.
-		if (query.id !== undefined) {
-			const named = await cli.file(query.id);
-			const params = {id: query.id, version: (ask.force ? named.map((file) => file.version).unwrapOr(null) : ask.version) ?? null, size: query.size};
+		if (where.id !== undefined) {
+			const named = await cli.file(where.id);
+			const params = {...put.params, id: where.id, version: (ask.force ? named.map((file) => file.version).unwrapOr(null) : ask.version) ?? null};
 			return $(
-				await gateRun(drive, tool, params, entryOf(tool, params), (entryId) =>
-					Do<CliUploadStarted, ApiError>(async ($$) => {
+				await put.gate(drive, tool, params, entryOf(tool, params), () =>
+					Do<T, ApiError>(async ($$) => {
 						const there = $$(named);
 						if (there.folder) {
 							return $$(Err(ApiErr.validationError(`${there.path} is a folder, which holds no bytes: push to a path inside it.`)));
 						}
-						return startedOf($$(await cli.startWrite(runOf(entryId), there, push, ask)));
+						return $$(await write(there));
 					}),
 				),
 			);
 		}
 
-		const names = $(cli.pushNames($(cli.namesOf(query.path ?? '')), push.as));
+		const names = $(cli.pushNames($(cli.namesOf(where.path ?? '')), convert));
 		const at = names.join('/');
 		const name = $(requirePresent(names.at(-1), ApiErr.validationError('Give the path to push to, as Reports/q3.csv.')));
 		// Found before the gate, and what went wrong finding it said only past it, as for a pull.
@@ -202,24 +223,24 @@ export async function handleCliStartUploadRoute(request: CliRequest, response: R
 
 		// The file there: its next version, by whoever names the one it holds, or says to write over it.
 		if (writes && there !== null) {
-			const params = {id: there.id, path: at, version: (ask.force ? there.version : ask.version) ?? null, size: query.size};
+			const params = {...put.params, id: there.id, path: at, version: (ask.force ? there.version : ask.version) ?? null};
 			return $(
-				await gateRun(drive, tool, params, entryOf(tool, params), (entryId) =>
-					Do<CliUploadStarted, ApiError>(async ($$) => {
+				await put.gate(drive, tool, params, entryOf(tool, params), () =>
+					Do<T, ApiError>(async ($$) => {
 						if (there.folder) {
 							return $$(Err(ApiErr.validationError(`${at} is a folder: give the file’s path inside it, or end the path with a slash, as ${at}/, to keep the file’s own name.`)));
 						}
-						return startedOf($$(await cli.startWrite(runOf(entryId), there, push, ask)));
+						return $$(await write(there));
 					}),
 				),
 			);
 		}
 
 		// A new file, in the folders of its path, made where they are missing.
-		const params = {path: at, size: query.size};
+		const params = {...put.params, path: at};
 		return $(
-			await gateRun(drive, tool, params, entryOf(tool, params), (entryId) =>
-				Do<CliUploadStarted, ApiError>(async ($$) => {
+			await put.gate(drive, tool, params, entryOf(tool, params), () =>
+				Do<T, ApiError>(async ($$) => {
 					$$(resolved);
 					// The deepest of the path that is there, short of the new file itself.
 					const reached = there === null ? found : found.slice(0, -1);
@@ -227,32 +248,71 @@ export async function handleCliStartUploadRoute(request: CliRequest, response: R
 					if (inside !== null && !inside.folder) {
 						return $$(Err(ApiErr.validationError(`${inside.path} is a file, so nothing goes inside it.`)));
 					}
-					return startedOf($$(await cli.startCreate(runOf(entryId), {parent: inside, folders: missing.slice(0, -1), name}, push)));
+					return $$(await put.at({kind: 'create', parentId: inside?.id ?? null, folders: missing.slice(0, -1), name, convert}));
 				}),
 			),
 		);
 	});
-	if (started.isErr()) {
-		fail(response, started.error);
-		return;
-	}
-	response.status(CLI_STATUS.ok).json(started.value);
 }
 
 /**
- * `POST /api/cli/files/:connectionId/uploads/:upload/done`: the file of an upload's bytes, once
- * they arrived and are what was said, made as files_upload_done makes it and logged as one.
+ * `POST /api/cli/files/:connectionId/push?blob=&path=|id=&version=&force=&convert=`: a blob of the
+ * agent's put in the drive, as files_upload puts one, and logged as one: a new file at the path,
+ * the folders on the way made where they are missing, or the next version of the file there, or of
+ * the file of the id.
  */
-export async function handleCliFinishUploadRoute(request: CliRequest, response: Response): Promise<void> {
+export async function handleCliPushFileRoute(request: CliRequest, response: Response): Promise<void> {
 	const pushed = await Do<CliPushed, ApiError>(async ($) => {
-		const {drive, cli} = $(await open(request));
-		const params = {upload: request.params.upload ?? ''};
-		const tool = $(toolOf(drive, 'files_upload_done'));
-		return $(await gateRun(drive, tool, params, entryOf(tool, params), (entryId) => cli.finish({caller: drive.caller, connection: drive.connection, entryId}, params.upload)));
+		const opened = $(await open(request));
+		const {drive, cli} = opened;
+		const query = $(parseSchema(cliPushQuerySchema, request.query));
+		return $(
+			await pushTo(opened, query, {
+				params: {blob: query.blob},
+				gate: gateRun,
+				at: (target) =>
+					Do(async ($$) => {
+						// The agent's blob, found past the gate, where what is wrong with it is said.
+						const blob = $$(await requireBlob(ownerOf(drive.caller.agent), query.blob));
+						return $$(await pushedOf(cli, target.kind === 'create', $$(await cli.upload(target, blob))));
+					}),
+			}),
+		);
 	});
 	if (pushed.isErr()) {
 		fail(response, pushed.error);
 		return;
 	}
 	response.status(CLI_STATUS.ok).json(pushed.value);
+}
+
+/**
+ * `POST /api/cli/files/:connectionId/push/check?file=&size=&path=|id=&version=&force=&convert=`:
+ * a push asked about before the file is sent, so one that would be refused is refused before its
+ * bytes move: the agent's access, where it goes, the version it names, its size, and what the
+ * drive takes there of a file called that. Nothing is made, and only a refusal is logged, as the
+ * files_upload it would have been.
+ */
+export async function handleCliCheckPushRoute(request: CliRequest, response: Response): Promise<void> {
+	const checked = await Do<void, ApiError>(async ($) => {
+		const opened = $(await open(request));
+		const query = $(parseSchema(cliPushCheckQuerySchema, request.query));
+		$(
+			await pushTo(opened, query, {
+				params: {file: query.file, size: query.size},
+				gate: gateAsked,
+				at: (target) =>
+					Do(async ($$) => {
+						$$(requireFileSize(query.size));
+						// As the blob the file becomes would say it: its name, and no type of its own.
+						$$(await opened.cli.check(target, {name: query.file, type: null}));
+					}),
+			}),
+		);
+	});
+	if (checked.isErr()) {
+		fail(response, checked.error);
+		return;
+	}
+	response.status(CLI_STATUS.ok).json({});
 }

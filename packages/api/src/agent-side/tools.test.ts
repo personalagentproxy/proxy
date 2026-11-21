@@ -292,7 +292,7 @@ describe('listAgentTools', () => {
 		const {listAgentTools} = await import('./tools');
 		const result = await listAgentTools(signedIn, 'mail-1');
 
-		expect(result.unwrap().map((tool) => tool.name)).toEqual(['emails_list', 'emails_get', 'emails_send', 'emails_send_new', 'attachments_read', 'replies_send']);
+		expect(result.unwrap().map((tool) => tool.name)).toEqual(['emails_list', 'emails_get', 'emails_send', 'emails_send_new', 'attachments_read', 'attachments_blob', 'replies_send']);
 	});
 });
 

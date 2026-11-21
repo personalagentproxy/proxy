@@ -9,14 +9,17 @@ import {formatBytes} from '@proxy/utils/bytes';
 
 import {decodeText} from '../utils/decode-text';
 import {htmlToText} from '../utils/html-to-text';
-import type {DataRecord, RecordValues} from './connector';
+import {storeBlob} from '../blobs/blobs';
+import {streamOf} from '../native/files/content';
+import type {DataRecord, RecordTarget, RecordValues} from './connector';
 
 /**
  * An email's attachments as the `attachments` collection, the same for Gmail and any mailbox:
- * never listed or opened, only read, one at a time, by the email's id and the attachment's number
- * among the email's attachments, as an email lists them, or its name. An attachment is read as
- * text: a spreadsheet's tabs as CSV, one after the other, a PDF's or a Word document's text, an
- * email's headers and text, and text as it is. Anything else, such as an image, is turned down.
+ * never listed or opened, only read or made a blob, one at a time, by the email's id and the
+ * attachment's number among the email's attachments, as an email lists them, or its name. An
+ * attachment is read as text: a spreadsheet's tabs as CSV, one after the other, a PDF's or a Word
+ * document's text, an email's headers and text, and text as it is. Anything else, such as an
+ * image, is turned down, and is made a blob instead (`attachmentBlobRecord`).
  */
 
 /** An attachment as an email lists it. */
@@ -235,6 +238,24 @@ export function attachmentRecord(email: string, number: number, file: Attachment
 			length: lengthText(text.length),
 			content: text.slice(0, MAX_CHARACTERS),
 		};
+		return {id: `${email}/${number}`, values, updatedAt: new Date().toISOString()};
+	});
+}
+
+/**
+ * An attachment made a blob of the agent's (blobs/), as the `attachments` collection's `blob`
+ * command answers it: to put in a drive with files_upload, or fetch with pap.download, whatever
+ * kind of file it is.
+ */
+export function attachmentBlobRecord(target: RecordTarget, email: string, number: number, file: AttachmentFile): Promise<Result<DataRecord, ApiError>> {
+	return Do(async ($) => {
+		const by = target.by;
+		if (by === undefined || !('agentId' in by)) {
+			return $(Err(ApiErr.validationError('A blob is an agent’s: only an agent makes one')));
+		}
+		const owner = {orgId: target.connection.orgId, agentId: by.agentId};
+		const blob = $(await storeBlob(owner, {name: file.name || null, type: file.type || null}, streamOf(file.bytes)));
+		const values = {email, attachment: String(number), name: file.name, type: file.type, size: formatBytes(blob.size), blob: blob.id};
 		return {id: `${email}/${number}`, values, updatedAt: new Date().toISOString()};
 	});
 }

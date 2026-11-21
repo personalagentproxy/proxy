@@ -4,6 +4,14 @@ import {Do} from '@proxy/utils/do';
 
 import {type FlagSpec, type Parsed, parseArgs} from './args';
 import {clientFrom} from './client';
+import {
+	DOWNLOAD,
+	DOWNLOAD_HELP,
+	downloadCommand,
+	UPLOAD,
+	UPLOAD_HELP,
+	uploadCommand,
+} from './blobs';
 import {FILES, FILES_HELP, listFiles, LS, PULL, pullFile, PUSH, pushFile} from './files';
 import {ghMain} from './gh';
 import {gitMain} from './git';
@@ -108,7 +116,7 @@ const FILES_COMMANDS: Record<string, Command> = {
 		usage: PUSH,
 		summary: 'a file to the drive',
 		help: FILES_HELP,
-		flags: {force: 'switch', id: 'value', as: 'value'},
+		flags: {force: 'switch', id: 'value', convert: 'switch'},
 		run: pushFile,
 	}),
 };
@@ -197,6 +205,20 @@ Example: pap call <connection> entries_list '{"search":"invoice"}' | jq '.record
 				};
 				return $(await $(clientFrom(io)).call('feedback', [body]));
 			}),
+	}),
+	upload: jsonCommand('upload', {
+		usage: UPLOAD,
+		summary: 'make a blob of a file, for a tool that takes one',
+		help: UPLOAD_HELP,
+		flags: {},
+		run: uploadCommand,
+	}),
+	download: jsonCommand('download', {
+		usage: DOWNLOAD,
+		summary: 'bring a blob a tool made into the sandbox',
+		help: DOWNLOAD_HELP,
+		flags: {},
+		run: downloadCommand,
 	}),
 	files: {
 		usage: FILES,

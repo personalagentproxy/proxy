@@ -61,6 +61,12 @@ export type FileBlobRow = {
 	key: string;
 	size: number;
 	sha256: string | null;
+	/** The agent whose blob it is, the only one that may use it (api blobs/); none for a person's. */
+	agentId: string | null;
+	/** The file's name and media type, where its source had them. */
+	name: string | null;
+	type: string | null;
+	createdAt: Date;
 };
 
 /** A file or folder as a list shows it: a file with what it holds now. */
@@ -128,6 +134,10 @@ const blobSelect = {
 	key: true,
 	size: true,
 	sha256: true,
+	agentId: true,
+	name: true,
+	type: true,
+	createdAt: true,
 } as const;
 
 // How deep a folder may be, so a walk up the tree always ends.
@@ -679,7 +689,7 @@ async function insertStored(
 /**
  * Whether a new file called `name` could go in `parentId` now, as `createFile` checks it: a folder
  * of the drive's, outside the trash, with nothing there called that. For what is checked before
- * its bytes are, as an upload's are, long before the file is made.
+ * anything is made on the way to it, as the folders a push to a path makes.
  */
 export function checkNewFile(
 	connectionId: string,
@@ -1332,11 +1342,14 @@ export function getFileBlob(id: string): Promise<Result<FileBlobRow | null, ApiE
 	return wrapDb(() => db.fileBlob.findUnique({where: {id}, select: blobSelect}));
 }
 
-/** A blob's row, made before its bytes are sent to the store under `key`. */
+/** A blob's row, made before its bytes are sent to the store under `key`: an agent's, with the file's name and type, where it is one. */
 export function createFileBlob(data: {
 	orgId: string;
 	backendId: string;
 	key: string;
+	agentId?: string;
+	name?: string | null;
+	type?: string | null;
 }): Promise<Result<FileBlobRow, ApiError>> {
 	return wrapDb(() => db.fileBlob.create({data, select: blobSelect}));
 }
@@ -1349,7 +1362,7 @@ export function completeFileBlob(
 	return wrapDb(() => db.fileBlob.update({where: {id}, data, select: blobSelect}));
 }
 
-/** The blobs made before `before` that no version points at: uploads given up, and what their drive or the trash's purge left. */
+/** The blobs made before `before` that no version points at: an agent's never used or sent on to a drive elsewhere, and what their drive or the trash's purge left. */
 export function listUnusedFileBlobs(
 	before: Date,
 	limit: number,
