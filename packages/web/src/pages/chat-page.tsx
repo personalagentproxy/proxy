@@ -4,6 +4,7 @@ import type {
 	ChatPersona,
 	ChatThread,
 	ChatThreads,
+	ListedPersona,
 	Persona,
 	ThreadStanding,
 	ThreadView,
@@ -14,6 +15,7 @@ import {
 	ChevronLeftIcon,
 	SlidersHorizontalIcon,
 	Trash2Icon,
+	UsersIcon,
 } from 'lucide-react';
 import {
 	memo,
@@ -81,6 +83,7 @@ import {useSending} from '@/hooks/use-sending';
 import {useUnread} from '@/hooks/use-unread';
 import {rowDraftPreview} from '@/lib/chat-sidebar-preview';
 import {formatAgo} from '@/lib/format';
+import {hasOtherPeople} from '@/lib/orgs';
 import {describeApiError, describeFetchError} from '@/lib/loader-utils';
 import {isDesktopApp} from '@/lib/desktop';
 import {isShortcut} from '@/lib/platform';
@@ -151,9 +154,10 @@ type ShownSaid = {personaId: string; last: LastMessage};
 type ShownDraft = {personaId: string; draft: string};
 type Shown = {personaId: string; last: LastMessage; draft: string};
 
-// The personas the person sees, their own and General, in the sidebar, each with its head, its
-// name and the last thing said between it and the person, marked where the person hasn't seen it,
-// or what they typed and haven't sent, the open one's as it is typed, the open one lit, each head
+// The personas the person sees, their own and those shared with everyone, General among them, in
+// the sidebar, each with its head, its name, a shared one marked beside it once anyone else is in
+// the organization or invited, and the last thing said between it and the person, marked where the
+// person hasn't seen it, or what they typed and haven't sent, the open one's as it is typed, the open one lit, each head
 // watching the pointer while it is over that agent's row. The one last active is on top, the open
 // one by what the page shows of it, so what the person just said moves it up at once. It stays as
 // it is from one chat to the next: the one in the address is lit at once, while it loads. A row
@@ -169,15 +173,19 @@ function PersonaList({
 	onNew,
 	onDelete,
 }: {
-	personas: ChatPersona[];
+	personas: ListedPersona[];
 	current: string;
 	shown: Shown | null;
 	recallDraft: (personaId: string) => string | null;
 	onNew: () => void;
-	onDelete: (persona: ChatPersona) => void;
+	onDelete: (persona: ListedPersona) => void;
 }) {
 	const org = useOrgSlug();
+	const human = useHuman();
 	const navigate = useNavigate();
+	// Who sees a shared one, said beside it only where that is anyone but the person.
+	const everyone =
+		human !== null && hasOtherPeople(human.org) ? `Everyone in ${human.org.name}` : null;
 	const unread = useUnread();
 	const [hovered, setHovered] = useState<string | null>(null);
 	const list = useListMotion<HTMLDivElement>();
@@ -238,8 +246,17 @@ function PersonaList({
 								/>
 								<span className="flex min-w-0 flex-1 flex-col">
 									<span className="flex items-baseline gap-2">
-										<span className="min-w-0 flex-1 truncate text-sm font-medium">
-											{persona.name}
+										<span className="flex min-w-0 flex-1 items-center gap-1.5">
+											<span className="min-w-0 truncate text-sm font-medium">{persona.name}</span>
+											{persona.shared && everyone !== null && (
+												<UsersIcon
+													role="img"
+													aria-label={everyone}
+													className="size-3 shrink-0 text-muted-foreground"
+												>
+													<title>{everyone}</title>
+												</UsersIcon>
+											)}
 										</span>
 										{last && (
 											<span className="shrink-0 text-xs text-muted-foreground">
@@ -566,8 +583,8 @@ export function ChatPage() {
 		}
 	}, [org, current, threadId, threadMissing]);
 	// The agent dialog: making a new one, or changing the name and head of one; closed as null.
-	const [editing, setEditing] = useState<'new' | ChatPersona | null>(null);
-	const [deleting, setDeleting] = useState<ChatPersona | null>(null);
+	const [editing, setEditing] = useState<'new' | ListedPersona | null>(null);
+	const [deleting, setDeleting] = useState<ListedPersona | null>(null);
 	const human = useHuman();
 	const chatTo = `/${org}/chat/${current}`;
 	const openTo = threadId === undefined ? chatTo : `${chatTo}/threads/${threadId}`;
@@ -755,7 +772,7 @@ export function ChatPage() {
 	// Deletes a persona with the chats with it: the person's, and for one every member sees,
 	// everyone's. If it was open, opens whichever is first; otherwise refreshes the list around the
 	// chat that stays open.
-	const removePersona = async (persona: ChatPersona) => {
+	const removePersona = async (persona: ListedPersona) => {
 		const removed = await deletePersona(org, persona.id);
 		if (removed.isErr()) {
 			setError(describeFetchError(removed.error));
@@ -964,11 +981,7 @@ export function ChatPage() {
 			<ConfirmDialog
 				open={deleting !== null}
 				title={deleting ? `Delete ${deleting.name}?` : ''}
-				description={
-					deleting
-						? `This deletes ${deleting.name} and ${deleting.shared ? "every member's" : 'your'} conversation with it. This cannot be undone.`
-						: ''
-				}
+				description={deleting ? deleteLine(deleting) : ''}
 				confirmLabel="Delete"
 				destructive
 				onClose={() => setDeleting(null)}
@@ -981,6 +994,15 @@ export function ChatPage() {
 			/>
 		</>
 	);
+}
+
+// What deleting a persona takes with it: the person's conversation, and every other member's where
+// anyone else has said something to it.
+function deleteLine(persona: ListedPersona): string {
+	if (persona.usedByOthers) {
+		return `This deletes ${persona.name} and every member's conversation with it, not only yours: others have talked to it. This cannot be undone.`;
+	}
+	return `This deletes ${persona.name} and your conversation with it. This cannot be undone.`;
 }
 
 // What the page gives the chat open in it.

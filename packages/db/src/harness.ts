@@ -28,8 +28,8 @@ import {signedInAgentSelect, type SignedInAgent, toSignedInAgent} from './signed
 import type {NewAgentTask} from './task';
 
 /**
- * The Chat page: the organization's personas, each its maker's but General, which is every
- * member's, with a chat per member who sees it, and the chat's threads, each with its log and its
+ * The Chat page: the organization's personas, each its maker's alone or shared with every member,
+ * as General is, with a chat per member who sees it, and the chat's threads, each with its log and its
  * jobs. A chat runs no agent of its own: it keeps what the member typed and hasn't sent, the files
  * in its input and how far they have read, and every message they post in it opens a thread, whose
  * agent answers them there. The member's reply, or an alert set in the thread, takes the thread up
@@ -291,6 +291,16 @@ export const personaSelect = {
 	createdAt: true,
 } as const;
 
+// The threads of other members than `userId` with a persona that hold anything said: a thread
+// opened in their chat, or an entry in the chat itself, as one from before chats held threads may
+// have. A chat no more than opened, with a draft at most, is not talking to it.
+function saidToByOthers(userId: string) {
+	return {
+		userId: {not: userId},
+		OR: [{parentThreadId: {not: null}}, {entries: {some: {}}}],
+	} satisfies Prisma.AgentThreadWhereInput;
+}
+
 // The organization's personas a member sees: their own, and those every member does.
 function seenBy(orgId: string, userId: string) {
 	return {
@@ -373,8 +383,9 @@ function toToolCalls(kept: string | null): ToolCall[] | null {
 /**
  * The organization's personas the member sees, their own and those every member does, with the
  * last thing said in the member's chat with each, across the chat and its threads, what they typed
- * in it and the files they put in its input and haven't sent, the one last active first: the last
- * thing said in it, or, before anything was, its making.
+ * in it and the files they put in its input and haven't sent, and whether any other member has
+ * said anything to it, the one last active first: the last thing said in it, or, before anything
+ * was, its making.
  */
 export async function listPersonas(
 	orgId: string,
@@ -386,6 +397,7 @@ export async function listPersonas(
 				lastMessage: LastMessage | null;
 				draft: string | null;
 				draftAttachments: DraftAttachment[];
+				usedByOthers: boolean;
 			}
 		>,
 		ApiError
@@ -396,6 +408,7 @@ export async function listPersonas(
 			where: seenBy(orgId, userId),
 			select: {
 				...personaSelect,
+				_count: {select: {threads: {where: saidToByOthers(userId)}}},
 				// The member's chat and its threads, but those an alert opened and its agent dismissed
 				// (or the member archived), which said nothing to them.
 				threads: {
@@ -421,8 +434,9 @@ export async function listPersonas(
 			},
 			orderBy: {createdAt: 'desc'},
 		});
-		const listed = personas.map(({threads, ...persona}) => ({
+		const listed = personas.map(({threads, _count, ...persona}) => ({
 			persona,
+			usedByOthers: _count.threads > 0,
 			chat: threads.find((thread) => thread.parentThreadId === null),
 			last: threads.flatMap((thread) => thread.entries).toSorted((a, b) => b.seq - a.seq)[0],
 		}));
@@ -437,10 +451,11 @@ export async function listPersonas(
 					});
 		const textOf = new Map(said.map((entry) => [entry.id, entry.text]));
 		return listed
-			.map(({persona, chat, last}) => {
+			.map(({persona, usedByOthers, chat, last}) => {
 				const text = last ? textOf.get(last.id) : undefined;
 				return {
 					...toPersona(persona),
+					usedByOthers,
 					lastMessage:
 						last && text !== undefined && (last.kind === 'person' || last.kind === 'assistant')
 							? {kind: last.kind, text, createdAt: last.createdAt}
@@ -618,18 +633,19 @@ export async function getPersona(
 	).map((persona) => (persona ? toPersona(persona) : null));
 }
 
-/** A new persona in the organization, the member's own, which they made. */
+/** A new persona in the organization, which the member made: their own, or, `shared`, every member's from the start. */
 export async function createPersona(
 	orgId: string,
 	userId: string,
 	persona: Persona,
+	shared = false,
 ): Promise<Result<PersonaRow, ApiError>> {
 	return (
 		await wrapDb(() =>
 			db.persona.create({
 				data: {
 					orgId,
-					ownerUserId: userId,
+					ownerUserId: shared ? null : userId,
 					createdById: userId,
 					name: persona.name,
 					look: JSON.stringify(persona.look),
@@ -663,6 +679,68 @@ export async function updatePersona(
 			}),
 		)
 	).map(({count}) => count > 0);
+}
+
+/**
+ * Shares the member's own persona with the organization: every member sees it from then on, each
+ * with a chat of their own with it, and the member's chat stays as it is. `Ok(false)` means no
+ * such persona of theirs in the organization.
+ */
+export async function sharePersona(
+	orgId: string,
+	userId: string,
+	personaId: string,
+): Promise<Result<boolean, ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.persona.updateMany({
+				where: {id: personaId, orgId, ownerUserId: userId},
+				data: {ownerUserId: null},
+			}),
+		)
+	).map(({count}) => count > 0);
+}
+
+/**
+ * What making a shared persona its maker's own again came to: done; refused, since another member
+ * has said something to it; or no such persona, shared and made by them, in the organization.
+ */
+export type TakeBack = 'taken' | 'used' | 'missing';
+
+/**
+ * Makes a shared persona its maker's own again, while no other member has said anything to it:
+ * their chat stays as it is, and the chats other members opened with it and said nothing in, a
+ * draft at most, go. The persona's row is locked, so no member's first chat with it is made
+ * meanwhile (ensureMemberChat), and so are the other members' chats with it, so no thread is opened
+ * in one meanwhile (openThread): what was said before is seen, and nothing is said after.
+ */
+export async function takeBackPersona(
+	orgId: string,
+	userId: string,
+	personaId: string,
+): Promise<Result<TakeBack, ApiError>> {
+	return wrapDb(() =>
+		db.$transaction(async (tx): Promise<TakeBack> => {
+			const locked = await tx.$queryRaw<Array<{id: string}>>`
+				SELECT "id" FROM "Persona"
+				WHERE "id" = ${personaId} AND "orgId" = ${orgId} AND "ownerUserId" IS NULL
+					AND "createdById" = ${userId}
+				FOR UPDATE`;
+			if (locked.length === 0) {
+				return 'missing';
+			}
+			await tx.$queryRaw`
+				SELECT "id" FROM "AgentThread"
+				WHERE "personaId" = ${personaId} AND "parentThreadId" IS NULL AND "userId" <> ${userId}
+				FOR UPDATE`;
+			if ((await tx.agentThread.count({where: {personaId, ...saidToByOthers(userId)}})) > 0) {
+				return 'used';
+			}
+			await tx.agentThread.deleteMany({where: {personaId, userId: {not: userId}}});
+			await tx.persona.update({where: {id: personaId}, data: {ownerUserId: userId}});
+			return 'taken';
+		}),
+	);
 }
 
 /** Deletes a persona with every chat with it; `Ok(false)` means no such persona in the organization. */

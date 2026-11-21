@@ -35,6 +35,8 @@ const personaResponse = {
 	draft: null,
 	createdAt: '2026-10-21T10:00:00.000Z',
 };
+// The same persona as the list has it: the viewer made it, and nobody else has talked to it.
+const listedResponse = {...personaResponse, madeBy: 'you' as const, usedByOthers: false, staysShared: null};
 
 // The harnesses the server has, unless a test says otherwise: the loop over OpenRouter, with its
 // two models, which the viewer's organization is offered with the `openrouter` experiment, and
@@ -132,11 +134,12 @@ beforeEach(async () => {
 	store.listDraftAttachments.mockResolvedValue(Ok([]));
 	store.addDraftAttachment.mockResolvedValue(Ok(true));
 	store.removeDraftAttachment.mockResolvedValue(Ok(true));
+	store.listMemberNames.mockResolvedValue(Ok([{orgId: 'org-1', userId: 'user-2', name: 'Dana'}]));
 	const {listPersonas, ensureFirstPersona, getPersona, createPersona, updatePersona, deletePersona, getMemberChat, ensureMemberChat, getChatDraft} = store;
 	deletePersona.mockResolvedValue(Ok(true));
 	ensureFirstPersona.mockResolvedValue(Ok({...persona, id: 'persona-9', name: 'General', ownerUserId: null, createdById: null}));
 	requireViewer.mockResolvedValue(Ok(viewer));
-	listPersonas.mockResolvedValue(Ok([{...persona, lastMessage: {kind: 'assistant', text: 'Your vault\n has  one entry.', createdAt: now}, draft: null, draftAttachments: []}]));
+	listPersonas.mockResolvedValue(Ok([{...persona, lastMessage: {kind: 'assistant', text: 'Your vault\n has  one entry.', createdAt: now}, draft: null, draftAttachments: [], usedByOthers: false}]));
 	getPersona.mockResolvedValue(Ok(persona));
 	createPersona.mockResolvedValue(Ok({...persona, id: 'persona-2'}));
 	updatePersona.mockResolvedValue(Ok(true));
@@ -150,7 +153,7 @@ describe('the chat routes', () => {
 	test('offer OpenRouter only with the openrouter experiment: without it, a persona on it is shown on Claude, and none is made or switched to it', async () => {
 		const {handleCreatePersonaRoute, handleListPersonasRoute, handleUpdatePersonaRoute} = routes;
 		requireViewer.mockResolvedValue(Ok({...viewer, experiments: []}));
-		store.listPersonas.mockResolvedValue(Ok([{...persona, ownerUserId: null, lastMessage: null, draft: null, draftAttachments: []}]));
+		store.listPersonas.mockResolvedValue(Ok([{...persona, ownerUserId: null, lastMessage: null, draft: null, draftAttachments: [], usedByOthers: false}]));
 
 		const listed = (await handleListPersonasRoute(request())).unwrap();
 		expect(listed.harnesses.map((harness) => harness.id)).toEqual(['claude-agent-sdk']);
@@ -163,21 +166,22 @@ describe('the chat routes', () => {
 		expect(store.updatePersona).not.toHaveBeenCalled();
 
 		await handleCreatePersonaRoute(request({}, {name: 'Finance', look, color: 'blue'}));
-		expect(store.createPersona).toHaveBeenCalledWith('org-1', 'user-1', {name: 'Finance', look, color: 'blue', harness: 'claude-agent-sdk', chatModel: 'sonnet'});
+		expect(store.createPersona).toHaveBeenCalledWith('org-1', 'user-1', {name: 'Finance', look, color: 'blue', harness: 'claude-agent-sdk', chatModel: 'sonnet'}, false);
 	});
 
 	test('list the personas the viewer sees, their own and every member’s, with their heads, what runs each, whether the viewer may change each, and the last thing said with each and what the viewer typed and hasn’t sent, on one line, and the harnesses the server has with their models', async () => {
 		const {handleListPersonasRoute} = routes;
 		store.listPersonas.mockResolvedValue(
 			Ok([
-				{...persona, lastMessage: {kind: 'assistant', text: 'Your vault\n has  one entry.', createdAt: now}, draft: null, draftAttachments: []},
-				{...persona, id: 'persona-3', ownerUserId: null, createdById: 'user-2', lastMessage: null, draft: 'Move the **pricing review**\nto Friday', draftAttachments: []},
+				{...persona, lastMessage: {kind: 'assistant', text: 'Your vault\n has  one entry.', createdAt: now}, draft: null, draftAttachments: [], usedByOthers: false},
+				{...persona, id: 'persona-3', ownerUserId: null, createdById: 'user-2', lastMessage: null, draft: 'Move the **pricing review**\nto Friday', draftAttachments: [], usedByOthers: false},
 				{
 					...persona,
 					id: 'persona-4',
 					lastMessage: {kind: 'assistant', text: '## Found\n\n- **Three** invoices, see [the list](https://x.test)\n\n| Who | Sum |\n| --- | --- |\n| Dana | 40 |\n\n```\ncode\n```', createdAt: now},
 					draft: null,
 					draftAttachments: [],
+					usedByOthers: false,
 				},
 			]),
 		);
@@ -185,11 +189,20 @@ describe('the chat routes', () => {
 		const listed = (await handleListPersonasRoute(request())).unwrap();
 
 		expect(store.listPersonas).toHaveBeenCalledWith('org-1', 'user-1');
+		expect(store.listMemberNames).toHaveBeenCalledWith([{orgId: 'org-1', userId: 'user-2'}]);
 		expect(listed).toEqual({
 			personas: [
-				{...personaResponse, lastMessage: {kind: 'assistant', text: 'Your vault has one entry.', at: '2026-10-21T10:00:00.000Z'}},
-				{...personaResponse, id: 'persona-3', shared: true, mayChange: false, draft: 'Move the pricing review to Friday'},
-				{...personaResponse, id: 'persona-4', lastMessage: {kind: 'assistant', text: 'Found Three invoices, see the list Who Sum Dana 40', at: '2026-10-21T10:00:00.000Z'}},
+				{...listedResponse, lastMessage: {kind: 'assistant', text: 'Your vault has one entry.', at: '2026-10-21T10:00:00.000Z'}},
+				{
+					...listedResponse,
+					id: 'persona-3',
+					shared: true,
+					mayChange: false,
+					madeBy: {name: 'Dana'},
+					staysShared: 'Only whoever made Finance can make it theirs alone.',
+					draft: 'Move the pricing review to Friday',
+				},
+				{...listedResponse, id: 'persona-4', lastMessage: {kind: 'assistant', text: 'Found Three invoices, see the list Who Sum Dana 40', at: '2026-10-21T10:00:00.000Z'}},
 			],
 			harnesses: offered,
 		});
@@ -227,7 +240,34 @@ describe('the chat routes', () => {
 		const listed = (await handleListPersonasRoute(request())).unwrap();
 
 		expect(store.ensureFirstPersona).toHaveBeenCalledWith('org-1');
-		expect(listed).toEqual({personas: [{...personaResponse, id: 'persona-9', name: 'General', shared: true, mayChange: false}], harnesses: offered});
+		expect(listed).toEqual({
+			personas: [{...listedResponse, id: 'persona-9', name: 'General', shared: true, mayChange: false, madeBy: null, staysShared: 'General is every member’s, so it can’t be made anyone’s own.'}],
+			harnesses: offered,
+		});
+	});
+
+	test('list who made each persona: the viewer, another member by what they are called, or nobody where its maker has left', async () => {
+		const {handleListPersonasRoute} = routes;
+		const listedRow = {lastMessage: null, draft: null, draftAttachments: [], usedByOthers: false};
+		store.listPersonas.mockResolvedValue(
+			Ok([
+				{...persona, ownerUserId: null, ...listedRow},
+				{...persona, id: 'persona-3', ownerUserId: null, createdById: 'user-2', ...listedRow},
+				{...persona, id: 'persona-4', ownerUserId: null, createdById: 'user-3', ...listedRow},
+			]),
+		);
+
+		const listed = (await handleListPersonasRoute(request())).unwrap();
+
+		expect(store.listMemberNames).toHaveBeenCalledWith([
+			{orgId: 'org-1', userId: 'user-2'},
+			{orgId: 'org-1', userId: 'user-3'},
+		]);
+		expect(listed.personas.map(({id, madeBy}) => [id, madeBy])).toEqual([
+			['persona-1', 'you'],
+			['persona-3', {name: 'Dana'}],
+			['persona-4', null],
+		]);
 	});
 
 	test('a viewer who sees personas of their own but none every member’s, as where General was deleted, gets General made again, after their own', async () => {
@@ -247,7 +287,7 @@ describe('the chat routes', () => {
 
 		const made = await handleCreatePersonaRoute(request({}, {name: ' Finance ', look, color: 'blue'}));
 
-		expect(store.createPersona).toHaveBeenCalledWith('org-1', 'user-1', {name: 'Finance', look, color: 'blue', harness: 'claude-agent-sdk', chatModel: 'sonnet'});
+		expect(store.createPersona).toHaveBeenCalledWith('org-1', 'user-1', {name: 'Finance', look, color: 'blue', harness: 'claude-agent-sdk', chatModel: 'sonnet'}, false);
 		expect(made.unwrap().persona).toEqual({...personaResponse, id: 'persona-2'});
 	});
 
@@ -282,13 +322,102 @@ describe('the chat routes', () => {
 		expect((await handleDeletePersonaRoute(request({personaId: 'nope'}))).unwrapErr()).toMatchObject({kind: 'not_found'});
 	});
 
+	test('make a persona shared with the organization from the start, or the viewer’s own where nothing is said', async () => {
+		const {handleCreatePersonaRoute} = routes;
+		store.createPersona.mockResolvedValue(Ok({...persona, id: 'persona-2', ownerUserId: null}));
+
+		const made = await handleCreatePersonaRoute(request({}, {name: 'Finance', look, color: 'blue', shared: true}));
+
+		expect(store.createPersona).toHaveBeenCalledWith('org-1', 'user-1', {name: 'Finance', look, color: 'blue', harness: 'claude-agent-sdk', chatModel: 'sonnet'}, true);
+		expect(made.unwrap().persona).toEqual({...personaResponse, id: 'persona-2', shared: true});
+
+		await handleCreatePersonaRoute(request({}, {name: 'Finance', look, color: 'blue'}));
+		expect(store.createPersona).toHaveBeenLastCalledWith('org-1', 'user-1', {name: 'Finance', look, color: 'blue', harness: 'claude-agent-sdk', chatModel: 'sonnet'}, false);
+	});
+
+	test('share the viewer’s own persona with the organization, changing nothing else of it, and leave who sees it as it is where nothing is said', async () => {
+		const {handleUpdatePersonaRoute} = routes;
+		store.sharePersona.mockResolvedValue(Ok(true));
+		const body = {name: 'Finance', look, color: 'blue' as const};
+
+		const shared = await handleUpdatePersonaRoute(request({personaId: 'persona-1'}, {...body, shared: true}));
+
+		expect(store.sharePersona).toHaveBeenCalledWith('org-1', 'user-1', 'persona-1');
+		expect(store.updatePersona).toHaveBeenCalledWith('org-1', 'persona-1', body);
+		expect(shared.unwrap().persona).toEqual({...personaResponse, shared: true});
+
+		store.sharePersona.mockClear();
+		await handleUpdatePersonaRoute(request({personaId: 'persona-1'}, body));
+		await handleUpdatePersonaRoute(request({personaId: 'persona-1'}, {...body, shared: false}));
+		expect(store.sharePersona).not.toHaveBeenCalled();
+		expect(store.takeBackPersona).not.toHaveBeenCalled();
+	});
+
+	test('make a shared persona its maker’s alone again while nobody else has talked to it, and refuse where others have, saying so, changing nothing', async () => {
+		const {handleUpdatePersonaRoute} = routes;
+		const body = {name: 'Finance', look, color: 'blue' as const, shared: false};
+		store.getPersona.mockResolvedValue(Ok({...persona, ownerUserId: null}));
+		store.takeBackPersona.mockResolvedValue(Ok('taken'));
+
+		const taken = await handleUpdatePersonaRoute(request({personaId: 'persona-1'}, body));
+
+		expect(store.takeBackPersona).toHaveBeenCalledWith('org-1', 'user-1', 'persona-1');
+		expect(taken.unwrap().persona).toEqual({...personaResponse, shared: false});
+
+		store.updatePersona.mockClear();
+		store.takeBackPersona.mockResolvedValue(Ok('used'));
+		expect((await handleUpdatePersonaRoute(request({personaId: 'persona-1'}, body))).unwrapErr()).toEqual(ApiErr.conflict('Others in Acme are using Finance, so it stays shared.'));
+		expect(store.updatePersona).not.toHaveBeenCalled();
+
+		store.takeBackPersona.mockResolvedValue(Ok('missing'));
+		expect((await handleUpdatePersonaRoute(request({personaId: 'persona-1'}, body))).unwrapErr()).toMatchObject({kind: 'not_found'});
+		expect(store.updatePersona).not.toHaveBeenCalled();
+	});
+
+	test('keep General every member’s, and a shared persona somebody else made from being taken by the organization’s owner, who may still change and delete it', async () => {
+		const {handleDeletePersonaRoute, handleUpdatePersonaRoute} = routes;
+		const body = {name: 'General', look, color: 'blue' as const, shared: false};
+		requireViewer.mockResolvedValue(Ok({...viewer, role: 'owner'}));
+
+		store.getPersona.mockResolvedValue(Ok({...persona, name: 'General', ownerUserId: null, createdById: null}));
+		expect((await handleUpdatePersonaRoute(request({personaId: 'persona-1'}, body))).unwrapErr()).toEqual(ApiErr.conflict('General is every member’s, so it can’t be made anyone’s own.'));
+
+		store.getPersona.mockResolvedValue(Ok({...persona, ownerUserId: null, createdById: 'user-2'}));
+		expect((await handleUpdatePersonaRoute(request({personaId: 'persona-1'}, {...body, name: 'Finance'}))).unwrapErr()).toEqual(ApiErr.conflict('Only whoever made Finance can make it theirs alone.'));
+		expect(store.takeBackPersona).not.toHaveBeenCalled();
+		expect(store.updatePersona).not.toHaveBeenCalled();
+
+		const {shared: _shared, ...rename} = body;
+		expect((await handleUpdatePersonaRoute(request({personaId: 'persona-1'}, {...rename, name: 'Money'}))).isOk()).toBe(true);
+		expect((await handleDeletePersonaRoute(request({personaId: 'persona-1'}))).isOk()).toBe(true);
+	});
+
+	test('list whether others have talked to a shared persona, and why the viewer can’t make it theirs alone, only where they can’t', async () => {
+		const {handleListPersonasRoute} = routes;
+		store.listPersonas.mockResolvedValue(
+			Ok([
+				{...persona, ownerUserId: null, lastMessage: null, draft: null, draftAttachments: [], usedByOthers: true},
+				{...persona, id: 'persona-3', ownerUserId: null, lastMessage: null, draft: null, draftAttachments: [], usedByOthers: false},
+				{...persona, id: 'persona-4', lastMessage: null, draft: null, draftAttachments: [], usedByOthers: false},
+			]),
+		);
+
+		const listed = (await handleListPersonasRoute(request())).unwrap();
+
+		expect(listed.personas.map(({id, usedByOthers, staysShared}) => [id, usedByOthers, staysShared])).toEqual([
+			['persona-1', true, 'Others in Acme are using Finance, so it stays shared.'],
+			['persona-3', false, null],
+			['persona-4', false, null],
+		]);
+	});
+
 	test('make a persona on the harness and the model chosen, switch it to another of either, and show what runs it', async () => {
 		const {handleCreatePersonaRoute, handleUpdatePersonaRoute} = routes;
 		const onSdk = {name: 'Finance', look, color: 'blue' as const, harness: 'claude-agent-sdk', chatModel: 'opus'};
 		store.createPersona.mockResolvedValue(Ok({...persona, id: 'persona-2', harness: 'claude-agent-sdk', chatModel: 'opus'}));
 
 		const made = await handleCreatePersonaRoute(request({}, onSdk));
-		expect(store.createPersona).toHaveBeenCalledWith('org-1', 'user-1', onSdk);
+		expect(store.createPersona).toHaveBeenCalledWith('org-1', 'user-1', onSdk, false);
 		expect(made.unwrap().persona).toEqual({...personaResponse, id: 'persona-2', harness: 'claude-agent-sdk', chatModel: 'opus'});
 
 		// Another model of the harness it has, the harness left out.
@@ -329,8 +458,8 @@ describe('the chat routes', () => {
 		registry = {proxy, claudeAgentSdk: null};
 		store.listPersonas.mockResolvedValue(
 			Ok([
-				{...persona, harness: 'claude-agent-sdk', chatModel: 'opus', lastMessage: null, draft: null, draftAttachments: []},
-				{...persona, id: 'persona-3', ownerUserId: null, chatModel: 'dropped-long-ago', lastMessage: null, draft: null, draftAttachments: []},
+				{...persona, harness: 'claude-agent-sdk', chatModel: 'opus', lastMessage: null, draft: null, draftAttachments: [], usedByOthers: false},
+				{...persona, id: 'persona-3', ownerUserId: null, chatModel: 'dropped-long-ago', lastMessage: null, draft: null, draftAttachments: [], usedByOthers: false},
 			]),
 		);
 
@@ -362,9 +491,9 @@ describe('the chat routes', () => {
 		// The chat opens with it there, and the list says it is waiting where nothing was typed.
 		store.listDraftAttachments.mockResolvedValue(Ok([kept]));
 		expect((await handleListThreadsRoute(request({personaId: 'persona-1'}))).unwrap().draftAttachments).toEqual([shownAttachment]);
-		store.listPersonas.mockResolvedValue(Ok([{...persona, lastMessage: null, draft: null, draftAttachments: [kept, {...kept, fileId: 'file-2', name: 'chart.png'}]}]));
+		store.listPersonas.mockResolvedValue(Ok([{...persona, lastMessage: null, draft: null, draftAttachments: [kept, {...kept, fileId: 'file-2', name: 'chart.png'}], usedByOthers: false}]));
 		expect((await handleListPersonasRoute(request())).unwrap().personas[0]?.draft).toBe('pricing.md, chart.png');
-		store.listPersonas.mockResolvedValue(Ok([{...persona, lastMessage: null, draft: 'Book the train', draftAttachments: [kept]}]));
+		store.listPersonas.mockResolvedValue(Ok([{...persona, lastMessage: null, draft: 'Book the train', draftAttachments: [kept], usedByOthers: false}]));
 		expect((await handleListPersonasRoute(request())).unwrap().personas[0]?.draft).toBe('Book the train');
 
 		// With as many there as a message carries, the next is refused before its bytes are taken.

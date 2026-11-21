@@ -22,10 +22,10 @@ import type {z} from 'zod';
 import {apiRequest, apiSend, apiUpload, orgApi} from '@/client/request';
 import {rememberPersonaList} from '@/lib/persona-list';
 
-// The Chat page's api: the personas the person sees, their own and General, which every member
-// does, each named and given a head, and the person's own chat with each: its threads, each
-// opened by what they said in the chat and read on its own, what they reply in one, what they
-// typed in the chat and haven't sent, and how far they have read it.
+// The Chat page's api: the personas the person sees, their own and those shared with every
+// member, General among them, each named and given a head, and the person's own chat with each:
+// its threads, each opened by what they said in the chat and read on its own, what they reply in
+// one, what they typed in the chat and haven't sent, and how far they have read it.
 
 // How long a list asked for ahead of Chat's opening is fresh enough not to ask again.
 const PREFETCH_GAP_MS = 10 * 1000;

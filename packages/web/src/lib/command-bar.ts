@@ -339,8 +339,8 @@ function mentionedPersona(text: string, personas: ChatPersona[]): ChatPersona | 
 	return patternsOf(personas).find(({named}) => named.test(text))?.persona ?? null;
 }
 
-// The persona a message goes to when it names none: General, which is the one every member
-// sees, the oldest of them; without one, the conversation last active.
+// The persona a message goes to when it names none: the oldest of those every member sees, which
+// is General where the organization has it; without one, the conversation last active.
 function defaultPersona(personas: ChatPersona[]): ChatPersona | null {
 	const [general] = personas
 		.filter((persona) => persona.shared)

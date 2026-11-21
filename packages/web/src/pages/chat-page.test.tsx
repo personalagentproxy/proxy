@@ -3,9 +3,9 @@
 import type {
 	ChatAnswer,
 	ChatAttachment,
-	ChatPersona,
 	ChatThread,
 	ChatThreads,
+	ListedPersona,
 	ThreadMessage,
 	ThreadView,
 } from '@proxy/contracts/harness';
@@ -29,12 +29,15 @@ const realFetch = globalThis.fetch;
 const fetchMock = mock<(input: string, init?: RequestInit) => Promise<Response>>();
 const look = {nose: 0.48, noseOut: 0.35, eye: 27, eyeTheta: 55, eyeLat: 8, eyes: 2 as const};
 
-function persona(id: string, name: string, mayChange: boolean): ChatPersona {
+function persona(id: string, name: string, mayChange: boolean): ListedPersona {
 	return {
 		id,
 		name,
 		shared: false,
 		mayChange,
+		madeBy: 'you',
+		usedByOthers: false,
+		staysShared: null,
 		look,
 		color: 'blue',
 		harness: 'proxy',
@@ -57,7 +60,8 @@ const harnesses = [
 	},
 ];
 
-const general = persona('general', 'General', false);
+// General, which nobody made.
+const general = {...persona('general', 'General', false), madeBy: null};
 const finance = persona('finance', 'Finance', true);
 
 // A thread of General's chat, as the chat lists it: one the person opened, stopped, unless a test
@@ -182,15 +186,16 @@ function renderChatPage({
 	draft = null,
 	draftAttachments = [],
 	chatAlerts = 0,
+	others = false,
 	answered = () => Promise.resolve(),
 	threadAnswered = () => Promise.resolve(),
 	initial,
 }: {
-	personas?: ChatPersona[];
+	personas?: ListedPersona[];
 	// The open chat's threads, as the chat is read each time.
 	threads?: ChatThread[];
 	listThreads?: () => ChatThread[];
-	listPersonas?: () => ChatPersona[];
+	listPersonas?: () => ListedPersona[];
 	// Each thread as its page shows it, by its id.
 	views?: Record<string, ThreadView>;
 	// The agent whose chat is open, by its id.
@@ -200,6 +205,8 @@ function renderChatPage({
 	draftAttachments?: ChatThreads['draftAttachments'];
 	// How many of the open chat's alerts open threads of their own.
 	chatAlerts?: number;
+	// Whether anyone else is in the organization.
+	others?: boolean;
 	// When the api answers for a chat: at once, unless a test holds it back.
 	answered?: (personaId: string) => Promise<void>;
 	// When the api answers for a thread: at once, unless a test holds it back.
@@ -212,7 +219,7 @@ function renderChatPage({
 		[
 			{
 				id: 'human',
-				loader: () => testHuman(testOrg),
+				loader: () => testHuman({...testOrg, memberCount: others ? 3 : 1}),
 				element: <HumanSide />,
 				children: [
 					{
@@ -567,6 +574,34 @@ describe('ChatPage', () => {
 				expect.objectContaining({method: 'DELETE'}),
 			);
 		});
+	});
+
+	test('marks a shared agent beside its name once anyone else is in the organization, and not while the person is alone in it', async () => {
+		const travel = {...persona('travel', 'Travel', true), shared: true};
+		renderChatPage({personas: [{...general, shared: true}, finance, travel], others: true});
+
+		const row = await screen.findByRole('link', {name: /Travel/});
+		expect(within(row).getByRole('img', {name: 'Everyone in Acme'})).toBeDefined();
+		expect(
+			within(screen.getByRole('link', {name: /Finance/})).queryByRole('img', {
+				name: 'Everyone in Acme',
+			}),
+		).toBeNull();
+		cleanup();
+
+		renderChatPage({personas: [{...general, shared: true}, finance, travel]});
+		const alone = await screen.findByRole('link', {name: /Travel/});
+		expect(within(alone).queryByRole('img', {name: 'Everyone in Acme'})).toBeNull();
+	});
+
+	test('says deleting a shared agent others have talked to deletes their conversations with it too', async () => {
+		const travel = {...persona('travel', 'Travel', true), shared: true, usedByOthers: true};
+		renderChatPage({personas: [general, finance, travel], others: true});
+
+		fireEvent.contextMenu(await screen.findByRole('link', {name: /Travel/}));
+		fireEvent.click(await screen.findByRole('menuitem', {name: 'Delete'}));
+
+		expect(screen.getByText(/every member's conversation with it, not only yours/)).toBeDefined();
 	});
 
 	test('offers an agent the person may not change its settings alone in its right-click menu', async () => {
@@ -1771,7 +1806,13 @@ describe('ChatPage', () => {
 			const pane = await screen.findByRole('region', {name: 'Agent settings'});
 			expect(router.state.location.pathname).toBe('/acme/chat/general/settings');
 			expect(within(pane).getByText('For everyone in Acme')).toBeTruthy();
+			expect(
+				within(pane).getByText(
+					'Everyone in Acme. Each person’s conversation with it is their own.',
+				),
+			).toBeTruthy();
 			expect(within(pane).queryByRole('button', {name: 'Edit'})).toBeNull();
+			expect(within(pane).queryByRole('button', {name: 'Only you'})).toBeNull();
 			expect(within(pane).queryByRole('button', {name: 'Delete agent'})).toBeNull();
 
 			await act(async () => {
@@ -1782,19 +1823,118 @@ describe('ChatPage', () => {
 			);
 		});
 
-		test('show an agent the person may change: its name, whose it is, Edit, and the card that deletes it', async () => {
+		test('show an agent the person may change: its name, whose it is, Edit, who sees it, and the card that deletes it', async () => {
 			renderChatPage({open: 'finance', initial: '/acme/chat/finance/settings'});
 			const pane = await screen.findByRole('region', {name: 'Agent settings'});
 
 			expect(within(pane).getByText('Finance')).toBeTruthy();
 			expect(within(pane).getByText('Yours alone')).toBeTruthy();
 			expect(within(pane).getByRole('button', {name: 'Edit'})).toBeTruthy();
+			expect(within(pane).getByRole('region', {name: 'Who sees it'})).toBeTruthy();
+			expect(
+				within(pane).getByRole('button', {name: 'Only you'}).getAttribute('aria-pressed'),
+			).toBe('true');
+			expect(within(pane).getByText('Nobody else in Acme sees it.')).toBeTruthy();
 			expect(within(pane).getByRole('heading', {name: 'Delete Finance'})).toBeTruthy();
 			expect(
 				within(pane).getByText(
 					'Your conversation with Finance goes with it. This cannot be undone.',
 				),
 			).toBeTruthy();
+		});
+
+		test('say whose a shared agent is: made by the person, by another member, or, where nobody did or its maker has left, whom it is for', async () => {
+			const travel = {...persona('travel', 'Travel', true), shared: true};
+			const research = {
+				...persona('research', 'Research', false),
+				shared: true,
+				madeBy: {name: 'Dana'},
+			};
+			const everyone = {...general, shared: true};
+			const lines: Array<[ListedPersona, string]> = [
+				[travel, 'Made by you, for everyone in Acme'],
+				[research, 'Made by Dana'],
+				[everyone, 'For everyone in Acme'],
+			];
+			for (const [shown, line] of lines) {
+				renderChatPage({
+					personas: [everyone, travel, research],
+					open: shown.id,
+					initial: `/acme/chat/${shown.id}/settings`,
+				});
+				const pane = await screen.findByRole('region', {name: 'Agent settings'});
+				expect(within(pane).getByText(line)).toBeTruthy();
+				cleanup();
+			}
+		});
+
+		test('share the agent as soon as everyone is chosen, without a Save', async () => {
+			answering((_input, init) =>
+				init?.method === 'PUT'
+					? Promise.resolve(Response.json({persona: {...finance, shared: true}}))
+					: null,
+			);
+			renderChatPage({open: 'finance', initial: '/acme/chat/finance/settings', others: true});
+			const pane = await screen.findByRole('region', {name: 'Agent settings'});
+
+			fireEvent.click(within(pane).getByRole('button', {name: 'Everyone in Acme'}));
+
+			expect(
+				within(pane).getByRole('button', {name: 'Everyone in Acme'}).getAttribute('aria-pressed'),
+			).toBe('true');
+			expect(
+				within(pane).getByText('Each person’s conversation with it is their own.'),
+			).toBeTruthy();
+			await waitFor(() => {
+				expect(fetchMock).toHaveBeenCalledWith(
+					'/api/orgs/acme/chat/personas/finance',
+					expect.objectContaining({
+						method: 'PUT',
+						body: JSON.stringify({name: 'Finance', look, color: 'blue', shared: true}),
+					}),
+				);
+			});
+			expect(within(pane).queryByRole('button', {name: 'Save'})).toBeNull();
+		});
+
+		test('say in place why the agent can’t be the person’s alone, up front and where the api refuses it', async () => {
+			const refusal = 'Others in Acme are using Finance, so it stays shared.';
+			const kept = {...finance, shared: true, usedByOthers: true, staysShared: refusal};
+			renderChatPage({
+				personas: [general, kept],
+				open: 'finance',
+				initial: '/acme/chat/finance/settings',
+			});
+			let pane = await screen.findByRole('region', {name: 'Agent settings'});
+			expect(within(pane).getByRole('button', {name: 'Only you'}).hasAttribute('disabled')).toBe(
+				true,
+			);
+			expect(within(pane).getByText(refusal)).toBeTruthy();
+			expect(
+				within(pane).getByText(
+					'Every member’s conversation with Finance goes with it, not only yours: others have talked to it. This cannot be undone.',
+				),
+			).toBeTruthy();
+			cleanup();
+
+			// Someone said something to it since the list was read.
+			answering((_input, init) =>
+				init?.method === 'PUT'
+					? Promise.resolve(Response.json({error: 'conflict', message: refusal}, {status: 409}))
+					: null,
+			);
+			renderChatPage({
+				personas: [general, {...finance, shared: true}],
+				open: 'finance',
+				initial: '/acme/chat/finance/settings',
+			});
+			pane = await screen.findByRole('region', {name: 'Agent settings'});
+			fireEvent.click(within(pane).getByRole('button', {name: 'Only you'}));
+
+			expect(await within(pane).findByText(refusal)).toBeTruthy();
+			expect(
+				within(pane).getByRole('button', {name: 'Everyone in Acme'}).getAttribute('aria-pressed'),
+			).toBe('true');
 		});
 
 		test('open the name and the head in their dialog from Edit, saved by Save', async () => {
@@ -1811,6 +1951,7 @@ describe('ChatPage', () => {
 			);
 
 			expect(screen.getByRole('heading', {name: 'Edit agent'})).toBeDefined();
+			expect(within(screen.getByRole('dialog')).queryByText('Who sees it')).toBeNull();
 			fireEvent.change(screen.getByLabelText('Name'), {target: {value: 'Accounting'}});
 			fireEvent.click(screen.getByRole('button', {name: 'Save'}));
 

@@ -1,4 +1,4 @@
-import type {ChatPersona} from '@proxy/contracts/harness';
+import type {ListedPersona} from '@proxy/contracts/harness';
 import {XIcon} from 'lucide-react';
 import {useMatch} from 'react-router';
 import {type Pane, Waiting} from '@/components/app-shell';
@@ -17,16 +17,16 @@ type Args = {
 	orgName: string;
 	// The open chat's agent as the list has it: null while the list loads, and for one it doesn't
 	// have.
-	persona: ChatPersona | null;
+	persona: ListedPersona | null;
 	// Whether the list is still loading, so an agent it lacks may yet come.
 	pending: boolean;
 	// The chat's address, or the open task's, which the settings' is under and closing them goes
 	// back to.
 	under: string;
 	// Its name and head change in their dialog (persona-dialog.tsx), and deleting it is confirmed
-	// in another.
-	onEdit: (persona: ChatPersona) => void;
-	onDelete: (persona: ChatPersona) => void;
+	// in another; who sees it is chosen in the pane itself.
+	onEdit: (persona: ListedPersona) => void;
+	onDelete: (persona: ListedPersona) => void;
 };
 
 /** Whether the address opens the agent's settings, and the pane as the page draws it while it does. */
@@ -36,8 +36,8 @@ export type PersonaPane = {open: boolean; pane: Pane | undefined};
  * An agent's settings, in a pane at the Chat page's right, beside the task open (`AppShell`'s
  * pane), at an address of its own (`settingsPath`) under the chat's or the open task's, so the task
  * stays open beside them and Back closes them as their cross does: the agent, whose it is, and
- * Edit, which opens its name and head in their dialog; and, at the foot, deleting it. A member who
- * may not change it reads it alone.
+ * Edit, which opens its name and head in their dialog; who sees it, the person alone or everyone in
+ * the organization; and, at the foot, deleting it. A member who may not change it reads it alone.
  */
 export function usePersonaPane({
 	orgName,

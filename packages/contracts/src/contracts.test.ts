@@ -143,4 +143,40 @@ describe('contracts', () => {
 		const {summary: _summary, ...withoutSummary} = thread;
 		expect(harness.chatThreadSchema.safeParse(withoutSummary).success).toBe(false);
 	});
+
+	test('a persona is made or changed shared with the organization or not, or left as it is, and is listed with who made it, whether others use it and why it stays shared', () => {
+		const look = {nose: 0.5, noseOut: 0.3, eye: 25, eyeTheta: 50, eyeLat: 8, eyes: 2 as const};
+		const body = {name: 'Finance', look, color: 'teal' as const};
+		expect(harness.personaBodySchema.parse({...body, shared: true}).shared).toBe(true);
+		expect(harness.personaBodySchema.parse({...body, shared: false}).shared).toBe(false);
+		expect(harness.personaBodySchema.parse(body).shared).toBeUndefined();
+		expect(harness.personaBodySchema.safeParse({...body, shared: 'everyone'}).success).toBe(false);
+
+		const persona: harness.ListedPersona = {
+			id: 'p1',
+			name: 'Finance',
+			look,
+			color: 'teal',
+			harness: 'claude-agent-sdk',
+			chatModel: 'sonnet',
+			shared: true,
+			mayChange: true,
+			madeBy: 'you',
+			usedByOthers: true,
+			staysShared: 'Others in Acme are using Finance, so it stays shared.',
+			lastMessage: null,
+			draft: null,
+			createdAt: '2026-03-02T09:24:00.000Z',
+		};
+		expect(harness.listedPersonaSchema.parse(persona)).toEqual(persona);
+		expect(
+			harness.listedPersonaSchema.parse({...persona, staysShared: null}).staysShared,
+		).toBeNull();
+		expect(harness.listedPersonaSchema.parse({...persona, madeBy: {name: 'Dana'}}).madeBy).toEqual({
+			name: 'Dana',
+		});
+		expect(harness.listedPersonaSchema.parse({...persona, madeBy: null}).madeBy).toBeNull();
+		const {usedByOthers: _used, ...withoutUse} = persona;
+		expect(harness.listedPersonaSchema.safeParse(withoutUse).success).toBe(false);
+	});
 });

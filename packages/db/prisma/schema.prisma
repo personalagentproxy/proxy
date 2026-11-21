@@ -782,8 +782,10 @@ model Persona {
   harness   String @default("claude-agent-sdk")
   chatModel String @default("sonnet")
   // The member whose persona it is, which nobody else in the organization sees, its owner
-  // included; null for one every member sees, as General is, and as one from before personas
-  // were anyone's is where others had talked to it.
+  // included; null for one every member sees, as General is, as one its maker shared with the
+  // organization is, and as one from before personas were anyone's is where others had talked to
+  // it. Its maker makes a shared one theirs again only while no other member has said anything
+  // to it.
   ownerUserId String?
   // Who made it: who may change one every member sees, beside the organization's owner. A plain
   // id rather than a relation, so such a persona stays when they are gone.
