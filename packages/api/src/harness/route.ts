@@ -94,6 +94,9 @@ export type ChatStore = Pick<
 /** What the routes need of where a chat's files are kept: putting one there, naming those attached, and showing one; reading a picture for a model is the worker's. */
 export type RouteFiles = Pick<ChatFiles, 'upload' | 'discard' | 'resolve' | 'shown'>;
 
+/** A persona's Slack app, as deleting the persona removes it from Slack first (slack/route.ts `removeSlackApp`). */
+export type PersonaSlack = {remove: (viewer: OrgViewer, persona: PersonaRow) => Promise<Result<void, ApiError>>};
+
 /** The harnesses this server has, read where a route needs them, so that nothing is made as the routes are mounted. */
 export type Harnesses = () => HarnessRegistry;
 
@@ -118,11 +121,16 @@ function inUse(viewer: OrgViewer, persona: PersonaRow): string {
 	return `Others in ${viewer.name} are using ${persona.name}, so it stays shared.`;
 }
 
+// What the page says where a shared persona is in Slack, which only a shared one can be.
+function inSlackLine(persona: PersonaRow): string {
+	return `${persona.name} is in Slack, so it stays shared until it is removed from Slack.`;
+}
+
 // Why the viewer can't make a shared persona theirs alone again: only whoever made it takes it
-// back, not the organization's owner, and nobody where they have left or it names no maker; and one
-// another member has said something to stays everyone's. Null where they can, and for one that
-// isn't shared.
-function staysShared(viewer: OrgViewer, persona: PersonaRow, usedByOthers: boolean): string | null {
+// back, not the organization's owner, and nobody where they have left or it names no maker; one
+// another member has said something to stays everyone's; and so does one in Slack, until it is
+// removed from there. Null where they can, and for one that isn't shared.
+function staysShared(viewer: OrgViewer, persona: PersonaRow, usedByOthers: boolean, inSlack: boolean): string | null {
 	if (persona.ownerUserId !== null) {
 		return null;
 	}
@@ -131,6 +139,9 @@ function staysShared(viewer: OrgViewer, persona: PersonaRow, usedByOthers: boole
 	}
 	if (usedByOthers) {
 		return inUse(viewer, persona);
+	}
+	if (inSlack) {
+		return inSlackLine(persona);
 	}
 	return null;
 }
@@ -176,14 +187,14 @@ function madeBy(viewer: OrgViewer, persona: PersonaRow, names: ReadonlyMap<strin
 function toListedPersona(
 	harnesses: Harnesses,
 	viewer: OrgViewer,
-	persona: PersonaRow & {usedByOthers: boolean; lastMessage?: LastMessage | null; draft?: string | null; draftAttachments?: DraftAttachment[]},
+	persona: PersonaRow & {usedByOthers: boolean; inSlack: boolean; lastMessage?: LastMessage | null; draft?: string | null; draftAttachments?: DraftAttachment[]},
 	names: ReadonlyMap<string, string>,
 ): ListedPersona {
 	return {
 		...toPersona(harnesses, viewer, persona),
 		madeBy: madeBy(viewer, persona, names),
 		usedByOthers: persona.usedByOthers,
-		staysShared: staysShared(viewer, persona, persona.usedByOthers),
+		staysShared: staysShared(viewer, persona, persona.usedByOthers, persona.inSlack),
 	};
 }
 
@@ -223,8 +234,8 @@ function readPersona(harnesses: Harnesses, viewer: OrgViewer, request: Authentic
 
 // The persona shared with the organization, or made the viewer's alone again, where `shared` says
 // it is to be and it isn't yet: their own is theirs to share; a shared one is made theirs again
-// only by whoever made it, and only while no other member has said anything to it, the refusal
-// saying why. What it is to be, whether the viewer is the only one who has talked to it.
+// only by whoever made it, and only while no other member has said anything to it and it isn't in
+// Slack, the refusal saying why. What it is to be, whether the viewer is the only one who has talked to it.
 function reshare(store: ChatStore, viewer: OrgViewer, persona: PersonaRow, shared: boolean | undefined): Promise<Result<PersonaRow, ApiError>> {
 	return Do(async ($) => {
 		const isShared = persona.ownerUserId === null;
@@ -237,13 +248,16 @@ function reshare(store: ChatStore, viewer: OrgViewer, persona: PersonaRow, share
 		if (shared) {
 			return {...persona, ownerUserId: null};
 		}
-		const refused = staysShared(viewer, persona, false);
+		const refused = staysShared(viewer, persona, false, false);
 		if (refused !== null) {
 			return $(Err(ApiErr.conflict(refused)));
 		}
 		const taken = $(await store.takeBackPersona(viewer.orgId, viewer.userId, persona.id));
 		if (taken === 'used') {
 			return $(Err(ApiErr.conflict(inUse(viewer, persona))));
+		}
+		if (taken === 'in_slack') {
+			return $(Err(ApiErr.conflict(inSlackLine(persona))));
 		}
 		if (taken === 'missing') {
 			return $(Err(ApiErr.notFound('persona', persona.id)));
@@ -342,11 +356,16 @@ function handleUpdatePersonaRoute(store: ChatStore, harnesses: Harnesses, reques
 	});
 }
 
-/** `DELETE /api/orgs/:org/chat/personas/:personaId`: the persona, with every chat with it. */
-function handleDeletePersonaRoute(store: ChatStore, request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
+/**
+ * `DELETE /api/orgs/:org/chat/personas/:personaId`: the persona, with every chat with it, its
+ * Slack app removed from Slack first, so none is left there answering for it; where Slack can't
+ * remove it, nothing is deleted, and the refusal says why.
+ */
+function handleDeletePersonaRoute(store: ChatStore, slack: PersonaSlack, request: AuthenticatedRequest): Promise<Result<void, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
 		const persona = $(await requireManagedPersona(store, viewer, request));
+		$(await slack.remove(viewer, persona));
 		if (!$(await store.deletePersona(viewer.orgId, persona.id))) {
 			return $(Err(ApiErr.notFound('persona', persona.id)));
 		}
@@ -760,14 +779,14 @@ function handleSetThreadModelRoute(store: ChatStore, harnesses: Harnesses, reque
 	});
 }
 
-/** The Chat page's routes, on the store, the harnesses the server has, and where a chat's files are kept. */
-export function chatRoutes(store: ChatStore, harnesses: Harnesses, files: RouteFiles) {
+/** The Chat page's routes, on the store, the harnesses the server has, where a chat's files are kept, and its personas' Slack apps. */
+export function chatRoutes(store: ChatStore, harnesses: Harnesses, files: RouteFiles, slack: PersonaSlack) {
 	return {
 		handleListPersonasRoute: (request: AuthenticatedRequest) => handleListPersonasRoute(store, harnesses, request),
 		handleListAnswersRoute: (request: AuthenticatedRequest) => handleListAnswersRoute(store, request),
 		handleCreatePersonaRoute: (request: AuthenticatedRequest) => handleCreatePersonaRoute(store, harnesses, request),
 		handleUpdatePersonaRoute: (request: AuthenticatedRequest) => handleUpdatePersonaRoute(store, harnesses, request),
-		handleDeletePersonaRoute: (request: AuthenticatedRequest) => handleDeletePersonaRoute(store, request),
+		handleDeletePersonaRoute: (request: AuthenticatedRequest) => handleDeletePersonaRoute(store, slack, request),
 		handleUploadAttachmentRoute: (request: AuthenticatedRequest) => handleUploadAttachmentRoute(store, files, request),
 		handleRemoveAttachmentRoute: (request: AuthenticatedRequest) => handleRemoveAttachmentRoute(store, request),
 		handleMarkReadRoute: (request: AuthenticatedRequest) => handleMarkReadRoute(store, request),

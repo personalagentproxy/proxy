@@ -14,6 +14,7 @@ import {claudeCredentialFor, markClaudeCredentialRefused, recordClaudeUsage} fro
 import {chatFiles} from './native/files/chat';
 import {startFilesSweeper} from './native/files/sweeper';
 import {startSandboxSweeper} from './native/sandbox/sweeper';
+import {startSlackTokenSweeper, type SlackTokenSweeper} from './slack/workspace-token';
 import {log, serializeError} from './observability/log';
 import {metrics} from './observability/metrics';
 import {startProbes} from './observability/probes';
@@ -43,6 +44,7 @@ async function startApiServer(): Promise<void> {
 	startProbes();
 	let worker: HarnessWorker | null = null;
 	let sweeper: AlertSweeper | null = null;
+	let slackTokens: SlackTokenSweeper | null = null;
 
 	const shutdown = async (signal: string): Promise<void> => {
 		if (isShuttingDown) {
@@ -62,8 +64,10 @@ async function startApiServer(): Promise<void> {
 		server.close();
 		// The built-in agent's worker claims nothing more and finishes the job it is on; a job it
 		// can't finish in time goes to another instance when its lease runs out. The alerts' sweep
-		// takes no more; a turn cut short writes nothing, and comes again in ten minutes.
+		// takes no more; a turn cut short writes nothing, and comes again in ten minutes. Nor does the
+		// Slack tokens' sweep.
 		sweeper?.stop();
+		slackTokens?.stop();
 		await worker?.stop();
 
 		const disconnectResult = await Result.wrapAsync(() => disconnectDb());
@@ -101,6 +105,8 @@ async function startApiServer(): Promise<void> {
 			{key: env.OPENROUTER_KEY, ask: askForJson},
 		);
 		sweeper = startAlertSweeper(harnessStore);
+		// Linked Slack workspaces' configuration tokens, rotated before they run out.
+		slackTokens = startSlackTokenSweeper();
 		void startSandboxSweeper();
 		startFilesSweeper();
 	});

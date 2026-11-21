@@ -65,7 +65,7 @@ describe('the web app on the api origin', () => {
 		expect(await (await fetch(`${base}/health`)).json()).toEqual({ok: true});
 		expect(await (await fetch(`${base}/auth/methods`)).json()).toEqual({google: false, needs: {google: false, plaid: false, github: false}});
 
-		for (const path of ['/api', '/api/nope', '/auth', '/auth/nope', '/agent-auth', '/agent-auth/nope']) {
+		for (const path of ['/api', '/api/nope', '/auth', '/auth/nope', '/agent-auth', '/agent-auth/nope', '/slack', '/slack/nope']) {
 			const res = await fetch(`${base}${path}`);
 			expect(res.status).toBe(404);
 			expect(await res.json()).toEqual({error: 'not_found'});

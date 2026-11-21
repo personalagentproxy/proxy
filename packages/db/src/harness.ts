@@ -382,8 +382,8 @@ function toToolCalls(kept: string | null): ToolCall[] | null {
  * The organization's personas the member sees, their own and those every member does, with the
  * last thing said in the member's chat with each, across the chat and its threads, what they typed
  * in it and the files they put in its input and haven't sent, and whether any other member has
- * said anything to it, the one last active first: the last thing said in it, or, before anything
- * was, its making.
+ * said anything to it and whether it is in Slack, the one last active first: the last thing said
+ * in it, or, before anything was, its making.
  */
 export async function listPersonas(
 	orgId: string,
@@ -396,6 +396,7 @@ export async function listPersonas(
 				draft: string | null;
 				draftAttachments: DraftAttachment[];
 				usedByOthers: boolean;
+				inSlack: boolean;
 			}
 		>,
 		ApiError
@@ -407,6 +408,8 @@ export async function listPersonas(
 			select: {
 				...personaSelect,
 				_count: {select: {threads: {where: saidToByOthers(userId)}}},
+				// Its Slack app, where it has one, which keeps it shared.
+				slackApp: {select: {id: true}},
 				// The member's chat and its threads, but those an alert opened and its agent dismissed
 				// (or the member archived), which said nothing to them.
 				threads: {
@@ -432,9 +435,10 @@ export async function listPersonas(
 			},
 			orderBy: {createdAt: 'desc'},
 		});
-		const listed = personas.map(({threads, _count, ...persona}) => ({
+		const listed = personas.map(({threads, _count, slackApp, ...persona}) => ({
 			persona,
 			usedByOthers: _count.threads > 0,
+			inSlack: slackApp !== null,
 			chat: threads.find((thread) => thread.parentThreadId === null),
 			last: threads.flatMap((thread) => thread.entries).toSorted((a, b) => b.seq - a.seq)[0],
 		}));
@@ -449,11 +453,12 @@ export async function listPersonas(
 					});
 		const textOf = new Map(said.map((entry) => [entry.id, entry.text]));
 		return listed
-			.map(({persona, usedByOthers, chat, last}) => {
+			.map(({persona, usedByOthers, inSlack, chat, last}) => {
 				const text = last ? textOf.get(last.id) : undefined;
 				return {
 					...toPersona(persona),
 					usedByOthers,
+					inSlack,
 					lastMessage:
 						last && text !== undefined && (last.kind === 'person' || last.kind === 'assistant')
 							? {kind: last.kind, text, createdAt: last.createdAt}
@@ -668,13 +673,14 @@ export async function sharePersona(
 
 /**
  * What making a shared persona its maker's own again came to: done; refused, since another member
- * has said something to it; or no such persona, shared and made by them, in the organization.
+ * has said something to it, or since it has a Slack app, which only a shared persona has; or no
+ * such persona, shared and made by them, in the organization.
  */
-export type TakeBack = 'taken' | 'used' | 'missing';
+export type TakeBack = 'taken' | 'used' | 'in_slack' | 'missing';
 
 /**
- * Makes a shared persona its maker's own again, while no other member has said anything to it:
- * their chat stays as it is, and the chats other members opened with it and said nothing in, a
+ * Makes a shared persona its maker's own again, while no other member has said anything to it and
+ * it has no Slack app: their chat stays as it is, and the chats other members opened with it and said nothing in, a
  * draft at most, go. The persona's row is locked, so no member's first chat with it is made
  * meanwhile (ensureMemberChat), and so are the other members' chats with it, so no thread is opened
  * in one meanwhile (openThread): what was said before is seen, and nothing is said after.
@@ -700,6 +706,10 @@ export async function takeBackPersona(
 				FOR UPDATE`;
 			if ((await tx.agentThread.count({where: {personaId, ...saidToByOthers(userId)}})) > 0) {
 				return 'used';
+			}
+			// A Slack app is made under the same lock (startSlackApp), so none is made meanwhile.
+			if ((await tx.slackApp.count({where: {personaId}})) > 0) {
+				return 'in_slack';
 			}
 			await tx.agentThread.deleteMany({where: {personaId, userId: {not: userId}}});
 			await tx.persona.update({where: {id: personaId}, data: {ownerUserId: userId}});

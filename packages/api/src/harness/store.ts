@@ -84,7 +84,7 @@ export type HarnessStore = {
 	listPersonas: (
 		orgId: string,
 		userId: string,
-	) => Promise<Result<Array<PersonaRow & {lastMessage: LastMessage | null; draft: string | null; draftAttachments: DraftAttachment[]; usedByOthers: boolean}>, ApiError>>;
+	) => Promise<Result<Array<PersonaRow & {lastMessage: LastMessage | null; draft: string | null; draftAttachments: DraftAttachment[]; usedByOthers: boolean; inSlack: boolean}>, ApiError>>;
 	listAnswers: (orgId: string, userId: string) => Promise<Result<ChatAnswerRow[], ApiError>>;
 	/** What the members who made shared personas are called, those still in the organization, as the list says who made one. */
 	listMemberNames: typeof listMemberNames;

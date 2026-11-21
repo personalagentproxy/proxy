@@ -12,6 +12,8 @@ export const EXPERIMENTS = {
 	// More sandboxes running at once: 10 rather than the sandbox backend's own limit, which is 2 on
 	// hosted Personal Agent Proxy's.
 	moreSandboxes: 'More sandboxes running',
+	// Slack: a shared persona added to a linked Slack workspace as a Slack app of its own.
+	slack: 'Slack',
 } as const satisfies Record<string, string>;
 
 export type Experiment = keyof typeof EXPERIMENTS;

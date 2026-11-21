@@ -63,6 +63,18 @@ const harnesses = [
 // General, which the organization's owner made with it, and the person, a member, may not change.
 const general = {...persona('general', 'General', false), madeBy: {name: 'Dana'}};
 const finance = persona('finance', 'Finance', true);
+// Finance in Slack, as the api says it to whoever may change it.
+const financeInSlack = {
+	workspaces: [{id: 'workspace-1', name: 'Northwind', needsToken: false, inUse: true}],
+	app: {
+		state: 'in_slack',
+		workspaceId: 'workspace-1',
+		workspaceName: 'Northwind',
+		handle: 'finance',
+		settingsUrl: null,
+	},
+	unavailable: null,
+};
 
 // A thread of General's chat, as the chat lists it: one the person opened, stopped, unless a test
 // says otherwise.
@@ -187,6 +199,7 @@ function renderChatPage({
 	draftAttachments = [],
 	chatAlerts = 0,
 	others = false,
+	slack = false,
 	answered = () => Promise.resolve(),
 	threadAnswered = () => Promise.resolve(),
 	initial,
@@ -207,6 +220,8 @@ function renderChatPage({
 	chatAlerts?: number;
 	// Whether anyone else is in the organization.
 	others?: boolean;
+	// Whether the organization has the `slack` experiment on.
+	slack?: boolean;
 	// When the api answers for a chat: at once, unless a test holds it back.
 	answered?: (personaId: string) => Promise<void>;
 	// When the api answers for a thread: at once, unless a test holds it back.
@@ -219,7 +234,7 @@ function renderChatPage({
 		[
 			{
 				id: 'human',
-				loader: () => testHuman({...testOrg, memberCount: others ? 3 : 1}),
+				loader: () => testHuman({...testOrg, memberCount: others ? 3 : 1, slack}),
 				element: <HumanSide />,
 				children: [
 					// Chat's own address, which goes to the first agent the api lists, or, with none,
@@ -1892,6 +1907,108 @@ describe('ChatPage', () => {
 					'Your conversation with Finance goes with it. This cannot be undone.',
 				),
 			).toBeTruthy();
+			// Nothing of Slack without the experiment.
+			expect(within(pane).queryByText(/Slack/)).toBeNull();
+		});
+
+		test('say on an agent that is the person’s alone that it has to be shared to be added to Slack, asking nothing of the api', async () => {
+			renderChatPage({open: 'finance', slack: true, initial: '/acme/chat/finance/settings'});
+			const row = within(await screen.findByRole('region', {name: 'Agent settings'})).getByRole(
+				'region',
+				{name: 'Slack'},
+			);
+
+			expect(
+				within(row).getByText('Share it with everyone in Acme to add it to Slack'),
+			).toBeTruthy();
+			expect(within(row).queryByRole('button')).toBeNull();
+			expect(fetchMock).not.toHaveBeenCalledWith(
+				'/api/orgs/acme/chat/personas/finance/slack',
+				expect.anything(),
+			);
+		});
+
+		test('have a Slack card for a shared agent with the experiment, whose action opens the Slack dialog, and say on the card that deletes it that it leaves Slack', async () => {
+			answering((input) =>
+				input.endsWith('/chat/personas/finance/slack')
+					? Promise.resolve(Response.json(financeInSlack))
+					: null,
+			);
+			renderChatPage({
+				personas: [general, {...finance, shared: true}],
+				open: 'finance',
+				slack: true,
+				initial: '/acme/chat/finance/settings',
+			});
+			const row = within(await screen.findByRole('region', {name: 'Agent settings'})).getByRole(
+				'region',
+				{name: 'Slack'},
+			);
+
+			expect(await within(row).findByText('@finance in Northwind')).toBeTruthy();
+			expect(within(settings()).getByText(/It is removed from Slack first\./)).toBeTruthy();
+			fireEvent.click(within(row).getByRole('button', {name: 'Manage'}));
+			const dialog = await screen.findByRole('dialog');
+			expect(within(dialog).getByText(/Finance is in Northwind as @finance/)).toBeTruthy();
+		});
+
+		test('tell a member who may not change a shared agent where to write to it in Slack', async () => {
+			const research = {
+				...persona('research', 'Research', false),
+				shared: true,
+				madeBy: {name: 'Dana'},
+			};
+			answering((input) =>
+				input.endsWith('/chat/personas/research/slack/presence')
+					? Promise.resolve(
+							Response.json({
+								inSlack: {
+									handle: 'research',
+									workspaceName: 'Northwind',
+									slackUrl: 'https://slack.com/app_redirect?app=A02&team=T01',
+								},
+							}),
+						)
+					: null,
+			);
+			renderChatPage({
+				personas: [general, research],
+				open: 'research',
+				slack: true,
+				initial: '/acme/chat/research/settings',
+			});
+			const pane = await screen.findByRole('region', {name: 'Agent settings'});
+
+			expect(await within(pane).findByText('@research in Northwind')).toBeTruthy();
+			expect(within(pane).getByRole('link', {name: 'Open in Slack'}).getAttribute('href')).toBe(
+				'https://slack.com/app_redirect?app=A02&team=T01',
+			);
+			expect(fetchMock).not.toHaveBeenCalledWith(
+				'/api/orgs/acme/chat/personas/research/slack',
+				expect.anything(),
+			);
+		});
+
+		test('open on the Slack dialog saying how the install ended, coming back from Slack, at an address that forgets it', async () => {
+			answering((input) =>
+				input.endsWith('/chat/personas/finance/slack')
+					? Promise.resolve(Response.json(financeInSlack))
+					: null,
+			);
+			const {router} = renderChatPage({
+				personas: [general, {...finance, shared: true}],
+				open: 'finance',
+				slack: true,
+				initial: '/acme/chat/finance?slack=installed',
+			});
+
+			const dialog = await screen.findByRole('dialog');
+			expect(await within(dialog).findByText('Finance is in Slack.')).toBeDefined();
+			await waitFor(() =>
+				expect(router.state.location.pathname).toBe('/acme/chat/finance/settings'),
+			);
+			expect(router.state.location.search).toBe('');
+			expect(screen.getByRole('region', {name: 'Agent settings', hidden: true})).toBeTruthy();
 		});
 
 		test('say whose a shared agent is: made by the person, by another member, or, where its maker has left, whom it is for', async () => {

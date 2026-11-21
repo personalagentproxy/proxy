@@ -65,8 +65,8 @@ mock.module('../utils/env', () => ({env}));
 
 // The organizations as the database answers them: the person's first, their own, and Acme, which
 // they own too and others are in.
-const mine = {id: 'org-1', slug: 'alexs-workspace', name: "Alex's Workspace", role: 'owner' as const, onboarded: true, memberCount: 1, invitationCount: 0};
-const acme = {id: 'org-2', slug: 'acme', name: 'Acme', role: 'owner' as const, onboarded: true, memberCount: 3, invitationCount: 1};
+const mine = {id: 'org-1', slug: 'alexs-workspace', name: "Alex's Workspace", role: 'owner' as const, onboarded: true, memberCount: 1, invitationCount: 0, experiments: []};
+const acme = {id: 'org-2', slug: 'acme', name: 'Acme', role: 'owner' as const, onboarded: true, memberCount: 3, invitationCount: 1, experiments: ['slack' as const]};
 
 // A request about an organization, by its slug in the address.
 function makeRequest(params: Record<string, string> = {}, body: unknown = undefined) {
@@ -106,13 +106,13 @@ beforeEach(() => {
 });
 
 describe('handleListOrgsRoute', () => {
-	test('lists the person’s organizations by their slugs', async () => {
+	test('lists the person’s organizations by their slugs, with whether each has Slack on', async () => {
 		const {handleListOrgsRoute} = await import('./route');
 		const result = await handleListOrgsRoute(makeRequest());
 
-		expect(result.unwrap().orgs.map((org) => [org.slug, org.role, org.onboarded])).toEqual([
-			['alexs-workspace', 'owner', true],
-			['acme', 'owner', true],
+		expect(result.unwrap().orgs.map((org) => [org.slug, org.role, org.onboarded, org.slack])).toEqual([
+			['alexs-workspace', 'owner', true, false],
+			['acme', 'owner', true, true],
 		]);
 	});
 });
@@ -125,7 +125,8 @@ describe('handleGetOrgRoute', () => {
 		const result = await handleGetOrgRoute(makeRequest());
 
 		expect(getMemberOrganization).toHaveBeenCalledWith('user-1', 'acme');
-		expect(result.unwrap()).toEqual({...acme, role: 'member'});
+		const {experiments: _experiments, ...shown} = acme;
+		expect(result.unwrap()).toEqual({...shown, role: 'member', slack: true});
 	});
 
 	test('one the person isn’t in is not found, as is one that doesn’t exist', async () => {
@@ -144,7 +145,7 @@ describe('handleCreateOrgRoute', () => {
 		const result = await handleCreateOrgRoute(makeRequest({}, {name: '  Lab '}));
 
 		expect(createOrganization).toHaveBeenCalledWith({userId: 'user-1', name: 'Lab'});
-		expect(result.unwrap()).toEqual({id: 'org-3', slug: 'lab', name: 'Lab', role: 'owner', onboarded: true, memberCount: 1, invitationCount: 0});
+		expect(result.unwrap()).toEqual({id: 'org-3', slug: 'lab', name: 'Lab', role: 'owner', onboarded: true, slack: false, memberCount: 1, invitationCount: 0});
 	});
 
 	test('needs a name', async () => {

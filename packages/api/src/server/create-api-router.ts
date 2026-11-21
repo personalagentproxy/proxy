@@ -48,6 +48,19 @@ import {handleLinkPreviewImageRoute, handleLinkPreviewRoute} from '../link-previ
 import {alertRoutes} from '../harness/alerts-route';
 import {handleClientLogsRoute} from '../observability/client-logs';
 import {chatRoutes} from '../harness/route';
+import {handleSlackEventsRoute} from '../slack/events';
+import {handleSlackInstallCallbackRoute, handleStartSlackInstallRoute} from '../slack/install';
+import {
+	handleAddToSlackRoute,
+	handleForgetSlackAppRoute,
+	handleLinkSlackWorkspaceRoute,
+	handlePersonaInSlackRoute,
+	handlePersonaSlackRoute,
+	handleRemoveSlackAppRoute,
+	handleUnlinkSlackWorkspaceRoute,
+	handleUpdateSlackAppRoute,
+	removeSlackApp,
+} from '../slack/route';
 import {serverHarnesses} from '../backends/registry';
 import {harnessStore} from '../harness/store';
 import {handleFillIntentRoute, handlePickIntentRoute} from '../intent/route';
@@ -130,6 +143,11 @@ export function createApiRouter(): express.Router {
 	router.use(BLOBS_PATH, allowAnyOrigin);
 	router.put(`${BLOBS_PATH}/:token`, wrapAsyncRoute('Blob put route', handleBlobPutRoute));
 	router.get(`${BLOBS_PATH}/:token`, wrapAsyncRoute('Blob get route', handleBlobGetRoute));
+
+	// What Slack sends a persona's Slack app (slack/events.ts): signed over the body as it came, so
+	// mounted before the JSON parser, which would read it first. Slack's servers call it, with no
+	// session and no Origin: the signature is the guard.
+	router.post('/slack/events/:id', wrapAsyncRoute('Slack events route', handleSlackEventsRoute));
 
 	router.use(express.json({limit: BODY_LIMIT}));
 
@@ -288,7 +306,7 @@ export function createApiRouter(): express.Router {
 	// The Chat page: the organization's built-in agents and the member's chats with them, each a list
 	// of threads. Nothing here runs the model: the worker in each api instance does
 	// (harness/worker.ts); a message queues its work.
-	const chat = chatRoutes(harnessStore, serverHarnesses, chatFiles);
+	const chat = chatRoutes(harnessStore, serverHarnesses, chatFiles, {remove: removeSlackApp});
 	org.get('/chat/personas', withAuthResult('List personas route', chat.handleListPersonasRoute));
 	org.get('/chat/answers', withAuthResult('List answers route', chat.handleListAnswersRoute));
 	org.post('/chat/personas', withAuthResult('Create persona route', chat.handleCreatePersonaRoute));
@@ -308,6 +326,19 @@ export function createApiRouter(): express.Router {
 	org.put('/chat/personas/:personaId/threads/:threadId/title', withAuthResult('Rename chat thread route', chat.handleRenameThreadRoute));
 	org.post('/chat/personas/:personaId/threads/:threadId/done', withAuthResult('Mark chat thread done route', chat.handleMarkThreadDoneRoute));
 	org.post('/chat/personas/:personaId/threads/:threadId/archive', withAuthResult('Archive chat thread route', chat.handleArchiveThreadRoute));
+	// A shared persona in Slack, as an app of its own in a Slack workspace linked to the organization
+	// (slack/route.ts). Installing it is a top-level navigation to Slack, which comes back to
+	// `/slack/install`, outside the organization, reading it from the handshake it kept.
+	org.post('/slack/workspaces', withAuthResult('Link Slack workspace route', handleLinkSlackWorkspaceRoute));
+	org.delete('/slack/workspaces/:workspaceId', withAuthResult('Unlink Slack workspace route', handleUnlinkSlackWorkspaceRoute));
+	org.get('/chat/personas/:personaId/slack', withAuthResult('Persona Slack route', handlePersonaSlackRoute));
+	org.get('/chat/personas/:personaId/slack/presence', withAuthResult('Persona in Slack route', handlePersonaInSlackRoute));
+	org.post('/chat/personas/:personaId/slack', withAuthResult('Add persona to Slack route', handleAddToSlackRoute));
+	org.delete('/chat/personas/:personaId/slack', withAuthResult('Remove persona from Slack route', handleRemoveSlackAppRoute));
+	org.post('/chat/personas/:personaId/slack/update', withAuthResult('Update persona Slack app route', handleUpdateSlackAppRoute));
+	org.post('/chat/personas/:personaId/slack/forget', withAuthResult('Forget persona Slack app route', handleForgetSlackAppRoute));
+	org.get('/chat/personas/:personaId/slack/install', withAuth('Start Slack install route', handleStartSlackInstallRoute));
+	router.get('/slack/install', withAuth('Slack install callback route', handleSlackInstallCallbackRoute));
 	// The Alerts page: what the agents set in the member's threads, to be woken outside them.
 	const alerts = alertRoutes(harnessStore);
 	org.get('/alerts', withAuthResult('List alerts route', alerts.handleListAlertsRoute));

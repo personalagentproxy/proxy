@@ -193,11 +193,13 @@ export type UserOrgRow = {
 	memberCount: number;
 	// Invitations not taken up yet, expired ones included.
 	invitationCount: number;
+	// The experiments on for it.
+	experiments: Experiment[];
 };
 
 /**
  * The organizations the person is a member of, the first one joined first, with how many members
- * and invitations each has.
+ * and invitations each has, and the experiments on for each.
  */
 export async function listUserOrgs(userId: string): Promise<Result<UserOrgRow[], ApiError>> {
 	return (
@@ -213,6 +215,8 @@ export async function listUserOrgs(userId: string): Promise<Result<UserOrgRow[],
 							name: true,
 							onboardedAt: true,
 							ownerUserId: true,
+							insider: true,
+							experiments: true,
 							_count: {select: {members: true, invitations: true}},
 						},
 					},
@@ -228,6 +232,7 @@ export async function listUserOrgs(userId: string): Promise<Result<UserOrgRow[],
 			onboarded: org.onboardedAt !== null,
 			memberCount: org._count.members,
 			invitationCount: org._count.invitations,
+			experiments: organizationExperiments(org),
 		})),
 	);
 }
