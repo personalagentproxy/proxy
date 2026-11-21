@@ -1,5 +1,5 @@
 import type {Connection} from '@proxy/contracts/connections';
-import {ListRestartIcon, UnplugIcon} from 'lucide-react';
+import {ListRestartIcon, LockIcon, UnplugIcon} from 'lucide-react';
 import type {FetchError} from '@proxy/utils';
 import {useState} from 'react';
 import {useNavigate, useSearchParams} from 'react-router';
@@ -36,7 +36,14 @@ import {useReload} from '@/hooks/use-reload';
 import {signInPath} from '@/lib/integrations';
 import {chosenTab, type PageTab} from '@/lib/page-tabs';
 import {describeApiError, describeFetchError} from '@/lib/loader-utils';
-import {actsAs, hasOtherPeople, manages, managesAgentOn, ownerOf} from '@/lib/orgs';
+import {
+	actsAs,
+	agentSetBy,
+	connectionSetBy,
+	hasOtherPeople,
+	manages,
+	managesAgentOn,
+} from '@/lib/orgs';
 import type {connectionLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
 
@@ -80,18 +87,22 @@ function ConnectionDetail() {
 
 	// The agents that reach it, a column each of its permissions: the person's own, the shared ones
 	// where every member has it, theirs to change where the agent is, and Chat, the one the Chat
-	// page's personas all act through, theirs to change where the connection is.
+	// page's personas all act through, theirs to change where the connection is. Where a column
+	// isn't theirs, it names who changes it.
 	const columns: GridAgent[] = agents
 		.filter((agent) => agent.revokedAt === null && reaches(agent, connection))
 		.map((agent) => ({
 			agent,
 			own: ownSettings(agent, connection.id),
-			mayChange: managesAgentOn(human, agent, connection),
+			setBy: managesAgentOn(human, agent, connection)
+				? null
+				: agentSetBy(agent, connection, members),
 		}));
 	const activeOrg = human.org;
 	// One's own connection is one's to change and share, and one shared with every member is the
 	// organization's owner's too. Anyone else it is shared with uses it as it is.
 	const mayChange = manages(human, connection);
+	const defaultsSetBy = mayChange ? null : connectionSetBy(connection, members);
 	// A vault's entries are kept here, so no provider sees anyone.
 	const actingAs = integration.native ? null : actsAs(connection, human);
 	// A vault a member made is deleted, with its entries, where another connection is disconnected.
@@ -127,11 +138,8 @@ function ConnectionDetail() {
 		{id: 'activity', label: 'Recent activity'},
 	];
 	const tab = chosenTab(tabs, searchParams);
-	const about = permissionsIntro(connection, {
-		custom: integration.custom === true,
-		mayChange,
-		owner: ownerOf(connection, human),
-	});
+	const about = permissionsIntro(connection, integration.custom === true);
+	const locked = lockedNote(defaultsSetBy, columns);
 	const removal = integration.made
 		? {
 				verb: 'Delete',
@@ -261,6 +269,14 @@ function ConnectionDetail() {
 				{tab === 'permissions' && (
 					<div className="flex flex-col gap-2">
 						<p className="text-sm text-muted-foreground">{about}</p>
+						{locked && (
+							<p className="flex items-start gap-2 text-sm text-muted-foreground">
+								<span className="flex h-5 shrink-0 items-center">
+									<LockIcon className="size-3.5" />
+								</span>
+								{locked}
+							</p>
+						)}
 						{integration.disclosure && (
 							<p className="text-sm text-muted-foreground">{integration.disclosure}</p>
 						)}
@@ -273,7 +289,7 @@ function ConnectionDetail() {
 							agents={columns}
 							unavailable={connection.unavailable}
 							signInNeeded={connection.signInNeeded}
-							mayChangeDefaults={mayChange}
+							defaultsSetBy={defaultsSetBy}
 							all
 							onChangeDefaults={async (actions) => {
 								const result = await setConnectionDefaults(org, connection.id, actions);
@@ -359,16 +375,36 @@ function describeRefreshError(error: FetchError): string {
 	return describeFetchError(error);
 }
 
-// What the Permissions tab says first: what the grid's columns are, whose agents those are, and
-// who sets the defaults.
-function permissionsIntro(
-	connection: Connection,
-	about: {custom: boolean; mayChange: boolean; owner: string},
-): string {
+// What the Permissions tab says first: what the grid's columns are, and whose agents those are.
+function permissionsIntro(connection: Connection, custom: boolean): string {
 	const whose = connection.shared ? 'The agents of everyone who uses it' : 'Your agents';
 	return [
 		`${whose} get what Default says, unless a box of the agent’s own says otherwise.`,
-		...(about.custom ? ['These are the server’s tools, as it last listed them.'] : []),
-		...(about.mayChange ? [] : [`${about.owner} sets Default.`]),
+		...(custom ? ['These are the server’s tools, as it last listed them.'] : []),
 	].join(' ');
+}
+
+// "Default", "Default and Chat", "Default, Chat and Scout".
+function bothOf(names: string[]): string {
+	if (names.length < 2) {
+		return names[0] ?? '';
+	}
+	return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+}
+
+// For someone a connection is shared with, who doesn't change it: who sets Default and the columns
+// that go with it, Chat's among them, and what they may change themselves, their own agents'
+// columns, or else whom to ask. Null where the defaults are theirs to set.
+function lockedNote(defaultsSetBy: string | null, columns: GridAgent[]): string | null {
+	if (defaultsSetBy === null) {
+		return null;
+	}
+	const withDefault = columns
+		.filter((column) => column.setBy === defaultsSetBy)
+		.map(({agent}) => agent.name);
+	const sets = `${defaultsSetBy} sets ${bothOf(['Default', ...withDefault])} here.`;
+	if (columns.some((column) => column.setBy === null)) {
+		return `${sets} You set your own agents’ columns.`;
+	}
+	return `${sets} Ask them to change what agents may do with it.`;
 }

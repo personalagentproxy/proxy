@@ -232,7 +232,7 @@ describe('ConnectionPage', () => {
 			'Chat',
 		]);
 		expect(
-			screen.getByRole('checkbox', {name: 'Send for Chat'}).hasAttribute('data-disabled'),
+			screen.getByRole('checkbox', {name: 'Send for Chat'}).hasAttribute('data-readonly'),
 		).toBe(false);
 		cleanup();
 
@@ -247,8 +247,13 @@ describe('ConnectionPage', () => {
 		renderConnectionPage('/acme/connections/conn-1', danas, [chat]);
 
 		expect(
-			(await screen.findByRole('checkbox', {name: 'Send for Chat'})).hasAttribute('data-disabled'),
+			(await screen.findByRole('checkbox', {name: 'Send for Chat'})).hasAttribute('data-readonly'),
 		).toBe(true);
+		expect(
+			screen.getByText(
+				'Dana sets Default and Chat here. Ask them to change what agents may do with it.',
+			),
+		).toBeDefined();
 	});
 
 	test('the address opens the page on the tab it names', async () => {

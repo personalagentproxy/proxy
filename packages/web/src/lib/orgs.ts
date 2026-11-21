@@ -1,7 +1,7 @@
 import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
 import type {Me} from '@proxy/contracts/me';
-import type {Org} from '@proxy/contracts/orgs';
+import type {Member, Org} from '@proxy/contracts/orgs';
 import {findIntegration} from '@proxy/integrations';
 import {isBuiltInAgent} from '@/lib/access';
 
@@ -64,15 +64,54 @@ export function managesAgentOn(
 	return manages(human, agent);
 }
 
-/**
- * Whose a connection is, at the start of a line: "You", a member by their name or address, or "A
- * former member" for one no longer in the organization.
- */
-export function ownerOf(connection: Connection, human: Human): string {
-	if (connection.ownerUserId === human.user.id) {
-		return 'You';
+// "Sam", "Sam or Alex", "Sam, Alex or Kim": who may do something, in a sentence.
+function eitherOf(names: string[]): string {
+	if (names.length < 2) {
+		return names[0] ?? '';
 	}
-	return connection.owner ?? 'A former member';
+	return `${names.slice(0, -1).join(', ')} or ${names.at(-1)}`;
+}
+
+// The organization's owners by name, leaving out whoever is named already.
+function ownersBeside(members: Member[], named: string | null): string[] {
+	return members
+		.filter((member) => member.role === 'owner' && member.userId !== named)
+		.map((member) => member.name ?? member.email);
+}
+
+/**
+ * Who may change a connection's defaults and the built-in agent's settings on it, by name, for a
+ * person who may not (`manages`): whoever's it is, and for one shared with every member, the
+ * organization's owner beside them.
+ */
+export function connectionSetBy(
+	connection: Pick<Connection, 'ownerUserId' | 'owner' | 'sharedWithEveryone'>,
+	members: Member[],
+): string {
+	const owner = connection.owner === null ? [] : [connection.owner];
+	if (!connection.sharedWithEveryone) {
+		return eitherOf(owner.length > 0 ? owner : ['A former member']);
+	}
+	const names = [...owner, ...ownersBeside(members, connection.ownerUserId)];
+	return eitherOf(names.length > 0 ? names : ['The organization’s owner']);
+}
+
+/**
+ * Who may change an agent's settings on a connection, by name, for a person who may not
+ * (`managesAgentOn`): the built-in agent's are the connection's (`connectionSetBy`); a shared
+ * agent's, whoever made it and the organization's owner.
+ */
+export function agentSetBy(
+	agent: AgentLogin,
+	connection: Pick<Connection, 'ownerUserId' | 'owner' | 'sharedWithEveryone'>,
+	members: Member[],
+): string {
+	if (isBuiltInAgent(agent)) {
+		return connectionSetBy(connection, members);
+	}
+	const maker = agent.createdBy === null ? [] : [agent.createdBy];
+	const names = [...maker, ...ownersBeside(members, agent.createdById)];
+	return eitherOf(names.length > 0 ? names : ['The organization’s owner']);
 }
 
 /**
