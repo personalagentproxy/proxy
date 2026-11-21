@@ -5,19 +5,22 @@ import {getUserTimeZone} from '@proxy/db/user';
 import {ApiErr, type ApiError, Do} from '@proxy/utils';
 
 import type {NewCommandRunner, RecordTarget, RecordValues} from './connector';
+import {type Attached, attachedBlobs} from './email-attachments';
 
 /**
  * A reply to an email, as the command bar and agents write one, whatever the mailbox: from the
- * connection's address, in the email's thread, sent at once or saved as a draft. Each mailbox's
+ * connection's address, in the email's thread, sent at once or saved as a draft, with the agent's
+ * blobs it names attached (email-attachments.ts). Each mailbox's
  * connector reads the email and writes the reply in its own terms; agents write one as the
  * `replies` collection's commands.
  */
 
 /**
  * What is written back, whether it goes out now or waits in the drafts, whether to everyone the
- * email went to, and whether the email is quoted below it, its time in `timeZone`.
+ * email went to, whether the email is quoted below it, its time in `timeZone`, and the files it
+ * goes out with.
  */
-export type Reply = {body: string; send: boolean; all: boolean; quote: boolean; timeZone: string | null};
+export type Reply = {body: string; send: boolean; all: boolean; quote: boolean; timeZone: string | null; attached: Attached[]};
 
 /** The email a reply answers, as its headers say. */
 export type Answered = {from: string; replyTo: string; to: string; cc: string; subject: string; messageId: string; references: string};
@@ -174,9 +177,11 @@ function replyRunner(reply: MailReply, send: boolean): NewCommandRunner {
 			}
 			const replyAll = values.replyAll ?? '';
 			const quote = values.quote ?? '';
+			const attach = values.attach ?? '';
+			const attached = $(await attachedBlobs(target, attach));
 			const timeZone = quote === 'No' ? null : await replyTimeZone(target.connection.ownerUserId);
-			const written = $(await reply(target, email, {body, send, all: replyAll === 'Yes', quote: quote !== 'No', timeZone}));
-			const record: RecordValues = {email, body, replyAll, quote, to: written.to, cc: written.cc, subject: written.subject};
+			const written = $(await reply(target, email, {body, send, all: replyAll === 'Yes', quote: quote !== 'No', timeZone, attached}));
+			const record: RecordValues = {email, body, replyAll, quote, attach, to: written.to, cc: written.cc, subject: written.subject};
 			if (written.thread) {
 				record.thread = written.thread;
 			}

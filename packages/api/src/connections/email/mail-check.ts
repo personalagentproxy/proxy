@@ -50,8 +50,11 @@ async function checkImap(credential: EmailCredential): Promise<Result<void, ApiE
 	return result.mapErr(imapError);
 }
 
-/** How Personal Agent Proxy signs in to a mailbox's SMTP server: TLS on 465, or STARTTLS required on 587. */
-export function smtpTransport(credential: EmailCredential) {
+/**
+ * How Personal Agent Proxy signs in to a mailbox's SMTP server: TLS on 465, or STARTTLS required
+ * on 587, giving up after ten seconds of silence, or `silenceMs` where a large email is sent.
+ */
+export function smtpTransport(credential: EmailCredential, silenceMs = TIMEOUT_MS) {
 	return nodemailer.createTransport({
 		host: credential.smtpHost,
 		port: credential.smtpPort,
@@ -60,7 +63,7 @@ export function smtpTransport(credential: EmailCredential) {
 		auth: {user: credential.username, pass: credential.password},
 		connectionTimeout: TIMEOUT_MS,
 		greetingTimeout: TIMEOUT_MS,
-		socketTimeout: TIMEOUT_MS,
+		socketTimeout: silenceMs,
 	});
 }
 

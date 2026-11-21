@@ -251,7 +251,6 @@ model Connection {
   sandboxes    Sandbox[]
   fileNodes    FileNode[]
   fileVersions FileVersion[]
-  fileUploads  FileUpload[]
 
   @@index([orgId])
   @@index([ownerUserId])
@@ -683,10 +682,16 @@ model FileVersion {
 
 // Bytes in the server's blob store (@proxy/backends/blob), under `key` at the backend that took
 // them. The row is made before the bytes are sent, and `sha256` set once they are all there, so
-// nothing is in the store that no row names. A blob no version points at any more, its upload
-// given up or its versions gone with their drive, is removed from the store and then here by the
-// sweep (api native/files/sweeper.ts); the organization is a plain id, so the row outlives it
-// until then.
+// nothing is in the store that no row names. A blob no version points at, an agent's never used or
+// its versions gone with their drive, is removed from the store and then here by the sweep a day
+// after it was made (api native/files/sweeper.ts); the organization is a plain id, so the row
+// outlives it until then.
+//
+// An agent's blob (api blobs/) is a file on its way through Personal Agent Proxy: an email's
+// attachment, a drive's file, or bytes sent to a URL, which the agent then puts in a drive,
+// attaches to an email or fetches. Only that agent may use it, so `agentId` is who made it, a
+// plain id as the activity log has it; with the file's name and media type where its source had
+// them.
 model FileBlob {
   id        String  @id @default(cuid())
   orgId     String
@@ -694,6 +699,9 @@ model FileBlob {
   key       String  @unique
   size      Int     @default(0)
   sha256    String?
+  agentId   String?
+  name      String?
+  type      String?
 
   createdAt DateTime @default(now())
 
@@ -752,83 +760,6 @@ model FileChange {
   @@index([orgId, createdAt])
   @@index([connectionId, fileId, createdAt])
   @@index([taskId])
-}
-
-// What an upload makes of its bytes: a new file, or the next version of one that is there.
-enum FileUploadTarget {
-  create
-  write
-}
-
-// Where an upload stands: waiting for its bytes or for files_upload_done; made into its file;
-// refused at the end, its bytes not what was said or the file moved on since; or let go,
-// unfinished, once its hour was up.
-enum FileUploadStatus {
-  open
-  done
-  failed
-  expired
-}
-
-// An upload into a drive, through a URL rather than a tool's params: a call checks everything
-// about the file first, the agent's access, the folder, the name and the size, and is answered
-// with a URL of Personal Agent Proxy's own that takes the bytes for an hour, its secret the one
-// credential, into a blob of the store; then files_upload_done checks what arrived and makes the
-// file of it, in the drive, as the agent's, for the task that started it. Nothing reaches the drive
-// before done, on every kind of drive. Plain ids for who started it, as the activity log has them;
-// it goes with its connection. Expired by the sweep (api uploads/sweeper.ts).
-model FileUpload {
-  id           String           @id @default(cuid())
-  orgId        String
-  connectionId String
-  // Who started it and for which of its tasks (AgentTask), and how the call came in.
-  agentId      String
-  taskId       String
-  via          AuditVia
-  // The activity log's entry of the call that started it (AuditEntry).
-  entryId      String?
-  // The SHA-256 of the secret in the URL that takes the bytes, never the secret.
-  secretHash   String           @unique
-  target       FileUploadTarget
-  // A new file: the folder it goes in, none for the top, and its name; a write: the file's name.
-  parentId     String?
-  name         String
-  // A new file: the folders to make on the way, at done, each inside the one before it, the first
-  // in `parentId`, as a push to a path whose folders are missing (`pap files push`); none where
-  // the folder is there.
-  folders      String[]         @default([])
-  // A new file: made into the drive's own kind of file, as Google Drive makes a Doc of a docx.
-  convert      Boolean          @default(false)
-  // A write: the file written over, and the version it was read at. A new file: the file once
-  // made, or the id the drive reserved for it at the start, as Google Drive does.
-  fileId       String?
-  version      String?
-  // What the caller said it would send: how many bytes, their SHA-256 where it said, and their
-  // media type, as said or as the name tells.
-  size         BigInt
-  sha256       String?
-  type         String
-  // The blob the bytes go into (FileBlob), made at the start, so the sweep of unused blobs takes it
-  // where the upload is never finished, or once the drive elsewhere has the file.
-  blobId       String
-  status       FileUploadStatus @default(open)
-  // When a PUT or a files_upload_done took it to work on, so no other does at once; cleared when
-  // it ends. And when its bytes were all in.
-  lockedAt     DateTime?
-  receivedAt   DateTime?
-  // Done: the file's version it made. Failed: why, said again to every files_upload_done.
-  afterVersion String?
-  failure      String?
-  // An hour from the start: no bytes are taken after it.
-  expiresAt    DateTime
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @default(now()) @updatedAt
-
-  connection Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
-
-  @@index([connectionId])
-  @@index([status, expiresAt])
 }
 
 // A persona of the Chat page: an agent Personal Agent Proxy runs itself, named and given a head,

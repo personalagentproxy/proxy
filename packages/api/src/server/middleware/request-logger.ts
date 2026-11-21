@@ -2,7 +2,7 @@ import {randomUUID} from 'node:crypto';
 
 import type {NextFunction, Request, Response} from 'express';
 
-import {UPLOADS_PATH} from '@proxy/contracts/uploads';
+import {BLOBS_PATH} from '@proxy/contracts/blobs';
 
 import {log} from '../../observability/log';
 import {runInContext} from '../../observability/request-context';
@@ -10,8 +10,8 @@ import {runInContext} from '../../observability/request-context';
 /**
  * Opens the log scope of every request, with an id the response carries back in `x-request-id`,
  * so a person can quote it, and writes one line when the request is answered: its status, how
- * long it took, and the route that matched, which the dashboards count and time requests by. An
- * upload's URL is written as its route, never with its secret, which takes the upload's bytes.
+ * long it took, and the route that matched, which the dashboards count and time requests by. A
+ * blob's URL is written as its route, never with its token, which moves the blob's bytes.
  */
 
 const REQUEST_ID_HEADER = 'x-request-id';
@@ -25,10 +25,10 @@ function matchedRoute(req: Request): string | undefined {
 	return `${req.baseUrl}${path}`;
 }
 
-// The path as every line of the request says it: an upload's without its secret.
+// The path as every line of the request says it: a blob's without its token.
 function loggedPath(path: string): string {
-	if (path.startsWith(`${UPLOADS_PATH}/`)) {
-		return `${UPLOADS_PATH}/:secret`;
+	if (path.startsWith(`${BLOBS_PATH}/`)) {
+		return `${BLOBS_PATH}/:token`;
 	}
 	return path;
 }

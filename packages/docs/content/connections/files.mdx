@@ -80,8 +80,9 @@ anything to another site.
 
 An agent that may read a drive lists its folders, searches it by name, and reads a file as
 text: text as it is, a spreadsheet's tabs as CSV, a PDF's or a Word document's text, a long one
-a stretch at a time. It adds files and writes them as text, and uploads any other file through
-a URL ([below](#uploading-through-a-url)).
+a stretch at a time. It adds files and writes them as text, and puts any other file in the drive
+as a blob, from an email's attachment, another drive or its own shell
+([below](#moving-files-between-connections)).
 
 To write over a file, an agent has to name the version it read. Where the file changed since,
 by you or another agent, the write is refused and the agent reads the file again, so one never
@@ -91,28 +92,37 @@ which agent made each version.
 
 An agent points you to a file it made by its link, which opens the file in your drive.
 
-### Uploading through a URL
+### Moving files between connections
 
 A file that isn't text, or is too large to send as a tool's words, a PDF, a picture, a
-spreadsheet or an archive, goes up through a URL, from wherever the agent runs, with a shell and
-`curl` and nothing of Personal Agent Proxy's installed:
+spreadsheet or an archive, moves through Personal Agent Proxy as a **blob**: its bytes, kept for
+a day, which only the agent that made it can use. One tool hands a file over as a blob, and
+another takes the blob where it goes, each checked against what the agent may do with its own
+connection and in the activity log under it:
 
-1. The agent asks for an upload with `files_upload`, saying the file's name and the folder for a
-   new file, or the file and the version it read to write over one, and the file's size in bytes,
-   with its SHA-256 if it likes. Everything is checked then, before any bytes are sent: that the
-   agent may add files, or may edit them to write over one; that the folder is there and the name
-   free in it; that the file still holds the version read; and that the file is no larger than
-   the server takes.
-2. It is answered with a URL of Personal Agent Proxy's, and a line to run as it is:
-   `curl -X PUT --upload-file report.pdf '<url>'`. The URL is the only key to the upload, so it
-   needs no sign-in. It takes one file, no more bytes than were said, for one hour.
-3. The agent calls `files_upload_done`, which checks that what arrived is the size said, and has
-   the SHA-256 given, and only then makes the file, or the file's next version, keeping the one
-   before. Bytes that aren't what was said are made into nothing, and the agent starts again.
+- `files_blob` makes a blob of a file in a drive, what it holds now or an earlier version, as
+  reading it does. Google Drive's makes one of a file there, a Doc, Sheet or Slides file as Drive
+  exports it.
+- `attachments_blob` makes a blob of an email's attachment, of any kind, in Gmail or any mailbox.
+- `files_upload` puts a blob in a drive: a new file, called what the blob is unless the agent
+  names it otherwise, in the folder given, or the next version of a file whose version the agent
+  read, keeping the one before. It needs Add files for a new file and Edit files to write over
+  one, and the file is in the drive's history as the agent's, for the task it was put there for.
+- An email attaches blobs: a new draft, an edit of one, a reply, or an email sent at once names
+  them in `attach`, in Gmail or any mailbox, and they go out under their own names, 25 MB
+  together at most.
 
-Both calls are in the activity log, and the file is in the drive's history as the agent's, for
-the task it started the upload for. An upload nobody finished within the hour is let go, and
-what was sent for it deleted.
+So an attachment goes into a drive in two calls, `attachments_blob` and then `files_upload`, and a
+file from Google Drive into Files, or the other way, the same way with `files_blob`. An attachment
+is forwarded the same way, made a blob and attached to the new email, and so is a file of a drive
+sent by email.
+
+A file from wherever the agent runs, with a shell and `curl` and nothing of Personal Agent
+Proxy's installed, becomes a blob through a URL: `pap.upload()` in a script answers with one, and
+`curl -T report.pdf '<url>?name=report.pdf'` sends the file to it, answered with the blob's id.
+`pap.download(blob)` answers with a URL to fetch a blob from. Each URL is the only key it needs, so
+it needs no sign-in, and works for an hour. Nothing is in a drive until `files_upload` puts it
+there, and a blob nobody used is deleted after its day.
 
 ### Files in a sandbox
 
@@ -129,17 +139,19 @@ drive and the sandbox as they are, a picture, a spreadsheet or an archive as muc
   `pap files push <file> <connection> <path>` sends any file to a path, making the folders on
   the way.
 
-A push is an [upload through a URL](#uploading-through-a-url), which `pap` makes for the agent:
-it reads the file's size and SHA-256 from the sandbox's disk, starts the upload with them, sends
-the file to the URL as it reads it, and finishes the upload, which makes the file only if what
-arrived is what was said. Everything about the push is checked before any of the file is sent, and
-the folders on the way are made only at the end, with the file.
+A push is a [blob](#moving-files-between-connections) put in the drive, which `pap` makes for the
+agent. It reads the file's size and SHA-256 from the sandbox's disk and asks about the push before
+any of the file is sent: whether the agent may make it, where it goes, the version it names and
+the file's size, so a push that would be refused sends nothing. Then it sends the file to a blob's
+URL as it reads it, checks that what arrived is what it read, and puts the blob at the path,
+making the folders on the way. `pap upload <file>` and `pap download <blob>` move a blob alone,
+for the other tools that take or make one.
 
 The rule of a write holds here too: a push over a file is taken where the file still holds the
 version that was pulled, and refused where it changed since, unless it is pushed with `--force`;
 the version before is kept either way. A pull is a read, a push to a new path an added file, and
 a push over a file an edit, each checked against what the agent may do with the drive and in the
-activity log as from a sandbox, a push as its `files_upload` and `files_upload_done`.
+activity log as from a sandbox, a push as its `files_upload`.
 
 `pap files` works on a Google connection's Drive too, with paths from My Drive, Shared drives and
 Shared with me, and Docs, Sheets and Slides files pulled as an export

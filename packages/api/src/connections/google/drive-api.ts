@@ -1,17 +1,15 @@
-import {randomUUID} from 'node:crypto';
-
 import type {Result} from 'ts-results-es';
 import {z} from 'zod';
 
-import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
+import {type ApiError, Do} from '@proxy/utils';
 
-import {googleRequest, googleSession, googleStream, googleText, googleTransfer, googleUpload, googleWrite} from './google-client';
+import {googleRequest, googleSession, googleStream, googleText, googleTransfer, googleUpload, googleWrite, multipartRelated} from './google-client';
 
 /**
  * The Drive v3 calls the `files` collection makes, and the reading of their answers. Every call
  * takes shared drives too. A document or a spreadsheet is made from Markdown or CSV with the
  * Google type it is to become, and Drive converts it. A file's bytes go up as they come, through a
- * resumable upload's session, as a copy given back and an upload finished do.
+ * resumable upload's session, as a copy given back and a blob put in Drive do.
  */
 
 const DRIVE = 'https://www.googleapis.com/drive/v3';
@@ -152,13 +150,6 @@ function textType(type: string): string {
 	return `${type}; charset=UTF-8`;
 }
 
-// A file's metadata and its text in one request, as Drive's multipart upload takes them.
-function multipart(metadata: object, type: string, content: string): {type: string; body: Blob} {
-	const boundary = `proxy-${randomUUID()}`;
-	const head = [`--${boundary}`, 'Content-Type: application/json; charset=UTF-8', '', JSON.stringify(metadata), `--${boundary}`, `Content-Type: ${type}`, '', ''].join('\r\n');
-	return {type: `multipart/related; boundary=${boundary}`, body: new Blob([head, content, `\r\n--${boundary}--`])};
-}
-
 function metadataOf(file: NewFile): object {
 	return {name: file.name, mimeType: file.mimeType, parents: [file.parent]};
 }
@@ -170,7 +161,13 @@ export function createFile(accessToken: string, file: NewFile, upload: Upload | 
 	if (upload === null) {
 		return googleWrite(accessToken, 'POST', driveUrl('/files', WRITE_PARAMS), metadataOf(file), driveFileSchema);
 	}
-	return googleUpload(accessToken, 'POST', driveUrl('/files', {...WRITE_PARAMS, uploadType: 'multipart'}, UPLOAD), multipart(metadataOf(file), textType(upload.type), upload.body), driveFileSchema);
+	return googleUpload(
+		accessToken,
+		'POST',
+		driveUrl('/files', {...WRITE_PARAMS, uploadType: 'multipart'}, UPLOAD),
+		multipartRelated(metadataOf(file), textType(upload.type), upload.body),
+		driveFileSchema,
+	);
 }
 
 /** A copy of a file, made by Drive itself, in the folder given under the name given. */
@@ -329,30 +326,16 @@ export function putContent(accessToken: string, fileId: string, content: {type: 
 
 // ---- New files from bytes as they come -------------------------------------------------------------
 
-const generatedIdsSchema = z.object({ids: z.array(z.string())});
-
-/** An id Drive reserves for a file not made yet, which a file made with it then has. */
-export function generateFileId(accessToken: string): Promise<Result<string, ApiError>> {
-	return Do(async ($) => {
-		const generated = $(await googleRequest(accessToken, driveUrl('/files/generateIds', {count: '1', space: 'drive', type: 'files'}), generatedIdsSchema));
-		return $(requirePresent(generated.ids[0], ApiErr.providerUnreachable(new Error('Google Drive reserved no id for a new file'))));
-	});
-}
-
 /**
- * Makes a new file of bytes of `type`, `size` of them, under the id Drive reserved for it where
- * there is one, in the folder given, as `file.mimeType`: the bytes' own type keeps them as they are, and a Google type
- * converts them, as a docx into a Doc. Sent through a resumable session, as Drive takes a file of
+ * Makes a new file of bytes of `type`, `size` of them, in the folder given, as `file.mimeType`:
+ * the bytes' own type keeps them as they are, and a Google type converts them, as a docx into a
+ * Doc. Sent through a resumable session, as Drive takes a file of
  * more than 5 MB, in one request as they come.
  */
-export function createContent(
-	accessToken: string,
-	file: NewFile & {id: string | null},
-	content: {type: string; body: ReadableStream<Uint8Array>; size: number},
-): Promise<Result<DriveFileState, ApiError>> {
+export function createContent(accessToken: string, file: NewFile, content: {type: string; body: ReadableStream<Uint8Array>; size: number}): Promise<Result<DriveFileState, ApiError>> {
 	return Do(async ($) => {
 		const url = driveUrl('/files', {uploadType: 'resumable', fields: STATE_FIELDS, supportsAllDrives: 'true'}, UPLOAD);
-		const session = $(await googleSession(accessToken, 'POST', url, {type: content.type, size: content.size, metadata: {...(file.id === null ? {} : {id: file.id}), ...metadataOf(file)}}));
+		const session = $(await googleSession(accessToken, 'POST', url, {type: content.type, size: content.size, metadata: metadataOf(file)}));
 		return $(await googleTransfer(accessToken, 'PUT', new URL(session), content, fileStateSchema));
 	});
 }

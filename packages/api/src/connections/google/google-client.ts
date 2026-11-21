@@ -1,3 +1,5 @@
+import {randomUUID} from 'node:crypto';
+
 import {Err, Ok, Result} from 'ts-results-es';
 import {z} from 'zod';
 
@@ -149,6 +151,18 @@ export async function googleUpload<S extends z.ZodType>(
 	const init = {method, headers: {...authHeaders(accessToken), 'content-type': content.type}, body: content.body};
 	const answer = await httpRequest(url, init, {schema, timeoutMs: TIMEOUT_MS});
 	return answer.mapErr(googleError);
+}
+
+/**
+ * Metadata and content in one request, as Google's multipart uploads take them: the metadata as
+ * JSON first, then the content, of its own type.
+ */
+export function multipartRelated(metadata: object, type: string, content: string | Uint8Array): {type: string; body: Blob} {
+	const boundary = `proxy-${randomUUID()}`;
+	// Bytes are copied into the body, which a view of memory shared with others can't be.
+	const part = typeof content === 'string' ? content : new Uint8Array(content);
+	const head = [`--${boundary}`, 'Content-Type: application/json; charset=UTF-8', '', JSON.stringify(metadata), `--${boundary}`, `Content-Type: ${type}`, '', ''].join('\r\n');
+	return {type: `multipart/related; boundary=${boundary}`, body: new Blob([head, part, `\r\n--${boundary}--`])};
 }
 
 // How long a file's bytes may take to come down or go up whole, as a copy kept or given back does:

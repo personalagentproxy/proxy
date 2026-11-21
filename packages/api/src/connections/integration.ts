@@ -5,10 +5,8 @@ import type {ApiError} from '@proxy/utils';
 import type {IntegrationId} from '@proxy/integrations';
 import type {Connection, plaidLinkTokenSchema} from '@proxy/contracts/connections';
 
-import type {RunTarget} from '../agent-side/tools';
-import type {CliDrive} from '../native/files/cli-drive';
+import type {Drive, DriveAt} from '../native/files/drive';
 import type {NativeToolAction, NativeToolAllowance, NativeToolRunner} from '../native/tool';
-import type {DriveUploads} from '../uploads/tickets';
 import type {Connector} from '../records/connector';
 import type {AuthenticatedHandler, AuthenticatedResultHandler} from '../server/middleware/require-auth';
 import type {BuiltInMcp} from './mcp/built-in';
@@ -70,12 +68,10 @@ export type ApiIntegration = {
 	// The action a run of one of its own tools needs where it depends on the run's params, by the
 	// tool's name (`native/tool.ts` NativeToolAction); the tool's own action for every other.
 	actions?: Partial<Record<string, NativeToolAction>>;
-	// How a drive of it takes files through a URL (`uploads/tickets.ts`), for one whose uploads are
-	// let go by the sweep when nobody finishes them.
-	uploads?: DriveUploads;
-	// How a drive of it is reached by path from a sandbox, with `pap files` (`native/files/cli-drive.ts`),
-	// for one that keeps files: as the run's agent reaches it.
-	cli?: (target: RunTarget) => CliDrive;
+	// How a drive of it holds files (`native/files/drive.ts`), for one that keeps files: by path from
+	// a sandbox, with `pap files`, and as bytes, made a blob and taken from one, as the run's agent
+	// reaches it.
+	drive?: (at: DriveAt) => Drive;
 	// None for the vault, which is never connected.
 	connect?: ConnectRoutes;
 	// Built on its provider's MCP server (`built-in-mcp.ts`).

@@ -11,6 +11,8 @@ export const PAP_METHODS = [
 	'startTask',
 	'finishTask',
 	'feedback',
+	'upload',
+	'download',
 ] as const;
 
 export type PapMethod = (typeof PAP_METHODS)[number];
@@ -23,7 +25,7 @@ export const CLI_STATUS = {ok: 200, failed: 422, refused: 401} as const;
 
 /**
  * Where the files of a drive are reached by path, under `PAP_URL` (cli.ts): `<this>/<connection>/list`,
- * `<this>/<connection>/content`, and `<this>/<connection>/uploads` with `…/uploads/<upload>/done`.
+ * `<this>/<connection>/content`, `<this>/<connection>/push` and `<this>/<connection>/push/check`.
  */
 export const CLI_FILES_PATH = '/api/cli/files';
 
@@ -34,8 +36,3 @@ export const CLI_FILE_HEADER = 'x-pap-file';
 export const CLI_EXPORTS = ['md', 'docx', 'pdf', 'xlsx', 'csv', 'pptx', 'txt'] as const;
 
 export type CliExport = (typeof CLI_EXPORTS)[number];
-
-/** What a new file pushed to Google Drive is made into: `pap files push --as`. */
-export const CLI_CONVERSIONS = ['doc', 'sheet', 'slides'] as const;
-
-export type CliConversion = (typeof CLI_CONVERSIONS)[number];

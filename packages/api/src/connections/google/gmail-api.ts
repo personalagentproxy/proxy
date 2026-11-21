@@ -5,15 +5,19 @@ import {type ApiError, mapWithLimit} from '@proxy/utils';
 
 import {decodeText} from '../../utils/decode-text';
 import {htmlToText} from '../../utils/html-to-text';
-import {googleDelete, googleRequest, googleWrite} from './google-client';
+import {googleDelete, googleRequest, googleTransfer, googleWrite, multipartRelated} from './google-client';
 
 /**
  * The Gmail v1 calls the `emails` collection makes, the reading of their answers, and Gmail's
  * labels as the collection's folders. A message is read as Gmail parses it: its headers, and its
- * MIME parts with each part's content in base64url.
+ * MIME parts with each part's content in base64url. One is written as its RFC 2822 text, in the
+ * call's JSON or, where it is large, as an upload.
  */
 
 const GMAIL = 'https://gmail.googleapis.com/gmail/v1/users/me';
+
+// Where a message too large for a call's JSON is sent, as an upload of its own.
+const GMAIL_UPLOAD = 'https://gmail.googleapis.com/upload/gmail/v1/users/me';
 
 export const PAGE_SIZE = 50;
 
@@ -86,8 +90,8 @@ export type Page<T> = {items: T[]; nextPage: string | null};
 // A parameter given several times, such as `labelIds`, is a list; one left out is null.
 type Params = Record<string, string | string[] | null>;
 
-function gmailUrl(path: string, params: Params = {}): URL {
-	const url = new URL(`${GMAIL}${path}`);
+function gmailUrl(path: string, params: Params = {}, base = GMAIL): URL {
+	const url = new URL(`${base}${path}`);
 	for (const [name, value] of Object.entries(params)) {
 		for (const each of [value ?? []].flat()) {
 			url.searchParams.append(name, each);
@@ -96,9 +100,32 @@ function gmailUrl(path: string, params: Params = {}): URL {
 	return url;
 }
 
-/** A message as base64url of its RFC 2822 text, as Gmail takes one to send or save as a draft. */
-export function rawMessage(source: Buffer, threadId: string | null): {raw: string; threadId?: string} {
-	return {raw: source.toString('base64url'), ...(threadId ? {threadId} : {})};
+/** A message to send or save as a draft: its RFC 2822 text, and the thread Gmail is to put it in, where it answers an email. */
+export type Outgoing = {source: Buffer; threadId: string | null};
+
+// A message up to this size goes in the call's JSON; a larger one, as one with attachments is, as
+// an upload, which Gmail takes up to 35 MB.
+const INLINE_BYTES = 2 * 1024 * 1024;
+
+/**
+ * Writes a message to Gmail, as `resource` wraps it for the call, a draft's inside the draft: in
+ * the call's JSON, as base64url of its text, or, where it is large, as a multipart upload of the
+ * JSON without the text and then the text itself, as `message/rfc822`.
+ */
+function writeMessage<S extends z.ZodType>(
+	accessToken: string,
+	method: 'POST' | 'PUT',
+	path: string,
+	message: Outgoing,
+	resource: (message: {raw?: string; threadId?: string}) => object,
+	schema: S,
+): Promise<Result<z.infer<S>, ApiError>> {
+	const thread = message.threadId ? {threadId: message.threadId} : {};
+	if (message.source.length <= INLINE_BYTES) {
+		return googleWrite(accessToken, method, gmailUrl(path), resource({raw: message.source.toString('base64url'), ...thread}), schema);
+	}
+	const {type, body} = multipartRelated(resource(thread), 'message/rfc822', message.source);
+	return googleTransfer(accessToken, method, gmailUrl(path, {uploadType: 'multipart'}, GMAIL_UPLOAD), {type, body: body.stream(), size: body.size}, schema);
 }
 
 // ---- Folders ---------------------------------------------------------------------------------
@@ -177,17 +204,39 @@ function findText(part: MessagePart, mimeType: string): MessagePart | null {
  * One of a message's attachments: its content is in the message, as a small one's may be, or is
  * fetched by its `attachmentId`, which Gmail gives anew every time the message is read.
  */
-export type GmailAttachment = {name: string; type: string; size: number; data: string | null; attachmentId: string | null};
+export type GmailAttachment = {name: string; type: string; size: number; data: string | null; attachmentId: string | null; cid: string | null};
 
-/** A message's attachments, inline images included, in the order of its parts. */
+// The id a message's HTML shows a picture by, as the part's Content-ID says it, without its brackets.
+function contentId(part: MessagePart): string | null {
+	const header = part.headers?.find(({name}) => name.toLowerCase() === 'content-id')?.value.trim() ?? '';
+	const id = header.replace(/^<|>$/g, '');
+	return id === '' ? null : id;
+}
+
+function attachmentOf(part: MessagePart): GmailAttachment {
+	return {name: part.filename ?? '', type: part.mimeType ?? '', size: part.body?.size ?? 0, data: part.body?.data ?? null, attachmentId: part.body?.attachmentId ?? null, cid: contentId(part)};
+}
+
+/** A message's attachments, inline images included, in the order of its parts: those of an email attached to it too, each read by its own number. */
 export function attachmentsOf(part: MessagePart | undefined): GmailAttachment[] {
 	if (!part) {
 		return [];
 	}
-	const own = isAttachment(part)
-		? [{name: part.filename ?? '', type: part.mimeType ?? '', size: part.body?.size ?? 0, data: part.body?.data ?? null, attachmentId: part.body?.attachmentId ?? null}]
-		: [];
-	return [...own, ...(part.parts ?? []).flatMap(attachmentsOf)];
+	return [...(isAttachment(part) ? [attachmentOf(part)] : []), ...(part.parts ?? []).flatMap(attachmentsOf)];
+}
+
+/**
+ * The attachments that are the message's own, to write it again with: an email attached to it is
+ * one of them, whole, and what that email has attached stays inside it.
+ */
+export function ownAttachments(part: MessagePart | undefined): GmailAttachment[] {
+	if (!part) {
+		return [];
+	}
+	if (isAttachment(part)) {
+		return [attachmentOf(part)];
+	}
+	return (part.parts ?? []).flatMap(ownAttachments);
 }
 
 /** A message's HTML part, as its sender wrote it, or null for one without. */
@@ -356,8 +405,8 @@ export function trashMessage(accessToken: string, messageId: string): Promise<Re
 }
 
 /** Sends a message; Gmail files it in Sent itself. */
-export function sendMessage(accessToken: string, message: {raw: string; threadId?: string}): Promise<Result<GmailMessage, ApiError>> {
-	return googleWrite(accessToken, 'POST', gmailUrl('/messages/send'), message, messageSchema);
+export function sendMessage(accessToken: string, message: Outgoing): Promise<Result<GmailMessage, ApiError>> {
+	return writeMessage(accessToken, 'POST', '/messages/send', message, (written) => written, messageSchema);
 }
 
 /** A draft whole, its message with every part. */
@@ -365,13 +414,13 @@ export function getDraft(accessToken: string, draftId: string): Promise<Result<G
 	return googleRequest(accessToken, gmailUrl(`/drafts/${draftId}`, {format: 'full'}), draftSchema);
 }
 
-export function createDraft(accessToken: string, message: {raw: string; threadId?: string}): Promise<Result<GmailDraft, ApiError>> {
-	return googleWrite(accessToken, 'POST', gmailUrl('/drafts'), {message}, draftSchema);
+export function createDraft(accessToken: string, message: Outgoing): Promise<Result<GmailDraft, ApiError>> {
+	return writeMessage(accessToken, 'POST', '/drafts', message, (written) => ({message: written}), draftSchema);
 }
 
 /** Replaces a draft's message; the draft keeps its id, its message gets a new one. */
-export function updateDraft(accessToken: string, draftId: string, message: {raw: string; threadId?: string}): Promise<Result<GmailDraft, ApiError>> {
-	return googleWrite(accessToken, 'PUT', gmailUrl(`/drafts/${draftId}`), {id: draftId, message}, draftSchema);
+export function updateDraft(accessToken: string, draftId: string, message: Outgoing): Promise<Result<GmailDraft, ApiError>> {
+	return writeMessage(accessToken, 'PUT', `/drafts/${draftId}`, message, (written) => ({id: draftId, message: written}), draftSchema);
 }
 
 /** Deletes a draft for good, as Gmail's own Discard does. */

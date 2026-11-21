@@ -1,4 +1,4 @@
-import type {Collection, Condition, Integration} from './types';
+import type {Collection, Condition, Field, Integration} from './types';
 
 const INBOX: Condition = {field: 'folder', values: ['Inbox']};
 
@@ -31,10 +31,22 @@ const STAR: FlagWords = {
 	unflagged: 'Unstarred',
 };
 
+// The blobs an email or a reply goes out with, which only an agent has: made of another email's
+// attachment, of a drive's file, or of a file sent to the URL pap.upload() gives, and attached
+// under their own names. A draft keeps the attachments it has; these are added to them.
+const ATTACH_FIELD: Field = {
+	key: 'attach',
+	label: 'Attach',
+	type: 'text',
+	description:
+		'the ids of blobs to attach, comma-separated, as attachments_blob, files_blob or a file sent to the URL pap.upload() gives makes them, 25 MB together at most; a draft keeps the attachments it has, and these are added',
+};
+
 /**
  * A mailbox's email as one collection, the same for any mailbox and for Gmail, so agents see one
  * kind of email: the same fields and commands, under each integration's own action ids. Drafts
- * are the only email edited or deleted; commands act on email in the inbox.
+ * are the only email edited or deleted; commands act on email in the inbox. A draft, and an email
+ * sent at once, goes out with the agent's blobs it names.
  */
 function emailsCollection(args: {
 	actions: EmailActions;
@@ -149,6 +161,7 @@ function emailsCollection(args: {
 			// "Unread, Flagged" ("Unread, Starred" on Gmail), for an email in the inbox.
 			{key: 'status', label: 'Status', type: 'text', system: true},
 			{key: 'body', label: 'Body', type: 'longtext'},
+			ATTACH_FIELD,
 			// One a line, numbered as the attachments collection reads them by: "1. Q3.xlsx
 			// (application/…, 48 KB)".
 			{key: 'attachments', label: 'Attachments', type: 'longtext', system: true},
@@ -166,11 +179,12 @@ function emailsCollection(args: {
 /**
  * Replies to email, each written in the thread of the email it answers: never listed or opened,
  * only sent at once, with the action sending email and the one reading it, or saved as a draft,
- * with the one writing drafts. Who it goes to, its subject and its thread come from the email.
+ * with the one writing drafts. Who it goes to, its subject and its thread come from the email,
+ * and it goes out with the agent's blobs it names.
  */
 function repliesCollection(actions: Pick<EmailActions, 'read' | 'write' | 'send'>): Collection {
 	const what =
-		'Name the email by its id, as a list gives it, and write the reply as body: whom it goes to, its subject and its thread come from the email, as a mail app’s Reply writes them. With replyAll Yes it also goes to everyone else the email went to. The email is quoted below the reply, as Gmail quotes it, unless quote is No. Answers whom it went to, its subject and its id among email, with its thread on Gmail.';
+		'Name the email by its id, as a list gives it, and write the reply as body: whom it goes to, its subject and its thread come from the email, as a mail app’s Reply writes them. With replyAll Yes it also goes to everyone else the email went to. The email is quoted below the reply, as Gmail quotes it, unless quote is No. attach names blobs to send with it, as another email’s attachment made one with attachments_blob. Answers whom it went to, its subject and its id among email, with its thread on Gmail.';
 	return {
 		id: 'replies',
 		name: 'Replies',
@@ -203,6 +217,7 @@ function repliesCollection(actions: Pick<EmailActions, 'read' | 'write' | 'send'
 			{key: 'body', label: 'Body', type: 'longtext'},
 			{key: 'replyAll', label: 'Reply all', type: 'select', options: ['Yes', 'No']},
 			{key: 'quote', label: 'Quote the email', type: 'select', options: ['Yes', 'No']},
+			ATTACH_FIELD,
 			{key: 'to', label: 'To', type: 'email', system: true},
 			{key: 'cc', label: 'Cc', type: 'email', system: true},
 			{key: 'subject', label: 'Subject', type: 'text', system: true},
@@ -213,9 +228,9 @@ function repliesCollection(actions: Pick<EmailActions, 'read' | 'write' | 'send'
 }
 
 /**
- * An email's attachments, read as text with the action reading the email: never listed or opened,
- * only read, one at a time, by the email's id and the attachment's number among those the email
- * lists, or its name.
+ * An email's attachments, with the action reading the email: never listed or opened, only read as
+ * text or made a blob, one at a time, by the email's id and the attachment's number among those
+ * the email lists, or its name.
  */
 function attachmentsCollection(read: string): Collection {
 	return {
@@ -236,6 +251,17 @@ function attachmentsCollection(read: string): Collection {
 				done: 'Read {}',
 				tried: 'read {}',
 			},
+			{
+				id: 'blob',
+				on: 'new',
+				label: 'Make blob',
+				description:
+					'Makes a blob of one of an email’s attachments, whatever kind of file it is: a PDF, a picture, a spreadsheet. A blob is a file passed between tools for a day, usable only by you: files_upload puts it in a drive, an email or a reply attaches it (attach), and pap.download(blob) gives a URL to fetch it into a shell. Name the email by its id, as a list gives it, and the attachment by its number among the attachments the email lists, or its name. Answers with the blob’s id.',
+				action: read,
+				readOnly: true,
+				done: 'Made a blob of {}',
+				tried: 'make a blob of {}',
+			},
 		],
 		fields: [
 			{key: 'email', label: 'Email', type: 'text'},
@@ -246,6 +272,8 @@ function attachmentsCollection(read: string): Collection {
 			// "1234 characters", or how many of more were answered: at most 100,000.
 			{key: 'length', label: 'Length', type: 'text', system: true},
 			{key: 'content', label: 'Content', type: 'longtext', system: true},
+			// The blob made of it, for files_upload or pap.download.
+			{key: 'blob', label: 'Blob', type: 'text', system: true},
 		],
 	};
 }
@@ -942,9 +970,8 @@ const FILE_KINDS = ['Folder', 'Document', 'Spreadsheet', 'Presentation', 'Sheet'
 // Drive, Shared with me, Shared drives and Recent at the top, folders holding files, a spreadsheet
 // holding its tabs and a tab its rows. Documents read as Markdown, presentations as text, rows as
 // "Header: value" lines; new documents are written as Markdown and new spreadsheets as CSV, which
-// Drive converts; a larger file goes up as its bytes through a URL, to Personal Agent Proxy first
-// and on to Drive once finished (files_upload), and a file in Drive is copied into a folder by
-// Drive itself (files_copy). A spreadsheet's ranges
+// Drive converts; any other file is put in Drive from a blob (files_upload), and a file's bytes made
+// a blob (files_blob), and a file in Drive is copied into a folder by Drive itself (files_copy). A spreadsheet's ranges
 // are read and written in A1 notation as CSV. Files are
 // moved to Trash, never deleted, and neither are events, contacts or tasks. Who is free is asked
 // of Google for the people named, and the people Gmail keeps under Other contacts are only read.
@@ -1352,7 +1379,8 @@ const google: Integration = {
 				{key: 'name', label: 'Name', type: 'text'},
 				// What a record is: a folder, document, spreadsheet or other file inside a folder or a
 				// place, or a row inside a tab. A new one is a folder, document or spreadsheet, or a row,
-				// where it can be left out; another file goes up with files_upload. It can't be changed.
+				// where it can be left out; another file is put in Drive from a blob with files_upload. It
+				// can't be changed.
 				{
 					key: 'kind',
 					label: 'Kind',
@@ -1366,8 +1394,8 @@ const google: Integration = {
 				{key: 'owner', label: 'Owner', type: 'text', system: true},
 				// A document as Markdown, a presentation as text, a spreadsheet's tabs one a line with their
 				// size, a row's values one "Header: value" a line, the headers from the tab's first row. A
-				// new document is written as Markdown and a new spreadsheet as CSV; any other new file goes
-				// up as its bytes with files_upload, and they aren't read back. A row's content changes
+				// new document is written as Markdown and a new spreadsheet as CSV; any other new file is
+				// put in Drive from a blob with files_upload, and isn't read back. A row's content changes
 				// only the headers written differently; a file's is only read here, never written over,
 				// which would drop a document's comments, suggestions and formatting: docs_edit and
 				// slides_edit edit a document's or a presentation's text in place, and ranges and sheets_
@@ -1377,7 +1405,7 @@ const google: Integration = {
 					label: 'Content',
 					type: 'longtext',
 					description:
-						'a new Document as Markdown, a new Spreadsheet as CSV, a row as "Header: value" lines; a document there already is edited in place with docs_edit, never written over here; a new File, such as report.pdf or chart.png, goes up as its bytes with files_upload instead',
+						'a new Document as Markdown, a new Spreadsheet as CSV, a row as "Header: value" lines; a document there already is edited in place with docs_edit, never written over here; a new File, such as report.pdf or chart.png, is put in Drive from a blob with files_upload instead',
 				},
 			],
 		},
@@ -1547,9 +1575,8 @@ const google: Integration = {
 	],
 	// Copying a file names both the file and where the copy goes, which no one record's write does.
 	// Drive makes the copy itself, so a file of any size is copied without passing through here. A
-	// file's bytes go up through a URL of Personal Agent Proxy's own, which the agent sends them to
-	// however it can, and on to Drive only once files_upload_done finds them as said; files_upload needs Add files
-	// for a new file and Edit files to write over one, as does finishing it, as Files' do. A file's
+	// file's bytes are made a blob, and a blob put in Drive, as on every drive: files_upload needs Add
+	// files for a new file and Edit files to write over one, as Files' does. A file's
 	// history, the versions Personal Agent Proxy keeps of it and the changes made through it, is
 	// read and given back through tools of their own too. A Doc's and a Slides file's text is read
 	// with the revision it is at, and edited in place only at that revision, through the Docs and
@@ -1580,17 +1607,49 @@ const google: Integration = {
 			},
 		},
 		{
-			name: 'files_upload',
-			title: 'Upload file',
+			name: 'files_blob',
+			title: 'Make blob of file',
 			description:
-				"Uploads a file into Drive as its bytes: a PDF, a picture, a video, a docx. Answers with a URL that takes the file for an hour, and a line to run in a shell, as curl -X PUT --upload-file <path> '<url>'; no sign-in or header is needed. Then call files_upload_done with the upload’s id: it checks what arrived and only then puts the file in Drive, so nothing reaches Drive before it. For a new file give name and size, and parent for a folder or shared drive; it keeps its own type, or with convert becomes a Doc, Sheet or Slides file, from a docx, xlsx or pptx, or Markdown or CSV. To write over a file of its own bytes, as a PDF or a picture, give its id, the version files_versions says it is at and size. A Doc, Sheet or Slides file is never written over, which would lose its comments, suggestions and formatting: edit it in place with docs_edit, slides_edit, ranges_write, sheets_rows or sheets_tabs. A copy is kept before a task first changes a file. Everything is checked before the URL is given: the folder, the name, the type and the version.",
+				'Makes a blob of a Drive file’s bytes: a file of its own bytes as they are, now or at an earlier version; a Doc, Sheet or Slides file as Drive exports it now, a Doc as Markdown, a Sheet as xlsx and a Slides file as pptx unless as says otherwise, and a Sheet as CSV its first tab or the one tab names, up to the 10 MB Drive exports. A blob is a file passed between tools for a day, usable only by you: files_upload puts it in a drive, an email or a reply attaches it (attach), and pap.download(blob) gives a URL to fetch it into a shell. Answers with the blob’s id.',
+			action: 'readFiles',
+			readOnly: true,
+			inputSchema: {
+				type: 'object',
+				properties: {
+					id: {type: 'string', description: 'The file’s id, as files_list gives it, or its link'},
+					version: {
+						type: 'string',
+						description:
+							'An earlier version of a file of its own bytes, from files_versions; left out, what it holds now',
+					},
+					as: {
+						type: 'string',
+						enum: ['md', 'docx', 'pdf', 'xlsx', 'csv', 'pptx', 'txt'],
+						description:
+							'What a Doc, Sheet or Slides file is exported as: a Doc as md, docx, pdf or txt, a Sheet as xlsx, csv or pdf, a Slides file as pptx, pdf or txt',
+					},
+					tab: {
+						type: 'string',
+						description: 'The tab of a Sheet exported as csv; left out, its first',
+					},
+				},
+				required: ['id'],
+			},
+		},
+		{
+			name: 'files_upload',
+			title: 'Put blob in Drive',
+			description:
+				'Puts a blob in Drive as a file: an email’s attachment from attachments_blob, a file of another drive from files_blob, or a file from a shell sent to the URL pap.upload() gives. A new file keeps its own type, or with convert becomes a Doc, Sheet or Slides file, from a docx, xlsx or pptx, or Markdown or CSV; give the blob, and name where it has none or should be called otherwise, and parent for a folder or shared drive. To write over a file of its own bytes, as a PDF or a picture, give the blob, its id and the version files_versions says it is at. A Doc, Sheet or Slides file is never written over, which would lose its comments, suggestions and formatting: edit it in place with docs_edit, slides_edit, ranges_write, sheets_rows or sheets_tabs. A copy is kept before a task first changes a file. Answers with the file’s id, version and link.',
 			action: 'createFiles',
 			inputSchema: {
 				type: 'object',
 				properties: {
+					blob: {type: 'string', description: 'The blob’s id'},
 					name: {
 						type: 'string',
-						description: 'A new file’s name, with its extension, as report.pdf',
+						description:
+							'A new file’s name, with its extension, as report.pdf; left out, the blob’s own',
 					},
 					parent: {
 						type: 'string',
@@ -1606,44 +1665,13 @@ const google: Integration = {
 						type: 'string',
 						description: 'The version of the file id names, as files_versions says it is at now',
 					},
-					size: {
-						type: 'number',
-						description: 'The file’s size in bytes, as wc -c < <path> counts it',
-					},
-					type: {
-						type: 'string',
-						description:
-							'Its media type, as application/pdf, where its name’s extension doesn’t say',
-					},
-					sha256: {
-						type: 'string',
-						description:
-							'The file’s SHA-256 in hex, as sha256sum prints it, for done to check what arrived against',
-					},
 					convert: {
 						type: 'boolean',
 						description:
 							'Makes a new file a Doc, Sheet or Slides file: a docx or Markdown a Doc, an xlsx or CSV a Sheet, a pptx a Slides file',
 					},
 				},
-				required: ['size'],
-			},
-		},
-		{
-			name: 'files_upload_done',
-			title: 'Finish upload',
-			description:
-				'Finishes an upload, once its bytes were sent to the URL files_upload answered with: checks with Drive that their size, and their SHA-256 where you gave one, are what arrived, and answers with the file’s id, version and link. Bytes that aren’t what was said are taken out of Drive again: a new file moved to Trash, a file written over given back its revision before. Called again, it answers the same.',
-			action: 'createFiles',
-			inputSchema: {
-				type: 'object',
-				properties: {
-					upload: {
-						type: 'string',
-						description: 'The upload’s id, as files_upload answered with it',
-					},
-				},
-				required: ['upload'],
+				required: ['blob'],
 			},
 		},
 		{
@@ -2216,9 +2244,10 @@ export const FILES_TRASH_DAYS = 30;
 // an agent wrote over can be given back. The collection lists folders and opens files, as text
 // where they can be read as it; the writes are tools of the integration's own, since each names
 // who made the change and, to write over a file, the version that was read. A tool carries text:
-// the bytes of a file that isn't text go up through a URL files_upload hands out, and come down in
-// the web app or a sandbox (pap files). files_upload needs Add files for a new file and Edit files
-// to write over one, as does finishing it; the api asks for the one each run needs. Offered where
+// a file that isn't text moves as a blob, made of a file by files_blob and put in a drive by
+// files_upload, and comes down in the web app or a sandbox (pap files). files_upload needs Add
+// files for a new file and Edit files to write over one; the api asks for the one each run needs.
+// Offered where
 // the server has a place for the bytes (FILES_DIR or FILES_S3_BUCKET).
 const files: Integration = {
 	id: FILES_INTEGRATION_ID,
@@ -2289,7 +2318,7 @@ const files: Integration = {
 			name: 'files_create',
 			title: 'Add file',
 			description:
-				'Adds a file holding content as text, or a folder, called name, in the folder parent or at the top. Refused where something there has the name: files_write changes a file that is there. A file that isn’t text, or a large one, goes up with files_upload.',
+				'Adds a file holding content as text, or a folder, called name, in the folder parent or at the top. Refused where something there has the name: files_write changes a file that is there. A file that isn’t text, or a large one, is put in the drive from a blob with files_upload.',
 			action: 'createFiles',
 			inputSchema: {
 				type: 'object',
@@ -2312,7 +2341,7 @@ const files: Integration = {
 			name: 'files_write',
 			title: 'Write file',
 			description:
-				'Writes content, as text, over what a file holds, as its next version; the one before is kept (files_versions). Give the version files_read answered with: where the file changed since, the write is refused, and you read it again. Bytes that aren’t text go up with files_upload.',
+				'Writes content, as text, over what a file holds, as its next version; the one before is kept (files_versions). Give the version files_read answered with: where the file changed since, the write is refused, and you read it again. Bytes that aren’t text are put in the drive from a blob with files_upload.',
 			action: 'editFiles',
 			inputSchema: {
 				type: 'object',
@@ -2325,17 +2354,38 @@ const files: Integration = {
 			},
 		},
 		{
-			name: 'files_upload',
-			title: 'Upload file',
+			name: 'files_blob',
+			title: 'Make blob of file',
 			description:
-				"Uploads a file of any kind, as its bytes: a PDF, a picture, a spreadsheet, an archive, too large or not text for files_create and files_write. Answers with a URL that takes the file for an hour, and a line to run in a shell, as curl -X PUT --upload-file <path> '<url>'; no sign-in or header is needed. Then call files_upload_done with the upload’s id: only that makes the file. For a new file give name and size, and parent for a folder; to write over a file, its id, the version you read and size, and the version before is kept. Everything is checked before the URL is given: the folder, the name, the version and the size.",
+				'Makes a blob of a file’s bytes, as they are: what it holds now, or an earlier version. A blob is a file passed between tools for a day, usable only by you: files_upload puts it in a drive, an email or a reply attaches it (attach), and pap.download(blob) gives a URL to fetch it into a shell. Answers with the blob’s id.',
+			action: 'readFiles',
+			readOnly: true,
+			inputSchema: {
+				type: 'object',
+				properties: {
+					id: {type: 'string', description: 'The file’s id'},
+					version: {
+						type: 'string',
+						description: 'An earlier version, from files_versions; left out, what it holds now',
+					},
+				},
+				required: ['id'],
+			},
+		},
+		{
+			name: 'files_upload',
+			title: 'Put blob in drive',
+			description:
+				'Puts a blob in the drive as a file, its bytes as they are: an email’s attachment from attachments_blob, a file of another drive from files_blob, or a file from a shell sent to the URL pap.upload() gives. For a new file give the blob, and name where it has none or should be called otherwise, and parent for a folder; to write over a file, the blob, its id and the version you read, and the version before is kept. Answers with the file’s id, version and link.',
 			action: 'createFiles',
 			inputSchema: {
 				type: 'object',
 				properties: {
+					blob: {type: 'string', description: 'The blob’s id'},
 					name: {
 						type: 'string',
-						description: 'A new file’s name, with its extension, as report.pdf',
+						description:
+							'A new file’s name, with its extension, as report.pdf; left out, the blob’s own',
 					},
 					parent: {
 						type: 'string',
@@ -2349,39 +2399,8 @@ const files: Integration = {
 						type: 'string',
 						description: 'The version you read of the file id names, as files_read answers with it',
 					},
-					size: {
-						type: 'number',
-						description: 'The file’s size in bytes, as wc -c < <path> counts it',
-					},
-					type: {
-						type: 'string',
-						description:
-							'Its media type, as application/pdf, where its name’s extension doesn’t say',
-					},
-					sha256: {
-						type: 'string',
-						description:
-							'The file’s SHA-256 in hex, as sha256sum prints it, for done to check what arrived against',
-					},
 				},
-				required: ['size'],
-			},
-		},
-		{
-			name: 'files_upload_done',
-			title: 'Finish upload',
-			description:
-				'Makes the file of an upload, once its bytes were sent to the URL files_upload answered with: checks that its size, and its SHA-256 where you gave one, are what arrived, and answers with the file’s id, version and link. Called again, it answers the same.',
-			action: 'createFiles',
-			inputSchema: {
-				type: 'object',
-				properties: {
-					upload: {
-						type: 'string',
-						description: 'The upload’s id, as files_upload answered with it',
-					},
-				},
-				required: ['upload'],
+				required: ['blob'],
 			},
 		},
 		{

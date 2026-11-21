@@ -54,7 +54,7 @@ import type {AuthenticatedRequest} from '../../server/middleware/require-auth';
 import {sendApiError} from '../../server/response';
 import {requireViewer} from '../../utils/user-org';
 import {requireFile} from './connector';
-import {maxFileBytes, openContent, sendContent, storeContent, uploadBody} from './content';
+import {maxFileBytes, openContent, sendContent, setDownloadHeaders, storeContent, uploadBody} from './content';
 import {isShownImage, mediaType, requireFileName} from './names';
 
 /**
@@ -276,12 +276,6 @@ export function handleRestoreFileRoute(request: AuthenticatedRequest): Promise<R
 	});
 }
 
-// A file's name as a download's header carries it: plain where it is, and in full beside it.
-function disposition(name: string, inline: boolean): string {
-	const plain = name.replace(/[^\x20-\x7e]|["\\]/g, '_');
-	return `${inline ? 'inline' : 'attachment'}; filename="${plain}"; filename*=UTF-8''${encodeURIComponent(name)}`;
-}
-
 type Download = {name: string; type: string; size: number; body: ReadableStream<Uint8Array>};
 
 function downloadOf(request: AuthenticatedRequest): Promise<Result<Download, ApiError>> {
@@ -299,9 +293,8 @@ function downloadOf(request: AuthenticatedRequest): Promise<Result<Download, Api
 
 /**
  * `GET files/:fileId/content`: the bytes of what the file holds, or of a version of it. Sent to
- * be saved, with its name, but for a picture a browser shows as it is, which is sent to be shown;
- * either way as its own type, never sniffed for another, and with a policy under which nothing in
- * it runs, loads or posts, so a file someone uploaded is never a page of the app's.
+ * be saved, with its name, but for a picture a browser shows as it is, which is sent to be shown
+ * (content.ts `setDownloadHeaders`).
  */
 export async function handleFileContentRoute(request: AuthenticatedRequest, response: Response): Promise<void> {
 	const download = await downloadOf(request);
@@ -311,12 +304,7 @@ export async function handleFileContentRoute(request: AuthenticatedRequest, resp
 	}
 	const {name, type, size, body} = download.value;
 	response.status(200);
-	response.setHeader('Content-Type', type);
-	response.setHeader('Content-Length', String(size));
-	response.setHeader('Content-Disposition', disposition(name, isShownImage(type)));
-	response.setHeader('X-Content-Type-Options', 'nosniff');
-	response.setHeader('Content-Security-Policy', "sandbox; default-src 'none'; frame-ancestors 'none'");
-	response.setHeader('Cache-Control', 'private, no-cache');
+	setDownloadHeaders(response, {name, type, size}, isShownImage(type));
 	const sent = await sendContent(response, body);
 	if (sent.isErr()) {
 		log.warn('A file’s download failed partway', {fileName: name, ...serializeError(sent.error)});

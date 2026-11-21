@@ -108,6 +108,19 @@ export function requireFileName(raw: string): Result<string, ApiError> {
 }
 
 /**
+ * A name as a blob keeps it, whatever its source called the file, an email's sender or a URL's
+ * query: the last of its path, so it never names a folder or a way out of one where it is saved,
+ * without control characters, and no longer than a name is; none where nothing is left of it.
+ */
+export function blobName(raw: string | null): string | null {
+	const last = (raw ?? '').split(/[/\\]/).at(-1) ?? '';
+	const shown = [...last].filter((character) => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127);
+	// Cut by whole characters, so none is left half.
+	const name = shown.slice(0, MAX_NAME).join('').trim();
+	return name === '' || name === '.' || name === '..' ? null : name;
+}
+
+/**
  * What a file called `name` holds, as a media type: by its extension, else `said`, what whoever
  * sent it called it, where that is a media type, without its parameters, else `fallback`.
  */

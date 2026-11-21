@@ -292,7 +292,7 @@ describe('listAgentTools', () => {
 		const {listAgentTools} = await import('./tools');
 		const result = await listAgentTools(signedIn, 'mail-1');
 
-		expect(result.unwrap().map((tool) => tool.name)).toEqual(['emails_list', 'emails_get', 'emails_send', 'emails_send_new', 'attachments_read', 'replies_send']);
+		expect(result.unwrap().map((tool) => tool.name)).toEqual(['emails_list', 'emails_get', 'emails_send', 'emails_send_new', 'attachments_read', 'attachments_blob', 'replies_send']);
 	});
 });
 
@@ -403,7 +403,7 @@ describe('runAgentTool', () => {
 		const result = await runAgentTool(caller, 'mail-1', 'emails_update', {id: draft.id, subject: 'Re: Q4 planning'});
 
 		expect(result.isOk()).toBe(true);
-		expect(connector.update.mock.calls[0]?.slice(1)).toEqual([draft.id, {to: 'sam@example.com', cc: 'jo@example.com', bcc: '', subject: 'Re: Q4 planning', body: 'Draft body'}, draft]);
+		expect(connector.update.mock.calls[0]?.slice(1)).toEqual([draft.id, {to: 'sam@example.com', cc: 'jo@example.com', bcc: '', subject: 'Re: Q4 planning', body: 'Draft body', attach: ''}, draft]);
 		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({action: 'update', recordTitle: 'Re: Q4 planning'});
 	});
 
@@ -457,7 +457,7 @@ describe('runAgentTool', () => {
 		const result = await runAgentTool(caller, 'mail-1', 'emails_send_new', values);
 
 		expect(result.unwrap()).toEqual({record: null});
-		expect(sendNew.mock.calls[0]?.[1]).toEqual({...values, cc: '', bcc: ''});
+		expect(sendNew.mock.calls[0]?.[1]).toEqual({...values, cc: '', bcc: '', attach: ''});
 		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({action: 'sendNew', recordTitle: 'Friday', outcome: 'allowed'});
 	});
 
@@ -484,7 +484,7 @@ describe('runAgentTool', () => {
 		const result = await runAgentTool(caller, 'mail-1', 'replies_send', {email: 'inbox-7-12', body: 'Thursday works.'});
 
 		expect(result.unwrap()).toMatchObject({record: {values: {to: 'sam@example.com', subject: 'Re: Friday'}}});
-		expect(sendReply.mock.calls[0]?.[1]).toEqual({email: 'inbox-7-12', body: 'Thursday works.', replyAll: '', quote: ''});
+		expect(sendReply.mock.calls[0]?.[1]).toEqual({email: 'inbox-7-12', body: 'Thursday works.', replyAll: '', quote: '', attach: ''});
 		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({collectionId: 'replies', action: 'send', recordTitle: 'Re: Friday', outcome: 'allowed'});
 	});
 

@@ -7,9 +7,10 @@ import {log, serializeError} from '../../observability/log';
 /**
  * Cleans up after Files, a few at a time every ten minutes: what has been in the trash for as
  * long as it is kept is deleted for good, with everything inside it and their versions; and a
- * blob no version points at any more, such a file's, a deleted drive's or an upload's that was
- * given up, is removed from the store and then forgotten. A blob is left a day first, so one
- * being uploaded now, which no version points at yet, is never taken. Each api instance sweeps;
+ * blob no version points at any more, such a file's, a deleted drive's, or an agent's that was
+ * never put in a drive or was sent on to one elsewhere (blobs/), is removed from the store and
+ * then forgotten. A blob is left a day first, so one still arriving or still in use, which no
+ * version points at yet, is never taken. Each api instance sweeps;
  * removing a blob twice is no error, and a purge finds nothing to do where another did it.
  */
 

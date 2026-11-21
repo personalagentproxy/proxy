@@ -1,15 +1,13 @@
 import {z} from 'zod';
 
-import {CLI_CONVERSIONS, CLI_EXPORTS, PAP_METHODS} from './cli-constants';
+import {CLI_EXPORTS, PAP_METHODS} from './cli-constants';
 
 export {
 	CLI_CALL_PATH,
-	CLI_CONVERSIONS,
 	CLI_EXPORTS,
 	CLI_FILE_HEADER,
 	CLI_FILES_PATH,
 	CLI_STATUS,
-	type CliConversion,
 	type CliExport,
 	PAP_METHODS,
 	type PapMethod,
@@ -29,6 +27,10 @@ export {
  * - `{method: 'tools', args: [connection]}`: a connection's tools.
  * - `{method: 'call', args: [connection, tool, params?]}`: runs a tool, logged under the token's task.
  * - `{method: 'feedback', args: [{message, connection?, tool?}]}`: feedback for the makers.
+ * - `{method: 'upload', args: []}`: a URL to PUT files to, each made a blob of the agent's
+ *   (@proxy/contracts/blobs `blobUploadSchema`).
+ * - `{method: 'download', args: [blob]}`: a URL to GET one of the agent's blobs from
+ *   (`blobDownloadSchema`).
  * `startTask` and `finishTask` are refused: the token's task is the one used.
  *
  * Answered with one of three statuses, so a client can tell them apart without reading the words:
@@ -70,17 +72,18 @@ export type CliCallFailure = {error: string; message: string};
  *   Google Doc, Sheet or Slides file has no bytes of its own, and comes as Drive exports it: as
  *   `&as=` says (`cliPullQuerySchema`), else a Doc as Markdown, a Sheet as xlsx and a Slides file
  *   as pptx; a Sheet as CSV is its first tab, or the one `&tab=` names.
- * - `POST …/uploads?path=&size=&sha256=`: starts an upload of a file to the path, its size in
- *   bytes and its SHA-256 in hex said first, as files_upload does (@proxy/contracts/uploads): a
- *   new file there, the folders on the way made where they are missing; or, where a file is
- *   there, its next version, by whoever names the version it holds (`&version=`), as the write tool
- *   takes it, or says `&force=1` to write over what it holds now. `&id=` in place of the path
- *   writes over the file of that id. `&file=` is the local file's name, whose extension says what
- *   its bytes are, and `&as=` makes a new file in Google Drive a Doc, Sheet or Slides file.
- *   Answers `cliUploadStartedSchema`: where to PUT the bytes, in one request, which needs no
- *   token.
- * - `POST …/uploads/<upload>/done`: makes the file of the bytes that arrived, once they are
- *   checked against what was said, as files_upload_done does. Answers `cliPushedSchema`.
+ * - `POST …/push?blob=&path=`: puts one of the agent's blobs, sent first to the URL `upload`
+ *   answers with, in the drive at the path, as files_upload does: a new file there, the folders
+ *   on the way made where they are missing; or, where a file is there, its next version, by
+ *   whoever names the version it holds (`&version=`), as the write tool takes it, or says
+ *   `&force=1` to write over what it holds now. `&id=` in place of the path writes over the file
+ *   of that id, and `&convert=1` makes a new file in Google Drive a Doc, Sheet or Slides file.
+ *   Answers `cliPushedSchema`.
+ * - `POST …/push/check?file=&size=&path=`: asks about that push before the file is sent, with
+ *   the local file's name and its size in bytes in place of the blob, and the rest as the push
+ *   says it. Nothing is made: it is refused with what the push would be refused for, the agent's
+ *   access, the path, the version, the size or what the drive takes there, and otherwise answers
+ *   `{}`.
  */
 export const cliFileSchema = z.object({
 	id: z.string(),
@@ -133,31 +136,31 @@ export const cliPullQuerySchema = z
 		message: 'Name the file by path or by id, one of them',
 	});
 
-export const cliUploadQuerySchema = z
+export type CliPushed = z.infer<typeof cliPushedSchema>;
+
+// Where a push goes and how, the same asked about before the file is sent and once it is a blob.
+const pushWhere = {
+	path: z.string().min(1).max(2000).optional(),
+	id: z.string().min(1).optional(),
+	version: z.string().min(1).optional(),
+	force: z.enum(['1']).optional(),
+	convert: z.enum(['1']).optional(),
+};
+
+const PATH_OR_ID = 'Name where the file goes by path or by id, one of them';
+
+function pathOrId({path, id}: {path?: string; id?: string}): boolean {
+	return (path === undefined) !== (id === undefined);
+}
+
+export const cliPushQuerySchema = z
+	.object({blob: z.string().min(1), ...pushWhere})
+	.refine(pathOrId, {message: PATH_OR_ID});
+
+export const cliPushCheckQuerySchema = z
 	.object({
-		path: z.string().min(1).max(2000).optional(),
-		id: z.string().min(1).optional(),
+		file: z.string().min(1).max(2000),
 		size: z.coerce.number().int().nonnegative(),
-		sha256: z.string().regex(/^[0-9a-f]{64}$/),
-		version: z.string().min(1).optional(),
-		force: z.enum(['1']).optional(),
-		file: z.string().min(1).max(2000).optional(),
-		as: z.enum(CLI_CONVERSIONS).optional(),
+		...pushWhere,
 	})
-	.refine(({path, id}) => (path === undefined) !== (id === undefined), {
-		message: 'Name where the file goes by path or by id, one of them',
-	});
-
-export const cliUploadStartedSchema = z.object({
-	/** The upload's id, which `…/uploads/<upload>/done` takes. */
-	upload: z.string(),
-	/** Where the bytes go: the URL with the headers to send there, and until when. */
-	put: z.object({
-		url: z.string(),
-		method: z.literal('PUT'),
-		headers: z.record(z.string(), z.string()),
-		expiresAt: z.string(),
-	}),
-});
-
-export type CliUploadStarted = z.infer<typeof cliUploadStartedSchema>;
+	.refine(pathOrId, {message: PATH_OR_ID});

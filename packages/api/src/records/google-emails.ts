@@ -28,9 +28,9 @@ import {
 	listMessageIds,
 	messageBody,
 	messageHtml,
+	ownAttachments,
 	modifyMessage,
 	PAGE_SIZE,
-	rawMessage,
 	sendDraft,
 	sendMessage,
 	trashMessage,
@@ -38,7 +38,8 @@ import {
 	type GmailMessage,
 	type MessagePart,
 } from '../connections/google/gmail-api';
-import {attachmentRecord, attachmentsText, pickAttachment, readableKind, requireEmailId} from './attachment-text';
+import {attachmentRecord, attachmentsText, type AttachmentFile, type AttachmentInfo, pickAttachment, readableKind, requireEmailId} from './attachment-text';
+import {type Attached, attachedBlobs, attachmentBlobRecord, attachmentOptions, requireAttachable, shownBy} from './email-attachments';
 import {
 	type Change,
 	type Changes,
@@ -73,7 +74,10 @@ import {replyCommands, replyContent, replyHeaders, type MailReply} from './email
  * and takes them off.
  * Nothing is deleted for good but drafts. Email goes out from the connection's own address, a draft
  * as it is saved or a new one written here; Gmail files it in Sent. A reply, the `replies`
- * collection's, is written in the thread of the email it answers, sent or saved as a draft.
+ * collection's, is written in the thread of the email it answers, sent or saved as a draft. A
+ * draft, a reply and an email sent at once go out with the agent's blobs they name attached
+ * (email-attachments.ts), and a draft edited keeps the attachments it has; a message too large for
+ * a call's JSON, as one with attachments may be, goes to Gmail as an upload (gmail-api.ts).
  *
  * What is new for a watch on the mailbox is the mail that came in since the last look, read off
  * Gmail's history from where that look left off: drafts, sent mail, spam and trash left out.
@@ -349,15 +353,16 @@ function threadOf(payload: MessagePart | undefined): Thread {
 
 /**
  * An email from the connection's address, as the IMAP connector writes one, as RFC 2822 text, with
- * an HTML version beside the text where one is kept.
+ * an HTML version beside the text where one is kept, and the files `attached`.
  */
-async function compose(from: string, values: RecordValues, thread: Thread | null, html: string | null = null): Promise<Result<Buffer, ApiError>> {
+async function compose(from: string, values: RecordValues, thread: Thread | null, html: string | null = null, attached: Attached[] = []): Promise<Result<Buffer, ApiError>> {
 	const options: Mail.Options = {
 		from,
 		to: values.to,
 		subject: values.subject,
 		text: values.body,
 		...(html !== null ? {html} : {}),
+		...attachmentOptions(attached),
 		messageId: `<${randomUUID()}@proxy>`,
 		...(values.cc ? {cc: values.cc} : {}),
 		...(values.bcc ? {bcc: values.bcc} : {}),
@@ -371,13 +376,35 @@ async function compose(from: string, values: RecordValues, thread: Thread | null
 }
 
 function createDraftRecord(target: RecordTarget, values: RecordValues): Promise<Result<DataRecord, ApiError>> {
-	return callGoogle(target.connection, (token) =>
-		Do(async ($) => {
-			const source = $(await compose(target.connection.account, values, null));
-			const draft = $(await createDraft(token, rawMessage(source, null)));
-			return $(await readDraft(token, target.connection.account, `draft-${draft.id}`, draft.id));
-		}),
-	);
+	return Do(async ($) => {
+		const attached = $(await attachedBlobs(target, values.attach));
+		return $(
+			await callGoogle(target.connection, (token) =>
+				Do(async ($$) => {
+					const source = $$(await compose(target.connection.account, values, null, null, attached));
+					const draft = $$(await createDraft(token, {source, threadId: null}));
+					return $$(await readDraft(token, target.connection.account, `draft-${draft.id}`, draft.id));
+				}),
+			),
+		);
+	});
+}
+
+// The attachments a draft has, fetched to write it again with: a picture the HTML kept shows by
+// its id keeps the id, and is a file like any other where the HTML isn't kept, or doesn't show
+// it. One Gmail hands over no bytes of is refused rather than written back empty.
+function keptAttachments(token: string, message: GmailMessage, html: string | null): Promise<Result<Attached[], ApiError>> {
+	return Do(async ($) => {
+		const kept: Attached[] = [];
+		for (const [index, attachment] of ownAttachments(message.payload).entries()) {
+			if (attachment.attachmentId === null && attachment.data === null && attachment.size > 0) {
+				return $(Err(ApiErr.validationError(`This draft’s attachment “${attachment.name}” can’t be read to keep it, so editing the draft here would drop it; edit it in Gmail`)));
+			}
+			const content = attachment.attachmentId ? $(await getAttachment(token, message.id, attachment.attachmentId)) : Buffer.from(attachment.data ?? '', 'base64url');
+			kept.push({filename: attachment.name || `attachment-${index + 1}`, contentType: attachment.type || 'application/octet-stream', content, ...shownBy(html, attachment.cid)});
+		}
+		return kept;
+	});
 }
 
 // The recipients of a draft as written over it: as they read, bare, they keep their names.
@@ -386,29 +413,33 @@ function namedAsBefore(written: string, current: string): string {
 }
 
 /**
- * Writes a draft again with the fields given, the rest as they were, keeping its thread. A draft
- * with attachments is refused: written again here, it would lose them. Recipients written as they
- * read, bare, keep their names, and the HTML version, as Gmail's own editor writes one, is kept
- * while the text is as it reads; text written differently goes out as text.
+ * Writes a draft again with the fields given, the rest as they were, keeping its thread and the
+ * attachments it has, with the blobs named now after them. Recipients written as they read, bare,
+ * keep their names, and the HTML version, as Gmail's own editor writes one, is kept while the text
+ * is as it reads; text written differently goes out as text.
  */
 function updateDraftRecord(target: RecordTarget, recordId: string, values: RecordValues): Promise<Result<DataRecord, ApiError>> {
-	return callGoogle(target.connection, (token) =>
-		Do(async ($) => {
-			const draftId = $(await requireDraft(token, recordId, 'Only drafts can be edited or deleted'));
-			const draft = $((await getDraft(token, draftId)).mapErr(notFoundAs(recordId)));
-			const {payload, threadId} = draft.message;
-			if (attachmentsOf(payload).length > 0) {
-				return $(Err(ApiErr.validationError('This draft has attachments, which editing it here would drop; edit it in Gmail')));
-			}
-			const current = {to: headerOf(payload, 'To'), cc: headerOf(payload, 'Cc'), bcc: headerOf(payload, 'Bcc'), subject: headerOf(payload, 'Subject'), body: messageBody(payload)};
-			const written = {...current, ...values};
-			const recipients = {to: namedAsBefore(written.to, current.to), cc: namedAsBefore(written.cc, current.cc), bcc: namedAsBefore(written.bcc, current.bcc)};
-			const html = written.body === current.body ? messageHtml(payload) : null;
-			const source = $(await compose(target.connection.account, {...written, ...recipients}, threadOf(payload), html));
-			$(await updateDraft(token, draftId, rawMessage(source, threadId ?? null)));
-			return $(await readDraft(token, target.connection.account, recordId, draftId));
-		}),
-	);
+	return Do(async ($) => {
+		const added = $(await attachedBlobs(target, values.attach));
+		return $(
+			await callGoogle(target.connection, (token) =>
+				Do(async ($$) => {
+					const draftId = $$(await requireDraft(token, recordId, 'Only drafts can be edited or deleted'));
+					const draft = $$((await getDraft(token, draftId)).mapErr(notFoundAs(recordId)));
+					const {payload, threadId} = draft.message;
+					const current = {to: headerOf(payload, 'To'), cc: headerOf(payload, 'Cc'), bcc: headerOf(payload, 'Bcc'), subject: headerOf(payload, 'Subject'), body: messageBody(payload)};
+					const written = {...current, ...values};
+					const recipients = {to: namedAsBefore(written.to, current.to), cc: namedAsBefore(written.cc, current.cc), bcc: namedAsBefore(written.bcc, current.bcc)};
+					const html = written.body === current.body ? messageHtml(payload) : null;
+					const attached = [...$$(await keptAttachments(token, draft.message, html)), ...added];
+					$$(requireAttachable(attached));
+					const source = $$(await compose(target.connection.account, {...written, ...recipients}, threadOf(payload), html, attached));
+					$$(await updateDraft(token, draftId, {source, threadId: threadId ?? null}));
+					return $$(await readDraft(token, target.connection.account, recordId, draftId));
+				}),
+			),
+		);
+	});
 }
 
 function removeDraft(target: RecordTarget, recordId: string): Promise<Result<void, ApiError>> {
@@ -462,14 +493,19 @@ const send: CommandRunner = (target, recordId) =>
 	);
 
 function sendNew(target: RecordTarget, values: RecordValues): Promise<Result<null, ApiError>> {
-	return callGoogle(target.connection, (token) =>
-		Do(async ($) => {
-			$(requireRecipient(values.to ?? '', values.cc ?? '', values.bcc ?? ''));
-			const source = $(await compose(target.connection.account, values, null));
-			$(await sendMessage(token, rawMessage(source, null)));
-			return null;
-		}),
-	);
+	return Do(async ($) => {
+		$(requireRecipient(values.to ?? '', values.cc ?? '', values.bcc ?? ''));
+		const attached = $(await attachedBlobs(target, values.attach));
+		return $(
+			await callGoogle(target.connection, (token) =>
+				Do(async ($$) => {
+					const source = $$(await compose(target.connection.account, values, null, null, attached));
+					$$(await sendMessage(token, {source, threadId: null}));
+					return null;
+				}),
+			),
+		);
+	});
 }
 
 /**
@@ -503,8 +539,8 @@ const replyToGmail: MailReply = (target, recordId, reply) =>
 			const date = headerOf(payload, 'Date');
 			const quoted = {from: headerOf(payload, 'From'), date: date ? new Date(date) : null, text: messageBody(payload), html: messageHtml(payload)};
 			const content = replyContent(reply.body, reply.quote ? quoted : null, reply.timeZone);
-			const source = $(await compose(target.connection.account, {to: headers.to, cc: headers.cc, subject: headers.subject, body: content.text}, thread, content.html));
-			const message = rawMessage(source, threadId ?? null);
+			const source = $(await compose(target.connection.account, {to: headers.to, cc: headers.cc, subject: headers.subject, body: content.text}, thread, content.html, reply.attached));
+			const message = {source, threadId: threadId ?? null};
 			if (reply.send) {
 				const sent = $(await sendMessage(token, message));
 				return {...headers, id: sent.id, thread: sent.threadId ?? threadId ?? ''};
@@ -528,24 +564,41 @@ function messageOf(token: string, recordId: string): Promise<Result<GmailMessage
 	});
 }
 
-/** One of an email's attachments, read as text: the `attachments` collection's one command. */
-const readAttachment: NewCommandRunner = (target, values) =>
-	Do(async ($) => {
-		const email = $(requireEmailId(values));
-		return $(
-			await callGoogle(target.connection, (token) =>
-				Do(async ($$) => {
-					const message = $$(await messageOf(token, email));
-					const {attachment, number} = $$(pickAttachment(attachmentsOf(message.payload), values));
-					$$(readableKind(attachment));
-					const bytes = attachment.attachmentId ? $$(await getAttachment(token, message.id, attachment.attachmentId)) : Buffer.from(attachment.data ?? '', 'base64url');
-					return $$(await attachmentRecord(email, number, {...attachment, bytes}));
-				}),
-			),
-		);
-	});
+/**
+ * One of an email's attachments, as `answer` makes a record of it, its bytes fetched only where
+ * `wanted` takes it: read as text, or made a blob.
+ */
+function withAttachment(
+	wanted: (attachment: AttachmentInfo) => Result<void, ApiError>,
+	answer: (target: RecordTarget, email: string, number: number, file: AttachmentFile) => Promise<Result<DataRecord, ApiError>>,
+): NewCommandRunner {
+	return (target, values) =>
+		Do(async ($) => {
+			const email = $(requireEmailId(values));
+			return $(
+				await callGoogle(target.connection, (token) =>
+					Do(async ($$) => {
+						const message = $$(await messageOf(token, email));
+						const {attachment, number} = $$(pickAttachment(attachmentsOf(message.payload), values));
+						$$(wanted(attachment));
+						const bytes = attachment.attachmentId ? $$(await getAttachment(token, message.id, attachment.attachmentId)) : Buffer.from(attachment.data ?? '', 'base64url');
+						return $$(await answer(target, email, number, {...attachment, bytes}));
+					}),
+				),
+			);
+		});
+}
 
-export const gmailAttachmentsConnector = {newCommands: {read: readAttachment}} satisfies RunOnly;
+// The `attachments` collection's commands: an attachment read as text, where it can be, or made a blob, whatever it is.
+export const gmailAttachmentsConnector = {
+	newCommands: {
+		read: withAttachment(
+			(attachment) => readableKind(attachment).map(() => undefined),
+			(_target, email, number, file) => attachmentRecord(email, number, file),
+		),
+		blob: withAttachment(() => Ok(undefined), attachmentBlobRecord),
+	},
+} satisfies RunOnly;
 
 export const gmailConnector = {
 	list: listPage,

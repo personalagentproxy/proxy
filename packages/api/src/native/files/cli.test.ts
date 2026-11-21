@@ -1,5 +1,4 @@
 import {afterAll, beforeAll, describe, expect, mock, test} from 'bun:test';
-import {createHash} from 'node:crypto';
 import {mkdtempSync} from 'node:fs';
 import type {Server} from 'node:http';
 import type {AddressInfo} from 'node:net';
@@ -10,9 +9,9 @@ import express from 'express';
 
 import type {CliRequest} from '../../server/middleware/require-cli';
 
-// A drive as code in a sandbox reaches it with `pap files`, end to end: its routes over HTTP, and
-// the URL a push's bytes go to, as the token's agent and task, against the local database and a
-// blob store in a temporary directory. Run with the database up (`bun run dev`) and the environment loaded,
+// A drive as code in a sandbox reaches it with `pap files`, end to end: its routes over HTTP, a
+// push putting a blob of the agent's in the drive by path, as the token's agent and task, against
+// the local database and a blob store in a temporary directory. Run with the database up (`bun run dev`) and the environment loaded,
 // `bun --env-file=../../.env test --isolate src/native/files/cli.test.ts` from this package.
 // Without DATABASE_URL, as `bun run test` runs, there is nothing to run against, and this is
 // skipped. Everything made here is one organization's, deleted at the end.
@@ -27,10 +26,6 @@ mock.module('../../observability/log', () => ({
 	log: {debug: mock(), info: mock(), warn: mock(), error: mock()},
 	serializeError: mock(() => ({})),
 }));
-
-function sha256(text: string): string {
-	return createHash('sha256').update(text).digest('hex');
-}
 
 describe.skipIf(!databaseUrl)('pap files, as a sandbox reaches a drive', () => {
 	const stamp = `${Date.now()}-${process.pid}`;
@@ -54,34 +49,29 @@ describe.skipIf(!databaseUrl)('pap files, as a sandbox reaches a drive', () => {
 		return fetch(`${origin}${path}`, {...rest, headers: {...rest.headers, 'x-test-agent': as}});
 	}
 
-	// An upload started by path as `pap files push` starts it, the file's size and SHA-256 said.
-	function start(path: string, content: string, query: Record<string, string> = {}, as?: string): Promise<Response> {
-		const params = new URLSearchParams({path, size: String(Buffer.byteLength(content)), sha256: sha256(content), ...query});
-		return pap(`/files/${connectionId}/uploads?${params.toString()}`, {method: 'POST', as});
+	// A blob of the agent's, as `pap upload` makes one.
+	async function blobOf(content: string, as = agentId): Promise<string> {
+		const {storeBlob} = await import('../../blobs/blobs');
+		const {streamOf} = await import('./content');
+		const stored = await storeBlob({orgId, agentId: as}, {name: null, type: null}, streamOf(Buffer.from(content)));
+		if (stored.isErr()) {
+			throw new Error(JSON.stringify(stored.error));
+		}
+		return stored.value.id;
 	}
 
-	// The bytes sent to an upload's URL, at the test's server rather than the app's, with no token.
-	function send(url: string, content: string): Promise<Response> {
-		return fetch(url.replace(APP_URL, origin), {method: 'PUT', body: content});
-	}
-
-	function done(upload: string, as?: string): Promise<Response> {
-		return pap(`/files/${connectionId}/uploads/${upload}/done`, {method: 'POST', as});
-	}
-
-	// A push as `pap files push` makes it: started, the bytes sent, and done; answered with the
-	// first of the three that refused, or done's answer.
+	// A push as `pap files push` makes it: the file made a blob, and the blob put at the path.
 	async function push(path: string, content: string, query: Record<string, string> = {}, as?: string): Promise<Response> {
-		const started = await start(path, content, query, as);
-		if (started.status !== 200) {
-			return started;
-		}
-		const {upload, put} = await started.json();
-		const sent = await send(put.url, content);
-		if (sent.status !== 200) {
-			return sent;
-		}
-		return done(upload, as);
+		const blob = await blobOf(content, as);
+		return pap(`/files/${connectionId}/push?${new URLSearchParams({blob, path, ...query}).toString()}`, {method: 'POST', as});
+	}
+
+	// A push asked about before its bytes are sent, as `pap files push` asks: answered with what was said, as [status, error, message].
+	async function check(path: string, query: Record<string, string> = {}, as?: string): Promise<[number, string | undefined, string | undefined]> {
+		const asked = new URLSearchParams({file: path.split('/').at(-1) ?? '', size: '5', path, ...query});
+		const response = await pap(`/files/${connectionId}/push/check?${asked.toString()}`, {method: 'POST', as});
+		const body = await response.json();
+		return [response.status, body.error, body.message];
 	}
 
 	function pull(query: Record<string, string>, as?: string): Promise<Response> {
@@ -122,9 +112,7 @@ describe.skipIf(!databaseUrl)('pap files, as a sandbox reaches a drive', () => {
 		await db.agentGrant.create({data: {agentId: strangerId, connectionId, actionId: 'readFiles', allowed: false}});
 		taskId = (await db.agentTask.create({data: {orgId, agentId, title: 'Chart the quarter', goal: 'A chart', via: 'mcp'}})).id;
 
-		const {handleCliFinishUploadRoute, handleCliListFilesRoute, handleCliPullFileRoute, handleCliStartUploadRoute} = await import('./cli');
-		const {handleUploadBytesRoute} = await import('./upload-route');
-		const {UPLOADS_PATH} = await import('@proxy/contracts/uploads');
+		const {handleCliCheckPushRoute, handleCliListFilesRoute, handleCliPullFileRoute, handleCliPushFileRoute} = await import('./cli');
 		// The routes as the router mounts them, behind a guard that takes the test's word for who calls.
 		const guarded = (handler: (request: CliRequest, response: express.Response) => Promise<void>) => (request: express.Request, response: express.Response) => {
 			const as = request.get('x-test-agent') ?? '';
@@ -134,9 +122,8 @@ describe.skipIf(!databaseUrl)('pap files, as a sandbox reaches a drive', () => {
 		const app = express();
 		app.get('/files/:connectionId/list', guarded(handleCliListFilesRoute));
 		app.get('/files/:connectionId/content', guarded(handleCliPullFileRoute));
-		app.post('/files/:connectionId/uploads', guarded(handleCliStartUploadRoute));
-		app.post('/files/:connectionId/uploads/:upload/done', guarded(handleCliFinishUploadRoute));
-		app.put(`${UPLOADS_PATH}/:secret`, (request, response) => void handleUploadBytesRoute(request, response));
+		app.post('/files/:connectionId/push', guarded(handleCliPushFileRoute));
+		app.post('/files/:connectionId/push/check', guarded(handleCliCheckPushRoute));
 		server = app.listen(0);
 		origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 	});
@@ -154,18 +141,9 @@ describe.skipIf(!databaseUrl)('pap files, as a sandbox reaches a drive', () => {
 		}
 	});
 
-	test('pushes a new file to a path through an upload, making the folders on the way at done, and pulls its bytes back by path', async () => {
+	test('pushes a blob to a path, making the folders on the way, and pulls its bytes back by path', async () => {
 		const content = 'date,amount\n2026-07-01,12\n';
-		const started = await start('Reports/2026/q3.csv', content);
-		expect(started.status).toBe(200);
-		const {upload, put} = await started.json();
-		expect(put).toMatchObject({method: 'PUT', headers: {}});
-		expect(put.url).toStartWith(`${APP_URL}/api/uploads/`);
-		expect((await send(put.url, content)).status).toBe(200);
-		// Nothing is made before done, not even the folders on the way.
-		expect((await (await pap(`/files/${connectionId}/list`)).json()).files).toEqual([]);
-
-		const pushed = await done(upload);
+		const pushed = await push('Reports/2026/q3.csv', content);
 		const made = await pushed.json();
 
 		expect(pushed.status).toBe(200);
@@ -176,6 +154,8 @@ describe.skipIf(!databaseUrl)('pap files, as a sandbox reaches a drive', () => {
 		expect(pulled.status).toBe(200);
 		expect(saidOf(pulled)).toEqual({...made.file, format: null});
 		expect(await pulled.text()).toBe('date,amount\n2026-07-01,12\n');
+		// By its id, with the path it is at.
+		expect(saidOf(await pull({id: made.file.id}))).toEqual({...made.file, format: null});
 
 		// The changes are the agent's, for its task, in the drive's journal: the folders and the file.
 		const {db} = await import('@proxy/db');
@@ -185,9 +165,6 @@ describe.skipIf(!databaseUrl)('pap files, as a sandbox reaches a drive', () => {
 			['create', '2026', agentId, taskId, null],
 			['create', 'q3.csv', agentId, taskId, null],
 		]);
-		// Done again answers the same, and makes nothing more.
-		expect(await (await done(upload)).json()).toEqual(made);
-		expect(await db.fileChange.count({where: {connectionId}})).toBe(3);
 	});
 
 	test('lists a folder by its path and the top without one', async () => {
@@ -232,31 +209,26 @@ describe.skipIf(!databaseUrl)('pap files, as a sandbox reaches a drive', () => {
 		expect((await none.json()).message).toBe('q3.csv has no version no-such-version.');
 	});
 
-	test('refuses what the path can’t be, and a file larger than the server takes, keeping nothing of it', async () => {
+	test('refuses what the path can’t be, and a blob that isn’t the agent’s, keeping nothing of it', async () => {
 		expect((await (await push('Reports', 'x')).json()).message).toBe('Reports is a folder: give the file’s path inside it, or end the path with a slash, as Reports/, to keep the file’s own name.');
 		expect((await (await push('Reports/2026/q3.csv/inside.txt', 'x')).json()).message).toBe('Reports/2026/q3.csv is a file, so nothing goes inside it.');
+		expect((await (await push('Drafts/notes.docx', 'x', {convert: '1'})).json()).message).toBe('Files keeps every file as its bytes, of its own type: push it without --convert.');
 		expect((await (await pull({path: 'Reports'})).json()).message).toBe('Reports is a folder: pap files ls lists it.');
 		expect((await (await pull({path: 'Reports/none.csv'})).json()).message).toBe('There is no Reports/none.csv in this drive.');
 
-		const huge = await push('huge.bin', 'x'.repeat(1024 * 1024 + 1));
-		expect(huge.status).toBe(422);
-		expect((await huge.json()).message).toBe('A file is at most 1.0 MB on this server, 1048576 bytes, and this one is 1048577.');
-
-		// More bytes than were said are refused at the URL; other bytes than were said, at done.
-		const short = await (await start('Drafts/short.txt', 'four')).json();
-		expect((await send(short.put.url, 'more than four')).status).toBe(413);
-		const other = await (await start('Drafts/other.txt', 'four')).json();
-		expect((await send(other.put.url, 'five')).status).toBe(200);
-		const refused = await done(other.upload);
-		expect(refused.status).toBe(422);
-		expect((await refused.json()).message).toStartWith(`The bytes that arrived for other.txt have the SHA-256 ${sha256('five')}, not the ${sha256('four')} given`);
+		const unknown = await pap(`/files/${connectionId}/push?blob=no-such-blob&path=Drafts/a.txt`, {method: 'POST'});
+		expect(unknown.status).toBe(422);
+		expect((await unknown.json()).message).toStartWith('There is no blob no-such-blob of yours.');
+		const readers = await blobOf('the reader’s', readerId);
+		const others = await pap(`/files/${connectionId}/push?blob=${readers}&path=Drafts/b.txt`, {method: 'POST'});
+		expect((await others.json()).message).toStartWith(`There is no blob ${readers} of yours.`);
 
 		const top = await (await pap(`/files/${connectionId}/list`)).json();
 		expect(top.files.map((file: {name: string}) => file.name)).toEqual(['Reports']);
 	});
 
-	test('refuses an upload’s start that doesn’t say the file’s size and SHA-256', async () => {
-		const unsaid = await pap(`/files/${connectionId}/uploads?path=notes.txt`, {method: 'POST'});
+	test('refuses a push that doesn’t name its blob', async () => {
+		const unsaid = await pap(`/files/${connectionId}/push?path=notes.txt`, {method: 'POST'});
 		expect(unsaid.status).toBe(422);
 		expect((await unsaid.json()).error).toBe('parse_error');
 	});
@@ -277,7 +249,6 @@ describe.skipIf(!databaseUrl)('pap files, as a sandbox reaches a drive', () => {
 			['files_upload', 'denied', 'cli'],
 			['files_read', 'allowed', 'cli'],
 			['files_upload', 'allowed', 'cli'],
-			['files_upload_done', 'allowed', 'cli'],
 		]);
 
 		const vault = await pap(`/files/${vaultId}/list`);
@@ -302,6 +273,44 @@ describe.skipIf(!databaseUrl)('pap files, as a sandbox reaches a drive', () => {
 
 		expect((await logged()).slice(before)).toEqual([
 			['files_upload', 'denied', 'cli'],
+			['files_upload', 'denied', 'cli'],
+			['files_upload', 'denied', 'cli'],
+		]);
+	});
+	test('says what a push would be refused for before its bytes are sent, making nothing and logging only what is refused', async () => {
+		const before = (await logged()).length;
+		const {db} = await import('@proxy/db');
+		const nodes = await db.fileNode.count({where: {connectionId}});
+		const head = saidOf(await pull({path: 'Reports/2026/q3.csv'})).version;
+
+		// A push the drive takes: a new file, its folders still to make, and a write at the version held.
+		expect(await check('Drafts/2027/plan.pdf')).toEqual([200, undefined, undefined]);
+		expect(await check('Reports/2026/q3.csv', {version: head})).toEqual([200, undefined, undefined]);
+		expect(await check('Reports/2026/q3.csv', {force: '1'})).toEqual([200, undefined, undefined]);
+
+		// One it refuses, in the words the push itself is refused with.
+		expect(await check('Reports/2026/q3.csv', {version: 'stale'})).toEqual([
+			422,
+			'conflict',
+			`Reports/2026/q3.csv changed since it was pulled: it holds version ${head} now. Pull it again and push what you make of that, or push with --force to write over it; the version before is kept either way.`,
+		]);
+		expect(await check('Reports')).toEqual([422, 'validation_error', 'Reports is a folder: give the file’s path inside it, or end the path with a slash, as Reports/, to keep the file’s own name.']);
+		expect(await check('Reports/2026/q3.csv/inside.txt')).toEqual([422, 'validation_error', 'Reports/2026/q3.csv is a file, so nothing goes inside it.']);
+		expect(await check('Drafts/notes.docx', {convert: '1'})).toEqual([422, 'validation_error', 'Files keeps every file as its bytes, of its own type: push it without --convert.']);
+		expect(await check('Drafts/film.mov', {size: String(5 * 1024 * 1024)})).toEqual([422, 'validation_error', 'A file is at most 1 MB, and this one is 5.0 MB.']);
+		expect((await check('Reports/2026/q3.csv', {version: head}, readerId))[1]).toBe('forbidden');
+		expect((await check('Reports/none.txt', {}, strangerId))[1]).toBe('forbidden');
+		const unsaid = await pap(`/files/${connectionId}/push/check?path=notes.txt`, {method: 'POST'});
+		expect((await unsaid.json()).error).toBe('parse_error');
+
+		// Nothing was made, and the log holds the pull and what was refused, never a check that passed.
+		expect(await db.fileNode.count({where: {connectionId}})).toBe(nodes);
+		expect((await logged()).slice(before)).toEqual([
+			['files_read', 'allowed', 'cli'],
+			['files_upload', 'failed', 'cli'],
+			['files_upload', 'failed', 'cli'],
+			['files_upload', 'failed', 'cli'],
+			['files_upload', 'failed', 'cli'],
 			['files_upload', 'denied', 'cli'],
 			['files_upload', 'denied', 'cli'],
 		]);

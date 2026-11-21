@@ -4,6 +4,8 @@ import {Ok} from 'ts-results-es';
 import {ApiErr} from '@proxy/utils';
 import {findCollection, findIntegration, type Collection} from '@proxy/integrations';
 
+import type {Attached} from './email-attachments';
+
 // A mailbox in memory: the folders the server marks, each folder's messages by UID, and the one
 // message the record tests open.
 type Folder = {path: string; specialUse?: string};
@@ -147,6 +149,28 @@ mock.module('../connections/email/mail-check', () => ({
 const credential = {imapHost: 'imap.fastmail.com', smtpHost: 'smtp.fastmail.com', smtpPort: 465, username: 'alex@example.com', password: 'secret'};
 
 mock.module('../utils/secret-crypto', () => ({decryptSecret: () => Ok(JSON.stringify(credential))}));
+
+// The server's settings, which the blob store the attachments module reaches reads: none of them
+// from a `.env`, which a checkout that only runs the tests has none of.
+mock.module('../utils/env', () => ({env: {NODE_ENV: 'test', APP_URL: 'https://app.example.com'}}));
+
+// The files the blobs an email names in `attach` are attached as; finding an agent's blobs is
+// email-attachments.test.ts's.
+const attachable: Record<string, Attached> = {
+	b1: {filename: 'offer.pdf', contentType: 'application/pdf', content: Buffer.from('%PDF offer')},
+	b2: {filename: 'terms.txt', contentType: 'text/plain', content: Buffer.from('Net 30')},
+};
+const realAttachments = await import('./email-attachments');
+mock.module('./email-attachments', () => ({
+	...realAttachments,
+	attachedBlobs: async (_target: object, attach: string | undefined) =>
+		Ok(
+			(attach ?? '')
+				.split(',')
+				.map((id) => id.trim())
+				.flatMap((id) => (attachable[id] ? [attachable[id]] : [])),
+		),
+}));
 
 function emails(): Collection {
 	const integration = findIntegration('email');
@@ -626,7 +650,7 @@ describe('emailConnector.reply', () => {
 	test('sends a reply from the connected address, to where the email asks, in its thread, and files it in Sent', async () => {
 		imap.message = {uid: 12, flags: new Set(), source: asked};
 		const replyToMailbox = (await import('./email-connector')).emailConnector.reply;
-		const written = (await replyToMailbox(target, INBOX_EMAIL, {body: 'Thursday works.', send: true, all: false, quote: true, timeZone: null})).unwrap();
+		const written = (await replyToMailbox(target, INBOX_EMAIL, {body: 'Thursday works.', send: true, all: false, quote: true, timeZone: null, attached: []})).unwrap();
 
 		expect(written).toEqual({
 			to: '"Planning" <planning@example.com>',
@@ -654,7 +678,7 @@ describe('emailConnector.reply', () => {
 	test('saves a reply in Drafts, keeping its thread', async () => {
 		imap.message = {uid: 12, flags: new Set(), source: asked};
 		const replyToMailbox = (await import('./email-connector')).emailConnector.reply;
-		const written = (await replyToMailbox(target, INBOX_EMAIL, {body: 'Thursday works.', send: false, all: false, quote: true, timeZone: null})).unwrap();
+		const written = (await replyToMailbox(target, INBOX_EMAIL, {body: 'Thursday works.', send: false, all: false, quote: true, timeZone: null, attached: []})).unwrap();
 
 		expect(written.id).toBe(`drafts-${UID_VALIDITY}-99`);
 		expect(sendMail).not.toHaveBeenCalled();
@@ -670,8 +694,8 @@ describe('emailConnector.reply', () => {
 	test('a reply quotes the email in HTML too, in Gmail’s quote, and not at all when asked not to', async () => {
 		imap.message = {uid: 12, flags: new Set(), source: asked};
 		const replyToMailbox = (await import('./email-connector')).emailConnector.reply;
-		await replyToMailbox(target, INBOX_EMAIL, {body: 'Thursday works.', send: true, all: false, quote: true, timeZone: null});
-		await replyToMailbox(target, INBOX_EMAIL, {body: 'Thursday works.', send: true, all: false, quote: false, timeZone: null});
+		await replyToMailbox(target, INBOX_EMAIL, {body: 'Thursday works.', send: true, all: false, quote: true, timeZone: null, attached: []});
+		await replyToMailbox(target, INBOX_EMAIL, {body: 'Thursday works.', send: true, all: false, quote: false, timeZone: null, attached: []});
 
 		const [quoted, bare] = sendMail.mock.calls.map((call) => call[0]);
 		expect(quoted.html).toContain('<div dir="ltr">Thursday works.</div><br>');
@@ -700,7 +724,7 @@ describe('emailConnector.reply', () => {
 	test('a reply to all also goes to whom the email went, and copies whom it copied, never the connected address', async () => {
 		imap.message = {uid: 12, flags: new Set(), source: asked};
 		const replyToMailbox = (await import('./email-connector')).emailConnector.reply;
-		const written = (await replyToMailbox(target, INBOX_EMAIL, {body: 'Thursday works.', send: true, all: true, quote: true, timeZone: null})).unwrap();
+		const written = (await replyToMailbox(target, INBOX_EMAIL, {body: 'Thursday works.', send: true, all: true, quote: true, timeZone: null, attached: []})).unwrap();
 
 		expect(written).toMatchObject({to: '"Planning" <planning@example.com>, "Dana Cruz" <dana@example.com>', cc: '"Jo Park" <jo@example.com>'});
 		expect(sendMail.mock.calls[0]?.[0]).toMatchObject({to: '"Planning" <planning@example.com>, "Dana Cruz" <dana@example.com>', cc: '"Jo Park" <jo@example.com>'});
@@ -709,7 +733,7 @@ describe('emailConnector.reply', () => {
 	test('an email sent is replied to as well, to whom it went', async () => {
 		imap.message = {uid: 12, flags: new Set(), source};
 		const replyToMailbox = (await import('./email-connector')).emailConnector.reply;
-		const written = (await replyToMailbox(target, `sent-${UID_VALIDITY}-12`, {body: 'Any news?', send: true, all: false, quote: true, timeZone: null})).unwrap();
+		const written = (await replyToMailbox(target, `sent-${UID_VALIDITY}-12`, {body: 'Any news?', send: true, all: false, quote: true, timeZone: null, attached: []})).unwrap();
 
 		expect(imap.opened).toBe('Sent Items');
 		expect(written).toMatchObject({to: 'sam@example.com', subject: 'Re: Q3 planning'});
@@ -718,8 +742,8 @@ describe('emailConnector.reply', () => {
 	test('replies to no draft, and to no email that isn’t there', async () => {
 		const replyToMailbox = (await import('./email-connector')).emailConnector.reply;
 
-		expect((await replyToMailbox(target, DRAFT, {body: 'x', send: true, all: false, quote: true, timeZone: null})).unwrapErr().kind).toBe('validation_error');
-		expect((await replyToMailbox(target, `inbox-${UID_VALIDITY}-13`, {body: 'x', send: true, all: false, quote: true, timeZone: null})).unwrapErr().kind).toBe('not_found');
+		expect((await replyToMailbox(target, DRAFT, {body: 'x', send: true, all: false, quote: true, timeZone: null, attached: []})).unwrapErr().kind).toBe('validation_error');
+		expect((await replyToMailbox(target, `inbox-${UID_VALIDITY}-13`, {body: 'x', send: true, all: false, quote: true, timeZone: null, attached: []})).unwrapErr().kind).toBe('not_found');
 		expect(sendMail).not.toHaveBeenCalled();
 	});
 
@@ -729,8 +753,94 @@ describe('emailConnector.reply', () => {
 		const sent = (await emailRepliesConnector.newCommands.send(repliesTarget(), {email: INBOX_EMAIL, body: 'Thursday works.', replyAll: 'No'})).unwrap();
 		const drafted = (await emailRepliesConnector.newCommands.draft(repliesTarget(), {email: INBOX_EMAIL, body: 'Thursday works.', replyAll: 'Yes'})).unwrap();
 
-		expect(sent?.values).toEqual({email: INBOX_EMAIL, body: 'Thursday works.', replyAll: 'No', quote: '', to: '"Planning" <planning@example.com>', cc: '', subject: 'Re: Q3 planning'});
+		expect(sent?.values).toEqual({email: INBOX_EMAIL, body: 'Thursday works.', replyAll: 'No', quote: '', attach: '', to: '"Planning" <planning@example.com>', cc: '', subject: 'Re: Q3 planning'});
 		expect(drafted).toMatchObject({id: `drafts-${UID_VALIDITY}-99`, values: {cc: '"Jo Park" <jo@example.com>'}});
 		expect(imap.appended.at(-1)?.replace(/\r\n[ \t]+/g, ' ')).toContain('Cc: Jo Park <jo@example.com>');
+	});
+});
+
+describe('attachments an email goes out with', () => {
+	// What a message was written with, as [name, content, the id its HTML shows it by].
+	function sentWith(options: {attachments?: Array<{filename?: string; content?: Buffer; cid?: string}>} | undefined) {
+		return (options?.attachments ?? []).map((one) => [one.filename, one.content?.toString(), one.cid ?? null]);
+	}
+
+	// A draft as a mail app saved it: text beside HTML that shows a picture, and a file below.
+	async function draftWithFiles(): Promise<Buffer> {
+		const {default: MailComposer} = await import('nodemailer/lib/mail-composer');
+		return new MailComposer({
+			from: 'alex@example.com',
+			to: 'sam@example.com',
+			subject: 'Offer',
+			text: 'The offer, attached.',
+			html: '<p>The offer, attached.</p><img src="cid:logo@proxy">',
+			// The file below carries an id too, as a mail app may give one, which the HTML never shows.
+			attachments: [
+				{filename: 'logo.png', contentType: 'image/png', content: Buffer.from('png'), cid: 'logo@proxy', contentDisposition: 'inline'},
+				{filename: 'offer.pdf', contentType: 'application/pdf', content: Buffer.from('%PDF offer'), cid: 'f_offer', contentDisposition: 'attachment'},
+			],
+		})
+			.compile()
+			.build();
+	}
+
+	test('a new draft is saved with the blobs it names attached, and an email sent at once goes out with them', async () => {
+		const {emailConnector} = await import('./email-connector');
+		// What is saved is read back under the id the mailbox gave it, which this one has no email at.
+		await emailConnector.create(target, {to: 'sam@example.com', subject: 'Offer', body: 'Attached.', attach: 'b1, b2'});
+
+		const saved = imap.appended[0] ?? '';
+		expect(saved).toContain('filename=offer.pdf');
+		expect(saved).toContain(Buffer.from('%PDF offer').toString('base64'));
+		expect(saved).toContain('filename=terms.txt');
+
+		(await emailConnector.newCommands.sendNew(target, {to: 'sam@example.com', subject: 'Offer', body: 'Attached.', attach: 'b1'})).unwrap();
+		expect(sentWith(sendMail.mock.calls[0]?.[0])).toEqual([['offer.pdf', '%PDF offer', null]]);
+	});
+
+	test('a draft is sent with the attachments it has, a picture its HTML shows still in the text', async () => {
+		imap.message = {uid: 12, flags: new Set(), source: await draftWithFiles()};
+		const {emailConnector} = await import('./email-connector');
+
+		expect((await emailConnector.commands?.send?.(target, DRAFT))?.unwrap()).toBeNull();
+
+		const sent = sendMail.mock.calls[0]?.[0];
+		expect(sent.html).toContain('cid:logo@proxy');
+		expect(sentWith(sent)).toEqual([
+			['logo.png', 'png', 'logo@proxy'],
+			['offer.pdf', '%PDF offer', null],
+		]);
+	});
+
+	test('an edit keeps the attachments a draft has and adds the blobs named, a picture a file like any other once the text is written anew', async () => {
+		imap.message = {uid: 12, flags: new Set(), source: await draftWithFiles()};
+		const {emailConnector} = await import('./email-connector');
+
+		await emailConnector.update(target, DRAFT, {to: 'sam@example.com', subject: 'Offer', body: 'The offer, revised.', attach: 'b2'});
+
+		const saved = imap.appended[0] ?? '';
+		expect(saved).toContain('filename=logo.png');
+		expect(saved).toContain('filename=offer.pdf');
+		expect(saved).toContain('filename=terms.txt');
+		expect(saved).not.toContain('text/html');
+		expect(saved.toLowerCase()).not.toContain('content-id');
+
+		// With its text as it was, the HTML stays, and the picture in it.
+		imap.appended = [];
+		await emailConnector.update(target, DRAFT, {to: 'sam@example.com', subject: 'Offer, final', body: 'The offer, attached.'});
+		expect(imap.appended[0]).toContain('cid:logo@proxy');
+		expect(imap.appended[0]?.toLowerCase()).toContain('content-id: <logo@proxy>');
+	});
+
+	test('a reply goes out with what it is given to attach, sent or saved in Drafts', async () => {
+		const replyToMailbox = (await import('./email-connector')).emailConnector.reply;
+		const attached = [attachable.b1 as Attached];
+
+		(await replyToMailbox(target, INBOX_EMAIL, {body: 'Here it is.', send: true, all: false, quote: false, timeZone: null, attached})).unwrap();
+		expect(sentWith(sendMail.mock.calls[0]?.[0])).toEqual([['offer.pdf', '%PDF offer', null]]);
+
+		imap.appended = [];
+		(await replyToMailbox(target, INBOX_EMAIL, {body: 'Here it is.', send: false, all: false, quote: false, timeZone: null, attached})).unwrap();
+		expect(imap.appended[0]).toContain('filename=offer.pdf');
 	});
 });

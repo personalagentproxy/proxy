@@ -357,6 +357,26 @@ export type RunEntry = {collection: string; action: string; title: string | null
  * wrong; or allowed. The entry's id is given before it is logged, so `work` can keep it.
  */
 export function gateRun<T>(target: RunTarget, tool: Tool, params: Record<string, unknown>, entry: RunEntry, work: (entryId: string) => Promise<Result<T, ApiError>>): Promise<Result<T, ApiError>> {
+	return gate(target, tool, params, entry, work, true);
+}
+
+/**
+ * The gate of a run only asked about before it is made, as a push before its bytes are sent
+ * (native/files/cli.ts): checked as `gateRun` checks it, and logged where it is refused or `work`
+ * finds what would fail it, but not where it is allowed, which the run that follows is.
+ */
+export function gateAsked<T>(target: RunTarget, tool: Tool, params: Record<string, unknown>, entry: RunEntry, work: (entryId: string) => Promise<Result<T, ApiError>>): Promise<Result<T, ApiError>> {
+	return gate(target, tool, params, entry, work, false);
+}
+
+function gate<T>(
+	target: RunTarget,
+	tool: Tool,
+	params: Record<string, unknown>,
+	entry: RunEntry,
+	work: (entryId: string) => Promise<Result<T, ApiError>>,
+	logsAllowed: boolean,
+): Promise<Result<T, ApiError>> {
 	return Do(async ($) => {
 		const {caller, agent, connection, integration, startedAt} = target;
 		const entryId = randomUUID();
@@ -393,7 +413,9 @@ export function gateRun<T>(target: RunTarget, tool: Tool, params: Record<string,
 			$(await logRun('failed', failureOf(done.error)));
 		}
 		const value = $(done);
-		$(await logRun('allowed'));
+		if (logsAllowed) {
+			$(await logRun('allowed'));
+		}
 		return value;
 	});
 }

@@ -1,9 +1,8 @@
 import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
-import type {CliConversion, CliExport, CliFile, CliPulled} from '@proxy/contracts/cli';
+import type {CliExport, CliFile, CliPulled} from '@proxy/contracts/cli';
 
-import type {RunTarget} from '../agent-side/tools';
 import {
 	downloadFile,
 	downloadRevision,
@@ -21,15 +20,14 @@ import {
 } from '../connections/google/drive-api';
 import {callGoogle, TOO_LARGE_TO_READ} from '../connections/google/google-client';
 import {getSheets, getValues, rowsRange} from '../connections/google/sheets-api';
-import {type CliDrive, type CliListed, type CliPull, type CliPullAsked, type CliPush, type CliResolved, versionToWrite} from '../native/files/cli-drive';
+import type {DriveListing, FilePull, PullAsked, ResolvedPath, Drive, DriveAt} from '../native/files/drive';
 import {mediaType} from '../native/files/names';
-import {finishUpload, startUpload} from '../uploads/tickets';
 import {pathInDrive} from './google-files';
 import {sizeOf} from './google-history';
-import {CONVERTED_EXTENSION, CSV, GOOGLE_KINDS, googleUploads, MARKDOWN} from './google-uploads';
+import {checkDriveUpload, CONVERTED_EXTENSION, GOOGLE_KINDS, uploadToDrive} from './google-uploads';
 
 /**
- * A Google account's Drive as `pap files` reaches it (native/files/cli-drive.ts), by path, as
+ * A Google account's Drive as `pap files` reaches it (native/files/drive.ts), by path, as
  * Drive itself shows it: at the top, My Drive, Shared drives, which holds a folder for each shared
  * drive by its name, and Shared with me; so `My Drive/Reports/q3.pdf`, `Shared drives/Research/…`
  * and `Shared with me/…`. Drive lets more than one file in a folder have the same name, so a path
@@ -43,16 +41,14 @@ import {CONVERTED_EXTENSION, CSV, GOOGLE_KINDS, googleUploads, MARKDOWN} from '.
  * Its version is Drive's: the head revision of a file with bytes, a Doc's, Sheet's or Slides file's
  * version number, which goes up with each change.
  *
- * A push is an upload into Drive (google-uploads.ts), its bytes sent to Personal Agent Proxy's
- * URL and on to Drive at done. A new file goes up as its bytes, or, asked to, is made a Doc, Sheet
- * or Slides file of a docx, Markdown, xlsx, CSV or pptx; the folders on its way that are missing
- * are made at done, with the file, logged as the agent's. Over a file with bytes of its own, the version pulled is
- * named, or the push says to write over it, and the task's copy is kept first (google-history.ts).
- * A Doc, Sheet or Slides file is never pushed over, which would lose its comments, suggestions and
- * whatever the bytes can't hold: the refusal points to the tools that edit it in place.
+ * A blob put in Drive goes up as its bytes, or, asked to, is made a Doc, Sheet or Slides file of a
+ * docx, Markdown, xlsx, CSV or pptx (google-uploads.ts); the folders on the way to a path pushed to
+ * that are missing are made with the file, logged as the agent's. Over a file with bytes of its
+ * own, the version pulled is named, or the push says to write over it, and the task's copy is kept
+ * first (google-history.ts). A Doc, Sheet or Slides file is never written over, which would lose
+ * its comments, suggestions and whatever the bytes can't hold: the refusal points to the tools that
+ * edit it in place.
  */
-
-const BYTES = 'application/octet-stream';
 
 // The media type of a file of the extension, as Files reads it.
 function typeOf(extension: string): string {
@@ -186,7 +182,7 @@ function childNamed(token: string, inside: Inside, where: string, name: string):
 }
 
 /** What a path names, as far as it goes, and what is inside the last of it, where that is a folder. */
-type Walked = CliResolved & {inside: Inside | null};
+type Walked = ResolvedPath & {inside: Inside | null};
 
 function walk(token: string, names: string[]): Promise<Result<Walked, ApiError>> {
 	return Do(async ($) => {
@@ -239,9 +235,9 @@ const EXPORTS: Partial<Record<string, {kind: string; standard: CliExport; format
 
 // What is smaller than an export past Drive's 10 MB, for each kind.
 const SMALLER: Partial<Record<string, string>> = {
-	[MIME_TYPES.document]: ', as --as md or --as txt',
-	[MIME_TYPES.spreadsheet]: ', as one tab with --as csv --tab <tab>',
-	[MIME_TYPES.presentation]: ', as --as txt',
+	[MIME_TYPES.document]: ', as md or txt',
+	[MIME_TYPES.spreadsheet]: ', as one tab, as csv with its tab',
+	[MIME_TYPES.presentation]: ', as txt',
 };
 
 /** A file's name as the sandbox's file is called: no slash, which would make it a path there, and never `.` or `..`. */
@@ -287,7 +283,7 @@ function exported(token: string, file: DriveFileState, format: CliExport): Promi
 		const bytes = await exportBytes(token, file.id, typeOf(format));
 		if (bytes.isErr() && bytes.error.kind === 'validation_error' && bytes.error.message === TOO_LARGE_TO_READ) {
 			return $(
-				Err(ApiErr.validationError(`“${file.name}” is too large to export as ${format}: Drive exports at most 10 MB. Pull it --as pdf, or as something smaller${SMALLER[file.mimeType] ?? ''}.`)),
+				Err(ApiErr.validationError(`“${file.name}” is too large to export as ${format}: Drive exports at most 10 MB. Ask for it as pdf, or as something smaller${SMALLER[file.mimeType] ?? ''}.`)),
 			);
 		}
 		return $(bytes);
@@ -295,7 +291,7 @@ function exported(token: string, file: DriveFileState, format: CliExport): Promi
 }
 
 // A Doc, Sheet or Slides file, as Drive exports it now.
-function pullExport(token: string, file: DriveFileState, asked: CliPullAsked, path: string): Promise<Result<CliPull, ApiError>> {
+function pullExport(token: string, file: DriveFileState, asked: PullAsked, path: string): Promise<Result<FilePull, ApiError>> {
 	return Do(async ($) => {
 		const exports = EXPORTS[file.mimeType];
 		if (exports === undefined) {
@@ -306,14 +302,14 @@ function pullExport(token: string, file: DriveFileState, asked: CliPullAsked, pa
 			return $(Err(ApiErr.validationError(`A ${exports.kind} is pulled as ${exports.formats.join(', ')}, not ${format}.`)));
 		}
 		if (asked.tab !== null && format !== 'csv') {
-			return $(Err(ApiErr.validationError('--tab names the tab of a Sheet pulled as CSV: pull it with --as csv --tab <tab>.')));
+			return $(Err(ApiErr.validationError('tab names the tab of a Sheet as CSV: ask for it as csv with its tab.')));
 		}
 		const version = $(requirePresent(driveVersion(file), ApiErr.notFound('version', file.id)));
 		if (asked.version !== null && asked.version !== version) {
 			return $(
 				Err(
 					ApiErr.validationError(
-						`Drive exports “${file.name}” only as it is now, at version ${version}: pull it without --version. What it held before is read with the files_version_read tool, a version from files_versions, and in Drive’s own version history.`,
+						`Drive exports “${file.name}” only as it is now, at version ${version}: ask for it without a version. What it held before is read with the files_version_read tool, a version from files_versions, and in Drive’s own version history.`,
 					),
 				),
 			);
@@ -328,10 +324,10 @@ function pullExport(token: string, file: DriveFileState, asked: CliPullAsked, pa
 }
 
 // A file with bytes of its own, as they are: now, or at one of its revisions.
-function pullBytes(token: string, file: DriveFileState, asked: CliPullAsked, path: string): Promise<Result<CliPull, ApiError>> {
+function pullBytes(token: string, file: DriveFileState, asked: PullAsked, path: string): Promise<Result<FilePull, ApiError>> {
 	return Do(async ($) => {
 		if (asked.as !== null || asked.tab !== null) {
-			return $(Err(ApiErr.validationError(`“${file.name}” is a file of its own bytes, ${file.mimeType}, and is pulled as they are: leave --as and --tab out.`)));
+			return $(Err(ApiErr.validationError(`“${file.name}” is a file of its own bytes, ${file.mimeType}, and is handed over as they are: leave as and tab out.`)));
 		}
 		const head = file.headRevisionId ?? null;
 		const now = asked.version === null || asked.version === head;
@@ -342,44 +338,9 @@ function pullBytes(token: string, file: DriveFileState, asked: CliPullAsked, pat
 	});
 }
 
-// ---- Pushing ------------------------------------------------------------------------------------
-
-/** What a new file is made into with --as, and of what. */
-const CONVERSIONS: Record<CliConversion, {mimeType: string; kind: string; from: string[]; fromText: string}> = {
-	doc: {mimeType: MIME_TYPES.document, kind: 'Doc', from: [typeOf('docx'), MARKDOWN], fromText: 'a .docx or Markdown'},
-	sheet: {mimeType: MIME_TYPES.spreadsheet, kind: 'Sheet', from: [typeOf('xlsx'), CSV], fromText: 'an .xlsx or CSV'},
-	slides: {mimeType: MIME_TYPES.presentation, kind: 'Slides file', from: [typeOf('pptx')], fromText: 'a .pptx'},
-};
-
-// What the bytes pushed are, by the name of the file they are sent from; none where it says nothing.
-function sentType(push: CliPush): string | null {
-	const type = push.file === null ? BYTES : mediaType(push.file, undefined, 'bytes');
-	return type === BYTES ? null : type;
-}
-
-// Why a Doc, Sheet or Slides file is never pushed over, and what to do instead.
-function googleOverRefusal(there: CliFile): ApiError {
-	const kind = GOOGLE_KINDS[there.type ?? ''];
-	if (kind === undefined) {
-		return ApiErr.validationError(`“${there.name}” is a ${kindOf(there.type ?? '')}, which takes nothing pushed over it.`);
-	}
-	return ApiErr.validationError(
-		`“${there.name}” is a ${kind.name}, which is never pushed over, since it would lose its comments, suggestions and formatting: ${kind.instead}, or push the file to a new path with --as to make a new ${kind.name} of it.`,
-	);
-}
-
-// Bytes of `type` made into what --as says, where Drive converts them into it.
-function requireConvertible(as: CliConversion, type: string): Result<void, ApiError> {
-	const conversion = CONVERSIONS[as];
-	if (conversion.from.includes(type)) {
-		return Ok(undefined);
-	}
-	return Err(ApiErr.validationError(`--as ${as} makes a ${conversion.kind} of ${conversion.fromText}, and this is ${type}: push it without --as to keep it as it is.`));
-}
-
-/** A Google account's Drive, as the target's agent reaches it. */
-export function googleCliDrive(target: RunTarget): CliDrive {
-	const {connection} = target;
+/** A Google account's Drive, as the run's agent reaches it. */
+export function googleDrive(at: DriveAt): Drive {
+	const {connection} = at;
 	const withToken = <T>(call: (token: string) => Promise<Result<T, ApiError>>) => callGoogle(connection, call);
 
 	// A file by its id or its link, with its path.
@@ -398,9 +359,14 @@ export function googleCliDrive(target: RunTarget): CliDrive {
 		// Drive's names may be anything but empty; a slash in one leaves it to be named by its id.
 		namesOf: (path) => Ok(path.split('/').filter((part) => part.trim() !== '')),
 
-		pushNames: (names, as) => {
+		// Where a file goes has a place first, and one converted goes without its extension, as
+		// Drive's own import makes it.
+		pushNames: (names, convert) => {
 			const last = names.at(-1);
-			if (as === null || last === undefined) {
+			if (last === undefined || names.length < 2) {
+				return Err(ApiErr.validationError(PATHS_START));
+			}
+			if (!convert) {
 				return Ok(names);
 			}
 			const bare = last.replace(CONVERTED_EXTENSION, '').trim();
@@ -423,7 +389,7 @@ export function googleCliDrive(target: RunTarget): CliDrive {
 
 		list: (names) =>
 			withToken((token) =>
-				Do(async ($): Promise<CliListed> => {
+				Do(async ($): Promise<DriveListing> => {
 					const at = names.join('/');
 					if (names.length === 0) {
 						return {path: '', files: PLACES.map(placeFile)};
@@ -448,7 +414,8 @@ export function googleCliDrive(target: RunTarget): CliDrive {
 					if (file.mimeType === MIME_TYPES.folder) {
 						return $(Err(ApiErr.validationError(`${file.name} is a folder: pap files ls lists it.`)));
 					}
-					const path = asked.path ?? $(await pathInDrive(token, file)).join('/');
+					// Found only where it is asked for: a blob needs no path.
+					const path = asked.path ?? '';
 					if (isGoogleType(file.mimeType)) {
 						return $(await pullExport(token, file, asked, path));
 					}
@@ -456,38 +423,8 @@ export function googleCliDrive(target: RunTarget): CliDrive {
 				}),
 			),
 
-		startCreate: (run, {parent, folders, name}, push) =>
-			Do(async ($) => {
-				if (parent === null) {
-					return $(Err(ApiErr.validationError(PATHS_START)));
-				}
-				const said = sentType(push);
-				if (push.as !== null) {
-					$(requireConvertible(push.as, mediaType(name, said ?? undefined, 'bytes')));
-				}
-				const file = {size: push.size, sha256: push.sha256, type: said};
-				return $(await startUpload(run, googleUploads, {kind: 'create', parentId: parent.id, folders, name, convert: push.as !== null}, file));
-			}),
+		check: (target, file) => checkDriveUpload(at, target, file),
 
-		startWrite: (run, there, push, ask) =>
-			Do(async ($) => {
-				if (isGoogleType(there.type ?? '')) {
-					return $(Err(googleOverRefusal(there)));
-				}
-				if (push.as !== null) {
-					const kind = CONVERSIONS[push.as].kind;
-					return $(Err(ApiErr.validationError(`--as ${push.as} makes a new ${kind}, and “${there.name}” is there already: push to a new path, or without --as to write over it.`)));
-				}
-				const said = sentType(push);
-				const held = $(versionToWrite(there, ask));
-				return $(await startUpload(run, googleUploads, {kind: 'write', fileId: there.id, version: held}, {size: push.size, sha256: push.sha256, type: said}));
-			}),
-
-		finish: (run, upload) =>
-			Do(async ($) => {
-				const done = $(await finishUpload(run, googleUploads, upload));
-				const {file, path} = $(await fileNamed(done.made.fileId));
-				return {file: {...fileOf(file, path), version: done.made.version}, created: done.created, link: done.link};
-			}),
+		upload: (target, blob) => uploadToDrive(at, target, blob),
 	};
 }

@@ -64,6 +64,8 @@ export function fakeIo(options: FakeOptions = {}) {
 		// pap is run in /work.
 		absolutePath: (path) => posix.resolve('/work', path),
 		isDirectory: (path) => (options.directories ?? []).includes(path.replace(/\/+$/, '')),
+		exists: (path) =>
+			disk.has(path) || (options.directories ?? []).includes(path.replace(/\/+$/, '')),
 		hashFile: async (path) => {
 			const bytes = disk.get(path);
 			return bytes === undefined

@@ -32,6 +32,7 @@ describe('integrationTools', () => {
 			'emails_send',
 			'emails_send_new',
 			'attachments_read',
+			'attachments_blob',
 			'replies_send',
 			'replies_draft',
 		]);
@@ -78,6 +79,7 @@ describe('integrationTools', () => {
 			'bcc',
 			'subject',
 			'body',
+			'attach',
 		]);
 		expect(findTool(email, 'emails_update')?.inputSchema.required).toEqual(['id']);
 	});
@@ -117,6 +119,20 @@ test('an attachment is read with the action reading email, by the email and the 
 	});
 });
 
+test('an attachment is made a blob with the action reading email, whatever kind of file it is, by the email and the attachment', () => {
+	const blob = findTool(email, 'attachments_blob');
+
+	expect(blob).toMatchObject({kind: 'newCommand', action: 'read', readOnly: true});
+	expect(blob?.description).toStartWith(
+		'Makes a blob of one of an email’s attachments, whatever kind of file it is',
+	);
+	expect(Object.keys(blob?.inputSchema.properties ?? {})).toEqual(['email', 'attachment']);
+	expect(findTool(integration('google'), 'attachments_blob')).toMatchObject({
+		action: 'readEmails',
+		readOnly: true,
+	});
+});
+
 test('a reply is sent with the actions sending and reading email, or saved as a draft with the one writing drafts', () => {
 	const send = findTool(email, 'replies_send');
 	const draft = findTool(email, 'replies_draft');
@@ -138,7 +154,11 @@ test('a reply is sent with the actions sending and reading email, or saved as a 
 		'body',
 		'replyAll',
 		'quote',
+		'attach',
 	]);
+	expect(send?.inputSchema.properties?.attach?.description).toStartWith(
+		'Attach: the ids of blobs to attach, comma-separated',
+	);
 	expect(send?.inputSchema.properties?.replyAll?.enum).toEqual(['Yes', 'No']);
 	expect(findTool(integration('google'), 'replies_send')).toMatchObject({
 		action: 'sendEmails',
@@ -373,8 +393,8 @@ describe('google', () => {
 			'tasks_complete',
 			'tasks_reopen',
 			'files_copy',
+			'files_blob',
 			'files_upload',
-			'files_upload_done',
 			'files_versions',
 			'files_version_read',
 			'files_restore',
@@ -478,7 +498,7 @@ describe('google', () => {
 		const properties = create?.inputSchema.properties ?? {};
 		expect(properties.content?.description).toStartWith('Content: a new Document as Markdown');
 		expect(properties.content?.description).toEndWith(
-			'goes up as its bytes with files_upload instead',
+			'is put in Drive from a blob with files_upload instead',
 		);
 		expect(properties.name?.description).toBe('Name');
 		expect(findTool(google, 'files_update')).toMatchObject({action: 'editFiles', risk: 'medium'});
@@ -504,22 +524,30 @@ describe('google', () => {
 		expect(Object.keys(copy?.inputSchema.properties ?? {})).toEqual(['id', 'parent', 'name']);
 	});
 
-	test('uploading takes the same params as Files’ upload, and convert, needing Create files, as finishing it does', () => {
+	test('putting a blob in Drive takes the same params as Files’, and convert, needing Create files; making one of a file needs Read files', () => {
 		const files = findIntegration('files');
 		const upload = findTool(google, 'files_upload');
 		const nativeUpload = files && findTool(files, 'files_upload');
 
 		expect(upload).toMatchObject({kind: 'native', action: 'createFiles', readOnly: false});
-		expect(upload?.inputSchema.required).toEqual(['size']);
+		expect(upload?.inputSchema.required).toEqual(['blob']);
 		expect(Object.keys(upload?.inputSchema.properties ?? {})).toEqual([
 			...Object.keys(nativeUpload?.inputSchema.properties ?? {}),
 			'convert',
 		]);
-		expect(findTool(google, 'files_upload_done')).toMatchObject({
+		const blob = findTool(google, 'files_blob');
+		const nativeBlob = files && findTool(files, 'files_blob');
+		expect(blob).toMatchObject({
 			kind: 'native',
-			action: 'createFiles',
-			inputSchema: {required: ['upload']},
+			action: 'readFiles',
+			readOnly: true,
+			inputSchema: {required: ['id']},
 		});
+		expect(Object.keys(blob?.inputSchema.properties ?? {})).toEqual([
+			...Object.keys(nativeBlob?.inputSchema.properties ?? {}),
+			'as',
+			'tab',
+		]);
 	});
 
 	test('a file’s versions are read with Read files, and giving one back or undoing a change needs Edit files', () => {

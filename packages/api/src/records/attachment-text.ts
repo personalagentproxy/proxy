@@ -13,10 +13,11 @@ import type {DataRecord, RecordValues} from './connector';
 
 /**
  * An email's attachments as the `attachments` collection, the same for Gmail and any mailbox:
- * never listed or opened, only read, one at a time, by the email's id and the attachment's number
- * among the email's attachments, as an email lists them, or its name. An attachment is read as
- * text: a spreadsheet's tabs as CSV, one after the other, a PDF's or a Word document's text, an
- * email's headers and text, and text as it is. Anything else, such as an image, is turned down.
+ * never listed or opened, only read or made a blob, one at a time, by the email's id and the
+ * attachment's number among the email's attachments, as an email lists them, or its name. An
+ * attachment is read as text: a spreadsheet's tabs as CSV, one after the other, a PDF's or a Word
+ * document's text, an email's headers and text, and text as it is. Anything else, such as an
+ * image, is turned down, and is made a blob instead (email-attachments.ts `attachmentBlobRecord`).
  */
 
 /** An attachment as an email lists it. */

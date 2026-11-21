@@ -115,7 +115,7 @@ describe('handleReplyEmailRoute', () => {
 		expect((await handleReplyEmailRoute(request({...answer, send: true}))).unwrap()).toEqual({sent: true});
 		expect(requireWritable).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'work', 'emails', 'sendNew', ['to', 'subject', 'body']);
 		expect(requireReadable).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'work', 'emails');
-		expect(reply).toHaveBeenCalledWith(source, 'm1', {body: 'Paid this morning.', send: true, all: false, quote: true, timeZone: 'Europe/Berlin'});
+		expect(reply).toHaveBeenCalledWith(source, 'm1', {body: 'Paid this morning.', send: true, all: false, quote: true, timeZone: 'Europe/Berlin', attached: []});
 		// The mailbox is the email's, so none is picked for the next new email.
 		expect(afterWrite).toHaveBeenCalledWith({viewer: expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), source, action: 'sendNew', title: 'Re: Invoice', parent: undefined});
 	});
@@ -125,7 +125,7 @@ describe('handleReplyEmailRoute', () => {
 
 		expect((await handleReplyEmailRoute(request({...answer, send: false}))).unwrap()).toEqual({sent: false});
 		expect(requireWritable).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), 'work', 'emails', 'create', ['to', 'subject', 'body']);
-		expect(reply).toHaveBeenCalledWith(source, 'm1', {body: 'Paid this morning.', send: false, all: false, quote: true, timeZone: 'Europe/Berlin'});
+		expect(reply).toHaveBeenCalledWith(source, 'm1', {body: 'Paid this morning.', send: false, all: false, quote: true, timeZone: 'Europe/Berlin', attached: []});
 	});
 
 	test('replies through no mailbox it can’t read, nor one that can’t reply, and logs nothing then', async () => {
