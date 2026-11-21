@@ -20,13 +20,11 @@ import {useCommandEnterSubmit} from '@/hooks/use-command-enter';
 
 type Props = {
 	open: boolean;
-	// The persona as it is, to change; none to make one.
+	// The persona's name and head as they are, to change; none to make one.
 	initial: Persona | null;
 	onClose: () => void;
 	// Saves the persona; what went wrong, shown in the dialog, or null once saved.
 	onSave: (persona: Persona) => Promise<string | null>;
-	// Deletes the persona with its conversation, where it is one that exists.
-	onDelete?: () => Promise<string | null>;
 };
 
 // The colors as the stylesheet has them, for the swatches.
@@ -55,11 +53,12 @@ function fresh(): Persona {
 const ROUND =
 	'flex size-9 shrink-0 items-center justify-center rounded-full transition-[box-shadow,background-color] outline-none focus-visible:ring-3 focus-visible:ring-ring/50';
 
-// Making a persona, or changing one: its name, and its head, which looks at the cursor as the
-// person works, in one of the colors, with another look a click away. What runs it, the harness
-// and the model, is chosen under the conversation's input (model-switcher.tsx), and a new one
-// starts on the server's first. Mount it keyed by what is edited, so the fields start from it.
-export function PersonaDialog({open, initial, onClose, onSave, onDelete}: Props) {
+// Making a persona, or changing one's name and head: its name, and its head, which looks at the
+// cursor as the person works, in one of the colors, with another look a click away. Deleting it is
+// in its settings beside its chat (persona-pane.tsx); what runs it, the harness and the model, is
+// chosen under the conversation's input (model-switcher.tsx), and a new one starts on the server's
+// first. Mount it keyed by what is edited, so the fields start from it.
+export function PersonaDialog({open, initial, onClose, onSave}: Props) {
 	const [persona, setPersona] = useState<Persona>(() => initial ?? fresh());
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
@@ -157,20 +156,6 @@ export function PersonaDialog({open, initial, onClose, onSave, onDelete}: Props)
 					</div>
 					{error && <p className="text-sm text-destructive">{error}</p>}
 					<DialogFooter>
-						{onDelete && (
-							<PillButton
-								type="button"
-								variant="destructive"
-								className="mr-auto"
-								disabled={busy}
-								onClick={async () => {
-									setBusy(true);
-									finish(await onDelete());
-								}}
-							>
-								Delete
-							</PillButton>
-						)}
 						<PillButton type="button" variant="ghost" onClick={onClose}>
 							Cancel
 						</PillButton>

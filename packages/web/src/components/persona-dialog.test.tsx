@@ -41,4 +41,28 @@ describe('PersonaDialog', () => {
 		await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
 		expect(onSave).toHaveBeenCalledWith({name: 'Finance', look, color: 'blue'});
 	});
+
+	test('changes the name and the head alone: deleting the agent is in its settings', async () => {
+		const onSave = mock(async () => null);
+		const look = {nose: 0.48, noseOut: 0.35, eye: 27, eyeTheta: 55, eyeLat: 8, eyes: 2 as const};
+		render(
+			<PersonaDialog
+				open
+				initial={{name: 'Finance', look, color: 'blue'}}
+				onClose={() => {}}
+				onSave={onSave}
+			/>,
+		);
+
+		expect(
+			screen.getByText('Its name and its head. The conversation stays as it is.'),
+		).toBeTruthy();
+		expect(screen.queryByRole('button', {name: 'Delete'})).toBeNull();
+		fireEvent.change(screen.getByLabelText('Name'), {target: {value: 'Accounting'}});
+		fireEvent.click(screen.getByRole('radio', {name: 'teal'}));
+		fireEvent.click(screen.getByRole('button', {name: 'Save'}));
+
+		await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+		expect(onSave).toHaveBeenCalledWith({name: 'Accounting', look, color: 'teal'});
+	});
 });

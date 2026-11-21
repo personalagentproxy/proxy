@@ -309,7 +309,12 @@ const routes: RouteObject[] = [
 						id: THREAD_ROUTE,
 						path: '/:org/chat/:id/threads/:threadId',
 						loader: chatThreadLoader,
+						// The agent's settings beside the thread, which stays open with them.
+						children: [{path: '/:org/chat/:id/threads/:threadId/settings'}],
 					},
+					// The agent's settings, at the page's right, which the page draws
+					// (hooks/use-persona-pane.tsx).
+					{path: '/:org/chat/:id/settings'},
 				],
 			},
 			{path: '/:org/alerts', loader: alertsLoader, element: <AlertsPage />},
