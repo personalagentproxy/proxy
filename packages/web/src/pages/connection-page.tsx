@@ -74,6 +74,8 @@ function ConnectionDetail() {
 	const [refreshing, setRefreshing] = useState(false);
 	const [replacingKey, setReplacingKey] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	// Where the shown part puts its own buttons, on the tabs' row.
+	const [toolbar, setToolbar] = useState<HTMLElement | null>(null);
 	const human = useHuman();
 	const integration = connection && integrationOf(connection);
 	if (!connection || !integration || !human) {
@@ -235,7 +237,7 @@ function ConnectionDetail() {
 						}}
 					/>
 				)}
-				<PageTabs tabs={tabs} chosen={tab} label="Connection" />
+				<PageTabs tabs={tabs} chosen={tab} label="Connection" toolbar={setToolbar} />
 				{tab === 'entries' && vaultEntries !== null && (
 					<VaultEntries
 						connectionId={connection.id}
@@ -252,6 +254,7 @@ function ConnectionDetail() {
 				{tab === 'files' && files !== null && (
 					<FileBrowser
 						connectionId={connection.id}
+						toolbar={toolbar}
 						place={files.place}
 						list={files.list}
 						shown={files.shown}
