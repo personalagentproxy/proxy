@@ -5,10 +5,12 @@ import {type ApiError, wrapDb} from '@proxy/utils';
 import {threadState, type ThreadState} from '@proxy/utils/harness';
 
 import {db} from '.';
+import {type SlackThreadRow, slackThreadSelect, toSlackThread} from './harness';
 
 /**
  * A member's Chat as a connection of theirs (`@proxy/integrations` chat): the connection itself,
- * and their threads across every persona, as a list of them is read. One thread whole is read as
+ * and their threads across every persona, wherever each lives, in the app or in Slack, as a list of
+ * them is read. One thread whole is read as
  * the Chat page reads it (harness.ts getMemberThread), and the alerts as the Alerts page does
  * (alerts.ts listMemberAlerts).
  */
@@ -17,14 +19,17 @@ import {db} from '.';
 export type ThreadStandingFilter = 'in_progress' | 'waiting' | 'watching' | 'done' | 'archived';
 
 /**
- * One of the member's threads as a list of them has it: whose it is with, what it is up to, where
- * it stands, and the last entry of it the member sees, by which a summary is current or stale.
+ * One of the member's threads as a list of them has it: whose it is with, where it lives, what it
+ * is up to, where it stands, and the last entry of it the member sees, by which a summary is
+ * current or stale.
  */
 export type MemberThreadRow = {
 	id: string;
 	personaId: string;
 	personaName: string;
 	title: string | null;
+	// Where it is in Slack, for one that lives there; null for one in the app.
+	slack: SlackThreadRow | null;
 	createdAt: Date;
 	state: ThreadState;
 	standing: {
@@ -104,6 +109,7 @@ export async function listMemberThreads(
 				summarySeq: true,
 				archived: true,
 				persona: {select: {name: true}},
+				slackPlace: slackThreadSelect,
 				jobs: {where: OPEN_JOBS, select: {kind: true, runAt: true}},
 				_count: {select: {alerts: true}},
 				// What the member said, an event that came, or what the agent answered in words: the
@@ -124,6 +130,7 @@ export async function listMemberThreads(
 			threads: threads.map(
 				({
 					persona,
+					slackPlace,
 					jobs,
 					entries,
 					waitingForMember,
@@ -135,6 +142,7 @@ export async function listMemberThreads(
 				}) => ({
 					...thread,
 					personaName: persona.name,
+					slack: toSlackThread(slackPlace),
 					state: threadState(jobs, now),
 					standing: {waitingForMember, summary, summarySeq, archived},
 					alerts: _count.alerts,
@@ -145,17 +153,34 @@ export async function listMemberThreads(
 	});
 }
 
-/** What a thread's address is made of beside its id: the organization's slug, and its persona's name, which says whose it is with; null where either is gone. */
-export async function getThreadPlace(
-	orgId: string,
-	personaId: string,
-): Promise<Result<{orgSlug: string; personaName: string} | null, ApiError>> {
+/**
+ * What a thread's address is made of beside its id: the organization's slug, its persona's name,
+ * which says whose it is with, and where it is in Slack, for one that lives there; null where the
+ * thread is gone.
+ */
+export async function getThreadAddress(thread: {
+	id: string;
+	orgId: string;
+}): Promise<
+	Result<{orgSlug: string; personaName: string; slack: SlackThreadRow | null} | null, ApiError>
+> {
 	return wrapDb(async () => {
-		const persona = await db.persona.findFirst({
-			where: {id: personaId, orgId},
-			select: {name: true, org: {select: {slug: true}}},
+		const found = await db.agentThread.findFirst({
+			where: {id: thread.id, orgId: thread.orgId},
+			select: {
+				org: {select: {slug: true}},
+				persona: {select: {name: true}},
+				slackPlace: slackThreadSelect,
+			},
 		});
-		return persona ? {orgSlug: persona.org.slug, personaName: persona.name} : null;
+		if (!found) {
+			return null;
+		}
+		return {
+			orgSlug: found.org.slug,
+			personaName: found.persona.name,
+			slack: toSlackThread(found.slackPlace),
+		};
 	});
 }
 

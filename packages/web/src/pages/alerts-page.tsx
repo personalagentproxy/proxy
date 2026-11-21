@@ -229,9 +229,15 @@ function Alerts() {
 							alert.thread === null ? undefined : (
 								<ContextMenuItem
 									onClick={() => {
-										if (alert.thread !== null) {
-											void navigate(threadTo(org, alert));
+										if (alert.thread === null) {
+											return;
 										}
+										// One in Slack opens there, as the app doesn't show it.
+										if (alert.thread.slackUrl !== null) {
+											window.open(alert.thread.slackUrl, '_blank', 'noreferrer');
+											return;
+										}
+										void navigate(threadTo(org, alert));
 									}}
 								>
 									<MessageSquareIcon />

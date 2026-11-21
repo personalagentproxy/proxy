@@ -71,7 +71,7 @@ beforeEach(() => {
 	store = fakeStore();
 	store.threadNeedsTitle.mockResolvedValue(Ok(true));
 	store.getJobThread.mockResolvedValue(Ok(row));
-	store.getChatThread.mockResolvedValue(Ok(chatThread()));
+	store.getShownThread.mockResolvedValue(Ok(chatThread()));
 	store.writeThreadTitle.mockResolvedValue(Ok(true));
 	ask = mock<TitleModel['ask']>(async () => Ok({title: ' "Thursday dinner for four." '}));
 	model = {key: 'sk-or-1', ask};
@@ -81,7 +81,7 @@ describe('a thread’s title', () => {
 	test('asks the small model on the key, with what the member sees of the thread, and writes the title it gives, as a title', async () => {
 		expect((await writeTitle(store, model, 'thread-1', () => now)).unwrap()).toBe('written');
 
-		expect(store.getChatThread).toHaveBeenCalledWith('chat-1', 'thread-1', ['send_to_person'], now);
+		expect(store.getShownThread).toHaveBeenCalledWith('thread-1', ['send_to_person'], now);
 		expect(ask).toHaveBeenCalledTimes(1);
 		const request = ask.mock.calls[0]?.[0];
 		expect(request).toMatchObject({key: 'sk-or-1', system: TITLE_INSTRUCTIONS, name: 'title', timeoutMs: 10_000});
@@ -104,9 +104,9 @@ describe('a thread’s title', () => {
 		expect((await writeTitle(store, model, 'thread-1')).unwrap()).toBe('skipped');
 		store.getJobThread.mockResolvedValueOnce(Ok(null));
 		expect((await writeTitle(store, model, 'thread-1')).unwrap()).toBe('skipped');
-		store.getChatThread.mockResolvedValueOnce(Ok(null));
+		store.getShownThread.mockResolvedValueOnce(Ok(null));
 		expect((await writeTitle(store, model, 'thread-1')).unwrap()).toBe('skipped');
-		store.getChatThread.mockResolvedValueOnce(Ok(chatThread({entries: [], attachments: []})));
+		store.getShownThread.mockResolvedValueOnce(Ok(chatThread({entries: [], attachments: []})));
 		expect((await writeTitle(store, model, 'thread-1')).unwrap()).toBe('skipped');
 		expect(ask).not.toHaveBeenCalled();
 		expect(store.writeThreadTitle).not.toHaveBeenCalled();

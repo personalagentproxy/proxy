@@ -3,7 +3,8 @@ import {z} from 'zod';
 /**
  * Slack, for an organization with the `slack` experiment on: the Slack workspaces linked to it, and
  * a shared persona's own Slack app in one of them, which whoever may change the persona adds,
- * updates and removes from its settings.
+ * updates and removes from its settings; and a member's Slack account linked to them, which they
+ * confirm from a link the app gives them, and unlink from their account.
  */
 
 /**
@@ -101,3 +102,55 @@ export const slackInstallOutcomeSchema = z.enum([
 ]);
 
 export type SlackInstallOutcome = z.infer<typeof slackInstallOutcomeSchema>;
+
+/**
+ * `GET /api/slack-links/:token`: what the link a persona's app gave a Slack user linked to nobody
+ * is for, as the page confirming who they are shows it to the person signed in: run out; for an
+ * organization they aren't in, with its owner's name, whom to ask for an invitation; for a Slack
+ * user linked to another member already; or to confirm, which links the Slack user to them in the
+ * workspace, `linked` where it is so already. A link that isn't one is not found.
+ */
+export const slackConfirmationSchema = z.discriminatedUnion('state', [
+	z.object({state: z.literal('expired')}),
+	z.object({
+		state: z.literal('not_member'),
+		workspaceName: z.string(),
+		orgName: z.string(),
+		ownerName: z.string().nullable(),
+	}),
+	z.object({state: z.literal('taken'), workspaceName: z.string(), orgName: z.string()}),
+	z.object({
+		state: z.literal('confirm'),
+		workspaceName: z.string(),
+		orgName: z.string(),
+		personaName: z.string(),
+		linked: z.boolean(),
+	}),
+]);
+
+export type SlackConfirmation = z.infer<typeof slackConfirmationSchema>;
+
+/**
+ * `POST /api/slack-links/:token`: the Slack user linked to the person signed in; whether the
+ * message that prompted it was taken up, and where the app's DM is in Slack, to go back to.
+ */
+export const slackConfirmedSchema = z.object({
+	personaName: z.string(),
+	takenUp: z.boolean(),
+	slackUrl: z.string(),
+});
+
+export type SlackConfirmed = z.infer<typeof slackConfirmedSchema>;
+
+/** A Slack user the person is linked to, in one organization's workspace, as their account lists it, with when they confirmed it. */
+export const slackMemberLinkSchema = z.object({
+	id: z.string(),
+	workspaceName: z.string(),
+	orgName: z.string(),
+	createdAt: z.string(),
+});
+
+export type SlackMemberLink = z.infer<typeof slackMemberLinkSchema>;
+
+/** `GET /api/me/slack-links`: the Slack users the person is linked to, in every organization. */
+export const slackMemberLinksSchema = z.object({links: z.array(slackMemberLinkSchema)});

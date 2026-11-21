@@ -20,7 +20,15 @@ export const alertSplitSchema = z.enum(['per_check', 'per_record']);
 
 export type AlertSplit = z.infer<typeof alertSplitSchema>;
 
-const threadRefSchema = z.object({id: z.string(), title: z.string()});
+/**
+ * A thread an alert comes to or was set in: its id and title, and, for one that lives in Slack, its
+ * link there, since the app doesn't show it; null for one in Chat, whose page is the app's.
+ */
+const threadRefSchema = z.object({
+	id: z.string(),
+	title: z.string(),
+	slackUrl: z.string().nullable(),
+});
 
 export const alertSchema = z.object({
 	id: z.string(),

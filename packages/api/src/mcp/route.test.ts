@@ -142,7 +142,7 @@ describe('handleMcpRoute', () => {
 
 		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [{...chat, actions: ['readThreads', 'readAlerts']}]}));
 		expect(await instructions()).toContain(
-			'chat-1 has the person’s threads with their agents on the Chat page, each a piece of work: threads_list {search, standing} gives each with where it stands in a sentence, threads_get {id} what was said in one. Asked about something from another thread, look there. A thread is gone on with in the thread itself: give the person its url rather than doing its work here.',
+			'chat-1 has the person’s threads with their agents, each a piece of work, in Chat or in Slack: threads_list {search, standing} gives each with where it stands in a sentence and its place, threads_get {id} what was said in one. Asked about something from another thread, look there. A thread is gone on with in the thread itself, where it lives: give the person its url rather than doing its work here.',
 		);
 	});
 

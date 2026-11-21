@@ -1,17 +1,18 @@
 ---
 title: Slack
-description: Add a shared agent to your Slack workspace as an app of its own.
+description: Add a shared agent to your Slack workspace as an app of its own, and write to it there.
 ---
 
 An agent shared with your organization can be added to a Slack workspace as a Slack app of its
-own, named for it, which members find in Slack's sidebar like any other app. Personal Agent Proxy
-makes the app for you, keeps it up to date and removes it; each agent has its own, in one
-workspace.
+own, named for it, which members find in Slack's sidebar like any other app. Each member writes to
+it in its direct messages, as themselves, and every message opens a thread that lives in Slack.
+Personal Agent Proxy makes the app for you, keeps it up to date and removes it; each agent has its
+own, in one workspace.
 
 <Callout>
 Slack is being tried out with some organizations first, so it is only offered to an organization
-that has it turned on. For now an agent's app is made, installed, updated and removed; members
-can't yet talk to it in Slack, and a message sent to it there gets no answer.
+that has it turned on. For now, what you write to an agent in Slack opens a thread it works on as
+you, but nothing is posted back to Slack yet: its answers don't reach you there.
 </Callout>
 
 Only a [shared agent](/agents/chat) can be added: the settings of one that is yours alone say it
@@ -61,6 +62,46 @@ to.
 
 </Steps>
 
+## Talking to it in Slack
+
+Open the agent's app in Slack and write to it in its **Messages** tab. Each message you send there
+opens a thread, and a reply in that message's Slack thread goes on with the same thread. The agent
+works in it as it does in the app, as you, with your connections and your model account.
+
+A thread that began in Slack lives there: it isn't on the Chat page, and you go on with it in Slack
+alone, as a thread you open in the app stays in the app. An agent in any of your threads can still
+find it through your [Chat connection](/connections/chat), which says it is in Slack and links to
+it there, and so does an alert set in it on the **Alerts** page.
+
+### Confirming who you are
+
+The first time you write to any of your organization's agents in a Slack workspace, the app
+answers under your message with a link to confirm who you are. Open it, signed in to Personal Agent
+Proxy, and choose **Confirm**: your Slack account in that workspace is then linked to you in the
+organization, for every agent of it there, and the message you wrote is taken up without your
+sending it again. The link works for a day; write again for a new one.
+
+Personal Agent Proxy never tells who someone is from their email address, in Slack or anywhere,
+since a Slack account's address isn't proof of who is using it: only your own confirmation, signed
+in, links the two. A Slack account is linked to one member of an organization. If you open the link
+signed in as someone who isn't a member, the page says so, and whom to ask for an invitation, and
+nothing is linked. Someone linked who has since left the organization is told so in Slack, and
+nothing they write is taken up.
+
+### Unlinking
+
+**Account**, at the foot of the sidebar, lists the Slack accounts you're linked to, by workspace,
+each with **Unlink**. Once unlinked, your next message to an agent there asks you to confirm who you
+are again. Unlinking the workspace from the organization unlinks everyone in it.
+
+### What is taken up
+
+Only what you write to the agent in its direct messages: not channels, mentions or group messages.
+Links, mentions and Slack's formatting come into the thread as you would have typed them in the app.
+Files aren't read yet: the words of a message with files are taken up and the app says the files
+weren't, and files alone open nothing. Edits and deletions in Slack don't change the thread, and
+each message is taken up once, however often Slack sends it.
+
 ## Updating it
 
 When Personal Agent Proxy changes what an agent's app is made from, or the agent is renamed, the
@@ -89,4 +130,5 @@ Slack calls Personal Agent Proxy at `APP_URL`, so it has to be an https address 
 reach from the internet: adding an agent is refused otherwise, saying why. Two paths must reach
 the api: `/slack/events/`, where Slack sends each app's events, and `/slack/install`, where an
 install comes back to. The [image](/self-hosting/get-started) serves both. Each agent's app is made
-in Slack with its own secrets, which Personal Agent Proxy keeps encrypted with `ENCRYPTION_KEY`.
+in Slack with its own secrets, which Personal Agent Proxy keeps encrypted with `ENCRYPTION_KEY`, and
+the links to confirm who someone is are signed with `AUTH_SECRET`, which has to be set.

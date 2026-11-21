@@ -192,16 +192,16 @@ function filesInstructions(connections: AgentConnection[], folder: string | unde
 	];
 }
 
-// The person's Chat, where the agent may read their threads: that what they ask about work done
-// in another thread is found there, and that they go on with a thread in it, by its url, since
-// nothing writes to one from here.
+// The person's Chat, where the agent may read their threads, in Chat or in Slack: that what they
+// ask about work done in another thread is found there, and that they go on with a thread where it
+// lives, by its url, since nothing writes to one from here.
 function chatInstructions(connections: AgentConnection[]): string[] {
 	const chats = connections.filter((connection) => connection.integrationId === CHAT_INTEGRATION_ID && connection.actions.includes('readThreads'));
 	if (chats.length === 0) {
 		return [];
 	}
 	return [
-		`${chats.map((chat) => chat.id).join(', ')} has the person’s threads with their agents on the Chat page, each a piece of work: threads_list {search, standing} gives each with where it stands in a sentence, threads_get {id} what was said in one. Asked about something from another thread, look there. A thread is gone on with in the thread itself: give the person its url rather than doing its work here.`,
+		`${chats.map((chat) => chat.id).join(', ')} has the person’s threads with their agents, each a piece of work, in Chat or in Slack: threads_list {search, standing} gives each with where it stands in a sentence and its place, threads_get {id} what was said in one. Asked about something from another thread, look there. A thread is gone on with in the thread itself, where it lives: give the person its url rather than doing its work here.`,
 	];
 }
 

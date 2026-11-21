@@ -19,6 +19,7 @@ import {getClaudeAccount, getMe, listSessions} from '@/client/me-client';
 import {getAuthorizationRequest} from '@/client/oauth-client';
 import {getInvitation, getOrg, listMembers, listOrgs} from '@/client/orgs-client';
 import {listRecords} from '@/client/records-client';
+import {getSlackLink, listSlackLinks} from '@/client/slack-client';
 import {
 	FILES_INTEGRATION_ID,
 	SANDBOX_INTEGRATION_ID,
@@ -396,8 +397,16 @@ export type ConnectAgentData = Awaited<ReturnType<typeof connectAgentLoader>>;
 // The person's account: their sessions, every browser and desktop app they are signed in on, and
 // how their own Claude account is connected, if it is.
 export const accountLoader = later(async () => {
-	const [sessions, claude] = await Promise.all([listSessions(), getClaudeAccount()]);
-	return {...unwrapLoaderResult(sessions), claude: unwrapLoaderResult(claude).account};
+	const [sessions, claude, slack] = await Promise.all([
+		listSessions(),
+		getClaudeAccount(),
+		listSlackLinks(),
+	]);
+	return {
+		...unwrapLoaderResult(sessions),
+		claude: unwrapLoaderResult(claude).account,
+		slackLinks: unwrapLoaderResult(slack).links,
+	};
 });
 
 // The organization's members and invitations.
@@ -410,6 +419,14 @@ export const membersLoader = later(async (args: OrgParams) => {
 export async function inviteLoader({params}: {params: {token?: string}}) {
 	const [me, invitation] = await Promise.all([getMe(), getInvitation(params.token ?? '')]);
 	return {me: unwrapLoaderResult(me), invitation: unwrapOrNull(invitation)};
+}
+
+// A link from a persona's app in Slack to confirm who someone is there, `/confirm-slack/<token>`,
+// signed in (anyone signed out signs in first and comes back): who is signed in, and what the link
+// is for, null for a link that isn't one.
+export async function confirmSlackLoader({params}: {params: {token?: string}}) {
+	const [me, confirmation] = await Promise.all([getMe(), getSlackLink(params.token ?? '')]);
+	return {me: unwrapLoaderResult(me), confirmation: unwrapOrNull(confirmation)};
 }
 
 // The desktop app's sign-in, `/desktop-auth?challenge=`: the one-time code for the signed-in

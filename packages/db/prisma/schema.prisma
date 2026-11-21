@@ -50,6 +50,7 @@ model User {
   writeTargets WriteTarget[]
   desktopCodes DesktopAuthCode[]
   claudeAccount ClaudeAccount?
+  slackLinks   SlackMemberLink[]
 }
 
 // A sign-in provider identity linked to a user, such as their Google account. Only who it is:
@@ -154,6 +155,7 @@ model Organization {
   fileChanges FileChange[]
   slackWorkspaces SlackWorkspace[]
   slackApps       SlackApp[]
+  slackMembers    SlackMemberLink[]
 
   @@index([ownerUserId])
 }
@@ -940,6 +942,7 @@ model AgentThread {
   chatAlerts  AgentAlert[]         @relation("AlertChat")
   setAlerts   AgentAlert[]         @relation("AlertSetIn")
   attachments AgentEntryAttachment[]
+  slackPlace  SlackThreadPlace?
 
   @@index([personaId, userId])
   @@index([agentId])
@@ -997,8 +1000,9 @@ model AgentEntry {
 
   createdAt DateTime @default(now())
 
-  thread      AgentThread            @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  attachments AgentEntryAttachment[]
+  thread       AgentThread            @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  attachments  AgentEntryAttachment[]
+  slackMessage SlackMessage?
 
   @@index([threadId, seq])
 }
@@ -1284,8 +1288,9 @@ model SlackWorkspace {
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 
-  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  apps SlackApp[]
+  org     Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  apps    SlackApp[]
+  members SlackMemberLink[]
 
   @@unique([orgId, teamId])
   @@index([rotateAt])
@@ -1328,7 +1333,74 @@ model SlackApp {
   // A workspace an app is in isn't unlinked (unlinkSlackWorkspace), so the cascade is only the
   // organization's deletion taking both.
   workspace SlackWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  threads   SlackThreadPlace[]
+  messages  SlackMessage[]
 
   @@index([orgId])
   @@index([workspaceId])
+}
+
+// A Slack user's link to a member of the organization, in one of its linked workspaces: who
+// is speaking when that Slack user writes to any of the organization's personas there. Made once,
+// by the member's own confirmation, from a link the app gave the Slack user (api
+// slack/confirm-link.ts); email addresses are never used to tell who someone is. One member per
+// Slack user in a workspace, and so in the organization; the member unlinks it from their account.
+// It stays when they leave the organization, so the app can tell them they are no longer in it;
+// it goes with the workspace when that is unlinked, and with their account.
+model SlackMemberLink {
+  id          String @id @default(cuid())
+  orgId       String
+  workspaceId String
+  slackUserId String
+  userId      String
+
+  createdAt DateTime @default(now())
+
+  org       Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  workspace SlackWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, slackUserId])
+  @@index([orgId])
+  @@index([userId])
+}
+
+// A thread's place in Slack: the Slack thread in a persona's app's direct message it is, by the
+// DM's channel and its root message's `ts`. A thread with one lives in Slack alone, and so do the
+// sub-agents its agent starts: the app never shows them nor writes to them. A reply in that Slack
+// thread continues the thread. One place per thread, and one thread per Slack thread. `rootTs` is
+// null for a place whose root message the app has yet to post.
+model SlackThreadPlace {
+  id       String  @id @default(cuid())
+  appId    String
+  channel  String
+  rootTs   String?
+  threadId String  @unique
+
+  createdAt DateTime @default(now())
+
+  app    SlackApp    @relation(fields: [appId], references: [id], onDelete: Cascade)
+  thread AgentThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@unique([appId, channel, rootTs])
+}
+
+// A message a member wrote to a persona's app in Slack, by the app, the DM's channel and its
+// `ts`, kept once however often Slack sends it: the app answers one with a line at most once, and
+// takes one up into a thread at most once (`takenUpAt`), the entry it became being `entryId`. One
+// the app only answered, as before its writer confirmed who they are, has neither.
+model SlackMessage {
+  id        String    @id @default(cuid())
+  appId     String
+  channel   String
+  ts        String
+  entryId   String?   @unique
+  takenUpAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  app   SlackApp    @relation(fields: [appId], references: [id], onDelete: Cascade)
+  entry AgentEntry? @relation(fields: [entryId], references: [id], onDelete: SetNull)
+
+  @@unique([appId, channel, ts])
 }

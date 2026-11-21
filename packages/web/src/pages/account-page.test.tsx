@@ -7,6 +7,7 @@ import {createMemoryRouter, RouterProvider} from 'react-router';
 import {ThemeProvider} from '@proxy/ui/components/theme-provider';
 import {TooltipProvider} from '@proxy/ui/components/tooltip';
 import type {ClaudeAccount, Session} from '@proxy/contracts/me';
+import type {SlackMemberLink} from '@proxy/contracts/slack';
 import {HumanSide} from '@/components/human-side';
 import {formatDateTime} from '@/lib/format';
 import {later} from '@/lib/loader-utils';
@@ -28,6 +29,8 @@ mock.module('@/client/me-client', () => ({
 	disconnectClaude,
 }));
 mock.module('@/client/auth-client', () => ({signOut: mock()}));
+const unlinkSlackLink = mock(async () => Ok(undefined));
+mock.module('@/client/slack-client', () => ({unlinkSlackLink, listSlackLinks: mock()}));
 
 beforeEach(() => {
 	mock.clearAllMocks();
@@ -92,7 +95,11 @@ function setUserAgent(userAgent: string) {
 	Object.defineProperty(window.navigator, 'userAgent', {value: userAgent, configurable: true});
 }
 
-function renderPage(claude: ClaudeAccount['account'], sessions: Session[] = [session]) {
+function renderPage(
+	claude: ClaudeAccount['account'],
+	sessions: Session[] = [session],
+	slackLinks: SlackMemberLink[] = [],
+) {
 	const router = createMemoryRouter(
 		[
 			{
@@ -102,7 +109,7 @@ function renderPage(claude: ClaudeAccount['account'], sessions: Session[] = [ses
 				children: [
 					{
 						path: '/account',
-						loader: later(async () => ({sessions, claude})),
+						loader: later(async () => ({sessions, claude, slackLinks})),
 						element: <AccountPage />,
 					},
 				],
@@ -375,5 +382,35 @@ describe('AccountPage, the desktop app', () => {
 		renderPage(token);
 		expect(await screen.findByText('Connected with a Claude token.')).toBeDefined();
 		expect(screen.queryByText('Desktop app')).toBeNull();
+	});
+});
+
+describe('AccountPage, Slack', () => {
+	test('lists the Slack accounts the person is linked to by workspace, each to unlink', async () => {
+		renderPage(
+			null,
+			[session],
+			[
+				{
+					id: 'link-1',
+					workspaceName: 'Northwind',
+					orgName: 'Northwind & Co',
+					createdAt: '2026-11-01T09:00:00.000Z',
+				},
+			],
+		);
+
+		const row = (await screen.findByText('Northwind')).closest('li');
+		expect(row).not.toBeNull();
+		expect(within(row as HTMLElement).getByText(/Northwind & Co/)).toBeDefined();
+		fireEvent.click(within(row as HTMLElement).getByRole('button', {name: 'Unlink'}));
+		await waitFor(() => expect(unlinkSlackLink).toHaveBeenCalledWith('link-1'));
+	});
+
+	test('says nothing of Slack where the person is linked to none', async () => {
+		renderPage(null);
+
+		await screen.findByText('Sessions');
+		expect(screen.queryByText('Slack')).toBeNull();
 	});
 });

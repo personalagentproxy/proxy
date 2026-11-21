@@ -24,6 +24,7 @@ import {
 	chatIndexLoader,
 	chatLoader,
 	chatThreadLoader,
+	confirmSlackLoader,
 	connectAgentLoader,
 	connectionLoader,
 	connectionsLoader,
@@ -57,6 +58,7 @@ import {AgentLoginPage} from '@/pages/agent/agent-login-page';
 import {AgentScriptPage} from '@/pages/agent/agent-script-page';
 import {ChatPage} from '@/pages/chat-page';
 import {THREAD_ROUTE} from '@/pages/chat-thread';
+import {ConfirmSlackPage} from '@/pages/confirm-slack-page';
 import {ConnectAgentPage} from '@/pages/connect-agent-page';
 import {ConnectionPage} from '@/pages/connection-page';
 import {ConnectionsPage} from '@/pages/connections-page';
@@ -205,6 +207,14 @@ const routes: RouteObject[] = [
 		path: '/invite/:token',
 		loader: inviteLoader,
 		element: <InvitePage />,
+		errorElement: <RouteError />,
+	},
+	// A link from a persona's app in Slack to confirm who someone is there, outside any
+	// organization like an invitation's. Not under `/slack/`, which is the api's.
+	{
+		path: '/confirm-slack/:token',
+		loader: confirmSlackLoader,
+		element: <ConfirmSlackPage />,
 		errorElement: <RouteError />,
 	},
 	// The welcome flow of a new organization: the person's connections, then their agent, before

@@ -3,6 +3,8 @@ import {z} from 'zod';
 
 import {type FetchError, httpRequest, readJsonValidated} from '@proxy/utils';
 
+import {type SlackMessage, slackMessageSchema} from './message-rules';
+
 /**
  * Slack's Web API, as much of it as Personal Agent Proxy calls: each method a form-encoded POST to
  * `https://slack.com/api/<method>`, answering JSON with `ok`. A refusal comes as `ok: false` with
@@ -176,4 +178,34 @@ export function slackAppUrl(slackAppId: string, teamId: string): string {
 	url.searchParams.set('app', slackAppId);
 	url.searchParams.set('team', teamId);
 	return url.toString();
+}
+
+const postedSchema = z.object({ok: z.literal(true), ts: z.string()});
+
+/**
+ * `chat.postMessage` with the app's bot token: a line in Slack's text format in the Slack thread
+ * under `threadTs` in the DM `channel`, its links not unfurled. Its `ts`.
+ */
+export async function postMessage(botToken: string, line: {channel: string; threadTs: string; text: string}): Promise<Result<{ts: string}, SlackError>> {
+	return (await call('chat.postMessage', {channel: line.channel, thread_ts: line.threadTs, text: line.text, unfurl_links: 'false', unfurl_media: 'false'}, {token: botToken}, postedSchema)).map(
+		(answer) => ({ts: answer.ts}),
+	);
+}
+
+const repliesSchema = z.object({ok: z.literal(true), messages: z.array(slackMessageSchema).default([])});
+
+// What Slack says where the message, or the thread it was in, is there no more.
+const GONE = ['thread_not_found', 'message_not_found'];
+
+/**
+ * `conversations.replies` with the app's bot token: the message `ts` in the DM `channel`, read
+ * back, whether at the top of the DM or in a thread, which this method reads either way and
+ * `conversations.history` doesn't; `Ok(null)` where Slack has it no more.
+ */
+export async function readMessage(botToken: string, at: {channel: string; ts: string}): Promise<Result<SlackMessage | null, SlackError>> {
+	const read = await call('conversations.replies', {channel: at.channel, ts: at.ts, oldest: at.ts, latest: at.ts, inclusive: 'true'}, {token: botToken}, repliesSchema);
+	if (read.isErr()) {
+		return read.error.kind === 'refused' && GONE.includes(read.error.error) ? Ok(null) : Err(read.error);
+	}
+	return Ok(read.value.messages.find((message) => message.ts === at.ts) ?? null);
 }

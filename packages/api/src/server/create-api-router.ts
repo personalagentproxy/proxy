@@ -48,6 +48,7 @@ import {handleLinkPreviewImageRoute, handleLinkPreviewRoute} from '../link-previ
 import {alertRoutes} from '../harness/alerts-route';
 import {handleClientLogsRoute} from '../observability/client-logs';
 import {chatRoutes} from '../harness/route';
+import {handleConfirmSlackLinkRoute, handleGetSlackLinkRoute, handleListSlackLinksRoute, handleUnlinkSlackLinkRoute} from '../slack/confirm-route';
 import {handleSlackEventsRoute} from '../slack/events';
 import {handleSlackInstallCallbackRoute, handleStartSlackInstallRoute} from '../slack/install';
 import {
@@ -184,10 +185,19 @@ export function createApiRouter(): express.Router {
 	router.get('/api/me/claude', withAuthResult('Get Claude account route', handleGetClaudeAccountRoute));
 	router.post('/api/me/claude/token', withAuthResult('Claude token route', handleClaudeTokenRoute));
 	router.delete('/api/me/claude', withAuthResult('Delete Claude account route', handleDeleteClaudeAccountRoute));
+	// The Slack users the person is linked to, for the account page, each to unlink (slack/confirm-route.ts).
+	router.get('/api/me/slack-links', withAuthResult('List Slack links route', handleListSlackLinksRoute));
+	router.delete('/api/me/slack-links/:linkId', withAuthResult('Unlink Slack link route', handleUnlinkSlackLinkRoute));
 
 	router.use('/api/orgs', requireBrowserOrigin);
 	router.get('/api/orgs', withAuthResult('List organizations route', handleListOrgsRoute));
 	router.post('/api/orgs', withAuthResult('Create organization route', handleCreateOrgRoute));
+
+	// The link a persona's Slack app gives someone to confirm who they are, signed in, outside any
+	// organization as an invitation is: what it is for, and confirming it (slack/confirm-route.ts).
+	router.use('/api/slack-links', requireBrowserOrigin);
+	router.get('/api/slack-links/:token', withAuthResult('Get Slack link route', handleGetSlackLinkRoute));
+	router.post('/api/slack-links/:token', withAuthResult('Confirm Slack link route', handleConfirmSlackLinkRoute));
 
 	router.use('/api/invitations', requireBrowserOrigin);
 	router.get('/api/invitations/:token', withAuthResult('Get invitation route', handleGetInvitationRoute));

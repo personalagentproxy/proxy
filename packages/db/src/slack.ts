@@ -6,7 +6,7 @@ import {db} from '.';
 
 /**
  * Slack: the workspaces linked to an organization (SlackWorkspace) and its shared personas' Slack
- * apps in them (SlackApp). Secrets are stored as the api encrypts them; nothing here reads them.
+ * apps in them (SlackApp); what comes from Slack into threads is slack-messages.ts. Secrets are stored as the api encrypts them; nothing here reads them.
  * A workspace's configuration token is rotated under a lock on its row, so a refresh token, which
  * works once, is spent by one api instance; the sweep takes the workspaces due as the alerts' does,
  * moving each on as it takes it. A persona's app is made under a lock on the persona's row, as its
@@ -59,7 +59,8 @@ export type SlackAppRow = {
 	createdAt: Date;
 };
 
-const appSelect = {
+/** The columns of a persona's Slack app, as `SlackAppRow` has them. */
+export const appSelect = {
 	id: true,
 	orgId: true,
 	personaId: true,
@@ -253,16 +254,24 @@ export async function getPersonaSlackApp(
 	return wrapDb(() => db.slackApp.findUnique({where: {personaId}, select: appSelect}));
 }
 
-/** A Slack app by our id for it, as Slack's events name it, with what its organization has on. */
+/** A Slack app as Slack's events need it: with its workspace's Slack id, and its organization's name and what it has on. */
+export type SlackAppForEvents = SlackAppRow & {
+	org: {name: string; experiments: string[]; insider: boolean};
+	workspace: {teamId: string};
+};
+
+/** A Slack app by our id for it, as Slack's events name it. */
 export async function getSlackAppForEvents(
 	id: string,
-): Promise<
-	Result<(SlackAppRow & {org: {experiments: string[]; insider: boolean}}) | null, ApiError>
-> {
+): Promise<Result<SlackAppForEvents | null, ApiError>> {
 	return wrapDb(() =>
 		db.slackApp.findUnique({
 			where: {id},
-			select: {...appSelect, org: {select: {experiments: true, insider: true}}},
+			select: {
+				...appSelect,
+				org: {select: {name: true, experiments: true, insider: true}},
+				workspace: {select: {teamId: true}},
+			},
 		}),
 	);
 }

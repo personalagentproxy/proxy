@@ -1,24 +1,26 @@
 import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
-import {CHAT_STANDINGS} from '@proxy/integrations';
+import {CHAT_PLACES, CHAT_STANDINGS} from '@proxy/integrations';
 import {deleteAlert, listMemberAlerts, type MemberAlertRow} from '@proxy/db/alerts';
-import {getOrgSlug, getThreadPlace, listMemberThreads, type MemberThreadRow, type ThreadStandingFilter} from '@proxy/db/chat';
-import {getMemberThread} from '@proxy/db/harness';
+import {getOrgSlug, getThreadAddress, listMemberThreads, type MemberThreadRow, type ThreadStandingFilter} from '@proxy/db/chat';
+import {getMemberThread, type SlackThreadRow} from '@proxy/db/harness';
 
 import {alertComes} from '../../harness/alerts';
 import {SHOWN_CALLS} from '../../harness/thread-rules';
 import {threadLines} from '../../harness/thread-standing';
 import {requireAppUrl} from '../../oauth/oauth-config';
+import {slackThreadUrl} from '../../slack/thread-link';
 import {requireFirstPage, type DataRecord, type ListQuery, type RecordStore, type RecordTarget} from '../../records/connector';
 
 /**
  * Chat's collections: a member's own threads with their agents, whichever persona each is with,
  * and the alerts set in them, read as the Chat page and the Alerts page read them. The member is
  * the connection's, so the records are theirs whoever reads them through it. A thread in a list
- * is its row: its title, whom it is with, where it stands and, while current, the sentence that
- * says so; opened, it carries what was said in it too, as the member sees it. Its url is its page
- * in Chat, which is where the person goes on with it: nothing here writes to a thread.
+ * is its row: its title, whom it is with, where it lives, where it stands and, while current, the
+ * sentence that says so; opened, it carries what was said in it too, as the member sees it. Its
+ * url is where it lives, its page in Chat or its thread in Slack, which is where the person goes on
+ * with it: nothing here writes to a thread.
  */
 
 // How many threads a page of the list holds.
@@ -29,9 +31,13 @@ function memberOf(target: RecordTarget): {orgId: string; userId: string} {
 	return {orgId: target.connection.orgId, userId: target.connection.ownerUserId};
 }
 
-// A thread's page in Chat.
-function threadUrl(appUrl: string, orgSlug: string, personaId: string, threadId: string): string {
-	return `${appUrl}/${orgSlug}/chat/${personaId}/threads/${threadId}`;
+// Where a thread lives, as the person goes on with it: its thread in Slack, for one that lives
+// there, which the app doesn't show; its page in Chat otherwise.
+function threadUrl(appUrl: string, orgSlug: string, thread: {id: string; personaId: string; slack: SlackThreadRow | null}): string {
+	if (thread.slack !== null) {
+		return slackThreadUrl(thread.slack);
+	}
+	return `${appUrl}/${orgSlug}/chat/${thread.personaId}/threads/${thread.id}`;
 }
 
 // The standings a list is narrowed to, each by the word the catalog offers for it.
@@ -95,7 +101,15 @@ function threadRecord(thread: MemberThreadRow, messages: string, url: string): D
 	const lastAt = (thread.last?.createdAt ?? thread.createdAt).toISOString();
 	return {
 		id: thread.id,
-		values: {title: thread.title ?? '', agent: thread.personaName, standing: standing(thread), summary: summary(thread), lastMessageAt: lastAt, messages},
+		values: {
+			title: thread.title ?? '',
+			agent: thread.personaName,
+			place: thread.slack === null ? CHAT_PLACES.chat : CHAT_PLACES.slack,
+			standing: standing(thread),
+			summary: summary(thread),
+			lastMessageAt: lastAt,
+			messages,
+		},
 		updatedAt: lastAt,
 		url,
 	};
@@ -117,7 +131,7 @@ export const threadsConnector = {
 			const threads = listed?.threads ?? [];
 			return {
 				// What was said in each is read by opening it.
-				records: threads.slice(0, PAGE_SIZE).map((thread) => threadRecord(thread, '', threadUrl(appUrl, listed?.orgSlug ?? '', thread.personaId, thread.id))),
+				records: threads.slice(0, PAGE_SIZE).map((thread) => threadRecord(thread, '', threadUrl(appUrl, listed?.orgSlug ?? '', thread))),
 				nextPage: threads.length > PAGE_SIZE ? String(start + PAGE_SIZE) : null,
 			};
 		}),
@@ -126,9 +140,9 @@ export const threadsConnector = {
 			const appUrl = $(requireAppUrl());
 			const missing = ApiErr.notFound('record', recordId);
 			const thread = $(requirePresent($(await getMemberThread(memberOf(target), recordId, SHOWN_CALLS)), missing));
-			const place = $(requirePresent($(await getThreadPlace(thread.orgId, thread.personaId)), missing));
-			const row: MemberThreadRow = {...thread, personaName: place.personaName, last: thread.entries.at(-1) ?? null};
-			return threadRecord(row, threadLines(thread, Number.POSITIVE_INFINITY).join('\n\n'), threadUrl(appUrl, place.orgSlug, thread.personaId, thread.id));
+			const address = $(requirePresent($(await getThreadAddress(thread)), missing));
+			const row: MemberThreadRow = {...thread, personaName: address.personaName, slack: address.slack, last: thread.entries.at(-1) ?? null};
+			return threadRecord(row, threadLines(thread, Number.POSITIVE_INFINITY).join('\n\n'), threadUrl(appUrl, address.orgSlug, row));
 		}),
 } satisfies RecordStore;
 
@@ -141,8 +155,8 @@ function alertRecord(alert: MemberAlertRow, url: string): DataRecord {
 	};
 }
 
-// The member's alerts as records, each with the page of the thread it comes to, or, one that opens
-// a new thread each time, of the thread it was set in, or of the chat once that is gone.
+// The member's alerts as records, each with where the thread it comes to lives, or, one that opens
+// a new thread each time, the thread it was set in, or the chat's page once that is gone.
 function alertRecords(target: RecordTarget): Promise<Result<DataRecord[], ApiError>> {
 	return Do(async ($) => {
 		const appUrl = $(requireAppUrl());
@@ -151,7 +165,7 @@ function alertRecords(target: RecordTarget): Promise<Result<DataRecord[], ApiErr
 		const orgSlug = alerts.length === 0 ? '' : ($(await getOrgSlug(orgId)) ?? '');
 		return alerts.map((alert) => {
 			const thread = alert.thread ?? alert.setIn;
-			const url = thread === null ? `${appUrl}/${orgSlug}/chat/${alert.persona.id}` : threadUrl(appUrl, orgSlug, alert.persona.id, thread.id);
+			const url = thread === null ? `${appUrl}/${orgSlug}/chat/${alert.persona.id}` : threadUrl(appUrl, orgSlug, {...thread, personaId: alert.persona.id});
 			return alertRecord(alert, url);
 		});
 	});

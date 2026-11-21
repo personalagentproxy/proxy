@@ -37,7 +37,7 @@ import {manages} from '../utils/manages';
 import type {AttachmentRef, ChatFiles} from './attachments';
 import {type OrgViewer, requireViewer} from '../utils/user-org';
 import {eventLine} from './alerts';
-import {getBuiltInAgent} from './built-in-agent';
+import {ensureChat} from './member-chat';
 import {SHOWN_CALLS, threadOpening} from './thread-rules';
 import {STANDING_WITHIN_MS} from './thread-standing';
 import type {HarnessStore} from './store';
@@ -48,7 +48,8 @@ import type {HarnessStore} from './store';
  * organization's one built-in agent login, and the member's own chat with each, which holds
  * threads: each message they post in the chat opens one, whose agent works on it and answers them
  * there, and a reply in a thread goes on with it; the chat lists its threads, and each is read on
- * its own, with where it stands, which the member can say is done. The chat keeps what they typed in it and haven't sent, the files in its input, and how
+ * its own, with where it stands, which the member can say is done. A thread that began in Slack
+ * lives there alone: none of these lists it, finds it or writes to it (db/harness `IN_APP`). The chat keeps what they typed in it and haven't sent, the files in its input, and how
  * far they have read it. A persona says which of the harnesses the server offers the organization
  * runs it and which of that harness's models it answers with (backends/harness.ts), chosen from
  * the chat's input by whoever may change it; a thread takes it as it is opened, and the member
@@ -282,19 +283,6 @@ function requireManagedPersona(store: ChatStore, viewer: OrgViewer, request: Aut
 			return $(Err(ApiErr.forbidden()));
 		}
 		return persona;
-	});
-}
-
-// The viewer's chat with the persona, begun the first time, through the organization's built-in
-// login.
-function ensureChat(store: ChatStore, viewer: OrgViewer, persona: PersonaRow): Promise<Result<ThreadRow, ApiError>> {
-	return Do(async ($) => {
-		const existing = $(await store.getMemberChat(persona.id, viewer.userId));
-		if (existing) {
-			return existing;
-		}
-		const login = $(await getBuiltInAgent(viewer.orgId));
-		return $(await store.ensureMemberChat({orgId: viewer.orgId, agentId: login.id, personaId: persona.id, userId: viewer.userId}));
 	});
 }
 

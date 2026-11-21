@@ -6,7 +6,7 @@ import {readyForInference} from '@proxy/utils/harness';
 
 import {db} from '.';
 import {completeSetAlert, fireAlert, listMemberAlerts} from './alerts';
-import {getOrgSlug, getThreadPlace, listMemberThreads} from './chat';
+import {getOrgSlug, getThreadAddress, listMemberThreads} from './chat';
 import {createStarterConnections} from './organization';
 import {
 	appendEntry,
@@ -19,6 +19,8 @@ import {
 	failJob,
 	getChatThread,
 	getMemberThread,
+	getShownThread,
+	getThreadDraft,
 	hasChatThread,
 	listAnswers,
 	listChatThreads,
@@ -32,6 +34,8 @@ import {
 	openThread,
 	replyInThread,
 	saveChatDraft,
+	saveThreadDraft,
+	setThreadModel,
 	threadNeedsTitle,
 	writeThreadStanding,
 	writeThreadTitle,
@@ -923,14 +927,149 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		expect(unwrap(await getMemberThread({orgId, userId}, chat.id, []))).toBeNull();
 		expect(unwrap(await getMemberThread({orgId, userId: 'another-user'}, first.id, []))).toBeNull();
 
-		expect(unwrap(await getThreadPlace(orgId, chat.personaId))).toEqual({
+		expect(unwrap(await getThreadAddress({id: first.id, orgId}))).toEqual({
 			orgSlug: `chat-threads-test-${stamp}`,
 			personaName: 'Finance',
+			slack: null,
 		});
-		expect(unwrap(await getThreadPlace(orgId, 'no-such-persona'))).toBeNull();
+		expect(unwrap(await getThreadAddress({id: 'no-such-thread', orgId}))).toBeNull();
+		expect(unwrap(await getThreadAddress({id: first.id, orgId: 'no-such-org'}))).toBeNull();
 		expect(unwrap(await getOrgSlug(orgId))).toBe(`chat-threads-test-${stamp}`);
 		expect(unwrap(await getOrgSlug('no-such-org'))).toBeNull();
 		await db.agentJob.updateMany({where: {threadId: second.id}, data: {status: 'done'}});
+	});
+
+	test('a thread in Slack lives there alone, with its sub-agents: the app doesn’t list it, find it, count it in the chat’s last message or unread marks, or write to it, while its agent and the Chat connection read it with its place', async () => {
+		const inApp = await open('Pricing review with Dana');
+		await answer(inApp, 'worker-sl1', 'Dana sent the deck.');
+		const thread = await open('Plan the offsite in Lisbon');
+		const workspace = await db.slackWorkspace.create({
+			data: {
+				orgId,
+				teamId: `T-${stamp}`,
+				name: 'Northwind',
+				slackUserId: 'U00',
+				credential: 'sealed',
+				expiresAt: new Date(),
+				rotateAt: new Date(),
+			},
+		});
+		const app = await db.slackApp.create({
+			data: {
+				orgId,
+				personaId: chat.personaId,
+				workspaceId: workspace.id,
+				manifestVersion: 1,
+				manifestName: 'Finance',
+			},
+		});
+		await db.slackThreadPlace.create({
+			data: {appId: app.id, channel: 'D01', rootTs: '1800000000.000100', threadId: thread.id},
+		});
+		await answer(thread, 'worker-sl2', 'Three hotels near the river.');
+		const slackAnswer = unwrap(await listEntries(thread.id)).at(-1);
+		unwrap(
+			await writeThreadStanding(
+				thread.id,
+				{summary: 'Found three hotels.', waitingForMember: true},
+				await lastSeq(thread),
+			),
+		);
+		// A sub-agent its agent started, which is in Slack with it.
+		const subAgent = await db.agentThread.create({
+			data: {
+				orgId,
+				agentId,
+				personaId: chat.personaId,
+				userId,
+				parentThreadId: chat.id,
+				subAgentOfId: thread.id,
+				parentCallId: 'call-1',
+				title: 'Hotels near the river',
+			},
+		});
+		await db.agentEntry.create({
+			data: {threadId: subAgent.id, kind: 'assistant', text: 'The sub-agent’s own answer.'},
+		});
+		const alert = await db.agentAlert.create({
+			data: {
+				orgId,
+				userId,
+				chatId: chat.id,
+				threadId: thread.id,
+				setInThreadId: thread.id,
+				title: 'Offsite deposit',
+				brief: 'Remind them to pay it.',
+				at: new Date(Date.now() + 60 * 60 * 1000),
+				nextAt: new Date(Date.now() + 60 * 60 * 1000),
+			},
+		});
+
+		// Not in the chat's list, nor by its address, its sub-agent neither; nor in what the sidebar
+		// and the notifications read.
+		expect(unwrap(await listChatThreads(chat.id, [])).map((one) => one.id)).not.toContain(
+			thread.id,
+		);
+		for (const hidden of [thread.id, subAgent.id]) {
+			expect(unwrap(await getChatThread(chat.id, hidden, []))).toBeNull();
+			expect(unwrap(await hasChatThread(chat.id, hidden))).toBe(false);
+		}
+		expect(unwrap(await hasChatThread(chat.id, inApp.id))).toBe(true);
+		const persona = unwrap(await listPersonas(orgId, userId)).find(
+			(one) => one.id === chat.personaId,
+		);
+		expect(persona?.lastMessage?.text).toBe('Dana sent the deck.');
+		const answers = unwrap(await listAnswers(orgId, userId)).find(
+			(one) => one.personaId === chat.personaId,
+		);
+		expect(answers?.answer.text).toBe('Dana sent the deck.');
+		expect(answers?.unread.map((one) => one.threadId)).not.toContain(thread.id);
+		expect(unwrap(await markThreadRead(chat.id, slackAnswer?.id ?? ''))).toBe(false);
+
+		// Nothing the app does writes to it.
+		const entries = unwrap(await listEntries(thread.id)).length;
+		expect(
+			unwrap(await replyInThread(chat.id, thread.id, 'Book the second', readyForInference)),
+		).toBeNull();
+		expect(unwrap(await markThreadDone(chat.id, thread.id))).toBe(false);
+		expect(unwrap(await archiveThread(chat.id, thread.id))).toBe(false);
+		expect(unwrap(await renameThread(chat.id, thread.id, 'Lisbon'))).toBe(false);
+		expect(unwrap(await saveThreadDraft(chat.id, thread.id, 'Half typed'))).toBe(false);
+		expect(unwrap(await getThreadDraft(chat.id, thread.id))).toBeNull();
+		expect(
+			unwrap(await setThreadModel(chat.id, thread.id, {harness: 'other', chatModel: 'other'})),
+		).toBe(false);
+		expect(unwrap(await listEntries(thread.id))).toHaveLength(entries);
+		const kept = unwrap(await getShownThread(thread.id, []));
+		expect(kept?.standing).toMatchObject({waitingForMember: true, archived: false});
+		expect(kept?.title).toBe('Plan the offsite in Lisbon');
+		expect(await db.agentAlert.count({where: {id: alert.id}})).toBe(1);
+
+		// What its agent and the worker read of it is any thread's; never a chat.
+		expect(kept?.entries.map((entry) => entry.text)).toEqual([
+			'Plan the offsite in Lisbon',
+			'Three hotels near the river.',
+		]);
+		expect(unwrap(await getShownThread(chat.id, []))).toBeNull();
+
+		// The member's Chat connection lists it and reads it, with where it is in Slack, and so do
+		// their alerts.
+		const slack = {teamId: `T-${stamp}`, channel: 'D01', rootTs: '1800000000.000100'};
+		const listed = unwrap(
+			await listMemberThreads(orgId, userId, {search: null, standing: null, skip: 0, take: 50}),
+		)?.threads;
+		expect(listed?.find((one) => one.id === thread.id)?.slack).toEqual(slack);
+		expect(listed?.find((one) => one.id === inApp.id)?.slack).toBeNull();
+		expect(unwrap(await getMemberThread({orgId, userId}, thread.id, []))?.id).toBe(thread.id);
+		expect(unwrap(await getThreadAddress({id: thread.id, orgId}))).toMatchObject({slack});
+		const set = unwrap(await listMemberAlerts(orgId, userId)).find((one) => one.id === alert.id);
+		expect(set?.thread).toEqual({id: thread.id, title: 'Plan the offsite in Lisbon', slack});
+		expect(set?.setIn?.slack).toEqual(slack);
+
+		await db.agentAlert.delete({where: {id: alert.id}});
+		await db.slackApp.delete({where: {id: app.id}});
+		await db.slackWorkspace.delete({where: {id: workspace.id}});
+		await db.agentThread.deleteMany({where: {id: {in: [thread.id, subAgent.id, inApp.id]}}});
 	});
 
 	test('a member’s Chat connection, made with their membership, is given to the organization’s built-in agent alone', async () => {

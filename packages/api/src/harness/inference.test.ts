@@ -151,8 +151,8 @@ describe('runInference', () => {
 				createdById: null,
 				createdAt: now,
 			},
-			thread: {id: 'thread-1', title: 'Find the invoices'},
-			setIn: {id: 'thread-1', title: 'Find the invoices'},
+			thread: {id: 'thread-1', title: 'Find the invoices', slack: null},
+			setIn: {id: 'thread-1', title: 'Find the invoices', slack: null},
 		};
 		// One of the person's set in another thread is told of too.
 		store.listMemberAlerts.mockResolvedValue(
@@ -164,8 +164,8 @@ describe('runInference', () => {
 					threadId: 'thread-2',
 					setInThreadId: 'thread-2',
 					title: 'Morning check',
-					thread: {id: 'thread-2', title: 'Check the review every morning'},
-					setIn: {id: 'thread-2', title: 'Check the review every morning'},
+					thread: {id: 'thread-2', title: 'Check the review every morning', slack: null},
+					setIn: {id: 'thread-2', title: 'Check the review every morning', slack: null},
 				},
 			]),
 		);

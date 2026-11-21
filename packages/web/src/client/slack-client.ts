@@ -3,11 +3,14 @@ import {
 	personaInSlackSchema,
 	personaSlackSchema,
 	slackAppAnswerSchema,
+	slackConfirmationSchema,
+	slackConfirmedSchema,
+	slackMemberLinksSchema,
 } from '@proxy/contracts/slack';
 import {apiRequest, apiSend, orgApi} from '@/client/request';
 
 // Slack, for an organization with the `slack` experiment on: the workspaces linked to it, and a
-// shared persona's own Slack app in one of them.
+// shared persona's own Slack app in one of them; and the person's Slack accounts linked to them.
 
 function personaSlack(org: string, personaId: string): string {
 	return `${orgApi(org)}/chat/personas/${encodeURIComponent(personaId)}/slack`;
@@ -55,4 +58,27 @@ export function forgetSlackApp(org: string, personaId: string) {
 /** Where the browser goes to install the app through Slack, a page of its own. */
 export function slackInstallPath(org: string, personaId: string): string {
 	return `${personaSlack(org, personaId)}/install`;
+}
+
+function slackLink(token: string): string {
+	return `/api/slack-links/${encodeURIComponent(token)}`;
+}
+
+/** What a link from a persona's app in Slack is for, as the person signed in sees it. */
+export function getSlackLink(token: string) {
+	return apiRequest('GET', slackLink(token), slackConfirmationSchema);
+}
+
+/** Links the Slack user to the person signed in; the message that prompted it is taken up. */
+export function confirmSlackLink(token: string) {
+	return apiRequest('POST', slackLink(token), slackConfirmedSchema);
+}
+
+/** The Slack users the person is linked to, in every organization. */
+export function listSlackLinks() {
+	return apiRequest('GET', '/api/me/slack-links', slackMemberLinksSchema);
+}
+
+export function unlinkSlackLink(linkId: string) {
+	return apiSend('DELETE', `/api/me/slack-links/${encodeURIComponent(linkId)}`);
 }

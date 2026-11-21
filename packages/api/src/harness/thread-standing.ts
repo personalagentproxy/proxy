@@ -29,8 +29,8 @@ import type {HarnessStore} from './store';
  * is current. The member's Done button overrides whether it waits.
  */
 
-/** What writing where a thread stands needs of the store: the thread as the member sees it, and the write. */
-export type StandingStore = Pick<HarnessStore, 'getJobThread' | 'getChatThread' | 'writeThreadStanding'>;
+/** What writing where a thread stands needs of the store: the thread as the member sees it, in the app or in Slack, and the write. */
+export type StandingStore = Pick<HarnessStore, 'getJobThread' | 'getShownThread' | 'writeThreadStanding'>;
 
 const standingSchema = z.object({summary: z.string(), waitingForMember: z.boolean()});
 
@@ -169,7 +169,7 @@ export function writeStanding(store: StandingStore, model: StandingModel, thread
 		if (row === null || row.parentThreadId === null || row.subAgentOfId !== null) {
 			return 'skipped';
 		}
-		const thread = $(await store.getChatThread(row.parentThreadId, threadId, SHOWN_CALLS, clock()));
+		const thread = $(await store.getShownThread(threadId, SHOWN_CALLS, clock()));
 		if (thread === null || thread.entries.some((entry) => entry.pending)) {
 			return 'skipped';
 		}

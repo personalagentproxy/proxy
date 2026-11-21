@@ -13,9 +13,12 @@ import {
 	openThreadIn,
 	type PersonaRow,
 	personaSelect,
+	slackThreadSelect,
+	type SlackThreadRow,
 	type ThreadOpening,
 	type ThreadRow,
 	toPersona,
+	toSlackThread,
 	type Wakes,
 	wakeWith,
 	writeInline,
@@ -244,8 +247,8 @@ export async function listWatches(
 	);
 }
 
-/** A thread an alert comes to, or was set in, by its id and title. */
-export type ThreadRef = {id: string; title: string};
+/** A thread an alert comes to, or was set in, by its id and title, and where it is in Slack, for one that lives there; null for one in the app. */
+export type ThreadRef = {id: string; title: string; slack: SlackThreadRow | null};
 
 /**
  * One of a member's alerts, with the persona it was set with, the thread it comes to, null for one
@@ -257,10 +260,21 @@ export type MemberAlertRow = AlertRow & {
 	setIn: ThreadRef | null;
 };
 
-const threadRefSelect = {select: {id: true, title: true}} as const;
+const threadRefSelect = {
+	select: {id: true, title: true, slackPlace: slackThreadSelect},
+} as const;
 
-function toThreadRef(thread: {id: string; title: string | null} | null): ThreadRef | null {
-	return thread === null ? null : {id: thread.id, title: thread.title ?? ''};
+function toThreadRef(
+	thread: {
+		id: string;
+		title: string | null;
+		slackPlace: Parameters<typeof toSlackThread>[0];
+	} | null,
+): ThreadRef | null {
+	if (thread === null) {
+		return null;
+	}
+	return {id: thread.id, title: thread.title ?? '', slack: toSlackThread(thread.slackPlace)};
 }
 
 /** The member's alerts in the organization, newest first, each with the persona it was set with and its threads. */
