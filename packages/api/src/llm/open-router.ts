@@ -64,7 +64,7 @@ type CompletionBody = {
 	provider: ProviderPolicy;
 	tools?: Array<{type: 'function'; function: ModelTool}>;
 	temperature?: number;
-	reasoning?: {effort: 'low' | 'medium' | 'high'};
+	reasoning?: {effort: 'low' | 'medium' | 'high'} | {max_tokens: number};
 	response_format?: {type: 'json_schema'; json_schema: {name: string; strict: boolean; schema: object}};
 };
 
@@ -72,6 +72,8 @@ const completionSchema = z.object({
 	choices: z
 		.array(
 			z.object({
+				// Why the model stopped: 'length' where it reached max_tokens.
+				finish_reason: z.string().nullable().optional(),
 				message: z.object({
 					content: z.string().nullable().optional(),
 					tool_calls: z.array(z.object({id: z.string(), function: z.object({name: z.string(), arguments: z.string()})})).optional(),
@@ -199,11 +201,13 @@ export type TurnRequest = {
 	messages: ModelMessage[];
 	tools: ModelTool[];
 	maxTokens: number;
+	/** How much of maxTokens it may think with, where it thinks: the rest is kept for its answer. */
+	reasoningTokens?: number;
 	timeoutMs: number;
 };
 
-/** What the model answered: its text, the calls it made, and what the turn cost. */
-export type ModelTurn = {text: string; toolCalls: ToolCall[]; inputTokens: number; outputTokens: number};
+/** What the model answered: its text, the calls it made, and what the turn cost; cut off where it reached maxTokens before it was done. */
+export type ModelTurn = {text: string; toolCalls: ToolCall[]; inputTokens: number; outputTokens: number; cutOff?: boolean};
 
 /** One turn of the model on the conversation. */
 export function askForTurn(request: TurnRequest): Promise<Result<ModelTurn, ApiError>> {
@@ -216,18 +220,20 @@ export function askForTurn(request: TurnRequest): Promise<Result<ModelTurn, ApiE
 					messages: request.messages,
 					tools: request.tools.map((tool) => ({type: 'function', function: {name: tool.name, description: tool.description, parameters: tool.parameters}})),
 					max_tokens: request.maxTokens,
+					...(request.reasoningTokens === undefined ? {} : {reasoning: {max_tokens: request.reasoningTokens}}),
 					provider: TURN_PROVIDERS[request.model],
 				},
 				request.timeoutMs,
 				{model: request.model, purpose: 'turn'},
 			),
 		);
-		const {message} = completion.choices[0] ?? {};
+		const {message, finish_reason: finishReason} = completion.choices[0] ?? {};
 		return {
 			text: message?.content ?? '',
 			toolCalls: (message?.tool_calls ?? []).map((call) => ({id: call.id, name: call.function.name, arguments: call.function.arguments})),
 			inputTokens: completion.usage?.prompt_tokens ?? 0,
 			outputTokens: completion.usage?.completion_tokens ?? 0,
+			...(finishReason === 'length' ? {cutOff: true} : {}),
 		};
 	});
 }

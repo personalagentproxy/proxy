@@ -1,5 +1,5 @@
 import type {HarnessBackend, HarnessEvent, HarnessTurn} from '@proxy/backends/harness/backend';
-import {ApiErr, type ApiError, CHAT_MODELS, isChatModel} from '@proxy/utils';
+import {ApiErr, type ApiError, CHAT_MODELS, type ChatModel, isChatModel} from '@proxy/utils';
 import {compactionCut, type ContextEntry, toMessages, toTranscript} from '@proxy/utils/harness-context';
 
 import type {askForTurn as askForTurnOverRouter, ModelTool} from '../llm/open-router';
@@ -23,8 +23,20 @@ const SUMMARIZE =
 	'Summarize this conversation between a person and their agent, with the agent’s calls and their answers, so the agent can go on from the summary alone. Keep what the person asked for and wants; what was done and found, with names, ids, dates and numbers; what they were told; and what is still open or planned, such as after a sleep or an alert. Plain prose, from the agent’s side, no title.';
 const SUMMARIZE_NOW = 'Write the summary now.';
 
-const MAX_TOKENS = 4000;
+// How much each model may write in a call, its thinking counted in, and how much of that it may
+// think with. GLM thinks before it answers and, at 4,000, would spend it all thinking on a long
+// request and answer nothing: it gets more, and its thinking is held to half of it.
+const BUDGETS: Record<ChatModel, {maxTokens: number; reasoningTokens?: number}> = {
+	claude: {maxTokens: 4000},
+	glm: {maxTokens: 16_000, reasoningTokens: 8000},
+};
 const TIMEOUT_MS = 120_000;
+
+// What the person is told where the model reached its limit before it said or called anything,
+// rather than that it had nothing to say.
+function outOfRoom(model: ChatModel): string {
+	return `I ran out of room while thinking (${CHAT_MODELS[model]} stops at ${BUDGETS[model].maxTokens.toLocaleString('en-US')} tokens a turn) before I could answer. Say something to try again, or switch this thread to another model.`;
+}
 
 export const PROXY_HARNESS = 'proxy';
 
@@ -76,7 +88,7 @@ export function proxyHarness(deps: ProxyHarnessDeps): HarnessBackend {
 						{role: 'user', content: `${toTranscript(entries.slice(0, cut))}\n\n${SUMMARIZE_NOW}`},
 					],
 					tools: [],
-					maxTokens: MAX_TOKENS,
+					...BUDGETS[model],
 					timeoutMs: TIMEOUT_MS,
 				});
 				if (summary.isErr()) {
@@ -103,7 +115,7 @@ export function proxyHarness(deps: ProxyHarnessDeps): HarnessBackend {
 				model,
 				messages: [{role: 'system', content: input.system}, ...toMessages(entries, {clearOld: true})],
 				tools: toModelTools(input),
-				maxTokens: MAX_TOKENS,
+				...BUDGETS[model],
 				timeoutMs: TIMEOUT_MS,
 			});
 			if (turn.isErr()) {
@@ -112,6 +124,9 @@ export function proxyHarness(deps: ProxyHarnessDeps): HarnessBackend {
 			}
 			if (turn.value.text !== '') {
 				yield {kind: 'text', text: turn.value.text};
+			}
+			if (turn.value.cutOff === true && turn.value.text.trim() === '' && turn.value.toolCalls.length === 0) {
+				yield {kind: 'text', text: outOfRoom(model)};
 			}
 			for (const call of turn.value.toolCalls) {
 				yield {kind: 'tool_call', ...call};

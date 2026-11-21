@@ -84,7 +84,8 @@ describe('proxyHarness', () => {
 					{role: 'tool', tool_call_id: 'c1', content: 'rows'},
 				],
 				tools: [{name: 'read', description: 'Reads', parameters: {type: 'object', properties: {}}}],
-				maxTokens: 4000,
+				maxTokens: 16_000,
+				reasoningTokens: 8000,
 				timeoutMs: 120_000,
 			},
 		]);
@@ -156,6 +157,32 @@ describe('proxyHarness', () => {
 		const turnedDown = Err(ApiErr.unavailable('OpenRouter turned the server’s key down (401): bad key'));
 		askForTurn.mockResolvedValue(turnedDown);
 		expect(await Array.fromAsync(harness.turn(turnInput([entry('person', 'Hi')])))).toEqual([{kind: 'failed', error: turnedDown.error, retry: false}]);
+	});
+
+	test('Claude may write 4,000 tokens a call; GLM 16,000, thinking with at most 8,000 of them', async () => {
+		await Array.fromAsync(harness.turn(turnInput([entry('person', 'Hi')])));
+		await Array.fromAsync(harness.turn(turnInput([entry('person', 'Hi')], {model: 'glm'})));
+
+		expect(requests().map(({maxTokens, reasoningTokens}) => ({maxTokens, reasoningTokens}))).toEqual([
+			{maxTokens: 4000, reasoningTokens: undefined},
+			{maxTokens: 16_000, reasoningTokens: 8000},
+		]);
+	});
+
+	test('a model cut off at its limit before it said or called anything says it ran out of room, rather than nothing; cut off after it had, says only what it had', async () => {
+		askForTurn.mockResolvedValueOnce(Ok({text: '', toolCalls: [], inputTokens: 5712, outputTokens: 16_000, cutOff: true}));
+		const events = await Array.fromAsync(harness.turn(turnInput([entry('person', 'Write a plan')], {model: 'glm'})));
+		expect(events).toEqual([
+			{
+				kind: 'text',
+				text: 'I ran out of room while thinking (GLM 5.3 stops at 16,000 tokens a turn) before I could answer. Say something to try again, or switch this thread to another model.',
+			},
+			{kind: 'done', session: null, system: 'You are signed in.', inputTokens: 5712, outputTokens: 16_000},
+		]);
+
+		askForTurn.mockResolvedValueOnce(Ok({text: 'The plan, so far:', toolCalls: [], inputTokens: 10, outputTokens: 4000, cutOff: true}));
+		const partial = await Array.fromAsync(harness.turn(turnInput([entry('person', 'Write a plan')])));
+		expect(partial.filter((event) => event.kind === 'text')).toEqual([{kind: 'text', text: 'The plan, so far:'}]);
 	});
 
 	test('an answer of no words yields no text; a model it has not got, or a turn stopped before it began, fails without asking', async () => {

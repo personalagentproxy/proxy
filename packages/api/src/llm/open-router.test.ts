@@ -6,8 +6,11 @@ import {askForJson, askForTurn} from './open-router';
 // What OpenRouter answers, and with what status.
 let status = 200;
 let message: Record<string, unknown> = {content: 'Hello'};
+let finishReason = 'stop';
 const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async () =>
-	status === 200 ? Response.json({choices: [{message}], usage: {prompt_tokens: 120, completion_tokens: 8}}) : Response.json({error: {message: 'down'}}, {status})) as unknown as typeof fetch);
+	status === 200
+		? Response.json({choices: [{message, finish_reason: finishReason}], usage: {prompt_tokens: 120, completion_tokens: 8}})
+		: Response.json({error: {message: 'down'}}, {status})) as unknown as typeof fetch);
 
 afterAll(() => {
 	fetchSpy.mockRestore();
@@ -17,6 +20,7 @@ beforeEach(() => {
 	fetchSpy.mockClear();
 	status = 200;
 	message = {content: 'Hello'};
+	finishReason = 'stop';
 });
 
 const request = {
@@ -56,6 +60,21 @@ describe('askForTurn', () => {
 
 		expect(sent().model).toBe('z-ai/glm-5.3');
 		expect(sent().provider).toEqual({only: ['together', 'fireworks', 'deepinfra', 'baseten'], data_collection: 'deny', zdr: true});
+	});
+
+	test('holds the model’s thinking to the tokens given for it, and sends no limit where none is given', async () => {
+		await askForTurn({...request, model: 'glm', maxTokens: 16_000, reasoningTokens: 8000});
+		expect(sent()).toMatchObject({max_tokens: 16_000, reasoning: {max_tokens: 8000}});
+
+		fetchSpy.mockClear();
+		await askForTurn(request);
+		expect(sent()).not.toHaveProperty('reasoning');
+	});
+
+	test('reads an answer the model was cut off in, at its limit, as cut off', async () => {
+		finishReason = 'length';
+		message = {content: ''};
+		expect((await askForTurn(request)).unwrap()).toEqual({text: '', toolCalls: [], inputTokens: 120, outputTokens: 8, cutOff: true});
 	});
 
 	test('reads the calls the model made, with their arguments as it wrote them', async () => {
