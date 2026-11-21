@@ -56,6 +56,23 @@ const ensureChat = mock(async (_store: object, _member: {orgId: string; userId: 
 mock.module('../harness/member-chat', () => ({ensureChat}));
 mock.module('../harness/store', () => ({harnessStore: {}}));
 
+// The thread's place in Slack as its session is set, with nothing set yet; and what was noted of it.
+const sessionPlace = {
+	id: 'place-1',
+	threadId: 'thread-1',
+	channel: 'D01',
+	rootTs: '1700000000.000100',
+	session: {status: null, title: null, setAt: null, attempts: 0, retryAt: null},
+	app: {id: 'app-1', botToken: 'enc:xoxb-bot', removedAt: null, sessionsOffUntil: null},
+};
+const getSlackSessionPlace = mock(async (_threadId: string): Promise<Result<typeof sessionPlace | null, ApiError>> => Ok(sessionPlace));
+const readSlackSessionState = mock(async () => Ok({state: {kind: 'working' as const}, waitingForMember: false, alerts: 0, subAgentsAtWork: false, title: 'Book the train to Lyon', lastSeq: 1}));
+const noteSlackSessionSet = mock(async (): Promise<Result<void, ApiError>> => Ok(undefined));
+const noteSlackSessionRenamed = mock(async (): Promise<Result<void, ApiError>> => Ok(undefined));
+const noteSlackSessionFailed = mock(async (): Promise<Result<void, ApiError>> => Ok(undefined));
+const turnSlackSessionsOff = mock(async (): Promise<Result<void, ApiError>> => Ok(undefined));
+mock.module('@proxy/db/slack-sessions', () => ({getSlackSessionPlace, readSlackSessionState, noteSlackSessionSet, noteSlackSessionRenamed, noteSlackSessionFailed, turnSlackSessionsOff}));
+
 // Slack's Web API: every request it was sent, and what it answers each method.
 const prompting = {type: 'message', user: 'U01', text: 'Book the train to Lyon', ts: '1700000000.000100'};
 const slack = {
@@ -143,6 +160,8 @@ describe('POST /api/slack-links/:token', () => {
 		expect(ensureChat.mock.calls[0]?.slice(1)).toEqual([{orgId: 'org-1', userId: 'user-2'}, {id: 'persona-1'}]);
 		expect(takeUpSlackMessage.mock.calls[0]?.[0]).toMatchObject({appId: 'app-1', channel: 'D01', ts: '1700000000.000100', rootTs: null, chatId: 'chat-2', text: 'Book the train to Lyon'});
 		expect(await lines()).toEqual([]);
+		// Its thread's session set processing, as for a message that has just come.
+		expect(slack.requests.filter(({method}) => method === 'agents.sessions.setStatus').map(({body}) => body.get('status'))).toEqual(['processing']);
 	});
 
 	test('a prompting message taken up already is not taken twice, and is said to be with the persona', async () => {

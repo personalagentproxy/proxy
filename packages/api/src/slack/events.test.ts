@@ -60,6 +60,23 @@ const ensureChat = mock(async (_store: object, _member: {orgId: string; userId: 
 mock.module('../harness/member-chat', () => ({ensureChat}));
 mock.module('../harness/store', () => ({harnessStore: {}}));
 
+// The thread's place in Slack as its session is set, with nothing set yet; and what was noted of it.
+const sessionPlace = {
+	id: 'place-1',
+	threadId: 'thread-1',
+	channel: 'D01',
+	rootTs: '1700000000.000100',
+	session: {status: null, title: null, setAt: null, attempts: 0, retryAt: null},
+	app: {id: 'app-1', botToken: 'enc:xoxb-bot', removedAt: null, sessionsOffUntil: null},
+};
+const getSlackSessionPlace = mock(async (_threadId: string): Promise<Result<typeof sessionPlace | null, ApiError>> => Ok(sessionPlace));
+const readSlackSessionState = mock(async () => Ok({state: {kind: 'working' as const}, waitingForMember: false, alerts: 0, subAgentsAtWork: false, title: 'Book the train to Lyon', lastSeq: 1}));
+const noteSlackSessionSet = mock(async (_placeId: string, _status: string, _at: Date, _made: {title: string | null} | null): Promise<Result<void, ApiError>> => Ok(undefined));
+const noteSlackSessionRenamed = mock(async (): Promise<Result<void, ApiError>> => Ok(undefined));
+const noteSlackSessionFailed = mock(async (): Promise<Result<void, ApiError>> => Ok(undefined));
+const turnSlackSessionsOff = mock(async (): Promise<Result<void, ApiError>> => Ok(undefined));
+mock.module('@proxy/db/slack-sessions', () => ({getSlackSessionPlace, readSlackSessionState, noteSlackSessionSet, noteSlackSessionRenamed, noteSlackSessionFailed, turnSlackSessionsOff}));
+
 // Slack's Web API: every request it was sent, and what it answers.
 const slack = {requests: [] as Array<{url: string; body: URLSearchParams; authorization: string | null}>, answer: (): Response => Response.json({ok: true, ts: '1700000000.009900'})};
 spyOn(globalThis, 'fetch').mockImplementation((async (input: string | URL | Request, init?: RequestInit) => {
@@ -115,6 +132,7 @@ beforeEach(() => {
 	getSlackMember.mockResolvedValue(Ok(null));
 	noteSlackMessage.mockResolvedValue(Ok(true));
 	takeUpSlackMessage.mockResolvedValue(Ok({kind: 'opened', threadId: 'thread-1', entryId: 'entry-1'}));
+	getSlackSessionPlace.mockResolvedValue(Ok(sessionPlace));
 	slack.requests = [];
 	slack.answer = () => Response.json({ok: true, ts: '1700000000.009900'});
 });
@@ -283,6 +301,31 @@ describe('a person’s message in the app’s DM', () => {
 		await post(said({subtype: 'file_share', files: [{id: 'F01'}]}));
 
 		expect(lines()).toEqual([]);
+	});
+
+	test('a message taken up sets its thread’s session processing once Slack has its answer, made with its title', async () => {
+		getSlackMember.mockResolvedValue(Ok({userId: 'user-2', inOrganization: true}));
+
+		const res = await post(said({text: 'Book the train to Lyon'}));
+
+		expect(res.sentBeforeAnswer).toBe(0);
+		expect(getSlackSessionPlace).toHaveBeenCalledWith('thread-1');
+		const statuses = slack.requests.filter(({url}) => url.endsWith('/agents.sessions.setStatus'));
+		expect(statuses.map(({body, authorization}) => [Object.fromEntries(body), authorization])).toEqual([
+			[{channel_id: 'D01', thread_ts: '1700000000.000100', status: 'processing', title: 'Book the train to Lyon'}, 'Bearer xoxb-bot'],
+		]);
+		expect(noteSlackSessionSet.mock.calls[0]?.slice(0, 2)).toEqual(['place-1', 'processing']);
+		expect(noteSlackSessionSet.mock.calls[0]?.[3]).toEqual({title: 'Book the train to Lyon'});
+	});
+
+	test('a message not taken up sets no session', async () => {
+		await post(said());
+		getSlackMember.mockResolvedValue(Ok({userId: 'user-2', inOrganization: true}));
+		takeUpSlackMessage.mockResolvedValue(Ok({kind: 'taken_already'}));
+		await post(said());
+
+		expect(getSlackSessionPlace).not.toHaveBeenCalled();
+		expect(slack.requests.some(({url}) => url.endsWith('/agents.sessions.setStatus'))).toBe(false);
 	});
 
 	test('the app’s own messages, other bots’, edits and deletions are left', async () => {

@@ -62,13 +62,13 @@ describe('ConfirmSlackPage', () => {
 
 		expect(await screen.findByText('Confirm it’s you in Northwind')).toBeTruthy();
 		expect(screen.getByText(/to you, person@example.com, in Northwind & Co/)).toBeTruthy();
-		expect(screen.getByText(/opens threads that live in Slack/)).toBeTruthy();
+		expect(screen.getByText(/is answered in Slack, with the agent working as you/)).toBeTruthy();
 		fireEvent.click(screen.getByRole('button', {name: 'Confirm'}));
 
 		expect(await screen.findByText('You’re linked')).toBeTruthy();
 		expect(confirmSlackLink).toHaveBeenCalledWith('payload.signature');
 		expect(screen.getByText(/Travel has your message/)).toBeTruthy();
-		expect(screen.getByText(/The thread it opened lives in Slack/)).toBeTruthy();
+		expect(screen.getByText(/It answers you in Slack, under your message/)).toBeTruthy();
 		expect(screen.getByRole('button', {name: 'Back to Slack'}).getAttribute('href')).toBe(
 			'https://slack.com/app_redirect?app=A01&team=T01',
 		);

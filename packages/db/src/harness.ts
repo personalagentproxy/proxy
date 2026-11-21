@@ -316,8 +316,8 @@ export function toSlackThread(
 		: {teamId: place.app.workspace.teamId, channel: place.channel, rootTs: place.rootTs};
 }
 
-// A thread's jobs still to run or running, as much of them as says what its agent is up to.
-const openJobsSelect = {
+/** A thread's jobs still to run or running, as much of them as says what its agent is up to (threadState). */
+export const openJobsSelect = {
 	where: {status: {in: ['queued', 'running']}},
 	select: {kind: true, runAt: true},
 } satisfies Prisma.AgentThread$jobsArgs;
@@ -418,8 +418,8 @@ export function toEntry(entry: EntryRecord): EntryRow {
 	return {...entry, toolCalls: toToolCalls(entry.toolCalls)};
 }
 
-// An entry's calls, as they are kept: as JSON.
-function toToolCalls(kept: string | null): ToolCall[] | null {
+/** An entry's calls, as they are kept: as JSON. */
+export function toToolCalls(kept: string | null): ToolCall[] | null {
 	return kept === null ? null : (JSON.parse(kept) as ToolCall[]);
 }
 

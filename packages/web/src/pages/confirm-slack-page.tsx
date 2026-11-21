@@ -13,7 +13,8 @@ import type {confirmSlackLoader} from '@/loaders';
 // Where the link a persona's app gives someone in Slack lands, to confirm who they are, signed in
 // (the loader sends anyone signed out to sign in first, and back here). Confirming links their
 // Slack account in the workspace to them in the organization, for every agent of it there, and the
-// message they wrote is taken up without their sending it again, into a thread that lives in Slack.
+// message they wrote is taken up without their sending it again, into a thread that lives in Slack
+// and is answered there.
 export function ConfirmSlackPage() {
 	const {token = ''} = useParams();
 	const {me, confirmation} = useLoaderData<typeof confirmSlackLoader>();
@@ -101,7 +102,7 @@ function ConfirmStep({
 			<StepHeading title={`Confirm it’s you in ${confirmation.workspaceName}`}>
 				{confirmation.linked
 					? `Your Slack account there is linked to you already. Confirm, and ${confirmation.personaName} takes up the message you wrote.`
-					: `This links your Slack account in ${confirmation.workspaceName} to you, ${email}, in ${confirmation.orgName}: what you write to ${confirmation.personaName}, or any other agent of ${confirmation.orgName} there, opens threads that live in Slack, which the agent works on as you. Unlink it from your account at any time.`}
+					: `This links your Slack account in ${confirmation.workspaceName} to you, ${email}, in ${confirmation.orgName}: what you write to ${confirmation.personaName}, or any other agent of ${confirmation.orgName} there, is answered in Slack, with the agent working as you. Unlink it from your account at any time.`}
 			</StepHeading>
 			{error && <p className="text-sm text-destructive">{error}</p>}
 			<div className="flex gap-2">
@@ -134,7 +135,7 @@ function Done({confirmed}: {confirmed: SlackConfirmed}) {
 		<Frame>
 			<StepHeading title="You’re linked">
 				{confirmed.takenUp
-					? `${confirmed.personaName} has your message, and works on it as you. The thread it opened lives in Slack.`
+					? `${confirmed.personaName} has your message, and works on it as you. It answers you in Slack, under your message.`
 					: `Write to ${confirmed.personaName} in Slack again: what you write there is taken up from now on.`}
 			</StepHeading>
 			<div>

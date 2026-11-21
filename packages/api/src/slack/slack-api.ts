@@ -182,14 +182,52 @@ export function slackAppUrl(slackAppId: string, teamId: string): string {
 
 const postedSchema = z.object({ok: z.literal(true), ts: z.string()});
 
+/** A message to post: in Slack's own text format (`text`), or in standard Markdown (`markdown`), which Slack takes in `markdown_text` alone, at most 12,000 characters. */
+export type SlackPost = {channel: string; threadTs: string} & ({text: string} | {markdown: string});
+
 /**
- * `chat.postMessage` with the app's bot token: a line in Slack's text format in the Slack thread
- * under `threadTs` in the DM `channel`, its links not unfurled. Its `ts`.
+ * `chat.postMessage` with the app's bot token: a message in the Slack thread under `threadTs` in
+ * the DM `channel`, its links not unfurled (https://docs.slack.dev/reference/methods/chat.postMessage).
+ * Its `ts`.
  */
-export async function postMessage(botToken: string, line: {channel: string; threadTs: string; text: string}): Promise<Result<{ts: string}, SlackError>> {
-	return (await call('chat.postMessage', {channel: line.channel, thread_ts: line.threadTs, text: line.text, unfurl_links: 'false', unfurl_media: 'false'}, {token: botToken}, postedSchema)).map(
-		(answer) => ({ts: answer.ts}),
-	);
+export async function postMessage(botToken: string, post: SlackPost): Promise<Result<{ts: string}, SlackError>> {
+	const body: Record<string, string> = 'markdown' in post ? {markdown_text: post.markdown} : {text: post.text};
+	return (await call('chat.postMessage', {channel: post.channel, thread_ts: post.threadTs, ...body, unfurl_links: 'false', unfurl_media: 'false'}, {token: botToken}, postedSchema)).map((answer) => ({
+		ts: answer.ts,
+	}));
+}
+
+/** A Slack agent session's status: at work, waiting for the member, or ready for their next message. */
+export type SessionStatus = 'processing' | 'suspended' | 'active';
+
+/** Slack's limit on a session's title. */
+const SESSION_TITLE_MAX = 200;
+
+// The title as Slack takes it: trimmed, and cut to its limit; empty for none.
+function sessionTitle(title: string | null): string {
+	return title === null ? '' : Array.from(title.trim()).slice(0, SESSION_TITLE_MAX).join('');
+}
+
+/**
+ * `agents.sessions.setStatus` with the app's bot token: the status of the agent session on the
+ * Slack thread under `threadTs` in the DM `channel`, made where there is none, with `title`, which
+ * Slack takes only as it makes one (https://docs.slack.dev/reference/methods/agents.sessions.setStatus).
+ * A warning Slack answers with, as `missing_agent_session_stopped_event_subscription` for an app
+ * with no stop button, is an answer like any other.
+ */
+export async function setSessionStatus(botToken: string, session: {channel: string; threadTs: string; status: SessionStatus; title: string | null}): Promise<Result<void, SlackError>> {
+	const title = sessionTitle(session.title);
+	const params = {channel_id: session.channel, thread_ts: session.threadTs, status: session.status, ...(title === '' ? {} : {title})};
+	return (await call('agents.sessions.setStatus', params, {token: botToken}, doneSchema)).map(() => undefined);
+}
+
+/**
+ * `agents.sessions.rename` with the app's bot token: the agent session on the Slack thread under
+ * `threadTs` in the DM `channel` given `title`, which Slack takes at 1 to 200 characters
+ * (https://docs.slack.dev/reference/methods/agents.sessions.rename).
+ */
+export async function renameSession(botToken: string, session: {channel: string; threadTs: string; title: string}): Promise<Result<void, SlackError>> {
+	return (await call('agents.sessions.rename', {channel_id: session.channel, thread_ts: session.threadTs, title: sessionTitle(session.title)}, {token: botToken}, doneSchema)).map(() => undefined);
 }
 
 const repliesSchema = z.object({ok: z.literal(true), messages: z.array(slackMessageSchema).default([])});

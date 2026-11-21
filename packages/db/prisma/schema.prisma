@@ -1322,6 +1322,9 @@ model SlackApp {
   scopes          String[]  @default([])
   installedAt     DateTime?
   removedAt       DateTime?
+  // Until when no agent session calls are made for the app, as Slack said its agent features
+  // aren't there for it or its workspace (api slack/sessions.ts).
+  sessionsOffUntil DateTime?
   // The member who added it, a plain id, so it stays when they are gone.
   addedById       String?
 
@@ -1368,8 +1371,20 @@ model SlackMemberLink {
 // A thread's place in Slack: the Slack thread in a persona's app's direct message it is, by the
 // DM's channel and its root message's `ts`. A thread with one lives in Slack alone, and so do the
 // sub-agents its agent starts: the app never shows them nor writes to them. A reply in that Slack
-// thread continues the thread. One place per thread, and one thread per Slack thread. `rootTs` is
-// null for a place whose root message the app has yet to post.
+// thread continues the thread, and what the member would read of the thread is posted back there.
+// One place per thread, and one thread per Slack thread. `rootTs` is null for a place whose root
+// message the app has yet to post.
+// How far the thread is delivered to Slack: every entry up to `deliveredSeq` is, and of the entry
+// `partSeq`, its first `partsPosted` messages. The delivery sweep takes a place from `nextAt`,
+// moving it on as it takes it, so it is one instance's (`claimedBy`) for a while, and later where
+// Slack asked it to wait or failed (`attempts` in a row at the next message). `stoppedAt` is set,
+// with why, where the Slack thread or its channel is gone.
+// Where the thread stands in Slack, as its agent session's status (api slack/sessions.ts):
+// `sessionStatus` is the status last set, null before one was, when the session is made with the
+// thread's title; `sessionTitle` the title it was made with or last renamed to, so it is renamed
+// where the thread's title changed since; `sessionSetAt` when the status was set, so `processing`
+// is set again before Slack's hour runs out; and after a failure, `sessionAttempts` in a row,
+// tried again from `sessionRetryAt`.
 model SlackThreadPlace {
   id       String  @id @default(cuid())
   appId    String
@@ -1377,12 +1392,36 @@ model SlackThreadPlace {
   rootTs   String?
   threadId String  @unique
 
+  deliveredSeq Int       @default(0)
+  partSeq      Int?
+  partsPosted  Int       @default(0)
+  attempts     Int       @default(0)
+  nextAt       DateTime  @default(now())
+  claimedBy    String?
+  stoppedAt    DateTime?
+  stoppedWhy   String?
+
+  sessionStatus   SlackSessionStatus?
+  sessionTitle    String?
+  sessionSetAt    DateTime?
+  sessionAttempts Int                 @default(0)
+  sessionRetryAt  DateTime?
+
   createdAt DateTime @default(now())
 
   app    SlackApp    @relation(fields: [appId], references: [id], onDelete: Cascade)
   thread AgentThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
 
   @@unique([appId, channel, rootTs])
+  @@index([stoppedAt, nextAt])
+}
+
+// The status of a Slack agent session: its agent at work, Slack showing it working; waiting for the
+// member; or neither, ready for their next message.
+enum SlackSessionStatus {
+  processing
+  suspended
+  active
 }
 
 // A message a member wrote to a persona's app in Slack, by the app, the DM's channel and its

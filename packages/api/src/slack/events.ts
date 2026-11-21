@@ -11,7 +11,7 @@ import {timingSafeEqualString} from '../auth/session';
 import {readBody} from '../cli/github/peek';
 import {log, serializeError} from '../observability/log';
 import {readSlackMessage, slackMessageSchema} from './message-rules';
-import {postSlackLines, type SlackLine, takeUpSlackMessageFrom} from './messages';
+import {afterTakingUp, NOTHING, type SlackMessageOutcome, takeUpSlackMessageFrom} from './messages';
 import {readAppSecrets} from './secrets';
 
 /**
@@ -24,8 +24,8 @@ import {readAppSecrets} from './secrets';
  * the app removed in Slack; a person's message in the app's DM is taken up by `takeUpEvent`
  * (messages.ts), anything else left. Every request that passes the check is answered 200 once the
  * database's work is done, whatever came of it, so nothing Slack sends is retried for an error of
- * ours, and the app's lines are said in Slack after; one that doesn't is refused, and one for an
- * app we don't have is not found. Nothing of Slack is answered for an organization without the
+ * ours, and the session of the thread a message woke is set, and the app's lines said, in Slack
+ * after; one that doesn't is refused, and one for an app we don't have is not found. Nothing of Slack is answered for an organization without the
  * `slack` experiment.
  */
 
@@ -91,31 +91,31 @@ function parseEnvelope(body: Buffer): z.infer<typeof envelopeSchema> | null {
 
 /**
  * Every event of the app's other than its removal: a person's message in its DM, taken up as
- * messages.ts does, while the app is in Slack; anything else left. The lines it comes to, to say
+ * messages.ts does, while the app is in Slack; anything else left. What it came to, to follow up
  * once Slack has its answer.
  */
-async function takeUpEvent(app: SlackAppForEvents, envelope: SlackEventEnvelope): Promise<SlackLine[]> {
+async function takeUpEvent(app: SlackAppForEvents, envelope: SlackEventEnvelope): Promise<SlackMessageOutcome> {
 	if (app.removedAt !== null || app.botToken === null) {
-		return [];
+		return NOTHING;
 	}
 	const message = slackMessageSchema.safeParse(envelope.event);
 	if (!message.success || message.data.channel === undefined) {
-		return [];
+		return NOTHING;
 	}
 	const said = readSlackMessage(message.data, {channel: message.data.channel, channelType: message.data.channel_type, botUserId: app.botUserId});
 	if (said === null) {
-		return [];
+		return NOTHING;
 	}
-	return (await takeUpSlackMessageFrom(app, said)).lines;
+	return takeUpSlackMessageFrom(app, said);
 }
 
 // What an event that passed the check comes to: the app marked removed where Slack took it out of
-// the workspace, or its bot's token went; anything else taken up. The lines to say after.
-async function handleEvent(app: SlackAppForEvents, envelope: SlackEventEnvelope): Promise<SlackLine[]> {
+// the workspace, or its bot's token went; anything else taken up. What to follow up with after.
+async function handleEvent(app: SlackAppForEvents, envelope: SlackEventEnvelope): Promise<SlackMessageOutcome> {
 	// An event for another app than this one's address is for isn't this app's to act on.
 	if (envelope.api_app_id !== undefined && envelope.api_app_id !== app.slackAppId) {
 		log.warn('A Slack event came for another app than its address', {appId: app.id, eventId: envelope.event_id});
-		return [];
+		return NOTHING;
 	}
 	const {event} = envelope;
 	const removed = event.type === 'app_uninstalled' || (event.type === 'tokens_revoked' && (event.tokens?.bot ?? []).length > 0);
@@ -126,7 +126,7 @@ async function handleEvent(app: SlackAppForEvents, envelope: SlackEventEnvelope)
 	if (marked.isErr()) {
 		log.error('A Slack app removed in Slack could not be marked so', {appId: app.id, ...serializeError(marked.error)});
 	}
-	return [];
+	return NOTHING;
 }
 
 /** `POST /slack/events/:id`. */
@@ -182,8 +182,9 @@ export async function handleSlackEventsRoute(request: Request, res: Response): P
 		return;
 	}
 	const callback = eventCallbackSchema.safeParse(envelope);
-	const lines = callback.success ? await handleEvent(app, callback.data) : [];
+	const outcome = callback.success ? await handleEvent(app, callback.data) : NOTHING;
 	res.status(200).end();
-	// Said once Slack has its answer, which it wants within three seconds.
-	await postSlackLines(app, lines);
+	// Once Slack has its answer, which it wants within three seconds: the session of the thread
+	// the message woke, and the app's lines.
+	await afterTakingUp(app, outcome);
 }

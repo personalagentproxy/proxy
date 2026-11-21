@@ -2,7 +2,7 @@ import {Err, Ok, type Result} from 'ts-results-es';
 import type {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
-import {callArguments, CREATE_SUBAGENT_TOOL, keepMarks, personMessageArgs, preview, SEND_TO_PERSON_TOOL, SEND_TO_SUBAGENT_TOOL, subAgentMessageArgs, toAvatarColor} from '@proxy/utils/harness';
+import {CREATE_SUBAGENT_TOOL, keepMarks, preview, SEND_TO_SUBAGENT_TOOL, toAvatarColor} from '@proxy/utils/harness';
 import type {ChatThreadRow, DraftAttachment, LastMessage, Persona, PersonaModel, PersonaRow, ThreadRow} from '@proxy/db/harness';
 import {
 	type chatAnswersSchema,
@@ -26,7 +26,6 @@ import {
 	threadTitleBodySchema,
 	type ThreadMessage,
 	threadModelSchema,
-	type ThreadStanding,
 	type ThreadView,
 	type uploadedAttachmentSchema,
 } from '@proxy/contracts/harness';
@@ -36,10 +35,10 @@ import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {manages} from '../utils/manages';
 import type {AttachmentRef, ChatFiles} from './attachments';
 import {type OrgViewer, requireViewer} from '../utils/user-org';
-import {eventLine} from './alerts';
 import {ensureChat} from './member-chat';
 import {SHOWN_CALLS, threadOpening} from './thread-rules';
-import {STANDING_WITHIN_MS} from './thread-standing';
+import {shownParts} from './thread-shown';
+import {STANDING_WITHIN_MS, standingOf} from './thread-standing';
 import type {HarnessStore} from './store';
 
 /**
@@ -450,53 +449,27 @@ const THREAD_CALLS = [...SHOWN_CALLS, CREATE_SUBAGENT_TOOL, SEND_TO_SUBAGENT_TOO
 // Something a thread shows, with the entry it comes from.
 type Shown = {entryId: string; message: ThreadMessage};
 
-// What a thread shows (db/harness listChatThreads), each message with the files it went with: what
-// the person said; the events that came into it, but for what its sub-agents said, which the
-// persona reads and passes on; what the persona answered in words, then what it told the person
-// and the sub-agents it started as it went in the same step, each sub-agent as a line that opens
-// it; not the calls it worked through.
+// What a thread shows (db/harness listChatThreads), as thread-shown.ts says, each message with the
+// files it went with, a sub-agent as a line that opens it, at work as the sub-agent is, the latest
+// line of each alone (lastLines).
 function threadShown(thread: ChatThreadRow, files: RouteFiles): Shown[] {
 	const attachmentsOf = (entryId: string) => thread.attachments.filter((attachment) => attachment.entryId === entryId).map(files.shown);
-	const subAgentOf = new Map(thread.subAgents.flatMap((subAgent) => (subAgent.parentCallId === null ? [] : [[subAgent.parentCallId, subAgent] as const])));
-	const subAgentById = new Map(thread.subAgents.map((subAgent) => [subAgent.id, subAgent] as const));
-	// A sub-agent's line, where the persona started it or sent it more: at work as the sub-agent is,
-	// the latest line of each alone (lastLines).
-	const subAgentLine = (subAgent: ChatThreadRow['subAgents'][number], id: string, at: string): ThreadMessage => {
-		const title = subAgent.title ?? 'Sub-agent';
-		return {id, kind: 'event', text: title, isError: false, at, attachments: [], subAgent: {id: subAgent.id, title, working: subAgent.state.kind !== 'stopped'}};
-	};
-	const shown = thread.entries.flatMap((entry): Shown[] => {
-		const at = entry.createdAt.toISOString();
-		const from = (message: ThreadMessage): Shown => ({entryId: entry.id, message});
-		if (entry.kind === 'event' && entry.callId !== null && subAgentOf.has(entry.callId)) {
-			return [];
-		}
-		// A sub-agent's brief and what its persona sent it later are for the sub-agent alone.
-		if (entry.kind === 'person' && thread.subAgentOfId !== null) {
-			return [];
-		}
-		if (entry.kind === 'event') {
-			return [from({id: entry.id, kind: entry.kind, text: entry.text, line: eventLine(entry.text), isError: entry.isError, at, attachments: attachmentsOf(entry.id)})];
-		}
-		if (entry.kind === 'person') {
-			return [from({id: entry.id, kind: entry.kind, text: entry.text, isError: entry.isError, at, attachments: attachmentsOf(entry.id)})];
-		}
-		if (entry.kind !== 'assistant') {
-			return [];
-		}
-		const said: Shown[] = entry.text === '' ? [] : [from({id: entry.id, kind: 'assistant', text: entry.text, isError: entry.isError, at, attachments: attachmentsOf(entry.id)})];
-		const told = (entry.toolCalls ?? []).flatMap((call): Shown[] => {
-			const started = call.name === CREATE_SUBAGENT_TOOL ? subAgentOf.get(call.id) : undefined;
-			const messaged = call.name === SEND_TO_SUBAGENT_TOOL ? subAgentById.get(subAgentMessageArgs(callArguments(call))?.subagent ?? '') : undefined;
-			const subAgent = started ?? messaged;
-			if (subAgent) {
-				return [from(subAgentLine(subAgent, `${entry.id}:${call.id}`, at))];
+	const shown = thread.entries.flatMap((entry) =>
+		shownParts(thread, entry).map((part): Shown => {
+			const at = part.at.toISOString();
+			if (part.kind === 'sub_agent') {
+				const title = part.subAgent.title ?? 'Sub-agent';
+				return {
+					entryId: part.entryId,
+					message: {id: part.id, kind: 'event', text: title, isError: false, at, attachments: [], subAgent: {id: part.subAgent.id, title, working: part.subAgent.state.kind !== 'stopped'}},
+				};
 			}
-			const message = call.name === SEND_TO_PERSON_TOOL ? personMessageArgs(callArguments(call)) : null;
-			return message ? [from({id: `${entry.id}:${call.id}`, kind: 'assistant', text: message.text, isError: false, at, attachments: []})] : [];
-		});
-		return [...said, ...told];
-	});
+			if (part.kind === 'event') {
+				return {entryId: part.entryId, message: {id: part.id, kind: 'event', text: part.text, line: part.line, isError: part.isError, at, attachments: attachmentsOf(part.entryId)}};
+			}
+			return {entryId: part.entryId, message: {id: part.id, kind: part.kind, text: part.text, isError: part.isError, at, attachments: part.ownWords ? attachmentsOf(part.entryId) : []}};
+		}),
+	);
 	return lastLines(shown);
 }
 
@@ -516,19 +489,6 @@ function lastLines(shown: Shown[]): Shown[] {
 		}
 		return {...item, message: {...item.message, subAgent: {...subAgent, working: false}}};
 	});
-}
-
-// Where the thread stands: in progress while it is at work or asleep; once stopped, waiting for
-// the person where its turn's end said so and nobody has said otherwise since, else watching
-// where alerts come to it, which wake it again, or done.
-function standingOf(thread: ChatThreadRow): ThreadStanding {
-	if (thread.state.kind !== 'stopped') {
-		return 'in_progress';
-	}
-	if (thread.standing.waitingForMember) {
-		return 'waiting';
-	}
-	return thread.alerts > 0 ? 'watching' : 'done';
 }
 
 // Whether where the thread stands was written from everything said in it, nothing past it.

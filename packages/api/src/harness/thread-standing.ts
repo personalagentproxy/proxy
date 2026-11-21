@@ -4,7 +4,8 @@ import {Err, Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do} from '@proxy/utils';
-import {ATTACHMENT_MARK, callArguments, cut, personMessageArgs, SEND_TO_PERSON_TOOL} from '@proxy/utils/harness';
+import {ATTACHMENT_MARK, callArguments, cut, personMessageArgs, SEND_TO_PERSON_TOOL, type ThreadState} from '@proxy/utils/harness';
+import type {ThreadStanding} from '@proxy/contracts/harness';
 import type {ChatThreadRow} from '@proxy/db/harness';
 
 import type {JsonRequest} from '../llm/open-router';
@@ -71,6 +72,23 @@ const MAX_MESSAGE_CHARS = 3_000;
 
 // How long a summary is kept at most.
 const MAX_SUMMARY = 300;
+
+/**
+ * Where a thread stands, the one rule for it: in progress while its agent is at work or asleep;
+ * once stopped, waiting for the member where its turn's end said so and nobody has said otherwise
+ * since, else watching where alerts come to it, which wake it again, or done. The Chat page shows
+ * it (route.ts), the Chat connection says it (native/chat), and a thread's Slack session follows it
+ * (slack/session-rules.ts).
+ */
+export function standingOf(thread: {state: ThreadState; standing: {waitingForMember: boolean}; alerts: number}): ThreadStanding {
+	if (thread.state.kind !== 'stopped') {
+		return 'in_progress';
+	}
+	if (thread.standing.waitingForMember) {
+		return 'waiting';
+	}
+	return thread.alerts > 0 ? 'watching' : 'done';
+}
 
 /** What the model is told: what to write, and when a thread waits for the member. */
 export const STANDING_INSTRUCTIONS = [

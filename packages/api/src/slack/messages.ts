@@ -13,6 +13,7 @@ import {env} from '../utils/env';
 import {CONFIRM_LINK_MS, confirmUrl, signConfirmToken} from './confirm-link';
 import {confirmLine, lineAfter, planFor, type SaidInSlack, type SlackSpeaker, threadOf} from './message-rules';
 import {readBotToken} from './secrets';
+import {promptSession, sessionStore} from './sessions';
 import {postMessage} from './slack-api';
 
 /**
@@ -20,13 +21,14 @@ import {postMessage} from './slack-api';
  * speaking is read from their link to a member; a member's words open a thread in their chat with
  * the persona, made where they have none, or continue the thread their Slack thread is; anyone
  * else gets a line. Everything here is the database's work, done before Slack is answered; the
- * lines it comes to are said after (`postSlackLines`), never holding the answer up. Nothing throws:
- * a failure is logged, and comes to no line. The thread a message opens lives in Slack alone
- * (db/harness `IN_APP`).
+ * session of the thread it woke is set, and the lines it comes to said, after (`afterTakingUp`),
+ * never holding the answer up. Nothing throws: a failure is logged, and comes to no line. The
+ * thread a message opens lives in Slack alone (db/harness `IN_APP`), and what it says is posted
+ * back there (delivery.ts).
  */
 
-/** A line the app is to say in a Slack thread of its DM. */
-export type SlackLine = {channel: string; threadTs: string; text: string};
+// A line the app is to say in a Slack thread of its DM.
+type SlackLine = {channel: string; threadTs: string; text: string};
 
 /** The app as taking a message up needs it: its workspace, with its Slack id, its persona, and its organization, with its name. */
 export type SlackAppForMessages = Pick<SlackAppRow, 'id' | 'orgId' | 'personaId' | 'workspaceId'> & {org: {name: string}; workspace: {teamId: string}};
@@ -54,8 +56,11 @@ function linkFor(app: SlackAppForMessages, said: SaidInSlack): string | null {
 	return confirmUrl(appUrl, signConfirmToken({appId: app.id, teamId: app.workspace.teamId, slackUserId: said.slackUserId, channel: said.channel, ts: said.ts, expiresAt}, secret));
 }
 
-/** What a message came to: whether it is in a thread, taken up now or before, and the lines to say in Slack. */
-export type SlackMessageOutcome = {takenUp: boolean; lines: SlackLine[]};
+/** What a message came to: whether it is in a thread, taken up now or before; the thread it woke now, if any; and the lines to say in Slack. */
+export type SlackMessageOutcome = {takenUp: boolean; woke: string | null; lines: SlackLine[]};
+
+/** What a message that comes to nothing comes to. */
+export const NOTHING: SlackMessageOutcome = {takenUp: false, woke: null, lines: []};
 
 // What a message comes to, taken up where its writer is a member.
 function takeUp(app: SlackAppForMessages, said: SaidInSlack, known: SlackSpeaker | null): Promise<Result<SlackMessageOutcome, ApiError>> {
@@ -64,26 +69,26 @@ function takeUp(app: SlackAppForMessages, said: SaidInSlack, known: SlackSpeaker
 		const key = {appId: app.id, channel: said.channel, ts: said.ts};
 		const line = (text: string | null): SlackLine[] => (text === null ? [] : [{channel: said.channel, threadTs: threadOf(said), text}]);
 		if (plan.kind === 'leave') {
-			return {takenUp: false, lines: []};
+			return NOTHING;
 		}
 		if (plan.kind === 'say') {
-			return {takenUp: false, lines: $(await noteSlackMessage(key)) ? line(plan.line) : []};
+			return {...NOTHING, lines: $(await noteSlackMessage(key)) ? line(plan.line) : []};
 		}
 		if (plan.kind === 'confirm') {
 			const url = linkFor(app, said);
 			if (url === null || !$(await noteSlackMessage(key))) {
-				return {takenUp: false, lines: []};
+				return NOTHING;
 			}
-			return {takenUp: false, lines: line(confirmLine(url))};
+			return {...NOTHING, lines: line(confirmLine(url))};
 		}
 		const chat = $(await ensureChat(harnessStore, {orgId: app.orgId, userId: plan.userId}, {id: app.personaId}));
 		const taken = $(await takeUpSlackMessage({...key, chatId: chat.id, rootTs: said.rootTs, text: plan.text, opening: threadOpening(chat, {text: plan.text, files: []})}, readyForInference));
 		// Taken up nowhere, it is answered once, as a line alone is.
 		if (taken.kind === 'elsewhere') {
-			return {takenUp: false, lines: $(await noteSlackMessage(key)) ? line(lineAfter(plan, taken.kind)) : []};
+			return {...NOTHING, lines: $(await noteSlackMessage(key)) ? line(lineAfter(plan, taken.kind)) : []};
 		}
-		const takenUp = taken.kind === 'opened' || taken.kind === 'continued' || taken.kind === 'taken_already';
-		return {takenUp, lines: line(lineAfter(plan, taken.kind))};
+		const woke = taken.kind === 'opened' || taken.kind === 'continued' ? taken.threadId : null;
+		return {takenUp: woke !== null || taken.kind === 'taken_already', woke, lines: line(lineAfter(plan, taken.kind))};
 	});
 }
 
@@ -96,13 +101,24 @@ export async function takeUpSlackMessageFrom(app: SlackAppForMessages, said: Sai
 	const outcome = await takeUp(app, said, known);
 	if (outcome.isErr()) {
 		log.error('A Slack message could not be taken up', {appId: app.id, ...serializeError(outcome.error)});
-		return {takenUp: false, lines: []};
+		return NOTHING;
 	}
 	return outcome.value;
 }
 
-/** Says the lines in Slack with the app's bot, one after the other; one that fails is logged and dropped. */
-export async function postSlackLines(app: Pick<SlackAppRow, 'id' | 'botToken'>, lines: SlackLine[]): Promise<void> {
+/**
+ * What follows taking a message up, once Slack has its answer: the session of the thread it woke
+ * set `processing` straight away (sessions.ts), then the lines said.
+ */
+export async function afterTakingUp(app: Pick<SlackAppRow, 'id' | 'botToken'>, outcome: SlackMessageOutcome): Promise<void> {
+	if (outcome.woke !== null) {
+		await promptSession(sessionStore, app.botToken, outcome.woke);
+	}
+	await postSlackLines(app, outcome.lines);
+}
+
+// Says the lines in Slack with the app's bot, one after the other; one that fails is logged and dropped.
+async function postSlackLines(app: Pick<SlackAppRow, 'id' | 'botToken'>, lines: SlackLine[]): Promise<void> {
 	if (lines.length === 0) {
 		return;
 	}

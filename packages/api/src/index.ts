@@ -14,6 +14,7 @@ import {claudeCredentialFor, markClaudeCredentialRefused, recordClaudeUsage} fro
 import {chatFiles} from './native/files/chat';
 import {startFilesSweeper} from './native/files/sweeper';
 import {startSandboxSweeper} from './native/sandbox/sweeper';
+import {startSlackDeliverer, type SlackDeliverer} from './slack/delivery';
 import {startSlackTokenSweeper, type SlackTokenSweeper} from './slack/workspace-token';
 import {log, serializeError} from './observability/log';
 import {metrics} from './observability/metrics';
@@ -45,6 +46,7 @@ async function startApiServer(): Promise<void> {
 	let worker: HarnessWorker | null = null;
 	let sweeper: AlertSweeper | null = null;
 	let slackTokens: SlackTokenSweeper | null = null;
+	let slackDeliverer: SlackDeliverer | null = null;
 
 	const shutdown = async (signal: string): Promise<void> => {
 		if (isShuttingDown) {
@@ -65,9 +67,11 @@ async function startApiServer(): Promise<void> {
 		// The built-in agent's worker claims nothing more and finishes the job it is on; a job it
 		// can't finish in time goes to another instance when its lease runs out. The alerts' sweep
 		// takes no more; a turn cut short writes nothing, and comes again in ten minutes. Nor does the
-		// Slack tokens' sweep.
+		// Slack tokens' sweep. Delivery to Slack takes no more places; one it was posting to is taken
+		// again once its hold runs out.
 		sweeper?.stop();
 		slackTokens?.stop();
+		slackDeliverer?.stop();
 		await worker?.stop();
 
 		const disconnectResult = await Result.wrapAsync(() => disconnectDb());
@@ -107,6 +111,11 @@ async function startApiServer(): Promise<void> {
 		sweeper = startAlertSweeper(harnessStore);
 		// Linked Slack workspaces' configuration tokens, rotated before they run out.
 		slackTokens = startSlackTokenSweeper();
+		// What threads that live in Slack say, posted there, and where they stand; their links in the
+		// app need APP_URL.
+		if (env.APP_URL) {
+			slackDeliverer = startSlackDeliverer(env.APP_URL);
+		}
 		void startSandboxSweeper();
 		startFilesSweeper();
 	});

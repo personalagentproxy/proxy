@@ -8,7 +8,7 @@ import {getMemberThread, type SlackThreadRow} from '@proxy/db/harness';
 
 import {alertComes} from '../../harness/alerts';
 import {SHOWN_CALLS} from '../../harness/thread-rules';
-import {threadLines} from '../../harness/thread-standing';
+import {standingOf, threadLines} from '../../harness/thread-standing';
 import {requireAppUrl} from '../../oauth/oauth-config';
 import {slackThreadUrl} from '../../slack/thread-link';
 import {requireFirstPage, type DataRecord, type ListQuery, type RecordStore, type RecordTarget} from '../../records/connector';
@@ -73,20 +73,13 @@ function pageStart(page: string | null): Result<number, ApiError> {
 	return Ok(start);
 }
 
-// Where the thread stands, in the Chat page's words: in progress while at work or asleep; once
-// stopped, archived where the person archived it, else waiting for them where its turn's end said
-// so, watching where alerts come to it, or done.
+// Where the thread stands, in the Chat page's words, as standingOf says; once stopped, archived
+// where the person archived it.
 function standing(thread: Pick<MemberThreadRow, 'state' | 'standing' | 'alerts'>): string {
-	if (thread.state.kind !== 'stopped') {
-		return CHAT_STANDINGS.in_progress;
-	}
-	if (thread.standing.archived) {
+	if (thread.state.kind === 'stopped' && thread.standing.archived) {
 		return CHAT_STANDINGS.archived;
 	}
-	if (thread.standing.waitingForMember) {
-		return CHAT_STANDINGS.waiting;
-	}
-	return thread.alerts > 0 ? CHAT_STANDINGS.watching : CHAT_STANDINGS.done;
+	return CHAT_STANDINGS[standingOf(thread)];
 }
 
 // The thread's summary while it is current, written from everything said in it; nothing otherwise.

@@ -10,7 +10,7 @@ import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {env} from '../utils/env';
 import {type ConfirmClaims, readConfirmToken} from './confirm-link';
 import {readSlackMessage} from './message-rules';
-import {postSlackLines, takeUpSlackMessageFrom} from './messages';
+import {afterTakingUp, takeUpSlackMessageFrom} from './messages';
 import {readBotToken} from './secrets';
 import {readMessage, slackAppUrl} from './slack-api';
 
@@ -65,8 +65,8 @@ export function handleGetSlackLinkRoute(request: AuthenticatedRequest): Promise<
 }
 
 // The message that prompted the link, read back from Slack and taken up as if it had just come,
-// its lines said after; whether it is in a thread now. A failure to read it is logged: the member
-// writes it again.
+// its thread's session set and its lines said after; whether it is in a thread now. A failure to
+// read it is logged: the member writes it again.
 async function takeUpPrompting(app: SlackAppForLink, claims: ConfirmClaims, userId: string): Promise<boolean> {
 	const token = app.botToken === null || app.removedAt !== null ? null : readBotToken(app.botToken).unwrapOr(null);
 	if (token === null) {
@@ -82,7 +82,7 @@ async function takeUpPrompting(app: SlackAppForLink, claims: ConfirmClaims, user
 		return false;
 	}
 	const outcome = await takeUpSlackMessageFrom(app, said, {kind: 'member', userId});
-	void postSlackLines(app, outcome.lines);
+	void afterTakingUp(app, outcome);
 	return outcome.takenUp;
 }
 

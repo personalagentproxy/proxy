@@ -1,18 +1,17 @@
 ---
 title: Slack
-description: Add a shared agent to your Slack workspace as an app of its own, and write to it there.
+description: Add a shared agent to your Slack workspace as an app of its own, and talk to it there.
 ---
 
 An agent shared with your organization can be added to a Slack workspace as a Slack app of its
 own, named for it, which members find in Slack's sidebar like any other app. Each member writes to
-it in its direct messages, as themselves, and every message opens a thread that lives in Slack.
-Personal Agent Proxy makes the app for you, keeps it up to date and removes it; each agent has its
-own, in one workspace.
+it in its direct messages, as themselves: every message opens a thread that lives in Slack, the
+agent answers there, and Slack shows where each thread stands. Personal Agent Proxy makes the app
+for you, keeps it up to date and removes it; each agent has its own, in one workspace.
 
 <Callout>
 Slack is being tried out with some organizations first, so it is only offered to an organization
-that has it turned on. For now, what you write to an agent in Slack opens a thread it works on as
-you, but nothing is posted back to Slack yet: its answers don't reach you there.
+that has it turned on.
 </Callout>
 
 Only a [shared agent](/agents/chat) can be added: the settings of one that is yours alone say it
@@ -66,10 +65,11 @@ to.
 
 Open the agent's app in Slack and write to it in its **Messages** tab. Each message you send there
 opens a thread, and a reply in that message's Slack thread goes on with the same thread. The agent
-works in it as it does in the app, as you, with your connections and your model account.
+works in it as it does in the app, as you, with your connections and your model account, and
+answers you in that Slack thread.
 
-A thread that began in Slack lives there: it isn't on the Chat page, and you go on with it in Slack
-alone, as a thread you open in the app stays in the app. An agent in any of your threads can still
+A thread that began in Slack lives there: it isn't among your tasks on the Chat page, and you read
+it and reply in it in Slack alone, as a task you start in the app stays in the app. An agent in any of your threads can still
 find it through your [Chat connection](/connections/chat), which says it is in Slack and links to
 it there, and so does an alert set in it on the **Alerts** page.
 
@@ -101,6 +101,52 @@ Links, mentions and Slack's formatting come into the thread as you would have ty
 Files aren't read yet: the words of a message with files are taken up and the app says the files
 weren't, and files alone open nothing. Edits and deletions in Slack don't change the thread, and
 each message is taken up once, however often Slack sends it.
+
+### What comes back to Slack
+
+What you would read of the thread is posted in its Slack thread, in order, within a moment of being
+written: the agent's answers, what it tells you as it works, a failure, and an alert that fires in
+the thread, as one line marked as an alert. What the agent works through on the way, its tool calls
+and their results, isn't posted, and neither are the sub-agents it starts or what they tell it:
+while they work, Slack shows the thread at work. All of it is in the activity log, as for any task.
+
+Files don't go to Slack: a picture in an answer comes as a link with its description, and a link to
+something in Personal Agent Proxy opens it there. A long answer comes as several messages.
+
+Nothing is posted while the agent's app is removed from Slack, while you aren't linked or no longer
+in the organization, or while Slack is turned off for it; the thread picks up where it left off
+once that changes. If the Slack thread or its conversation is gone in Slack, nothing more is posted
+to it.
+
+### Where a thread stands in Slack
+
+Each Slack thread shows where it stands with Slack's own status for an agent's work, as the Chat
+page shows a task with a word over it:
+
+- While the agent is at work, or asleep until it wakes, and while any sub-agent it started still
+  works, Slack shows it working. It does so as soon as your message is taken up, before anything is
+  posted, so you can see it was received.
+- Once the agent has stopped and waits for you, Slack shows that it needs you.
+- Otherwise, once the thread is done, or watching for alerts that still come to it, Slack shows it
+  ready for your next message.
+
+The status changes once what the agent wrote is posted, not before, and follows the thread as it
+changes: your reply, or an alert that fires in it, sets it working again.
+
+Slack lists the thread under a title. It starts as the first line of the message that opened it;
+a moment later, once the agent has named the thread in a few words, as it names every task, Slack's
+title changes to that, once. If you rename it in Slack after that, your title stays.
+
+The status and the title use Slack's agent features, which some Slack plans don't include. Where a
+workspace doesn't have them, Slack just shows no status: everything else, the messages both ways,
+works the same, and Personal Agent Proxy tries again a day later in case they were turned on.
+
+### What isn't there yet
+
+Only direct messages: the agent can't be mentioned in channels or added to group messages. Files
+don't go either way. A thread can't be marked done from Slack, and Slack's button to stop an agent
+at work isn't offered. A thread stays where it began: a task you start in the app doesn't appear in
+Slack, and a thread that began in Slack doesn't appear in the app.
 
 ## Updating it
 
