@@ -11,7 +11,10 @@ const held: Record<string, Array<{name: string; value: string}>> = {
 		{name: 'API_KEY', value: 'sk-one'},
 		{name: 'DB_URL', value: 'postgres://db'},
 	],
-	'vault-2': [{name: 'WORK_TOKEN', value: 'tok-two'}],
+	'vault-2': [
+		{name: 'WORK_TOKEN', value: 'tok-two'},
+		{name: 'DB_URL', value: 'postgres://work'},
+	],
 	'vault-3': [{name: 'HIDDEN', value: 'never-used'}],
 };
 const listSecrets = mock(async (id: string) => Ok(held[id] ?? []));
@@ -36,7 +39,7 @@ describe('secretsFor', () => {
 		const {given, masked} = (await secretsFor(caller, ['API_KEY'])).unwrap();
 
 		expect(given).toEqual([{name: 'API_KEY', value: 'sk-one'}]);
-		expect(masked.map((secret) => secret.name).sort()).toEqual(['API_KEY', 'DB_URL', 'WORK_TOKEN']);
+		expect(masked.map((secret) => secret.name).sort()).toEqual(['API_KEY', 'DB_URL', 'DB_URL', 'WORK_TOKEN']);
 		expect(listSecrets).not.toHaveBeenCalledWith('vault-3');
 	});
 
@@ -45,7 +48,7 @@ describe('secretsFor', () => {
 		const {given, masked} = (await secretsFor(caller, [])).unwrap();
 
 		expect(given).toEqual([]);
-		expect(masked).toHaveLength(3);
+		expect(masked).toHaveLength(4);
 	});
 
 	test('with no vault whose secrets it may use, a command asking for none runs as it is, and one asking for some is refused', async () => {
@@ -55,5 +58,12 @@ describe('secretsFor', () => {
 		expect((await secretsFor(caller, [])).unwrap()).toEqual({given: [], masked: []});
 		expect((await secretsFor(caller, ['API_KEY'])).unwrapErr().kind).toBe('validation_error');
 		expect(listSecrets).not.toHaveBeenCalled();
+	});
+
+	test('refuses one name asked for from two vaults, since a command is given one variable of it', async () => {
+		const {secretsFor} = await import('./secrets');
+
+		expect((await secretsFor(caller, ['Vault/DB_URL', 'Work/DB_URL'])).unwrapErr().kind).toBe('validation_error');
+		expect((await secretsFor(caller, ['Work/DB_URL'])).unwrap().given).toEqual([{name: 'DB_URL', value: 'postgres://work'}]);
 	});
 });

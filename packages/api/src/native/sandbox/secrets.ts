@@ -34,6 +34,11 @@ export function secretsFor(caller: TaskCaller, asked: string[]): Promise<Result<
 		const lists = await Promise.all(vaults.map(async (vault) => (await listSecrets(vault.id)).map((secrets) => secrets.map((secret): HeldSecret => ({...secret, vault})))));
 		const held = lists.flatMap((list) => $(list));
 		const given = [...new Set(asked)].map((name) => $(pickSecret(held, name)));
+		// Each is given as the environment variable of its name, which one command has only one of.
+		const twice = given.find((secret, index) => given.findIndex((other) => other.name === secret.name) !== index);
+		if (twice) {
+			return $(Err(ApiErr.validationError(`${twice.name} is asked for from more than one vault: a command is given one ${twice.name}, so ask for one of them`)));
+		}
 		return {given, masked: held.map(({name, value}) => ({name, value}))};
 	});
 }

@@ -40,10 +40,24 @@ export function pickSecret(held: HeldSecret[], asked: string): Result<GivenSecre
 // more likely to be anything else.
 const MASKED_FROM = 4;
 
-/** What a command wrote, each secret's value in it shown as [secret NAME], the longest first, so one inside another is never half shown. */
+// A value as a pattern matching it as it is, whatever it has in it.
+function escaped(value: string): string {
+	return value.replace(/[\\^$.*+?()[\]{}|/-]/g, '\\$&');
+}
+
+/**
+ * What a command wrote, each secret's value in it shown as [secret NAME]: all in one pass, the
+ * longest first where values overlap, so one inside another is never half shown and a name already
+ * shown is never mistaken for a value.
+ */
 export function maskSecrets(text: string, secrets: GivenSecret[]): string {
 	const masked = secrets.filter((secret) => secret.value.length >= MASKED_FROM).toSorted((a, b) => b.value.length - a.value.length);
-	return masked.reduce((shown, secret) => shown.split(secret.value).join(`[secret ${secret.name}]`), text);
+	if (masked.length === 0) {
+		return text;
+	}
+	const names = new Map(masked.map((secret) => [secret.value, secret.name]));
+	const pattern = new RegExp(masked.map((secret) => escaped(secret.value)).join('|'), 'g');
+	return text.replace(pattern, (value) => `[secret ${names.get(value) ?? ''}]`);
 }
 
 /** The secrets as environment variables, by their names. */

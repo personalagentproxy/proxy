@@ -36,6 +36,19 @@ describe('maskSecrets', () => {
 		expect(maskSecrets('key=abcdefgh and abcd', secrets)).toBe('key=[secret LONG] and [secret SHORT]');
 	});
 
+	test('never takes a name already shown for a value', () => {
+		const secrets = [
+			{name: 'OPENAI_API_KEY', value: 'sk-long-key-123'},
+			{name: 'PROVIDER', value: 'OPENAI'},
+		];
+		expect(maskSecrets('sk-long-key-123 from OPENAI', secrets)).toBe('[secret OPENAI_API_KEY] from [secret PROVIDER]');
+	});
+
+	test('finds a value as it is, whatever it has in it', () => {
+		const secrets = [{name: 'PASSWORD', value: 'a.b*c(d)[e]$/-'}];
+		expect(maskSecrets('pw: a.b*c(d)[e]$/- and axbxc', secrets)).toBe('pw: [secret PASSWORD] and axbxc');
+	});
+
 	test('leaves values too short to tell apart as they are', () => {
 		expect(maskSecrets('a b c', [{name: 'TINY', value: 'b'}])).toBe('a b c');
 	});

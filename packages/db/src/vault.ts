@@ -1,6 +1,7 @@
+import type {Prisma} from '@prisma/client';
 import {Err, type Result} from 'ts-results-es';
 
-import {ApiErr, type ApiError, Do, requirePresent, wrapDb} from '@proxy/utils';
+import {ApiErr, type ApiError, Do, wrapDb} from '@proxy/utils';
 
 import {db} from '.';
 
@@ -33,12 +34,46 @@ export async function getVaultEntry(
 	);
 }
 
+/**
+ * What a write checks of the collection's entries as they are when it writes: the others' rows,
+ * read with the collection's other checked writes held off until this one is done, so two at once
+ * never both pass. An error stops the write.
+ */
+export type VaultEntriesCheck = (rows: VaultEntryRow[]) => Result<void, ApiError>;
+
+type Tx = Prisma.TransactionClient;
+
+// Every checked write of the collection, one after the other: a lock on a key made of the
+// collection, held until the transaction ends, as the collection has no row of its own to take.
+async function checkEntries(
+	tx: Tx,
+	collection: VaultCollection,
+	check: VaultEntriesCheck,
+	recordId: string | null,
+): Promise<void> {
+	await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`vault:${collection.connectionId}:${collection.collectionId}`}::text, 0))`;
+	const rows = await tx.vaultEntry.findMany({
+		where: {...collection, ...(recordId === null ? {} : {id: {not: recordId}})},
+		select: vaultEntrySelect,
+	});
+	const checked = check(rows);
+	if (checked.isErr()) {
+		throw checked.error;
+	}
+}
+
 export async function createVaultEntry(
 	collection: VaultCollection,
 	values: string,
+	check?: VaultEntriesCheck,
 ): Promise<Result<VaultEntryRow, ApiError>> {
 	return wrapDb(() =>
-		db.vaultEntry.create({data: {...collection, values}, select: vaultEntrySelect}),
+		db.$transaction(async (tx) => {
+			if (check) {
+				await checkEntries(tx, collection, check, null);
+			}
+			return tx.vaultEntry.create({data: {...collection, values}, select: vaultEntrySelect});
+		}),
 	);
 }
 
@@ -47,20 +82,30 @@ export async function updateVaultEntry(
 	collection: VaultCollection,
 	recordId: string,
 	values: string,
+	check?: VaultEntriesCheck,
 ): Promise<Result<VaultEntryRow, ApiError>> {
-	return Do(async ($) => {
-		const {count} = $(
-			await wrapDb(() =>
-				db.vaultEntry.updateMany({where: {...collection, id: recordId}, data: {values}}),
-			),
-		);
-		if (count === 0) {
-			return $(Err(ApiErr.notFound('record', recordId)));
-		}
-
-		const row = $(await getVaultEntry(collection, recordId));
-		return $(requirePresent(row, ApiErr.notFound('record', recordId)));
-	});
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			if (check) {
+				await checkEntries(tx, collection, check, recordId);
+			}
+			const {count} = await tx.vaultEntry.updateMany({
+				where: {...collection, id: recordId},
+				data: {values},
+			});
+			if (count === 0) {
+				throw ApiErr.notFound('record', recordId);
+			}
+			const row = await tx.vaultEntry.findFirst({
+				where: {...collection, id: recordId},
+				select: vaultEntrySelect,
+			});
+			if (!row) {
+				throw ApiErr.notFound('record', recordId);
+			}
+			return row;
+		}),
+	);
 }
 
 /** Fails with not_found when the entry isn't in the collection. */

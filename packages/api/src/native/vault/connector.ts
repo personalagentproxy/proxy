@@ -3,8 +3,9 @@ import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
 import {SECRET_NAME_PATTERN, VAULT_SECRETS_COLLECTION_ID} from '@proxy/integrations';
-import {createVaultEntry, deleteVaultEntry, getVaultEntry, listVaultEntries, updateVaultEntry, type VaultCollection, type VaultEntryRow} from '@proxy/db/vault';
+import {createVaultEntry, deleteVaultEntry, getVaultEntry, listVaultEntries, updateVaultEntry, type VaultCollection, type VaultEntriesCheck, type VaultEntryRow} from '@proxy/db/vault';
 
+import {log} from '../../observability/log';
 import {decryptSecret, encryptSecret} from '../../utils/secret-crypto';
 import {requireFirstPage, type DataRecord, type RecordStore, type RecordTarget, type RecordValues} from '../../records/connector';
 
@@ -30,11 +31,8 @@ export function decryptValues(stored: string): Result<RecordValues, ApiError> {
 	});
 }
 
-// An entry without a type is Text, as its row shows it; a secret has none.
-function withType(target: RecordTarget, values: RecordValues): RecordValues {
-	if (isSecrets(target)) {
-		return values;
-	}
+// An entry without a type is Text, as its row shows it.
+function withType(values: RecordValues): RecordValues {
 	return {...values, type: values.type || 'Text'};
 }
 
@@ -57,42 +55,63 @@ function listRecords(collection: VaultCollection): Promise<Result<DataRecord[], 
 	});
 }
 
-/** A vault's secrets, each by its name and value, as a sandbox command is given them (native/sandbox/secrets.ts). */
+/**
+ * A vault's secrets, each by its name and value, as a sandbox command is given them
+ * (native/sandbox/secrets.ts). One that can't be read is left out and logged rather than failing
+ * the rest: its value can't be given to a command, nor found in what one writes.
+ */
 export function listSecrets(connectionId: string): Promise<Result<Array<{name: string; value: string}>, ApiError>> {
 	return Do(async ($) => {
-		const records = $(await listRecords({connectionId, collectionId: VAULT_SECRETS_COLLECTION_ID}));
-		return records.map((record) => ({name: record.values.name ?? '', value: record.values.value ?? ''}));
+		const rows = $(await listVaultEntries({connectionId, collectionId: VAULT_SECRETS_COLLECTION_ID}));
+		return rows.flatMap((row) => {
+			const values = decryptValues(row.values);
+			if (values.isErr()) {
+				log.warn('A vault secret could not be read', {connectionId, recordId: row.id, errorKind: values.error.kind});
+				return [];
+			}
+			return [{name: values.value.name ?? '', value: values.value.value ?? ''}];
+		});
 	});
 }
 
-// A secret needs a name a command's environment can have, one no other secret of the vault has,
-// and a value, kept without the spaces and line breaks around it, which a paste brings along and
-// a command's output may leave off, so that masking finds the value as printed (secret-values.ts).
-// `id` is the secret's own, where it is being changed.
-function requireSecret(target: RecordTarget, values: RecordValues, id: string | null): Promise<Result<RecordValues, ApiError>> {
-	return Do(async ($) => {
-		const name = (values.name ?? '').trim();
-		if (!SECRET_NAME_PATTERN.test(name)) {
-			return $(Err(ApiErr.validationError('A secret’s name is an environment variable’s: letters, digits and _, not starting with a digit, as OPENAI_API_KEY')));
-		}
-		const value = (values.value ?? '').trim();
-		if (value === '') {
-			return $(Err(ApiErr.validationError('A secret needs a value')));
-		}
-		const others = $(await listRecords(vaultCollection(target)));
-		if (others.some((other) => other.id !== id && other.values.name === name)) {
-			return $(Err(ApiErr.conflict(`This vault has a secret called ${name} already`)));
-		}
-		return {name, value, note: values.note ?? ''};
-	});
-}
-
-// What a write keeps: an entry with its type, or a secret as it has to be.
-function written(target: RecordTarget, values: RecordValues, id: string | null): Promise<Result<RecordValues, ApiError>> {
-	if (isSecrets(target)) {
-		return requireSecret(target, values, id);
+// A secret needs a name a command's environment can have and a value, kept without the spaces and
+// line breaks around it, which a paste brings along and a command's output may leave off, so that
+// masking finds the value as printed (secret-values.ts).
+function requireSecret(values: RecordValues): Result<RecordValues, ApiError> {
+	const name = (values.name ?? '').trim();
+	if (!SECRET_NAME_PATTERN.test(name)) {
+		return Err(ApiErr.validationError('A secret’s name is an environment variable’s: letters, digits and _, not starting with a digit, as OPENAI_API_KEY'));
 	}
-	return Promise.resolve(Ok(withType(target, values)));
+	const value = (values.value ?? '').trim();
+	if (value === '') {
+		return Err(ApiErr.validationError('A secret needs a value'));
+	}
+	return Ok({name, value, note: values.note ?? ''});
+}
+
+// No other secret of the vault has the name: checked as the secret is written, with the vault's
+// other writes of secrets held off (@proxy/db/vault), so two at once can't both take it.
+function nameFree(name: string): VaultEntriesCheck {
+	return (others) => {
+		const taken = others.some((other) => decryptValues(other.values).mapOr(false, (values) => values.name === name));
+		if (taken) {
+			return Err(ApiErr.conflict(`This vault has a secret called ${name} already`));
+		}
+		return Ok(undefined);
+	};
+}
+
+// What a write keeps, and what it checks of the collection's others as it writes: an entry with
+// its type, one new needing something written in it; or a secret as it has to be, its name the
+// vault's only one.
+function written(target: RecordTarget, values: RecordValues, isNew: boolean): Result<{kept: RecordValues; check?: VaultEntriesCheck}, ApiError> {
+	if (isSecrets(target)) {
+		return requireSecret(values).map((kept) => ({kept, check: nameFree(kept.name ?? '')}));
+	}
+	if (isNew) {
+		return requireWritten(values).map(() => ({kept: withType(values)}));
+	}
+	return Ok({kept: withType(values)});
 }
 
 /**
@@ -118,17 +137,14 @@ export const vaultConnector = {
 		}),
 	create: (target, values) =>
 		Do(async ($) => {
-			if (!isSecrets(target)) {
-				$(requireWritten(values));
-			}
-			const kept = $(await written(target, values, null));
-			const row = $(await createVaultEntry(vaultCollection(target), $(encryptValues(kept))));
+			const {kept, check} = $(written(target, values, true));
+			const row = $(await createVaultEntry(vaultCollection(target), $(encryptValues(kept)), check));
 			return $(toRecord(row));
 		}),
 	update: (target, recordId, values) =>
 		Do(async ($) => {
-			const kept = $(await written(target, values, recordId));
-			const row = $(await updateVaultEntry(vaultCollection(target), recordId, $(encryptValues(kept))));
+			const {kept, check} = $(written(target, values, false));
+			const row = $(await updateVaultEntry(vaultCollection(target), recordId, $(encryptValues(kept)), check));
 			return $(toRecord(row));
 		}),
 	remove: (target, recordId) => deleteVaultEntry(vaultCollection(target), recordId),
