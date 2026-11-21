@@ -2,7 +2,7 @@ import type {HarnessBackend, HarnessEvent, HarnessTurn} from '@proxy/backends/ha
 import {ApiErr, type ApiError, CHAT_MODELS, type ChatModel, isChatModel} from '@proxy/utils';
 import {compactionCut, type ContextEntry, toMessages, toTranscript} from '@proxy/utils/harness-context';
 
-import type {askForTurn as askForTurnOverRouter, ModelTool} from '../llm/open-router';
+import type {askForTurn as askForTurnOverRouter, ModelMessage, ModelTool} from '../llm/open-router';
 
 /**
  * The harness this server has always run: one call to the model over OpenRouter per turn, on the
@@ -15,7 +15,8 @@ import type {askForTurn as askForTurnOverRouter, ModelTool} from '../llm/open-ro
  * and the model then reads in place of what it covers. The model gets the log to summarize as
  * text, not as the turns it made, which would need the tools sent along: a request with calls in
  * it and no tools is refused. A model that couldn't be reached is worth trying again; one that
- * refused the request, or turned the key down, is not.
+ * refused the request, or turned the key down, is not. One cut off at its limit, its answer not
+ * complete, is asked again in the same turn, told so, a couple of times before the person is told.
  */
 
 // How a thread's long log is summarized, by the same model, for itself.
@@ -24,18 +25,32 @@ const SUMMARIZE =
 const SUMMARIZE_NOW = 'Write the summary now.';
 
 // How much each model may write in a call, its thinking counted in, and how much of that it may
-// think with. GLM thinks before it answers and, at 4,000, would spend it all thinking on a long
-// request and answer nothing: it gets more, and its thinking is held to half of it.
+// think with: enough for a large file or script in one call, as agentic work needs, and for GLM,
+// which thinks before it answers, room left for the answer however long it thinks. A model is
+// billed for what it writes, not for the room it was given. A call that long takes minutes, so
+// one is given ten before it counts as out of reach; the worker keeps the job's lease meanwhile.
 const BUDGETS: Record<ChatModel, {maxTokens: number; reasoningTokens?: number}> = {
-	claude: {maxTokens: 4000},
-	glm: {maxTokens: 16_000, reasoningTokens: 8000},
+	claude: {maxTokens: 32_000},
+	glm: {maxTokens: 32_000, reasoningTokens: 16_000},
 };
-const TIMEOUT_MS = 120_000;
+const TIMEOUT_MS = 600_000;
 
-// What the person is told where the model reached its limit before it said or called anything,
-// rather than that it had nothing to say.
+// How many times a model cut off at its limit is asked again in the same turn, told so.
+const MAX_CUT_OFF_RETRIES = 2;
+
+// What the model is told where its last answer was cut off at its limit: nothing of it ran, and
+// how to fit the next one.
+function cutOffNote(model: ChatModel): string {
+	return `[Your last answer was cut off at the ${limitOf(model)}-token limit of an answer before it was complete, and was dropped: any call in it was not made. Go on with less in one answer: think less before acting, and write a large file or script in parts, one call each.]`;
+}
+
+// What the person is told where the model was cut off at its limit every time it was asked.
 function outOfRoom(model: ChatModel): string {
-	return `I ran out of room while thinking (${CHAT_MODELS[model]} stops at ${BUDGETS[model].maxTokens.toLocaleString('en-US')} tokens a turn) before I could answer. Say something to try again, or switch this thread to another model.`;
+	return `I kept running out of room: ${CHAT_MODELS[model]} stops at ${limitOf(model)} tokens an answer, and I was cut off ${MAX_CUT_OFF_RETRIES + 1} times before I could finish. Say something to try again, or switch this thread to another model.`;
+}
+
+function limitOf(model: ChatModel): string {
+	return BUDGETS[model].maxTokens.toLocaleString('en-US');
 }
 
 export const PROXY_HARNESS = 'proxy';
@@ -110,28 +125,45 @@ export function proxyHarness(deps: ProxyHarnessDeps): HarnessBackend {
 				};
 				entries = [...entries, stored];
 			}
-			const turn = await deps.askForTurn({
-				key: deps.key,
-				model,
-				messages: [{role: 'system', content: input.system}, ...toMessages(entries, {clearOld: true})],
-				tools: toModelTools(input),
-				...BUDGETS[model],
-				timeoutMs: TIMEOUT_MS,
-			});
-			if (turn.isErr()) {
-				yield failed(turn.error);
+			// The model is asked again where it was cut off at its limit, told so, after what it had
+			// written; the calls of an answer cut off are dropped, since the last may be cut short.
+			// The input of the last call is the turn's, the log's size as the model last read it;
+			// the output, what every call wrote.
+			const messages: ModelMessage[] = [{role: 'system', content: input.system}, ...toMessages(entries, {clearOld: true})];
+			let outputTokens = 0;
+			for (let attempt = 0; ; attempt += 1) {
+				const turn = await deps.askForTurn({
+					key: deps.key,
+					model,
+					messages: [...messages],
+					tools: toModelTools(input),
+					...BUDGETS[model],
+					timeoutMs: TIMEOUT_MS,
+				});
+				if (turn.isErr()) {
+					yield failed(turn.error);
+					return;
+				}
+				const {text, toolCalls, inputTokens, cutOff} = turn.value;
+				outputTokens += turn.value.outputTokens;
+				if (cutOff === true && attempt < MAX_CUT_OFF_RETRIES && !input.signal.aborted) {
+					messages.push(...(text.trim() === '' ? [] : [{role: 'assistant' as const, content: text}]), {role: 'user', content: cutOffNote(model)});
+					continue;
+				}
+				if (cutOff === true) {
+					yield {kind: 'text', text: [text, outOfRoom(model)].filter((part) => part.trim() !== '').join('\n\n')};
+					yield {kind: 'done', session: input.session, system: input.system, inputTokens, outputTokens};
+					return;
+				}
+				if (text !== '') {
+					yield {kind: 'text', text};
+				}
+				for (const call of toolCalls) {
+					yield {kind: 'tool_call', ...call};
+				}
+				yield {kind: 'done', session: input.session, system: input.system, inputTokens, outputTokens};
 				return;
 			}
-			if (turn.value.text !== '') {
-				yield {kind: 'text', text: turn.value.text};
-			}
-			if (turn.value.cutOff === true && turn.value.text.trim() === '' && turn.value.toolCalls.length === 0) {
-				yield {kind: 'text', text: outOfRoom(model)};
-			}
-			for (const call of turn.value.toolCalls) {
-				yield {kind: 'tool_call', ...call};
-			}
-			yield {kind: 'done', session: input.session, system: input.system, inputTokens: turn.value.inputTokens, outputTokens: turn.value.outputTokens};
 		},
 	};
 }
