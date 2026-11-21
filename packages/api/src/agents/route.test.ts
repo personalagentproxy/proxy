@@ -444,33 +444,29 @@ describe('the built-in agent’s settings', () => {
 		expect(setAgentGrants).toHaveBeenCalledWith({agentId: 'agent-1', connectionId: 'conn-1', actions: {send: false}});
 	});
 
-	test('are not changed by a member a connection is shared with by name, nor by the organization’s owner on another member’s own', async () => {
+	test('are changed by anyone who uses the connection: a member it is shared with by name, and every member of one shared with everyone', async () => {
 		getAgent.mockResolvedValue(Ok(builtIn));
 		const {handleSetAgentGrantsRoute} = await import('./route');
 		requireViewer.mockResolvedValue(Ok(member));
 		getConnectionWithCredential.mockResolvedValue(connectionOf('user-1', false));
-		const sharedByName = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {send: false}}));
-		requireViewer.mockResolvedValue(Ok(owner));
-		getConnectionWithCredential.mockResolvedValue(connectionOf('user-2', false));
-		const othersOwn = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {send: false}}));
+		const sharedByName = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {send: true}}));
+		requireViewer.mockResolvedValue(Ok({...member, userId: 'user-3'}));
+		getConnectionWithCredential.mockResolvedValue(connectionOf('user-2', true));
+		const sharedWithEveryone = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {send: true}}));
 
-		expect(sharedByName.unwrapErr().kind).toBe('forbidden');
-		expect(othersOwn.unwrapErr().kind).toBe('forbidden');
-		expect(setAgentGrants).not.toHaveBeenCalled();
+		expect(sharedByName.isOk()).toBe(true);
+		expect(sharedWithEveryone.isOk()).toBe(true);
+		expect(setAgentGrants).toHaveBeenCalledTimes(2);
 	});
 
-	test('are changed on a connection shared with everyone by whoever’s it is and the organization’s owner alone', async () => {
+	test('are not changed on a connection the person doesn’t use, the organization’s owner included', async () => {
 		getAgent.mockResolvedValue(Ok(builtIn));
-		getConnectionWithCredential.mockResolvedValue(connectionOf('user-2', true));
+		requireViewer.mockResolvedValue(Ok(owner));
+		getConnectionWithCredential.mockResolvedValue(Ok(null));
 		const {handleSetAgentGrantsRoute} = await import('./route');
-		const byOrgOwner = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {send: false}}));
-		requireViewer.mockResolvedValue(Ok(member));
-		const byConnectionOwner = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {send: false}}));
-		requireViewer.mockResolvedValue(Ok({...member, userId: 'user-3'}));
-		const byAnotherMember = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {send: false}}));
+		const othersOwn = await handleSetAgentGrantsRoute(makeRequest(params, {actions: {send: true}}));
 
-		expect(byOrgOwner.isOk()).toBe(true);
-		expect(byConnectionOwner.isOk()).toBe(true);
-		expect(byAnotherMember.unwrapErr().kind).toBe('forbidden');
+		expect(othersOwn.unwrapErr().kind).toBe('not_found');
+		expect(setAgentGrants).not.toHaveBeenCalled();
 	});
 });

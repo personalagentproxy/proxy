@@ -5,7 +5,7 @@ import type {Action} from '@proxy/integrations';
 import {afterEach, describe, expect, mock, test} from 'bun:test';
 import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {createMemoryRouter, RouterProvider} from 'react-router';
-import {AccessGrid, type GridAgent} from '@/components/access-grid';
+import {AccessGrid, DEFAULT_LOCKED, type GridAgent} from '@/components/access-grid';
 
 afterEach(() => {
 	cleanup();
@@ -40,8 +40,8 @@ function agent(id: string, name: string): AgentLogin {
 }
 
 // Claude, which may send though the default says no, and Scout, which follows every default.
-const claude: GridAgent = {agent: agent('agent-1', 'Claude'), own: {send: true}, mayChange: true};
-const scout: GridAgent = {agent: agent('agent-2', 'Scout'), own: {}, mayChange: true};
+const claude: GridAgent = {agent: agent('agent-1', 'Claude'), own: {send: true}, setBy: null};
+const scout: GridAgent = {agent: agent('agent-2', 'Scout'), own: {}, setBy: null};
 
 function renderGrid(props: Partial<Parameters<typeof AccessGrid>[0]> = {}) {
 	const onChangeDefaults = mock(async (_actions: Record<string, boolean>) => {});
@@ -59,7 +59,7 @@ function renderGrid(props: Partial<Parameters<typeof AccessGrid>[0]> = {}) {
 						agents={[claude, scout]}
 						unavailable={[]}
 						signInNeeded={false}
-						mayChangeDefaults
+						defaultsSetBy={null}
 						onChangeDefaults={onChangeDefaults}
 						onChangeAgent={onChangeAgent}
 						{...props}
@@ -272,12 +272,43 @@ describe('AccessGrid', () => {
 		}
 	});
 
-	test('someone who may change neither the defaults nor an agent sees the grid and changes nothing', () => {
-		renderGrid({mayChangeDefaults: false, agents: [{...claude, mayChange: false}, scout]});
+	test('someone who may change neither the defaults nor an agent sees those boxes as they are, unfaded, and changes nothing', () => {
+		const {onChangeDefaults, onChangeAgent} = renderGrid({
+			defaultsSetBy: 'Dana',
+			agents: [{...claude, setBy: 'Dana'}, scout],
+		});
 
-		expect(box('Read by default').hasAttribute('data-disabled')).toBe(true);
-		expect(box('Read for Claude').hasAttribute('data-disabled')).toBe(true);
-		expect(box('Read for Scout').hasAttribute('data-disabled')).toBe(false);
+		expect(box('Read by default').hasAttribute('data-readonly')).toBe(true);
+		expect(box('Read by default').hasAttribute('data-disabled')).toBe(false);
+		expect(box('Read for Claude').hasAttribute('data-readonly')).toBe(true);
+		expect(box('Read for Scout').hasAttribute('data-readonly')).toBe(false);
+		fireEvent.click(box('Read by default'));
+		fireEvent.click(box('Read for Claude'));
+		expect(ticked('Read by default')).toBe('true');
+		expect(onChangeDefaults).not.toHaveBeenCalled();
+		expect(onChangeAgent).not.toHaveBeenCalled();
+	});
+
+	test('a column the person may not change has a lock by its name, and its boxes say on hover who sets them', async () => {
+		renderGrid({defaultsSetBy: 'Dana', agents: [{...claude, setBy: 'Dana'}, scout]});
+
+		expect(screen.getAllByLabelText(DEFAULT_LOCKED)).toHaveLength(1);
+		expect(screen.getAllByLabelText('Set by Dana')).toHaveLength(1);
+		fireEvent.focus(box('Read by default'));
+		expect(await screen.findByText('Set by Dana')).toBeDefined();
+		fireEvent.blur(box('Read by default'));
+
+		fireEvent.focus(box('Send for Claude, its own setting'));
+		expect(await screen.findByText('Overwrites default to on · Set by Dana')).toBeDefined();
+	});
+
+	test('with only their own agents’ columns to change, Enable all turns those on and leaves the defaults', async () => {
+		const {onChangeDefaults, onChangeAgent} = renderGrid({all: true, defaultsSetBy: 'Dana'});
+
+		fireEvent.click(screen.getByRole('button', {name: 'Enable all'}));
+
+		await waitFor(() => expect(onChangeAgent).toHaveBeenCalledTimes(2));
+		expect(onChangeDefaults).not.toHaveBeenCalled();
 	});
 
 	test('with no agent reaching the connection, there is the default alone, and it says so', () => {

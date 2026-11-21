@@ -44,7 +44,13 @@ import {cn} from '@proxy/ui/lib/utils';
 import {formatDate} from '@/lib/format';
 import {chosenTab, type PageTab} from '@/lib/page-tabs';
 import {describeApiError, describeFetchError} from '@/lib/loader-utils';
-import {hasOtherPeople, manages, managesAgentOn} from '@/lib/orgs';
+import {
+	agentSetBy,
+	connectionSetBy,
+	hasOtherPeople,
+	manages,
+	managesAgentSettings,
+} from '@/lib/orgs';
 import type {agentLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
 
@@ -85,6 +91,8 @@ function AgentDetail({id}: {id: string}) {
 	const mayChange = manages(human, agent);
 	// A shared agent reaches the connections shared with everyone alone.
 	const reachable = connections.filter((connection) => reaches(agent, connection));
+	// Who changes the agent's settings, where the person doesn't.
+	const setBy = managesAgentSettings(human, agent) ? null : agentSetBy(agent, members);
 	const provider = findAgentProvider(agent.providerId);
 	const company = provider?.company ?? agent.providerId;
 	// A built-in agent has no login to hand out: it runs in Personal Agent Proxy itself.
@@ -156,13 +164,15 @@ function AgentDetail({id}: {id: string}) {
 				{tab === 'permissions' && (
 					<div className="flex flex-col gap-2">
 						<p className="text-sm text-muted-foreground">
-							{permissionsIntro(agent, mayChange, builtIn)}
+							{permissionsIntro(agent, builtIn, setBy)}
 						</p>
 						<ConnectionsAccess
 							agent={agent}
 							connections={reachable}
-							mayChange={(connection) => managesAgentOn(human, agent, connection)}
-							setsDefaults={(connection) => manages(human, connection)}
+							setBy={setBy}
+							defaultsSetBy={(connection) =>
+								manages(human, connection) ? null : connectionSetBy(connection, members)
+							}
 							onChange={(connectionId, actions) =>
 								apply(setAgentGrants(org, agent.id, connectionId, actions))
 							}
@@ -289,31 +299,30 @@ function McpClients({
 }
 
 // What the Permissions tab says first: that the agent follows each connection's default unless it
-// has a setting of its own, how many it has, and who changes them: for the built-in agent, whoever
-// changes each connection's defaults; for another, where the person doesn't, who does.
-function permissionsIntro(agent: AgentLogin, mayChange: boolean, builtIn: boolean): string {
+// has a setting of its own, how many it has, and who changes them: for the built-in agent, anyone
+// who uses a connection, for everyone's Chat on it; for another, where the person doesn't, who does.
+function permissionsIntro(agent: AgentLogin, builtIn: boolean, setBy: string | null): string {
 	const own = agent.grants.length;
 	return [
 		`${agent.name} gets what each connection’s Default says, unless a box of its own says otherwise.`,
 		...(own > 0 ? [`It has ${own} of its own.`] : []),
 		...(builtIn
-			? ['Whoever changes a connection’s defaults changes them there.']
-			: mayChange
+			? ['Anyone who uses a connection changes them there, for everyone’s Chat on it.']
+			: setBy === null
 				? []
-				: ['Whoever made it and the organization’s owner change them.']),
+				: [`${setBy} changes them.`]),
 	].join(' ');
 }
 
 type GridProps = {
 	agent: AgentLogin;
 	connections: Connection[];
-	// Whether the person may change the agent's settings on a connection; else they see them: a
-	// shared agent's by a member who only sees it, the built-in agent's where the connection isn't
-	// theirs to change.
-	mayChange: (connection: Connection) => boolean;
-	// Whether the person may change a connection's defaults, shown beside the agent's own: the
-	// connection is theirs to change too.
-	setsDefaults: (connection: Connection) => boolean;
+	// Who may change the agent's settings, by name, where the person may not, who sees them: a
+	// shared agent's by a member who only sees it. Null where they may.
+	setBy: string | null;
+	// Who may change a connection's defaults, shown beside the agent's own, where the person may
+	// not; null where the connection is theirs to change too.
+	defaultsSetBy: (connection: Connection) => string | null;
 	onChange: (connectionId: string, actions: Record<string, boolean | null>) => Promise<void>;
 	onChangeDefaults: (connectionId: string, actions: Record<string, boolean>) => Promise<void>;
 };
@@ -326,8 +335,8 @@ type GridProps = {
 function ConnectionsAccess({
 	agent,
 	connections,
-	mayChange,
-	setsDefaults,
+	setBy,
+	defaultsSetBy,
 	onChange,
 	onChangeDefaults,
 }: GridProps) {
@@ -399,6 +408,7 @@ function ConnectionsAccess({
 				{groups.map(({connection, integration, label, own, actions}) => {
 					const open = filtering || opened.has(connection.id);
 					const grouped = actions.some((action) => action.group !== undefined);
+					const columns = [{agent, own, setBy}];
 					return (
 						<div key={connection.id} className={cn('flex flex-col', open && 'pb-8')}>
 							{/* The connection's name is the grid's heading, as tall open as folded: open, the
@@ -420,16 +430,18 @@ function ConnectionsAccess({
 									<IntegrationLogo integration={integration} />
 									<span className="min-w-0 truncate">{label}</span>
 								</span>
-								{open && !grouped && <AccessGridColumns agents={[agent]} />}
+								{open && !grouped && (
+									<AccessGridColumns agents={columns} defaultsSetBy={defaultsSetBy(connection)} />
+								)}
 							</button>
 							{open && (
 								<AccessGrid
 									actions={actions}
 									defaults={defaultActions(connection)}
-									agents={[{agent, own, mayChange: mayChange(connection)}]}
+									agents={columns}
 									unavailable={connection.unavailable}
 									signInNeeded={connection.signInNeeded}
-									mayChangeDefaults={setsDefaults(connection)}
+									defaultsSetBy={defaultsSetBy(connection)}
 									onChangeDefaults={(changes) => onChangeDefaults(connection.id, changes)}
 									onChangeAgent={(_agentId, changes) => onChange(connection.id, changes)}
 									unlinked

@@ -1,6 +1,7 @@
 import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Action, OwnSettings} from '@proxy/integrations';
-import {useState} from 'react';
+import {LockIcon} from 'lucide-react';
+import {type ReactNode, useState} from 'react';
 import {Link} from 'react-router';
 import {AgentLogo} from '@/components/brand-logo';
 import {Checkbox} from '@proxy/ui/components/checkbox';
@@ -10,8 +11,11 @@ import {cn} from '@proxy/ui/lib/utils';
 import {groupsOf} from '@/lib/access';
 import {useOrgSlug} from '@/hooks/use-org';
 
-/** An agent that reaches the connection, as a column: its own settings there, and whether the person may change them. */
-export type GridAgent = {agent: AgentLogin; own: OwnSettings; mayChange: boolean};
+/**
+ * An agent that reaches the connection, as a column: its own settings there, and who may change
+ * them, by name, where the person may not; null where they may.
+ */
+export type GridAgent = {agent: AgentLogin; own: OwnSettings; setBy: string | null};
 
 type Props = {
 	actions: Action[];
@@ -24,8 +28,8 @@ type Props = {
 	unavailable: string[];
 	// The connection has no sign-in at all yet, so none of its actions is covered.
 	signInNeeded: boolean;
-	// The defaults are the person's to set; else they see them.
-	mayChangeDefaults: boolean;
+	// Who may change the defaults, by name, where the person may not, who sees them; null where they may.
+	defaultsSetBy: string | null;
 	// Turns default actions on or off.
 	onChangeDefaults: (actions: Record<string, boolean>) => Promise<void>;
 	// Gives an agent settings of its own for actions; null returns one to the default.
@@ -67,7 +71,7 @@ export function AccessGrid({
 	agents,
 	unavailable,
 	signInNeeded,
-	mayChangeDefaults,
+	defaultsSetBy,
 	onChangeDefaults,
 	onChangeAgent,
 	unlinked = false,
@@ -75,6 +79,7 @@ export function AccessGrid({
 	all = false,
 }: Props) {
 	const org = useOrgSlug();
+	const mayChangeDefaults = defaultsSetBy === null;
 	// What a box shows while its change is saved and the page's data loaded again, by column and
 	// action.
 	const [pending, setPending] = useState<Partial<Record<string, boolean>>>({});
@@ -108,7 +113,7 @@ export function AccessGrid({
 	// Every action the sign-in allows, and the columns the person may change: the defaults where
 	// they are theirs to set, and each agent that is.
 	const available = actions.filter((action) => !isUnavailable(action.id)).map(({id}) => id);
-	const changeable = agents.filter((column) => column.mayChange);
+	const changeable = agents.filter((column) => column.setBy === null);
 	const everythingOn =
 		available.length > 0 &&
 		available.every(
@@ -177,7 +182,8 @@ export function AccessGrid({
 					<Box
 						label={`${name} by default`}
 						{...allBox(isDefault)}
-						disabled={!mayChangeDefaults || available.length === 0}
+						setBy={defaultsSetBy}
+						disabled={available.length === 0}
 						onChange={(next) =>
 							void change(
 								available.map((id) => key(DEFAULT, id)),
@@ -192,7 +198,8 @@ export function AccessGrid({
 						<Box
 							label={`${name} for ${column.agent.name}`}
 							{...allBox((id) => isOn(column, id))}
-							disabled={!column.mayChange || available.length === 0}
+							setBy={column.setBy}
+							disabled={available.length === 0}
 							onChange={(next) =>
 								void change(
 									available.map((id) => key(column.agent.id, id)),
@@ -237,7 +244,8 @@ export function AccessGrid({
 					<Box
 						label={`${action.label} by default`}
 						checked={isDefault(action.id)}
-						disabled={!mayChangeDefaults || isUnavailable(action.id)}
+						setBy={defaultsSetBy}
+						disabled={isUnavailable(action.id)}
 						onChange={(next) =>
 							void change([key(DEFAULT, action.id)], next, () =>
 								onChangeDefaults({[action.id]: next}),
@@ -251,7 +259,8 @@ export function AccessGrid({
 							label={`${action.label} for ${column.agent.name}`}
 							checked={isOn(column, action.id)}
 							own={isOwn(column, action.id)}
-							disabled={!column.mayChange || isUnavailable(action.id)}
+							setBy={column.setBy}
+							disabled={isUnavailable(action.id)}
 							onChange={(next) =>
 								void change([key(column.agent.id, action.id)], next, () =>
 									onChangeAgent(column.agent.id, {[action.id]: ownSetting(action.id, next)}),
@@ -295,12 +304,13 @@ export function AccessGrid({
 											{group.name ?? 'Action'}
 										</th>
 										<th scope="col" className={cn(BOX, HEAD, above)}>
-											Default
+											<DefaultHeading setBy={defaultsSetBy} />
 										</th>
-										{agents.map(({agent}) => (
+										{agents.map(({agent, setBy}) => (
 											<th key={agent.id} scope="col" className={cn(BOX, HEAD, above)}>
 												<AgentHeading
 													agent={agent}
+													setBy={setBy}
 													to={unlinked ? null : `/${org}/agents/${agent.id}`}
 												/>
 											</th>
@@ -324,30 +334,79 @@ export function AccessGrid({
 /**
  * The grid's column names on their own, for a page that heads an ungrouped grid itself (`headed`),
  * as an agent's page does with the connection's name: Default and each agent by name, as wide as
- * the columns under them, at the end of the heading's line, and no taller than it.
+ * the columns under them, at the end of the heading's line, and no taller than it, each with a lock
+ * where the person may not change it.
  */
-export function AccessGridColumns({agents}: {agents: AgentLogin[]}) {
+export function AccessGridColumns({
+	agents,
+	defaultsSetBy,
+}: {
+	agents: GridAgent[];
+	defaultsSetBy: string | null;
+}) {
 	return (
 		<span className="flex shrink-0 items-center text-xs">
-			<span className="w-16 px-1 text-center">Default</span>
-			{agents.map((agent) => (
+			<span className="w-16 px-1 text-center">
+				<DefaultHeading setBy={defaultsSetBy} />
+			</span>
+			{agents.map(({agent, setBy}) => (
 				<span key={agent.id} className="w-16 px-1 text-center">
-					<AgentHeading agent={agent} to={null} />
+					<AgentHeading agent={agent} setBy={setBy} to={null} />
 				</span>
 			))}
 		</span>
 	);
 }
 
+// A column's name with a lock before it where the person may not change the column, saying on
+// hover why (`says`).
+function Locked({says, children}: {says: string | null; children: ReactNode}) {
+	if (says === null) {
+		return children;
+	}
+	return (
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<span className="inline-flex max-w-full min-w-0 items-center justify-center gap-0.5" />
+				}
+			>
+				<LockIcon aria-label={says} className="size-3 shrink-0 text-muted-foreground" />
+				{children}
+			</TooltipTrigger>
+			<TooltipContent>{says}</TooltipContent>
+		</Tooltip>
+	);
+}
+
+// What the lock by Default says: only whoever shares the connection changes it, Default being what
+// every agent on it follows, theirs too.
+export const DEFAULT_LOCKED = 'Only the person sharing this connection can update the default';
+
+function DefaultHeading({setBy}: {setBy: string | null}) {
+	return <Locked says={setBy === null ? null : DEFAULT_LOCKED}>Default</Locked>;
+}
+
 // An agent's column heading: its logo over its name, a link to its page; with `to` null, on the
 // agent's own page, its name alone, the page being about nothing else.
-function AgentHeading({agent, to}: {agent: AgentLogin; to: string | null}) {
-	if (to === null) {
-		return (
-			<span title={agent.name} className="block truncate">
+function AgentHeading({
+	agent,
+	setBy,
+	to,
+}: {
+	agent: AgentLogin;
+	setBy: string | null;
+	to: string | null;
+}) {
+	const name = (
+		<Locked says={setBy === null ? null : `Set by ${setBy}`}>
+			<span title={agent.name} className="block min-w-0 truncate">
 				{agent.name}
 			</span>
-		);
+		</Locked>
+	);
+	if (to === null) {
+		return name;
 	}
 	return (
 		<Link
@@ -356,18 +415,22 @@ function AgentHeading({agent, to}: {agent: AgentLogin; to: string | null}) {
 			className="flex flex-col items-center gap-1 rounded-md outline-none hover:opacity-80 focus-visible:ring-3 focus-visible:ring-ring/50"
 		>
 			<AgentLogo providerId={agent.providerId} />
-			<span className="block w-14 truncate">{agent.name}</span>
+			<span className="block w-14">{name}</span>
 		</Link>
 	);
 }
 
 // One box of the grid, centered in its column; an agent's own setting sits on a filled square,
-// which says on hover what it does to the default.
+// which says on hover what it does to the default. A box in a column the person may not change
+// (`setBy`) reads as clearly as one they may, its state being what they came to see, and says on
+// hover who changes it; one with nothing to set (`disabled`), as an action the sign-in didn't
+// cover, is faded.
 function Box({
 	label,
 	checked,
 	indeterminate = false,
 	own = false,
+	setBy,
 	disabled,
 	onChange,
 }: {
@@ -375,19 +438,27 @@ function Box({
 	checked: boolean;
 	indeterminate?: boolean;
 	own?: boolean;
+	setBy: string | null;
 	disabled: boolean;
 	onChange: (next: boolean) => void;
 }) {
+	const locked = setBy !== null && !disabled;
 	const box = (
 		<Checkbox
 			aria-label={own ? `${label}, its own setting` : label}
 			checked={checked}
 			indeterminate={indeterminate}
 			disabled={disabled}
+			readOnly={setBy !== null}
+			className={cn(setBy !== null && 'cursor-default')}
 			onCheckedChange={(next) => onChange(next)}
 		/>
 	);
-	if (!own) {
+	const says = [
+		...(own ? [`Overwrites default to ${checked ? 'on' : 'off'}`] : []),
+		...(locked ? [`Set by ${setBy}`] : []),
+	];
+	if (says.length === 0) {
 		return <span className="inline-flex size-7 items-center justify-center">{box}</span>;
 	}
 	return (
@@ -395,14 +466,17 @@ function Box({
 			<TooltipTrigger
 				render={
 					<span
-						data-own
-						className="inline-flex size-7 items-center justify-center rounded-md bg-muted ring-1 ring-border"
+						data-own={own ? '' : undefined}
+						className={cn(
+							'inline-flex size-7 items-center justify-center',
+							own && 'rounded-md bg-muted ring-1 ring-border',
+						)}
 					/>
 				}
 			>
 				{box}
 			</TooltipTrigger>
-			<TooltipContent>Overwrites default to {checked ? 'on' : 'off'}</TooltipContent>
+			<TooltipContent>{says.join(' · ')}</TooltipContent>
 		</Tooltip>
 	);
 }

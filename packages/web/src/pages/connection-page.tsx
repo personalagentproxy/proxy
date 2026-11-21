@@ -1,5 +1,5 @@
 import type {Connection} from '@proxy/contracts/connections';
-import {ListRestartIcon, UnplugIcon} from 'lucide-react';
+import {ListRestartIcon, LockIcon, UnplugIcon} from 'lucide-react';
 import type {FetchError} from '@proxy/utils';
 import {useState} from 'react';
 import {useNavigate, useSearchParams} from 'react-router';
@@ -28,7 +28,14 @@ import {FileBrowser} from '@/components/file-browser';
 import {SandboxList} from '@/components/sandbox-list';
 import {SuccessLine} from '@/components/success-line';
 import {VaultEntries} from '@/components/vault-entries';
-import {connectionTitle, defaultActions, integrationOf, ownSettings, reaches} from '@/lib/access';
+import {
+	connectionTitle,
+	defaultActions,
+	integrationOf,
+	isBuiltInAgent,
+	ownSettings,
+	reaches,
+} from '@/lib/access';
 import {useHuman} from '@/hooks/use-human';
 import {reachedRepositories} from '@/lib/github';
 import {useLoaded} from '@/hooks/use-loaded';
@@ -36,7 +43,14 @@ import {useReload} from '@/hooks/use-reload';
 import {signInPath} from '@/lib/integrations';
 import {chosenTab, type PageTab} from '@/lib/page-tabs';
 import {describeApiError, describeFetchError} from '@/lib/loader-utils';
-import {actsAs, hasOtherPeople, manages, managesAgentOn, ownerOf} from '@/lib/orgs';
+import {
+	actsAs,
+	agentSetBy,
+	connectionSetBy,
+	hasOtherPeople,
+	manages,
+	managesAgentSettings,
+} from '@/lib/orgs';
 import type {connectionLoader} from '@/loaders';
 import {useOrgSlug} from '@/hooks/use-org';
 
@@ -80,18 +94,20 @@ function ConnectionDetail() {
 
 	// The agents that reach it, a column each of its permissions: the person's own, the shared ones
 	// where every member has it, theirs to change where the agent is, and Chat, the one the Chat
-	// page's personas all act through, theirs to change where the connection is.
+	// page's personas all act through, theirs to change on any connection they use, for everyone's
+	// Chat there. Where a column isn't theirs, it names who changes it.
 	const columns: GridAgent[] = agents
 		.filter((agent) => agent.revokedAt === null && reaches(agent, connection))
 		.map((agent) => ({
 			agent,
 			own: ownSettings(agent, connection.id),
-			mayChange: managesAgentOn(human, agent, connection),
+			setBy: managesAgentSettings(human, agent) ? null : agentSetBy(agent, members),
 		}));
 	const activeOrg = human.org;
 	// One's own connection is one's to change and share, and one shared with every member is the
 	// organization's owner's too. Anyone else it is shared with uses it as it is.
 	const mayChange = manages(human, connection);
+	const defaultsSetBy = mayChange ? null : connectionSetBy(connection, members);
 	// A vault's entries are kept here, so no provider sees anyone.
 	const actingAs = integration.native ? null : actsAs(connection, human);
 	// A vault a member made is deleted, with its entries, where another connection is disconnected.
@@ -127,11 +143,8 @@ function ConnectionDetail() {
 		{id: 'activity', label: 'Recent activity'},
 	];
 	const tab = chosenTab(tabs, searchParams);
-	const about = permissionsIntro(connection, {
-		custom: integration.custom === true,
-		mayChange,
-		owner: ownerOf(connection, human),
-	});
+	const about = permissionsIntro(connection, integration.custom === true);
+	const locked = lockedNote(defaultsSetBy, columns);
 	const removal = integration.made
 		? {
 				verb: 'Delete',
@@ -261,6 +274,14 @@ function ConnectionDetail() {
 				{tab === 'permissions' && (
 					<div className="flex flex-col gap-2">
 						<p className="text-sm text-muted-foreground">{about}</p>
+						{locked && (
+							<p className="flex items-start gap-2 text-sm text-muted-foreground">
+								<span className="flex h-5 shrink-0 items-center">
+									<LockIcon className="size-3.5" />
+								</span>
+								{locked}
+							</p>
+						)}
 						{integration.disclosure && (
 							<p className="text-sm text-muted-foreground">{integration.disclosure}</p>
 						)}
@@ -273,7 +294,7 @@ function ConnectionDetail() {
 							agents={columns}
 							unavailable={connection.unavailable}
 							signInNeeded={connection.signInNeeded}
-							mayChangeDefaults={mayChange}
+							defaultsSetBy={defaultsSetBy}
 							all
 							onChangeDefaults={async (actions) => {
 								const result = await setConnectionDefaults(org, connection.id, actions);
@@ -359,16 +380,33 @@ function describeRefreshError(error: FetchError): string {
 	return describeFetchError(error);
 }
 
-// What the Permissions tab says first: what the grid's columns are, whose agents those are, and
-// who sets the defaults.
-function permissionsIntro(
-	connection: Connection,
-	about: {custom: boolean; mayChange: boolean; owner: string},
-): string {
+// What the Permissions tab says first: what the grid's columns are, and whose agents those are.
+function permissionsIntro(connection: Connection, custom: boolean): string {
 	const whose = connection.shared ? 'The agents of everyone who uses it' : 'Your agents';
 	return [
 		`${whose} get what Default says, unless a box of the agent’s own says otherwise.`,
-		...(about.custom ? ['These are the server’s tools, as it last listed them.'] : []),
-		...(about.mayChange ? [] : [`${about.owner} sets Default.`]),
+		...(custom ? ['These are the server’s tools, as it last listed them.'] : []),
 	].join(' ');
+}
+
+// For someone a connection is shared with, who doesn't change it: who sets Default, and what they
+// set themselves, beyond Default if they like: Chat's column, which holds for everyone's Chat on
+// the connection, and their own agents'. Null where the defaults are theirs to set.
+function lockedNote(defaultsSetBy: string | null, columns: GridAgent[]): string | null {
+	if (defaultsSetBy === null) {
+		return null;
+	}
+	const sets = `${defaultsSetBy} sets Default here.`;
+	const chat = columns.some(({agent}) => isBuiltInAgent(agent));
+	const yours = columns.some(({agent, setBy}) => setBy === null && !isBuiltInAgent(agent));
+	if (chat && yours) {
+		return `${sets} You set Chat’s column, for everyone’s Chat on it, and your own agents’, beyond Default if you like.`;
+	}
+	if (chat) {
+		return `${sets} You set Chat’s column, for everyone’s Chat on it, beyond Default if you like.`;
+	}
+	if (yours) {
+		return `${sets} You set your own agents’ columns, beyond Default if you like.`;
+	}
+	return `${sets} Ask them to change what agents may do with it.`;
 }

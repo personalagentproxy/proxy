@@ -19,7 +19,7 @@ import {listMemberNames} from '@proxy/db/organization';
 import type {MemberViewer} from '@proxy/db/viewer';
 import {findAgentProvider} from '@proxy/utils/agent-providers';
 
-import {requireConnection, requireManaged, type StoredConnectionRow} from '../connections/managed';
+import {requireConnection, type StoredConnectionRow} from '../connections/managed';
 import {refuseUnavailable, unavailableActions} from '../connections/unavailable';
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
 import {parseActionChanges, requireIntegration} from '../utils/connection-actions';
@@ -179,7 +179,9 @@ export function handleShareAgentRoute(request: AuthenticatedRequest): Promise<Re
  * refused, and so is turning on one the connection's sign-in didn't cover. A shared agent reaches
  * only the connections shared with every member, so a setting on any other is refused for it. The
  * built-in agent, which every persona of the Chat page acts through as whoever talks to it, reaches
- * every connection: its settings on one are changed by whoever changes the connection's defaults.
+ * every connection: its settings on one are changed by anyone who uses the connection, and hold for
+ * everyone's Chat on it. The connection's defaults, which every agent follows, its owner's too, stay
+ * whoever's it is to change (connections/route.ts).
  */
 export function handleSetAgentGrantsRoute(request: AuthenticatedRequest): Promise<Result<AgentLogin, ApiError>> {
 	return Do(async ($) => {
@@ -196,12 +198,12 @@ export function handleSetAgentGrantsRoute(request: AuthenticatedRequest): Promis
 	});
 }
 
-// The connection the viewer may give the agent settings on: for the built-in agent, one whose
-// defaults they change; for any other, one it reaches, of an agent they change.
+// The connection the viewer may give the agent settings on: for the built-in agent, one they use;
+// for any other, one it reaches, of an agent they change.
 function requireGrantable(viewer: OrgViewer, agent: AgentRow, connectionId: string): Promise<Result<StoredConnectionRow, ApiError>> {
 	return Do(async ($) => {
 		if (isBuiltIn(agent)) {
-			return $(await requireManaged(viewer, connectionId));
+			return $(await requireConnection(viewer, connectionId));
 		}
 		if (!managesAgent(viewer, agent)) {
 			return $(Err(ApiErr.forbidden()));
