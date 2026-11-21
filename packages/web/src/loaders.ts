@@ -23,6 +23,7 @@ import {
 	FILES_INTEGRATION_ID,
 	SANDBOX_INTEGRATION_ID,
 	VAULT_INTEGRATION_ID,
+	VAULT_SECRETS_COLLECTION_ID,
 } from '@proxy/integrations';
 import {desktopChallengeSchema} from '@proxy/contracts/auth';
 import {desktopAuthLink} from '@/lib/desktop';
@@ -110,7 +111,7 @@ export const connectionLoader = later(
 		const {entries, tasks} = unwrapLoaderResult(activity);
 		const found = unwrapOrNull(connection);
 		// What a connection kept in Personal Agent Proxy holds is the first tab of its page: a vault's
-		// entries, the Sandboxes' sandboxes; null for every other connection.
+		// entries and its secrets, the Sandboxes' sandboxes; null for every other connection.
 		const kept = async (integrationId: string, collectionId: string) => {
 			if (found?.integrationId !== integrationId) {
 				return null;
@@ -161,8 +162,9 @@ export const connectionLoader = later(
 				error: shown?.isErr() ? describeApiError(shown.error) : null,
 			};
 		};
-		const [vaultEntries, sandboxes, github, files, history] = await Promise.all([
+		const [vaultEntries, vaultSecrets, sandboxes, github, files, history] = await Promise.all([
 			kept(VAULT_INTEGRATION_ID, 'entries'),
+			kept(VAULT_INTEGRATION_ID, VAULT_SECRETS_COLLECTION_ID),
 			kept(SANDBOX_INTEGRATION_ID, 'sandboxes'),
 			reached(),
 			drive(),
@@ -177,6 +179,7 @@ export const connectionLoader = later(
 			// Whom it can be shared with by name.
 			members: unwrapLoaderResult(members).members,
 			vaultEntries,
+			vaultSecrets,
 			sandboxes,
 			github,
 			files,

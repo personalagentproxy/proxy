@@ -440,9 +440,31 @@ function runParamsTool(target: RunTarget, tool: ServerTool | ApiTool, params: un
 	});
 }
 
+// What a tool answers an agent, of whatever kind: never what is never given to one, as a vault's
+// secret's value (`Field.secret`), which the person reads on the connection's page and a command
+// uses by name. Taken out here, once, so that no kind of tool answers with it.
+async function execute(run: ToolRun, params: Record<string, string>): Promise<Result<ToolResult, ApiError>> {
+	return (await executeKind(run, params)).map((answer) => withoutSecrets(run.target.collection, answer));
+}
+
+function withoutSecrets(collection: Collection, answer: ToolResult): ToolResult {
+	const hidden = collection.fields.filter((field) => field.secret).map((field) => field.key);
+	if (hidden.length === 0) {
+		return answer;
+	}
+	const hide = (record: DataRecord): DataRecord => ({...record, values: Object.fromEntries(Object.entries(record.values).filter(([key]) => !hidden.includes(key)))});
+	if ('records' in answer) {
+		return {...answer, records: answer.records.map(hide)};
+	}
+	if ('record' in answer && answer.record !== null) {
+		return {record: hide(answer.record)};
+	}
+	return answer;
+}
+
 // Only a command on values typed in runs on a collection that is only run; the catalog gives such
 // a collection no other tool, so a run of another on it is a tool it doesn't have.
-function execute(run: ToolRun, params: Record<string, string>): Promise<Result<ToolResult, ApiError>> {
+function executeKind(run: ToolRun, params: Record<string, string>): Promise<Result<ToolResult, ApiError>> {
 	const {kind} = run.tool;
 	if (kind === 'newCommand') {
 		return newCommand(run, params);

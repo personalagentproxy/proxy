@@ -45,6 +45,11 @@ const wakeSandbox = mock(async () => Ok(sandbox));
 
 mock.module('./machines', () => ({requireBackend, wakeSandbox}));
 
+type Secret = {name: string; value: string};
+const secretsFor = mock(async (): Promise<Result<{given: Secret[]; masked: Secret[]}, ApiError>> => Ok({given: [], masked: []}));
+
+mock.module('./secrets', () => ({secretsFor}));
+
 const signedIn = {agentId: 'agent-1', orgId: 'org-1', ownerUserId: 'user-1', providerId: 'claude', name: 'Claude', orgSlug: 'org-1', experiments: []};
 const caller = {agent: signedIn, via: 'mcp' as const, taskId: 'task-1'};
 const connection = {id: 'sandboxes-1'} as never;
@@ -58,6 +63,7 @@ beforeEach(() => {
 	mock.clearAllMocks();
 	sandbox.papVersion = 'v2';
 	exec.mockImplementation(async () => Ok(done));
+	secretsFor.mockImplementation(async () => Ok({given: [], masked: []}));
 	mockEnv.AUTH_SECRET = 'test-auth-secret';
 	mockEnv.APP_URL = 'https://app.example.com';
 });
@@ -76,6 +82,31 @@ describe('runSandboxCommand', () => {
 		const left = claims.expiresAt - Date.now() / 1000;
 		expect(left).toBeGreaterThan(85);
 		expect(left).toBeLessThanOrEqual(91);
+	});
+
+	test('with secrets, the command is given each by its name, and what it writes shows each by its name', async () => {
+		const key = {name: 'API_KEY', value: 'sk-test-123'};
+		secretsFor.mockImplementation(async () => Ok({given: [key], masked: [key]}));
+		exec.mockImplementation(async () => Ok({...done, stdout: 'key is sk-test-123\n'}));
+		const answer = (await run({secrets: ['API_KEY']})).unwrap();
+		expect(exec.mock.calls.at(-1)?.[1].env).toEqual({API_KEY: 'sk-test-123'});
+		expect(answer).toContain('key is [secret API_KEY]');
+		expect(answer).not.toContain('sk-test-123');
+	});
+
+	test('without secrets, the command is given none, and what it writes still shows each the agent may use by its name', async () => {
+		secretsFor.mockImplementation(async () => Ok({given: [], masked: [{name: 'API_KEY', value: 'sk-test-123'}]}));
+		exec.mockImplementation(async () => Ok({...done, stdout: 'API_KEY=sk-test-123\n'}));
+		const answer = (await run({command: 'cat env.txt'})).unwrap();
+		expect(exec.mock.calls.at(-1)?.[1].env).toBeUndefined();
+		expect(answer).toContain('API_KEY=[secret API_KEY]');
+		expect(answer).not.toContain('sk-test-123');
+	});
+
+	test('a secret no vault lets the agent use fails the call, and nothing is run', async () => {
+		secretsFor.mockImplementation(async () => Err(ApiErr.validationError('No vault lets you use its secrets')));
+		expect((await run({secrets: ['API_KEY']})).isErr()).toBe(true);
+		expect(exec).not.toHaveBeenCalled();
 	});
 
 	test('without pap, no environment at all', async () => {

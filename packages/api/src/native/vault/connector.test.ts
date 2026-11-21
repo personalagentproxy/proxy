@@ -1,6 +1,7 @@
 import {beforeEach, describe, expect, mock, test} from 'bun:test';
-import {Ok} from 'ts-results-es';
+import {Ok, type Result} from 'ts-results-es';
 
+import type {ApiError} from '@proxy/utils';
 import {findCollection, findIntegration, type Collection} from '@proxy/integrations';
 
 mock.module('../../utils/env', () => ({env: {ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64')}}));
@@ -124,5 +125,50 @@ describe('vaultConnector', () => {
 		const result = await vaultConnector.get(target, 'rec-1');
 
 		expect(result.unwrapErr().kind).toBe('internal_error');
+	});
+});
+
+describe('a vault’s secrets', () => {
+	function secrets(): Collection {
+		const integration = findIntegration('vault');
+		const found = integration && findCollection(integration, 'secrets');
+		if (!found) {
+			throw new Error('No secrets collection');
+		}
+		return found;
+	}
+
+	test('keep a value without the spaces and line breaks pasted around it, and refuse one that is only those', async () => {
+		const {vaultConnector} = await import('./connector');
+		const kept = {...target, collection: secrets()};
+		listVaultEntries.mockResolvedValue(Ok([]));
+
+		const created = await vaultConnector.create(kept, {name: 'API_KEY', value: '  sk-test-123 \n', note: ''});
+		expect(created.unwrap().values).toEqual({name: 'API_KEY', value: 'sk-test-123', note: ''});
+		expect((await vaultConnector.create(kept, {name: 'API_KEY', value: ' \n', note: ''})).unwrapErr().kind).toBe('validation_error');
+	});
+
+	test('refuse a name another secret of the vault has, as they are written, and let a secret keep its own', async () => {
+		const {vaultConnector, encryptValues} = await import('./connector');
+		const kept = {...target, collection: secrets()};
+		const others = [{id: 'rec-2', values: encryptValues({name: 'API_KEY', value: 'sk-other', note: ''}).unwrap(), updatedAt}];
+		createVaultEntry.mockImplementation((_collection: unknown, values: string, check?: (rows: typeof others) => Result<void, ApiError>) =>
+			Promise.resolve(check ? check(others).map(() => ({id: 'rec-1', values, updatedAt})) : Ok({id: 'rec-1', values, updatedAt})),
+		);
+
+		expect((await vaultConnector.create(kept, {name: 'API_KEY', value: 'sk-new', note: ''})).unwrapErr().kind).toBe('conflict');
+		expect((await vaultConnector.create(kept, {name: 'OTHER_KEY', value: 'sk-new', note: ''})).isOk()).toBe(true);
+	});
+
+	test('are listed for a command without those that can’t be read', async () => {
+		const {listSecrets, encryptValues} = await import('./connector');
+		listVaultEntries.mockResolvedValue(
+			Ok([
+				{id: 'rec-1', values: encryptValues({name: 'API_KEY', value: 'sk-one', note: ''}).unwrap(), updatedAt},
+				{id: 'rec-2', values: 'v1.not.encrypted.here', updatedAt},
+			]),
+		);
+
+		expect((await listSecrets('vault-1')).unwrap()).toEqual([{name: 'API_KEY', value: 'sk-one'}]);
 	});
 });

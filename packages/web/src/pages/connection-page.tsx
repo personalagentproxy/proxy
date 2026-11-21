@@ -28,6 +28,7 @@ import {FileBrowser} from '@/components/file-browser';
 import {SandboxList} from '@/components/sandbox-list';
 import {SuccessLine} from '@/components/success-line';
 import {VaultEntries} from '@/components/vault-entries';
+import {VaultSecrets} from '@/components/vault-secrets';
 import {connectionTitle, defaultActions, integrationOf, ownSettings, reaches} from '@/lib/access';
 import {useHuman} from '@/hooks/use-human';
 import {reachedRepositories} from '@/lib/github';
@@ -58,6 +59,7 @@ function ConnectionDetail() {
 		tasks,
 		members,
 		vaultEntries,
+		vaultSecrets,
 		sandboxes,
 		github,
 		files,
@@ -72,6 +74,8 @@ function ConnectionDetail() {
 	const [refreshing, setRefreshing] = useState(false);
 	const [replacingKey, setReplacingKey] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	// Where the shown part puts its own buttons, on the tabs' row.
+	const [toolbar, setToolbar] = useState<HTMLElement | null>(null);
 	const human = useHuman();
 	const integration = connection && integrationOf(connection);
 	if (!connection || !integration || !human) {
@@ -102,6 +106,7 @@ function ConnectionDetail() {
 	const tabs: Array<
 		PageTab<
 			| 'entries'
+			| 'secrets'
 			| 'sandboxes'
 			| 'files'
 			| 'repositories'
@@ -114,6 +119,9 @@ function ConnectionDetail() {
 		...(vaultEntries === null
 			? []
 			: [{id: 'entries' as const, label: 'Entries', count: vaultEntries.length}]),
+		...(vaultSecrets === null
+			? []
+			: [{id: 'secrets' as const, label: 'Secrets', count: vaultSecrets.length}]),
 		...(sandboxes === null
 			? []
 			: [{id: 'sandboxes' as const, label: 'Sandboxes', count: sandboxes.length}]),
@@ -229,7 +237,7 @@ function ConnectionDetail() {
 						}}
 					/>
 				)}
-				<PageTabs tabs={tabs} chosen={tab} label="Connection" />
+				<PageTabs tabs={tabs} chosen={tab} label="Connection" toolbar={setToolbar} />
 				{tab === 'entries' && vaultEntries !== null && (
 					<VaultEntries
 						connectionId={connection.id}
@@ -237,12 +245,16 @@ function ConnectionDetail() {
 						made={!connection.builtIn}
 					/>
 				)}
+				{tab === 'secrets' && vaultSecrets !== null && (
+					<VaultSecrets connectionId={connection.id} secrets={vaultSecrets} />
+				)}
 				{tab === 'sandboxes' && sandboxes !== null && (
 					<SandboxList connectionId={connection.id} sandboxes={sandboxes} />
 				)}
 				{tab === 'files' && files !== null && (
 					<FileBrowser
 						connectionId={connection.id}
+						toolbar={toolbar}
 						place={files.place}
 						list={files.list}
 						shown={files.shown}
