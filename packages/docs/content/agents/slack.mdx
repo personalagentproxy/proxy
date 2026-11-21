@@ -71,7 +71,9 @@ answers you in that Slack thread.
 A thread that began in Slack lives there: it isn't among your tasks on the Chat page, and you read
 it and reply in it in Slack alone, as a task you start in the app stays in the app. An agent in any of your threads can still
 find it through your [Chat connection](/connections/chat), which says it is in Slack and links to
-it there, and so does an alert set in it on the **Alerts** page.
+it there, and can mark it done or archive it when you ask; an alert set in it links to it there on
+the **Alerts** page too. The agent of a Slack thread knows it is in Slack: it writes for Slack, and
+links to a file rather than showing it.
 
 ### Confirming who you are
 
@@ -131,7 +133,10 @@ page shows a task with a word over it:
   ready for your next message.
 
 The status changes once what the agent wrote is posted, not before, and follows the thread as it
-changes: your reply, or an alert that fires in it, sets it working again.
+changes: your reply, or an alert that fires in it, sets it working again. Marked done or archived
+by an agent through your Chat connection, as when you write "archive all of my threads" in another
+Slack thread, a thread no longer needs you, and Slack shows it ready. Slack can't hide a thread, so
+an archived one stays in the conversation, and a reply in it brings it back, as one in the app does.
 
 Slack lists the thread under a title. It starts as the first line of the message that opened it;
 a moment later, once the agent has named the thread in a few words, as it names every task, Slack's
@@ -144,8 +149,8 @@ works the same, and Personal Agent Proxy tries again a day later in case they we
 ### What isn't there yet
 
 Only direct messages: the agent can't be mentioned in channels or added to group messages. Files
-don't go either way. A thread can't be marked done from Slack, and Slack's button to stop an agent
-at work isn't offered. A thread stays where it began: a task you start in the app doesn't appear in
+don't go either way. Slack has no button to mark a thread done, though an agent in any of your
+threads does it when you ask, and Slack's button to stop an agent at work isn't offered. A thread stays where it began: a task you start in the app doesn't appear in
 Slack, and a thread that began in Slack doesn't appear in the app.
 
 ## Updating it

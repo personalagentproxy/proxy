@@ -161,13 +161,18 @@ const draft = {
 };
 
 const archive = mock();
+const markDone = mock();
+const unarchive = mock();
 const send = mock();
 const sendNew = mock();
 const read = mock();
 const sendReply = mock();
-const connector = {list: mock(), get: mock(), create: mock(), update: mock(), remove: mock(), commands: {archive, send}, newCommands: {sendNew, read, send: sendReply}};
+const connector = {list: mock(), get: mock(), create: mock(), update: mock(), remove: mock(), commands: {archive, send, markDone, unarchive}, newCommands: {sendNew, read, send: sendReply}};
 
-function useConnection(connection: typeof vaultConnection | typeof emailConnection | typeof notionConnection | typeof googleConnection) {
+// A member's Chat, which no agent may do anything with by default.
+const chatConnection = {...vaultConnection, id: 'chat-1', integrationId: 'chat', account: 'Acme', defaults: []};
+
+function useConnection(connection: typeof vaultConnection | typeof emailConnection | typeof notionConnection | typeof googleConnection | typeof chatConnection) {
 	loadConnection.mockResolvedValue(Ok({connection, integration: integration(connection.integrationId)}));
 }
 
@@ -583,6 +588,64 @@ describe('runAgentTool', () => {
 		connector.list.mockResolvedValue(Err(ApiErr.credentialsRejected()));
 		const failedUnlogged = await runAgentTool(caller, 'mail-1', 'emails_list', {});
 		expect(failedUnlogged.unwrapErr().kind).toBe('db_error');
+	});
+});
+
+describe('where a thread stands, through the Chat connection', () => {
+	const thread = (standing: string, place = 'Slack') => ({id: 'thread-2', values: {title: 'Pricing review with Dana', standing, place}, updatedAt: '2026-10-01T00:00:00.000Z'});
+	const builtIn = (actions: string[]) => ({...agent, providerId: 'proxy', grants: actions.map((actionId) => ({connectionId: 'chat-1', actionId, allowed: true}))});
+
+	beforeEach(() => {
+		useConnection(chatConnection);
+		getAgentById.mockResolvedValue(Ok(builtIn(['readThreads', 'markThreads'])));
+		connector.get.mockResolvedValue(Ok(thread('Waiting for you')));
+	});
+
+	test('is marked done, archived and brought back by the connector, each logged with the thread’s title, a thread in Slack as one in Chat', async () => {
+		const {runAgentTool} = await import('./tools');
+		markDone.mockResolvedValue(Ok(thread('Done')));
+		archive.mockResolvedValue(Ok(thread('Archived')));
+		unarchive.mockResolvedValue(Ok(thread('Done', 'Chat')));
+
+		expect((await runAgentTool(caller, 'chat-1', 'threads_mark_done', {id: 'thread-2'})).unwrap()).toEqual({record: thread('Done')});
+		expect((await runAgentTool(caller, 'chat-1', 'threads_archive', {id: 'thread-2'})).unwrap()).toEqual({record: thread('Archived')});
+		connector.get.mockResolvedValue(Ok(thread('Archived', 'Chat')));
+		expect((await runAgentTool(caller, 'chat-1', 'threads_unarchive', {id: 'thread-2'})).unwrap()).toEqual({record: thread('Done', 'Chat')});
+
+		expect(markDone.mock.calls[0]?.[1]).toBe('thread-2');
+		expect(logAgentRequest.mock.calls.map(([logged]) => [logged.connectionId, logged.collectionId, logged.action, logged.recordTitle, logged.outcome])).toEqual([
+			['chat-1', 'threads', 'markDone', 'Pricing review with Dana', 'allowed'],
+			['chat-1', 'threads', 'archive', 'Pricing review with Dana', 'allowed'],
+			['chat-1', 'threads', 'unarchive', 'Pricing review with Dana', 'allowed'],
+		]);
+	});
+
+	test('is refused without Mark done and archive, and logged as denied', async () => {
+		const {runAgentTool} = await import('./tools');
+		getAgentById.mockResolvedValue(Ok(builtIn(['readThreads'])));
+
+		expect((await runAgentTool(caller, 'chat-1', 'threads_archive', {id: 'thread-2'})).unwrapErr().kind).toBe('forbidden');
+		expect(archive).not.toHaveBeenCalled();
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({collectionId: 'threads', action: 'archive', outcome: 'denied'});
+	});
+
+	test('is not changed for a thread in progress, nor archived while watching, nor brought back unless archived, nor for one that isn’t the member’s', async () => {
+		const {runAgentTool} = await import('./tools');
+		connector.get.mockResolvedValue(Ok(thread('In progress')));
+
+		expect((await runAgentTool(caller, 'chat-1', 'threads_archive', {id: 'thread-2'})).unwrapErr()).toMatchObject({kind: 'validation_error', message: expect.stringContaining('Waiting for you')});
+		expect((await runAgentTool(caller, 'chat-1', 'threads_mark_done', {id: 'thread-2'})).unwrapErr().kind).toBe('validation_error');
+		connector.get.mockResolvedValue(Ok(thread('Watching')));
+		expect((await runAgentTool(caller, 'chat-1', 'threads_archive', {id: 'thread-2'})).unwrapErr().kind).toBe('validation_error');
+		connector.get.mockResolvedValue(Ok(thread('Done')));
+		expect((await runAgentTool(caller, 'chat-1', 'threads_unarchive', {id: 'thread-2'})).unwrapErr().kind).toBe('validation_error');
+		expect(archive).not.toHaveBeenCalled();
+		expect(markDone).not.toHaveBeenCalled();
+		expect(unarchive).not.toHaveBeenCalled();
+
+		connector.get.mockResolvedValue(Err(ApiErr.notFound('record', 'thread-9')));
+		expect((await runAgentTool(caller, 'chat-1', 'threads_mark_done', {id: 'thread-9'})).unwrapErr().kind).toBe('not_found');
+		expect(markDone).not.toHaveBeenCalled();
 	});
 });
 

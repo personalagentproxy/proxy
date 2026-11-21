@@ -6,13 +6,20 @@ import {readyForInference} from '@proxy/utils/harness';
 
 import {db} from '.';
 import {completeSetAlert, fireAlert, listMemberAlerts} from './alerts';
-import {getOrgSlug, getThreadAddress, listMemberThreads} from './chat';
+import {
+	getOrgSlug,
+	getThreadAddress,
+	isSlackThread,
+	listMemberThreads,
+	listRecentMemberThreads,
+} from './chat';
 import {createStarterConnections} from './organization';
 import {
 	appendEntry,
 	archiveThread,
 	renameThread,
 	appendTurnEntries,
+	changeMemberThreadStanding,
 	completeInference,
 	createPersona,
 	ensureMemberChat,
@@ -1070,6 +1077,152 @@ describe.skipIf(!databaseUrl)('a chat’s threads, against the database', () => 
 		await db.slackApp.delete({where: {id: app.id}});
 		await db.slackWorkspace.delete({where: {id: workspace.id}});
 		await db.agentThread.deleteMany({where: {id: {in: [thread.id, subAgent.id, inApp.id]}}});
+	});
+
+	test('the member’s Chat connection changes where any of their threads stands, in the app or in Slack, once it and its sub-agents have stopped, and archives none an alert still comes to', async () => {
+		const member = {orgId, userId};
+		const waiting = await open('Standing: pricing review with Dana');
+		await answer(waiting, 'worker-ms1', 'Which day suits Dana?');
+		unwrap(
+			await writeThreadStanding(
+				waiting.id,
+				{summary: 'Asks which day suits Dana.', waitingForMember: true},
+				await lastSeq(waiting),
+			),
+		);
+		const working = await open('Standing: book the train to Lyon');
+		const standing = async (thread: ThreadRow) =>
+			db.agentThread.findUniqueOrThrow({
+				where: {id: thread.id},
+				select: {waitingForMember: true, archived: true},
+			});
+
+		// One at work is refused, whatever is asked.
+		for (const change of ['done', 'archive', 'unarchive'] as const) {
+			expect(unwrap(await changeMemberThreadStanding(member, working.id, change))).toBe(
+				'in_progress',
+			);
+		}
+		expect(await standing(working)).toEqual({waitingForMember: false, archived: false});
+
+		// Marked done, its alerts kept, so it is watching.
+		const alert = await db.agentAlert.create({
+			data: {
+				orgId,
+				userId,
+				chatId: chat.id,
+				threadId: waiting.id,
+				setInThreadId: waiting.id,
+				title: 'Dana’s answer',
+				brief: 'See whether Dana answered.',
+				at: new Date(Date.now() + 60 * 60 * 1000),
+				nextAt: new Date(Date.now() + 60 * 60 * 1000),
+			},
+		});
+		expect(unwrap(await changeMemberThreadStanding(member, waiting.id, 'done'))).toBe('changed');
+		expect(await standing(waiting)).toEqual({waitingForMember: false, archived: false});
+		expect(await db.agentAlert.count({where: {id: alert.id}})).toBe(1);
+
+		// Not archived while the alert still comes to it; once it is cancelled, archived, and
+		// brought back.
+		expect(unwrap(await changeMemberThreadStanding(member, waiting.id, 'archive'))).toBe(
+			'watching',
+		);
+		expect((await standing(waiting)).archived).toBe(false);
+		await db.agentAlert.delete({where: {id: alert.id}});
+		expect(unwrap(await changeMemberThreadStanding(member, waiting.id, 'archive'))).toBe('changed');
+		expect((await standing(waiting)).archived).toBe(true);
+		expect(unwrap(await changeMemberThreadStanding(member, waiting.id, 'unarchive'))).toBe(
+			'changed',
+		);
+		expect((await standing(waiting)).archived).toBe(false);
+
+		// While a sub-agent of its is at work, it is in progress too; the sub-agent is no thread of
+		// the member's.
+		const subAgent = await db.agentThread.create({
+			data: {
+				orgId,
+				agentId,
+				personaId: chat.personaId,
+				userId,
+				parentThreadId: chat.id,
+				subAgentOfId: waiting.id,
+				parentCallId: 'call-ms1',
+				title: 'Dana’s calendar',
+			},
+		});
+		const subJob = await db.agentJob.create({data: {threadId: subAgent.id, kind: 'inference'}});
+		expect(unwrap(await changeMemberThreadStanding(member, waiting.id, 'archive'))).toBe(
+			'in_progress',
+		);
+		expect(unwrap(await changeMemberThreadStanding(member, subAgent.id, 'done'))).toBeNull();
+		await db.agentJob.update({where: {id: subJob.id}, data: {status: 'done'}});
+
+		// Nobody else’s, no chat, and nothing that isn’t there.
+		expect(
+			unwrap(await changeMemberThreadStanding({orgId, userId: 'someone-else'}, waiting.id, 'done')),
+		).toBeNull();
+		expect(unwrap(await changeMemberThreadStanding(member, chat.id, 'done'))).toBeNull();
+		expect(unwrap(await changeMemberThreadStanding(member, 'no-such-thread', 'done'))).toBeNull();
+
+		// A thread in Slack, which the app can’t write to, is archived here as any is.
+		const inSlack = await open('Standing: plan the offsite in Lisbon');
+		const workspace = await db.slackWorkspace.create({
+			data: {
+				orgId,
+				teamId: `T-ms-${stamp}`,
+				name: 'Northwind',
+				slackUserId: 'U00',
+				credential: 'sealed',
+				expiresAt: new Date(),
+				rotateAt: new Date(),
+			},
+		});
+		const app = await db.slackApp.create({
+			data: {
+				orgId,
+				personaId: chat.personaId,
+				workspaceId: workspace.id,
+				manifestVersion: 1,
+				manifestName: 'Finance',
+			},
+		});
+		await db.slackThreadPlace.create({
+			data: {appId: app.id, channel: 'D01', rootTs: '1800000000.000200', threadId: inSlack.id},
+		});
+		await answer(inSlack, 'worker-ms2', 'Three hotels near the river.');
+		expect(unwrap(await isSlackThread(inSlack.id))).toBe(true);
+		expect(unwrap(await isSlackThread(waiting.id))).toBe(false);
+		expect(unwrap(await archiveThread(chat.id, inSlack.id))).toBe(false);
+		expect(unwrap(await changeMemberThreadStanding(member, inSlack.id, 'archive'))).toBe('changed');
+		expect((await standing(inSlack)).archived).toBe(true);
+		unwrap(await changeMemberThreadStanding(member, inSlack.id, 'unarchive'));
+
+		// What a thread's agent is told of the others: the latest first, by what was last said in
+		// each, wherever each lives, but itself, those archived and sub-agents'.
+		await answer(working, 'worker-ms3', 'Booked the 9:04.');
+		const recent = async (take: number) =>
+			unwrap(await listRecentMemberThreads(member, waiting.id, take)).map((one) => one.id);
+		expect(await recent(2)).toEqual([working.id, inSlack.id]);
+		const lines = unwrap(await listRecentMemberThreads(member, waiting.id, 2));
+		expect(lines[1]).toMatchObject({
+			title: 'Standing: plan the offsite in Lisbon',
+			personaName: 'Finance',
+			slack: {teamId: `T-ms-${stamp}`, channel: 'D01', rootTs: '1800000000.000200'},
+			state: {kind: 'stopped'},
+		});
+		unwrap(await changeMemberThreadStanding(member, inSlack.id, 'archive'));
+		const all = await recent(100);
+		expect(all[0]).toBe(working.id);
+		for (const left of [waiting.id, inSlack.id, subAgent.id, chat.id]) {
+			expect(all).not.toContain(left);
+		}
+
+		await db.slackApp.delete({where: {id: app.id}});
+		await db.slackWorkspace.delete({where: {id: workspace.id}});
+		await db.agentThread.deleteMany({
+			where: {id: {in: [waiting.id, working.id, inSlack.id, subAgent.id]}},
+		});
 	});
 
 	test('a member’s Chat connection, made with their membership, is given to the organization’s built-in agent alone', async () => {

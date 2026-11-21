@@ -72,6 +72,9 @@ export function fakeStore(): FakeStore {
 		messageSubAgentInline: mock<HarnessStore['messageSubAgentInline']>(),
 		tellParentInline: mock<HarnessStore['tellParentInline']>(),
 		completeDismiss: mock<HarnessStore['completeDismiss']>(),
+		// A thread in the app, and no other threads of the member's, unless a test gives them.
+		isSlackThread: mock<HarnessStore['isSlackThread']>(async () => Ok(false)),
+		listRecentThreads: mock<HarnessStore['listRecentThreads']>(async () => Ok([])),
 		// No time zone set, unless a test gives one.
 		getUserTimeZone: mock<HarnessStore['getUserTimeZone']>(async () => Ok(null)),
 		deleteAlert: mock<HarnessStore['deleteAlert']>(),

@@ -39,6 +39,7 @@ import type {TranscriptKey, TranscriptLine} from '@proxy/db/harness-transcript';
 import {type AgentTaskRow, createAgentTask, getAgentTask, type NewAgentTask} from '@proxy/db/task';
 import type {SignedInAgent} from '@proxy/db/agent';
 import {getUserTimeZone} from '@proxy/db/user';
+import {isSlackThread, listRecentMemberThreads, type MemberThreadRow} from '@proxy/db/chat';
 import {listMemberNames} from '@proxy/db/organization';
 
 /**
@@ -149,6 +150,10 @@ export type HarnessStore = {
 	/** What a sub-agent says mid-turn to the thread it works for; false where the job is no longer the worker's. */
 	tellParentInline: (job: InlineJob, said: SaidToParent) => Promise<Result<boolean, ApiError>>;
 	completeDismiss: (job: {jobId: string; workerId: string; threadId: string; callId: string}, answer: (dismissed: boolean) => {text: string; isError: boolean}) => Promise<Result<boolean, ApiError>>;
+	/** Whether the thread lives in Slack rather than in the app. */
+	isSlackThread: (threadId: string) => Promise<Result<boolean, ApiError>>;
+	/** The member's `take` latest threads with any persona, wherever each lives, but `threadId`, those they archived and sub-agents', as their Chat connection lists them. */
+	listRecentThreads: (member: {orgId: string; userId: string}, threadId: string, take: number) => Promise<Result<MemberThreadRow[], ApiError>>;
 	/** The member's time zone, an IANA name; null where they have none set. */
 	getUserTimeZone: (userId: string) => Promise<Result<string | null, ApiError>>;
 	deleteAlert: (alertId: string, owner: {orgId: string; userId: string}) => Promise<Result<boolean, ApiError>>;
@@ -240,6 +245,8 @@ export const harnessStore: HarnessStore = {
 	messageSubAgentInline: (job, subAgentId, entry) => harness.messageSubAgentInline(job, subAgentId, entry, readyForInference),
 	tellParentInline: (job, said) => harness.tellParentInline(job, said, readyForInference),
 	completeDismiss: (job, answer) => harness.completeDismiss(job, answer, readyForInference),
+	isSlackThread,
+	listRecentThreads: listRecentMemberThreads,
 	getUserTimeZone,
 	deleteAlert: alerts.deleteAlert,
 	listMemberAlerts: alerts.listMemberAlerts,

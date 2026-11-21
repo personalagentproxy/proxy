@@ -14,14 +14,15 @@ import {isTokenGone} from './slack-errors';
  * The status a thread comes to, by where it stands (harness/thread-standing.ts `standingOf`):
  * `processing` while it is in progress, its agent at work or asleep until it wakes, and while any
  * of its sub-agents still works, though its own turn ended, which Slack shows as its working
- * indicator; `suspended` where it waits for the member, as the app says `Waiting for you`;
- * otherwise `active`, done or watching for alerts alike, ready for the member's next message.
+ * indicator; `suspended` where it waits for the member, as the app says `Waiting for you`, unless
+ * they archived it, putting it away, which Slack can't do to a thread; otherwise `active`, done,
+ * watching for alerts or archived alike, ready for the member's next message.
  */
-export function sessionStatusOf(standing: ThreadStanding, subAgentsAtWork: boolean): SessionStatus {
-	if (standing === 'in_progress' || subAgentsAtWork) {
+export function sessionStatusOf(standing: ThreadStanding, thread: {subAgentsAtWork: boolean; archived: boolean}): SessionStatus {
+	if (standing === 'in_progress' || thread.subAgentsAtWork) {
 		return 'processing';
 	}
-	if (standing === 'waiting') {
+	if (standing === 'waiting' && !thread.archived) {
 		return 'suspended';
 	}
 	return 'active';

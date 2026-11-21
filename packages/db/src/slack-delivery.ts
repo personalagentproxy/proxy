@@ -49,7 +49,7 @@ export type SlackDelivery = SlackSessionPlace & {
  * again: where none was set; where it was set `processing` more than `renewMs` ago, or neither the
  * thread nor any of its sub-agents has a job still to run or running; where it was set otherwise
  * and either has one now, or it is `suspended` and the thread no longer waits for the member, or
- * the other way round; and where the thread's title is no longer the one the session was given.
+ * was archived, or the other way round; and where the thread's title is no longer the one the session was given.
  * What it is then set to is the api's (slack/sessions.ts), by where the thread stands; this only
  * says when that may have changed. Most of what changes it writes an entry in the thread, which
  * the first condition finds. With nothing to do anywhere it is, per place, one probe of the
@@ -101,7 +101,7 @@ export async function claimSlackDeliveries(
 								OR (
 									p."sessionStatus" <> 'processing'
 									AND (
-										(p."sessionStatus" = 'suspended') <> t."waitingForMember"
+										(p."sessionStatus" = 'suspended') <> (t."waitingForMember" AND NOT t."archived")
 										OR EXISTS (
 											SELECT 1 FROM "AgentJob" AS j
 											WHERE j."threadId" = p."threadId" AND j."status" IN ('queued', 'running')

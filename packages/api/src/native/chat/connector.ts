@@ -4,14 +4,14 @@ import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
 import {CHAT_PLACES, CHAT_STANDINGS} from '@proxy/integrations';
 import {deleteAlert, listMemberAlerts, type MemberAlertRow} from '@proxy/db/alerts';
 import {getOrgSlug, getThreadAddress, listMemberThreads, type MemberThreadRow, type ThreadStandingFilter} from '@proxy/db/chat';
-import {getMemberThread, type SlackThreadRow} from '@proxy/db/harness';
+import {changeMemberThreadStanding, getMemberThread, type SlackThreadRow, type StandingChange} from '@proxy/db/harness';
 
 import {alertComes} from '../../harness/alerts';
 import {SHOWN_CALLS} from '../../harness/thread-rules';
 import {standingOf, threadLines} from '../../harness/thread-standing';
 import {requireAppUrl} from '../../oauth/oauth-config';
 import {slackThreadUrl} from '../../slack/thread-link';
-import {requireFirstPage, type DataRecord, type ListQuery, type RecordStore, type RecordTarget} from '../../records/connector';
+import {type CommandRunner, requireFirstPage, type DataRecord, type ListQuery, type RecordStore, type RecordTarget} from '../../records/connector';
 
 /**
  * Chat's collections: a member's own threads with their agents, whichever persona each is with,
@@ -20,7 +20,9 @@ import {requireFirstPage, type DataRecord, type ListQuery, type RecordStore, typ
  * is its row: its title, whom it is with, where it lives, where it stands and, while current, the
  * sentence that says so; opened, it carries what was said in it too, as the member sees it. Its
  * url is where it lives, its page in Chat or its thread in Slack, which is where the person goes on
- * with it: nothing here writes to a thread.
+ * with it. Where it stands is changed by its commands, as the member changes it on the Chat page,
+ * on any of their threads wherever it lives; for one in Slack its session's status there follows,
+ * as the delivery sweep keeps it (slack/sessions.ts).
  */
 
 // How many threads a page of the list holds.
@@ -90,6 +92,21 @@ function summary({standing: {summary: sentence, summarySeq}, last}: Pick<MemberT
 	return sentence;
 }
 
+// Where the thread lives, as its record says it.
+function place(thread: Pick<MemberThreadRow, 'slack'>): string {
+	return thread.slack === null ? CHAT_PLACES.chat : CHAT_PLACES.slack;
+}
+
+/**
+ * The thread in a line, in its record's words, as a thread's agent is told of the person's other
+ * threads (harness/inference.ts): its id, title, whom it is with, where it lives, where it stands
+ * and, while current, its summary.
+ */
+export function threadLine(thread: MemberThreadRow): string {
+	const said = summary(thread);
+	return `${thread.id}: “${thread.title ?? ''}” with ${thread.personaName}, in ${place(thread)}, ${standing(thread)}${said === '' ? '' : `: ${said}`}`;
+}
+
 function threadRecord(thread: MemberThreadRow, messages: string, url: string): DataRecord {
 	const lastAt = (thread.last?.createdAt ?? thread.createdAt).toISOString();
 	return {
@@ -97,7 +114,7 @@ function threadRecord(thread: MemberThreadRow, messages: string, url: string): D
 		values: {
 			title: thread.title ?? '',
 			agent: thread.personaName,
-			place: thread.slack === null ? CHAT_PLACES.chat : CHAT_PLACES.slack,
+			place: place(thread),
 			standing: standing(thread),
 			summary: summary(thread),
 			lastMessageAt: lastAt,
@@ -106,6 +123,37 @@ function threadRecord(thread: MemberThreadRow, messages: string, url: string): D
 		updatedAt: lastAt,
 		url,
 	};
+}
+
+function getThread(target: RecordTarget, recordId: string): Promise<Result<DataRecord, ApiError>> {
+	return Do(async ($) => {
+		const appUrl = $(requireAppUrl());
+		const missing = ApiErr.notFound('record', recordId);
+		const thread = $(requirePresent($(await getMemberThread(memberOf(target), recordId, SHOWN_CALLS)), missing));
+		const address = $(requirePresent($(await getThreadAddress(thread)), missing));
+		const row: MemberThreadRow = {...thread, personaName: address.personaName, slack: address.slack, last: thread.entries.at(-1) ?? null};
+		return threadRecord(row, threadLines(thread, Number.POSITIVE_INFINITY).join('\n\n'), threadUrl(appUrl, address.orgSlug, row));
+	});
+}
+
+// Changes where the thread stands, and answers with it as it is then. One in progress, or watching
+// for one to archive, is refused here too, though the catalog's condition refused it as it was
+// read, since it may have been taken up since.
+function standingCommand(change: StandingChange): CommandRunner {
+	return (target, recordId) =>
+		Do(async ($) => {
+			const changed = $(await changeMemberThreadStanding(memberOf(target), recordId, change));
+			if (changed === null) {
+				return $(Err(ApiErr.notFound('record', recordId)));
+			}
+			if (changed === 'in_progress') {
+				return $(Err(ApiErr.validationError(`That thread is ${CHAT_STANDINGS.in_progress.toLowerCase()}, or its sub-agents are at work: where it stands is written as its turn ends`)));
+			}
+			if (changed === 'watching') {
+				return $(Err(ApiErr.validationError(`That thread is ${CHAT_STANDINGS.watching}: archiving it would cancel the alerts that come to it, so ask the person, and cancel them first`)));
+			}
+			return $(await getThread(target, recordId));
+		});
 }
 
 export const threadsConnector = {
@@ -128,15 +176,8 @@ export const threadsConnector = {
 				nextPage: threads.length > PAGE_SIZE ? String(start + PAGE_SIZE) : null,
 			};
 		}),
-	get: (target, recordId) =>
-		Do(async ($) => {
-			const appUrl = $(requireAppUrl());
-			const missing = ApiErr.notFound('record', recordId);
-			const thread = $(requirePresent($(await getMemberThread(memberOf(target), recordId, SHOWN_CALLS)), missing));
-			const address = $(requirePresent($(await getThreadAddress(thread)), missing));
-			const row: MemberThreadRow = {...thread, personaName: address.personaName, slack: address.slack, last: thread.entries.at(-1) ?? null};
-			return threadRecord(row, threadLines(thread, Number.POSITIVE_INFINITY).join('\n\n'), threadUrl(appUrl, address.orgSlug, row));
-		}),
+	get: getThread,
+	commands: {markDone: standingCommand('done'), archive: standingCommand('archive'), unarchive: standingCommand('unarchive')},
 } satisfies RecordStore;
 
 function alertRecord(alert: MemberAlertRow, url: string): DataRecord {

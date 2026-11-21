@@ -68,7 +68,7 @@ describe('handleAcceptInvitationRoute', () => {
 			orgName: 'Acme',
 			connections: [
 				{integrationId: 'vault', defaults: ['readEntries', 'writeEntries']},
-				{integrationId: 'chat', defaults: [], builtInGrants: ['readThreads', 'readAlerts', 'cancelAlerts']},
+				{integrationId: 'chat', defaults: [], builtInGrants: ['readThreads', 'markThreads', 'readAlerts', 'cancelAlerts']},
 				{integrationId: 'files', defaults: ['readFiles', 'createFiles', 'editFiles', 'trashFiles']},
 			],
 		});

@@ -4,14 +4,16 @@ import {Err, Ok} from 'ts-results-es';
 import type {HarnessBackend, HarnessEvent, ToolSurface} from '@proxy/backends/harness/backend';
 import {fakeHarness, fakeToolSurface} from '@proxy/backends/harness/fake';
 import {ApiErr} from '@proxy/utils';
+import type {SignedInAgent} from '@proxy/db/agent';
 import type {JobRow, ThreadRow} from '@proxy/db/harness';
 
 import type {ClaudeCredentials, Harnesses} from '../backends/harness';
 import type {askForTurn as askForTurnOverRouter} from '../llm/open-router';
+import type {ThreadHere} from '../mcp/tools';
 import {type FakeStore, fakeStore} from './fake-store';
 import {proxyHarness} from './proxy-harness';
 
-const agentInstructions = mock(async (_agent: unknown, flow: string) => Ok(`You are signed in.\n\n${flow}`));
+const agentInstructions = mock(async (_agent: SignedInAgent, flow: string, _here?: ThreadHere) => Ok(`You are signed in.\n\n${flow}`));
 mock.module('../mcp/tools', () => ({agentInstructions, callMcpTool: mock(), MCP_TOOLS: [], SCRIPT_TOOL: 'script'}));
 
 // The model, as the proxy harness asks it, and the harness the jobs run on: the proxy harness
@@ -197,11 +199,10 @@ describe('runInference', () => {
 		expect(getThreadAgent).toHaveBeenCalledWith(thread);
 		expect(store.listMemberAlerts).toHaveBeenCalledWith('org-1', 'user-1');
 		// What it makes goes in the persona's folder, where what the person attaches goes.
-		expect(agentInstructions).toHaveBeenCalledWith(
-			expect.objectContaining({agentId: 'agent-1', ownerUserId: 'user-1'}),
-			expect.stringContaining('You are talking with the person in a thread'),
-			'Chats/Coding Agent',
-		);
+		expect(agentInstructions).toHaveBeenCalledWith(expect.objectContaining({agentId: 'agent-1', ownerUserId: 'user-1'}), expect.stringContaining('You are talking with the person in a thread'), {
+			folder: 'Chats/Coding Agent',
+			otherThreads: [],
+		});
 		const request = askForTurn.mock.calls[0]?.[0] as {model: string; messages: Array<Record<string, unknown>>; tools: unknown[]};
 		// With the harness and the model of the persona the thread is with.
 		expect(getThreadModel).toHaveBeenCalledWith(thread);
@@ -245,7 +246,66 @@ describe('runInference', () => {
 		// Where the persona is gone, no folder is named.
 		store.getPersonaName.mockResolvedValue(Ok(null));
 		await runInference(store, on(harness), job, 'w1', false, clock);
-		expect(agentInstructions).toHaveBeenLastCalledWith(expect.anything(), expect.stringContaining('You are talking with the person in a thread'), undefined);
+		expect(agentInstructions).toHaveBeenLastCalledWith(expect.anything(), expect.stringContaining('You are talking with the person in a thread'), {folder: undefined, otherThreads: []});
+	});
+
+	test('the agent is told which thread it is and where it lives, on the Chat page or in Slack, and of the person’s latest other threads, in their Chat connection’s words', async () => {
+		const {runInference} = await import('./inference');
+		const other = {
+			id: 'thread-2',
+			personaId: 'persona-2',
+			personaName: 'Finance',
+			title: 'Pricing review with Dana',
+			slack: {teamId: 'T0001', channel: 'D0001', rootTs: '1761040800.000100'},
+			createdAt: now,
+			state: {kind: 'stopped' as const},
+			standing: {waitingForMember: true, summary: 'Asks which day suits Dana.', summarySeq: 2, archived: false},
+			alerts: 0,
+			last: {seq: 2, pending: false, createdAt: now},
+		};
+		store.listRecentThreads.mockResolvedValue(
+			Ok([
+				other,
+				{...other, id: 'thread-3', personaName: 'Travel', title: 'Book the train to Lyon', slack: null, state: {kind: 'working' as const}, last: {seq: 3, pending: false, createdAt: now}},
+				{...other, id: 'thread-4', personaName: 'Travel', title: 'Hotel prices in Lyon', slack: null, standing: {...other.standing, waitingForMember: false}, alerts: 1},
+			]),
+		);
+
+		await runInference(store, on(harness), job, 'w1', false, clock);
+
+		// A handful, the thread itself left out.
+		expect(store.listRecentThreads).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'thread-1', 5);
+		expect(store.isSlackThread).toHaveBeenCalledWith('thread-1');
+		const [, inChat, here] = agentInstructions.mock.calls.at(-1) ?? [];
+		expect(inChat).toContain('in a thread on Personal Agent Proxy’s Chat page; in their Chat connection it is thread thread-1, its place Chat.');
+		expect(inChat).toContain('write it as a Markdown image of its Link');
+		expect(inChat).toContain('Its messages show to the person as quiet lines');
+		expect(here?.otherThreads).toEqual([
+			'thread-2: “Pricing review with Dana” with Finance, in Slack, Waiting for you: Asks which day suits Dana.',
+			'thread-3: “Book the train to Lyon” with Travel, in Chat, In progress',
+			'thread-4: “Hotel prices in Lyon” with Travel, in Chat, Watching: Asks which day suits Dana.',
+		]);
+
+		store.isSlackThread.mockResolvedValue(Ok(true));
+		await runInference(store, on(harness), job, 'w1', false, clock);
+		const inSlack = agentInstructions.mock.calls.at(-1)?.[1] ?? '';
+		expect(inSlack).toContain('in a Slack thread, in their direct messages with you in Slack, where alone they read and answer it; in their Chat connection it is thread thread-1, its place Slack.');
+		expect(inSlack).toContain('No picture or file is shown in Slack');
+		expect(inSlack).toContain('The person doesn’t see its messages in Slack');
+		expect(inSlack).not.toContain('Chat page');
+	});
+
+	test('a sub-agent, which never talks with the person, is told nothing of where its thread lives or of the person’s other threads', async () => {
+		const {runInference} = await import('./inference');
+		getJobThread.mockResolvedValue(Ok({...thread, id: 'thread-9', subAgentOfId: 'thread-1', parentCallId: 'c1', title: 'Fares to Lyon'}));
+
+		await runInference(store, on(harness), {...job, threadId: 'thread-9'}, 'w1', false, clock);
+
+		const [, flow, here] = agentInstructions.mock.calls.at(-1) ?? [];
+		expect(flow).toContain('You are a sub-agent');
+		expect(here).toEqual({folder: 'Chats/Coding Agent', otherThreads: []});
+		expect(store.listRecentThreads).not.toHaveBeenCalled();
+		expect(store.isSlackThread).not.toHaveBeenCalled();
 	});
 
 	test('a message to the person without text is answered with the error at once', async () => {

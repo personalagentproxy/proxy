@@ -112,7 +112,7 @@ export async function getSlackSessionPlace(
 
 /**
  * Where a thread stands, as its session shows it: what its agent is up to, whether it waits for the
- * member, how many alerts come to it, whether any of its sub-agents still has a turn or a call to
+ * member, whether they archived it, how many alerts come to it, whether any of its sub-agents still has a turn or a call to
  * run, now or after a sleep, its title, and the `seq` of the last entry written in it, nothing
  * pending; `Ok(null)` for no such thread. Read as of one moment, so what it says is true of the
  * entries up to `lastSeq`: an answer and the end of its job are written together
@@ -121,6 +121,7 @@ export async function getSlackSessionPlace(
 export type SlackSessionState = {
 	state: ThreadState;
 	waitingForMember: boolean;
+	archived: boolean;
 	alerts: number;
 	subAgentsAtWork: boolean;
 	title: string | null;
@@ -141,6 +142,7 @@ export async function readSlackSessionState(
 						select: {
 							title: true,
 							waitingForMember: true,
+							archived: true,
 							jobs: openJobsSelect,
 							_count: {select: {alerts: true}},
 						},
@@ -160,6 +162,7 @@ export async function readSlackSessionState(
 		return {
 			state: threadState(thread.jobs, now),
 			waitingForMember: thread.waitingForMember,
+			archived: thread.archived,
 			alerts: thread._count.alerts,
 			subAgentsAtWork: subAgentJobs > 0,
 			title: thread.title,

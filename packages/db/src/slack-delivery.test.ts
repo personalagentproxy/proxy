@@ -520,6 +520,20 @@ describe.skipIf(!databaseUrl)('delivery to Slack, against the database', () => {
 		expect(await taken(place.placeId)).toBe(false);
 		await db.agentThread.update({where: {id: place.threadId}, data: {waitingForMember: false}});
 		expect(await taken(place.placeId)).toBe(true);
+
+		// Archived while it waits, which Slack can't hide, it no longer waits as its session shows
+		// it; brought back, it waits again.
+		await db.agentThread.update({where: {id: place.threadId}, data: {waitingForMember: true}});
+		await settled(place, 'suspended');
+		await db.agentThread.update({where: {id: place.threadId}, data: {archived: true}});
+		expect(await taken(place.placeId)).toBe(true);
+		expect(unwrap(await readSlackSessionState(place.threadId, new Date()))?.archived).toBe(true);
+		await settled(place, 'active');
+		expect(await taken(place.placeId)).toBe(false);
+		await db.agentThread.update({where: {id: place.threadId}, data: {archived: false}});
+		expect(await taken(place.placeId)).toBe(true);
+		expect(unwrap(await readSlackSessionState(place.threadId, new Date()))?.archived).toBe(false);
+		await db.agentThread.update({where: {id: place.threadId}, data: {waitingForMember: false}});
 	});
 
 	test('takes a place set processing once its agent is no longer at work, or to renew it', async () => {

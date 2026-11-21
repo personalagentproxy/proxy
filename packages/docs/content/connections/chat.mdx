@@ -1,15 +1,15 @@
 ---
 title: Chat
-description: Let an agent read your threads with the built-in agents, and see and cancel the alerts set in them.
+description: Let an agent read your threads with the built-in agents, mark them done or archive them, and see and cancel the alerts set in them.
 ---
 
 Chat is built in: your own threads with every agent Personal Agent Proxy runs for you, on the
 **Chat** page and in [Slack](/agents/slack), and the alerts set in them, as something an agent can
 read. It is what lets you ask about your threads in a thread: what is waiting for you, what was
-found in another one, which alerts are set
-([Chat with the built-in agent](/agents/chat#asking-about-your-other-threads)).
+found in another one, which alerts are set; and tidy them up, such as "archive everything that's
+done" ([Chat with the built-in agent](/agents/chat#asking-about-your-other-threads)).
 
-You have one of your own in every organization, once Chat has been used there. Nobody else sees
+You have one of your own in every organization, from when you join it. Nobody else sees
 it, and it can't be shared, renamed or deleted: your chats are yours alone, and so is this.
 
 An agent reads two things through it:
@@ -23,17 +23,29 @@ An agent reads two things through it:
   thread it comes to, or that it opens a new thread each time, with a link to the thread it comes
   to, or was set in, where that lives.
 
-Nothing is written to a thread through it. An agent that finds what you asked about in another
-thread says so and links to that thread, and you go on with it there.
+An agent can also change where a thread stands, as you would on the Chat page, in Chat or in
+Slack: mark it done, so it no longer waits for you; archive it, so the Chat page no longer lists it
+until you reply in it or an alert takes it up; or bring an archived one back. A thread still in
+progress, or whose sub-agents are still at work, is left as it is, since where it stands is written
+as the agent's turn ends. Marking a thread done keeps the alerts that come to it, so it is
+**Watching**; archiving one cancels them, as the Chat page does, so a thread that is Watching is
+archived only once its alerts are cancelled, which is **Cancel alerts**. Slack can't hide a thread,
+so one archived there stays in your direct messages, and Slack no longer shows that it needs you.
+Each change is in the activity log, as any call is.
+
+Nothing that was said in a thread is written through it. An agent that finds what you asked about
+in another thread says so and links to that thread, and you go on with it there.
 
 <Steps>
 
 ### Choose what agents can do
 
-Open **Connections and permissions** in the sidebar, then **Chat**. It has three actions: **Read
-threads**, **See alerts**, and **Cancel alerts**, which also requires See alerts.
+Open **Connections and permissions** in the sidebar, then **Chat**. It has four actions: **Read
+threads**; **Mark done and archive**, which also requires Read threads; **See alerts**; and
+**Cancel alerts**, which also requires See alerts.
 
-Chat, the built-in agent, gets all three. Every other agent starts with none: a thread may say what
+Chat, the built-in agent, gets all four, Mark done and archive too where it already read your
+threads before that action was added. Every other agent starts with none: a thread may say what
 came from a connection that agent was never given, such as a summary of your mail. Turn an action
 on for an agent on its **Permissions** tab, or off for Chat.
 

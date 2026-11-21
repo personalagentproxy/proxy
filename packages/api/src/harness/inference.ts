@@ -4,11 +4,13 @@ import type {HarnessBackend, HarnessEvent} from '@proxy/backends/harness/backend
 import {ApiErr, type ApiError, Do, requirePresent, semaphore, type Semaphore} from '@proxy/utils';
 import {CALL_INTERRUPTED, type HarnessSession, OUTCOME_UNKNOWN, pendingToolCalls, type ToolCall} from '@proxy/utils/harness';
 import type {EntryAttachment} from '@proxy/utils/harness-context';
+import {CHAT_PLACES} from '@proxy/integrations';
 import type {SignedInAgent} from '@proxy/db/agent';
 import type {AssistantTurn, EntryRow, JobRow, NewTurnEntry, RanOn, SubAgentRow, ThreadRow, ThreadSession} from '@proxy/db/harness';
 
 import {chosenFor, type ClaudeCredentials, type HarnessChoice, type Harnesses, harnessFor, needsCredential, offeredTo, RECONNECT_CLAUDE} from '../backends/harness';
 import {agentInstructions, SCRIPT_TOOL} from '../mcp/tools';
+import {threadLine} from '../native/chat/connector';
 import {chatFolder} from '../native/files/names';
 import {log, serializeError} from '../observability/log';
 import {alertsParagraph} from './alerts';
@@ -77,6 +79,8 @@ export type InferenceStore = Pick<
 	| 'listAttachments'
 	| 'listMemberAlerts'
 	| 'listSubAgents'
+	| 'isSlackThread'
+	| 'listRecentThreads'
 	| 'finishJob'
 	| 'requeueJob'
 	| 'appendSummary'
@@ -85,14 +89,32 @@ export type InferenceStore = Pick<
 > &
 	ToolSurfaceStore;
 
-// How a thread's agent is to go about it: the member's message opened the thread and their replies
-// come into it, and it works on that piece of work itself, answering them there.
-const THREAD_FLOW =
-	'You are talking with the person in a thread on Personal Agent Proxy’s Chat page. Their message opened this thread, and their replies come into it. Each new request of theirs gets a thread of its own, so this one is about one piece of work. Answer in short Markdown: sentences, a list or table where clearer, no headings. To show the person a picture, such as a chart or a screenshot, have it put in a drive and write it as a Markdown image of its Link: ![what it shows](Link); a picture anywhere else is shown as a link only. Work in scripts; check pap.tools before using a tool you haven’t used. Your task is kept for you. For something at a time, or something new in their accounts, set an alert. To ask something you can’t go on without, answer with the question and no tool call. An answer without a tool call ends your turn: say what you did and found, with the names, ids, dates and numbers that matter, and what you couldn’t do. Don’t mention summaries of the conversation.';
+// What is the same of a thread wherever it lives: how the agent works, and how its turn ends.
+const THREAD_WORK =
+	'Work in scripts; check pap.tools before using a tool you haven’t used. Your task is kept for you. For something at a time, or something new in their accounts, set an alert. To ask something you can’t go on without, answer with the question and no tool call. An answer without a tool call ends your turn: say what you did and found, with the names, ids, dates and numbers that matter, and what you couldn’t do. Don’t mention summaries of the conversation.';
 
-// What a thread's agent is told of sub-agents: what they are for, and how to wait for them.
-const SUB_AGENTS =
-	'For sizeable parts of this work that can run side by side, start sub-agents rather than doing each in turn: each works on its brief with your access and answers you with a message, which wakes you. While they work, tell the person in a few words what you are looking into and end your turn, or sleep; never have one ask the person anything. Message a sub-agent only about its own work, and start a new one for anything else. Where create_subagent offers a model, give each the weakest that does its part well. Its messages show to the person as quiet lines: pass on what matters in your own answer.';
+// How a thread's agent is to go about it, where the thread lives: which thread it is in the
+// member's Chat connection, that their message opened it and their replies come into it, and that
+// it works on that piece of work itself, answering them there. On the Chat page a picture in a
+// drive is shown as one; in Slack, where the member reads it in a Slack thread, files aren't
+// posted, and a picture is a link (slack/slack-markdown.ts).
+function threadFlow(threadId: string, inSlack: boolean): string {
+	if (inSlack) {
+		return `You are talking with the person in a Slack thread, in their direct messages with you in Slack, where alone they read and answer it; in their Chat connection it is thread ${threadId}, its place ${CHAT_PLACES.slack}. Their message there opened this thread, and their replies in it come into it. Each new message of theirs outside a thread opens a thread of its own, so this one is about one piece of work. Answer in short Markdown: sentences or a list, no headings or tables. No picture or file is shown in Slack: a Markdown image is posted as a link to it, so give the person a file’s Link to open it. ${THREAD_WORK}`;
+	}
+	return `You are talking with the person in a thread on Personal Agent Proxy’s Chat page; in their Chat connection it is thread ${threadId}, its place ${CHAT_PLACES.chat}. Their message opened this thread, and their replies come into it. Each new request of theirs gets a thread of its own, so this one is about one piece of work. Answer in short Markdown: sentences, a list or table where clearer, no headings. To show the person a picture, such as a chart or a screenshot, have it put in a drive and write it as a Markdown image of its Link: ![what it shows](Link); a picture anywhere else is shown as a link only. ${THREAD_WORK}`;
+}
+
+// How many of the member's other threads a thread's agent is told of, the latest first; the rest
+// are in their Chat connection.
+const OTHER_THREADS = 5;
+
+// What a thread's agent is told of sub-agents: what they are for, and how to wait for them. What
+// they say shows on the Chat page as quiet lines, and not in Slack at all.
+function subAgentsFlow(inSlack: boolean): string {
+	const shown = inSlack ? 'The person doesn’t see its messages in Slack' : 'Its messages show to the person as quiet lines';
+	return `For sizeable parts of this work that can run side by side, start sub-agents rather than doing each in turn: each works on its brief with your access and answers you with a message, which wakes you. While they work, tell the person in a few words what you are looking into and end your turn, or sleep; never have one ask the person anything. Message a sub-agent only about its own work, and start a new one for anything else. Where create_subagent offers a model, give each the weakest that does its part well. ${shown}: pass on what matters in your own answer.`;
+}
 
 // How a sub-agent is to go about it: a brief, its tools, and messages to and from the thread's agent
 // it works for, which alone reads what it says.
@@ -201,18 +223,22 @@ function unreachable(failure: ApiError): string {
 }
 
 // The system prompt: the instructions any agent with the login gets, for the agent as it acts in
-// the thread, as the member whose chat it is of, how to go about it on a thread, and the member's
-// alerts, whichever of their threads each was set in. What the agent makes goes beside what the person attached, in the persona's
-// folder.
+// the thread, as the member whose chat it is of, how to go about it on a thread where it lives, the
+// member's latest other threads, with any persona, wherever each lives, and the member's alerts,
+// whichever of their threads each was set in. What the agent makes goes beside what the person
+// attached, in the persona's folder. A sub-agent, which never talks with the member, is told how
+// to go about its brief, and nothing of where the thread lives or of the member's other threads.
 function systemPrompt(store: InferenceStore, thread: ThreadRow, signedIn: SignedInAgent, now: Date): Promise<Result<string, ApiError>> {
 	return Do(async ($) => {
 		const persona = $(await store.getPersonaName(thread));
 		const folder = persona === null ? undefined : chatFolder(persona);
 		if (isSubAgent(thread)) {
-			const instructions = $(await agentInstructions(signedIn, SUB_AGENT_FLOW, folder));
+			const instructions = $(await agentInstructions(signedIn, SUB_AGENT_FLOW, {folder, otherThreads: []}));
 			return [instructions, `The time now is ${now.toISOString()}.`].join('\n\n');
 		}
-		const instructions = $(await agentInstructions(signedIn, `${THREAD_FLOW} ${SUB_AGENTS}`, folder));
+		const inSlack = $(await store.isSlackThread(thread.id));
+		const others = $(await store.listRecentThreads({orgId: thread.orgId, userId: thread.userId}, thread.id, OTHER_THREADS));
+		const instructions = $(await agentInstructions(signedIn, `${threadFlow(thread.id, inSlack)} ${subAgentsFlow(inSlack)}`, {folder, otherThreads: others.map(threadLine)}));
 		const subAgents = roster($(await store.listSubAgents(thread.id, now)));
 		const alerts = alertsParagraph($(await store.listMemberAlerts(thread.orgId, thread.userId)), thread.id);
 		const timeZone = $(await store.getUserTimeZone(thread.userId));

@@ -14,7 +14,8 @@ const getOrgSlug = mock();
 mock.module('@proxy/db/chat', () => ({listMemberThreads, getThreadAddress, getOrgSlug}));
 
 const getMemberThread = mock();
-mock.module('@proxy/db/harness', () => ({getMemberThread}));
+const changeMemberThreadStanding = mock();
+mock.module('@proxy/db/harness', () => ({getMemberThread, changeMemberThreadStanding}));
 
 const listMemberAlerts = mock();
 const deleteAlert = mock();
@@ -237,6 +238,72 @@ describe('the Chat connection’s threads in Slack', () => {
 			['in-slack', 'Slack', SLACK_URL],
 			['in-chat', 'Chat', 'https://app.example.test/acme/chat/persona-1/threads/in-chat'],
 		]);
+	});
+});
+
+describe('where one of the Chat connection’s threads stands', () => {
+	const stopped: ChatThreadRow = {
+		id: 'thread-1',
+		orgId: 'org-1',
+		agentId: 'login-1',
+		personaId: 'persona-1',
+		userId: 'user-1',
+		parentThreadId: 'chat-1',
+		subAgentOfId: null,
+		parentCallId: null,
+		title: 'Pricing review with Dana',
+		taskId: 'task-1',
+		harness: null,
+		harnessSession: null,
+		openedByAlert: false,
+		createdAt: at(0),
+		state: {kind: 'stopped'},
+		standing: {waitingForMember: false, summary: 'Moved it to Friday.', summarySeq: 0, archived: true},
+		alerts: 0,
+		entries: [],
+		attachments: [],
+		subAgents: [],
+	};
+
+	beforeEach(() => {
+		getMemberThread.mockResolvedValue(Ok(stopped));
+		changeMemberThreadStanding.mockResolvedValue(Ok('changed'));
+	});
+
+	test('is changed as the member’s, done, archived or brought back, and answered with the thread as it is then', async () => {
+		const {threadsConnector} = await import('./connector');
+
+		const archived = (await threadsConnector.commands.archive(threads, 'thread-1')).unwrap();
+		expect(changeMemberThreadStanding).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'thread-1', 'archive');
+		expect(archived?.values.standing).toBe('Archived');
+
+		(await threadsConnector.commands.markDone(threads, 'thread-1')).unwrap();
+		expect(changeMemberThreadStanding).toHaveBeenLastCalledWith({orgId: 'org-1', userId: 'user-1'}, 'thread-1', 'done');
+		(await threadsConnector.commands.unarchive(threads, 'thread-1')).unwrap();
+		expect(changeMemberThreadStanding).toHaveBeenLastCalledWith({orgId: 'org-1', userId: 'user-1'}, 'thread-1', 'unarchive');
+	});
+
+	test('is refused for one taken up since it was read, or watching for one to archive, and not found for one that isn’t the member’s', async () => {
+		const {threadsConnector} = await import('./connector');
+
+		changeMemberThreadStanding.mockResolvedValue(Ok('in_progress'));
+		expect((await threadsConnector.commands.archive(threads, 'thread-1')).unwrapErr()).toMatchObject({kind: 'validation_error', message: expect.stringContaining('in progress')});
+
+		changeMemberThreadStanding.mockResolvedValue(Ok('watching'));
+		expect((await threadsConnector.commands.archive(threads, 'thread-1')).unwrapErr()).toMatchObject({kind: 'validation_error', message: expect.stringContaining('cancel the alerts')});
+
+		changeMemberThreadStanding.mockResolvedValue(Ok(null));
+		expect((await threadsConnector.commands.markDone(threads, 'thread-9')).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'record'});
+		expect(getMemberThread).not.toHaveBeenCalled();
+	});
+
+	test('is told of in a line in the record’s words, as a thread’s agent reads the person’s other threads', async () => {
+		const {threadLine} = await import('./connector');
+
+		expect(threadLine(listed({slack: SLACK}))).toBe('thread-1: “Pricing review with Dana” with Finance, in Slack, Waiting for you: Asks which day suits Dana.');
+		expect(threadLine(listed({id: 'thread-2', title: 'Book the train to Lyon', state: {kind: 'working'}, last: {seq: 3, pending: false, createdAt: at(3)}}))).toBe(
+			'thread-2: “Book the train to Lyon” with Finance, in Chat, In progress',
+		);
 	});
 });
 

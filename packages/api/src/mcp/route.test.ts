@@ -144,6 +144,34 @@ describe('handleMcpRoute', () => {
 		expect(await instructions()).toContain(
 			'chat-1 has the person’s threads with their agents, each a piece of work, in Chat or in Slack: threads_list {search, standing} gives each with where it stands in a sentence and its place, threads_get {id} what was said in one. Asked about something from another thread, look there. A thread is gone on with in the thread itself, where it lives: give the person its url rather than doing its work here.',
 		);
+
+		// With Mark done and archive, where one stands is changed there too.
+		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [{...chat, actions: ['readThreads', 'markThreads']}]}));
+		expect(await instructions()).toContain(
+			'threads_get {id} what was said in one, and threads_mark_done, threads_archive and threads_unarchive {id} change where one stands, though not one in progress, and archive none still watching.',
+		);
+	});
+
+	test('in a chat’s thread, the person’s latest other threads are listed, and where the rest are and what can be done with them, only for an agent that reads them', async () => {
+		const {agentInstructions} = await import('./tools');
+		const chat = {id: 'chat-1', integrationId: 'chat', account: 'Alex', shared: false, actions: ['readThreads', 'markThreads'], tools: null, name: null};
+		const otherThreads = ['thread-2: “Pricing review with Dana” with Finance, in Slack, Waiting for you: Asks which day suits Dana.', 'thread-3: “Book the train to Lyon” with Travel, in Chat, Done'];
+		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [chat]}));
+
+		expect((await agentInstructions(signedIn, 'Work.', {folder: undefined, otherThreads})).unwrap()).toContain(
+			[
+				'The person’s latest other threads, the latest first:',
+				'- thread-2: “Pricing review with Dana” with Finance, in Slack, Waiting for you: Asks which day suits Dana.',
+				'- thread-3: “Book the train to Lyon” with Travel, in Chat, Done',
+				'The rest are in chat-1, where you can list them all and read any, and mark one done, archive it or bring it back.',
+			].join('\n'),
+		);
+
+		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [{...chat, actions: ['readThreads']}]}));
+		expect((await agentInstructions(signedIn, 'Work.', {folder: undefined, otherThreads})).unwrap()).toContain('The rest are in chat-1, where you can list them all and read any.');
+
+		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [{...chat, actions: ['readAlerts']}]}));
+		expect((await agentInstructions(signedIn, 'Work.', {folder: undefined, otherThreads})).unwrap()).not.toContain('Pricing review with Dana');
 	});
 
 	test("the vault is the agent's memory, to search before asking and to save to where it may", async () => {
@@ -230,7 +258,7 @@ describe('handleMcpRoute', () => {
 		const own = {id: 'drive-1', integrationId: 'files', account: 'Acme', shared: false, actions: ['readFiles', 'createFiles'], tools: null, name: null};
 		listAgentConnections.mockResolvedValue(Ok({agent: {id: 'agent-1', providerId: 'claude', name: 'Claude'}, connections: [own]}));
 
-		const told = (await agentInstructions(signedIn, 'Work.', 'Chats/Coding Agent/Show all active tasks in sidebar')).unwrap();
+		const told = (await agentInstructions(signedIn, 'Work.', {folder: 'Chats/Coding Agent/Show all active tasks in sidebar', otherThreads: []})).unwrap();
 		expect(told).toContain(
 			'Put what you make for the person, such as screenshots, exports and reports, in their own drive (the one without a name), in Chats/Coding Agent/Show all active tasks in sidebar, or the one they name, rather than Google Drive or another service, and give them the Link the tool answers with: a file has no other address.',
 		);

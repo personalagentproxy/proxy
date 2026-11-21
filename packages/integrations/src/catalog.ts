@@ -1,4 +1,4 @@
-import type {Collection, Condition, Field, Integration} from './types';
+import type {Collection, Command, Condition, Field, Integration} from './types';
 
 const INBOX: Condition = {field: 'folder', values: ['Inbox']};
 
@@ -2683,13 +2683,67 @@ export const CHAT_PLACES = {
 	slack: 'Slack',
 } as const;
 
+// What changes where one of the person's threads stands, as they would on the Chat page, on any
+// that is not in progress: one at work or asleep, or whose sub-agents are, has where it stands
+// written as its turn ends. Marking one done keeps the alerts that come to it, so it is watching,
+// since cancelling them is Cancel alerts; archiving cancels them, as on the Chat page, so one
+// watching is archived only once they are cancelled, as the page asks the person first.
+function threadStandingCommands(): Command[] {
+	const refused = `One ${CHAT_STANDINGS.in_progress.toLowerCase()}, or whose sub-agents are at work, is refused.`;
+	return [
+		{
+			id: 'markDone',
+			on: 'record',
+			label: 'Mark done',
+			description: `It no longer waits for you. The alerts that come to it keep coming, so one with any is ${CHAT_STANDINGS.watching}; one archived stays archived. ${refused}`,
+			action: 'markThreads',
+			where: {
+				field: 'standing',
+				values: [
+					CHAT_STANDINGS.waiting,
+					CHAT_STANDINGS.watching,
+					CHAT_STANDINGS.done,
+					CHAT_STANDINGS.archived,
+				],
+			},
+			done: 'Marked {} done',
+			tried: 'mark {} done',
+		},
+		{
+			id: 'archive',
+			on: 'record',
+			label: 'Archive',
+			description: `It is put away until you reply in it or an alert takes it up: the Chat page no longer lists one in Chat, and one in Slack stays as it is there. Archiving would cancel the alerts that come to it, so one ${CHAT_STANDINGS.watching} is refused until they are cancelled. ${refused}`,
+			action: 'markThreads',
+			where: {
+				field: 'standing',
+				values: [CHAT_STANDINGS.waiting, CHAT_STANDINGS.done, CHAT_STANDINGS.archived],
+			},
+			done: 'Archived {}',
+			tried: 'archive {}',
+		},
+		{
+			id: 'unarchive',
+			on: 'record',
+			label: 'Bring back',
+			description: 'An archived one is listed again, waiting for you or done as it was.',
+			action: 'markThreads',
+			where: {field: 'standing', values: [CHAT_STANDINGS.archived]},
+			done: 'Brought {} back',
+			tried: 'bring {} back',
+		},
+	];
+}
+
 // Chat: the person's own threads with their agents, on the Chat page or in Slack, and the alerts
 // set in them, as records, so that an agent can be asked about the others: what waits for the
 // person, what was found in one, which alerts are set. Every member has one, theirs alone, made
-// with their membership as their vault is. A thread is read, never written: whoever reads one
-// points the person to it by its url, its page in Chat or its thread in Slack, wherever it lives,
-// and they go on there. An alert is seen and cancelled; one is set in a thread, by its agent, since
-// it comes back to that thread or opens new ones in its chat.
+// with their membership as their vault is. A thread is read, and where it stands is changed as the
+// person would on the Chat page, marked done, archived or brought back, wherever it lives, though
+// not one still in progress; what was said in it is not written here: whoever reads one points the
+// person to it by its url, its page in Chat or its thread in Slack, and they go on there. An alert
+// is seen and cancelled; one is set in a thread, by its agent, since it comes back to that thread
+// or opens new ones in its chat.
 const chat: Integration = {
 	id: CHAT_INTEGRATION_ID,
 	name: 'Chat',
@@ -2701,6 +2755,14 @@ const chat: Integration = {
 			label: 'Read threads',
 			description: 'List your threads and read what was said in them',
 			risk: 'low',
+		},
+		{
+			id: 'markThreads',
+			label: 'Mark done and archive',
+			description:
+				'Mark your threads done, archive them and bring them back, but not one still in progress',
+			risk: 'low',
+			requires: 'readThreads',
 		},
 		{
 			id: 'readAlerts',
@@ -2727,6 +2789,7 @@ const chat: Integration = {
 			openIn: 'Chat',
 			read: 'readThreads',
 			writes: {},
+			commands: threadStandingCommands(),
 			searchHint: 'Matches the words in the title or the summary, in any case.',
 			fields: [
 				{key: 'title', label: 'Title', type: 'text', system: true},
@@ -2773,7 +2836,9 @@ const chat: Integration = {
 /**
  * What the organization's built-in agent, which the Chat page's personas act through, may do with
  * a member's Chat by default: everything. Any other agent starts with nothing, since a thread may
- * say what came from a connection that agent was never given.
+ * say what came from a connection that agent was never given. Granted as a member's Chat is made
+ * (api orgs/starter-connections.ts); an action added here is granted on those made before by a
+ * migration of its own, as v081_grant_chat_mark_threads grants Mark done and archive.
  */
 export const CHAT_BUILT_IN_ACTIONS: string[] = chat.actions.map((action) => action.id);
 

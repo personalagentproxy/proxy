@@ -95,6 +95,7 @@ function world(entries: ShownEntryRow[], fields: Partial<SlackDelivery> = {}, st
 	const thread: SlackSessionState = {
 		state: {kind: 'stopped'},
 		waitingForMember: false,
+		archived: false,
 		alerts: 0,
 		subAgentsAtWork: false,
 		title: 'Book the train to Lyon',

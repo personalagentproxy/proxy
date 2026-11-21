@@ -164,7 +164,7 @@ export async function keepSession(store: SessionStore, token: string, place: Sla
 	if (thread === null || thread.lastSeq > deliveredSeq) {
 		return;
 	}
-	const status = sessionStatusOf(standingOf({state: thread.state, standing: thread, alerts: thread.alerts}), thread.subAgentsAtWork);
+	const status = sessionStatusOf(standingOf({state: thread.state, standing: thread, alerts: thread.alerts}), thread);
 	const due = sessionDue(place.session, status, now);
 	if (due && !(await setSession(store, token, place, status, thread.title, now))) {
 		return;

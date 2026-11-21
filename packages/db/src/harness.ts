@@ -1881,6 +1881,23 @@ export async function writeThreadStanding(
 	);
 }
 
+// Marks the thread done: it no longer waits for the member; with `cancelAlerts`, the alerts that
+// come to it are deleted too.
+async function markDone(
+	tx: Tx,
+	where: Prisma.AgentThreadWhereInput & {id: string},
+	cancelAlerts: boolean,
+): Promise<boolean> {
+	const {count} = await tx.agentThread.updateMany({where, data: {waitingForMember: false}});
+	if (count === 0) {
+		return false;
+	}
+	if (cancelAlerts) {
+		await tx.agentAlert.deleteMany({where: {threadId: where.id}});
+	}
+	return true;
+}
+
 /**
  * The member says the thread is done: it no longer waits for them; with `cancelAlerts`, the alerts
  * that come to it are deleted too, in the same transaction. `Ok(false)` for no such thread of the
@@ -1896,17 +1913,7 @@ export async function markThreadDone(
 			if (!(await isInApp(tx, chatId, threadId))) {
 				return false;
 			}
-			const {count} = await tx.agentThread.updateMany({
-				where: {id: threadId, parentThreadId: chatId},
-				data: {waitingForMember: false},
-			});
-			if (count === 0) {
-				return false;
-			}
-			if (cancelAlerts) {
-				await tx.agentAlert.deleteMany({where: {threadId}});
-			}
-			return true;
+			return markDone(tx, {id: threadId, parentThreadId: chatId}, cancelAlerts);
 		}),
 	);
 }
@@ -1940,6 +1947,71 @@ export async function archiveThread(
 				return false;
 			}
 			return archive(tx, {id: threadId, parentThreadId: chatId});
+		}),
+	);
+}
+
+/**
+ * What the member's Chat connection does to where one of their threads stands, as the Chat page
+ * does it: marked done, as markThreadDone, its alerts kept, so one they come to is watching;
+ * archived, as archiveThread; brought back, an archived one listed again, waiting for them, watching
+ * or done as it was.
+ */
+export type StandingChange = 'done' | 'archive' | 'unarchive';
+
+/**
+ * Changes where one of the member's threads stands (StandingChange), whichever persona's chat it
+ * is of and wherever it lives, in the app or in Slack, as their Chat connection does: only once it
+ * and its sub-agents have stopped, since one in progress has where it stands written as its turn
+ * ends; and not archived while alerts come to it, which archiving would cancel, since the member
+ * says what becomes of them, as the Chat page asks them. With the thread locked, as what wakes it
+ * is (wakeWith), so it is not taken up meanwhile. `Ok('in_progress')` for one it or a sub-agent of
+ * its is still at work on or asleep in, `Ok('watching')` for one with alerts not archived, and
+ * `Ok(null)` for no such thread of theirs, a sub-agent's among them.
+ */
+export async function changeMemberThreadStanding(
+	member: {orgId: string; userId: string},
+	threadId: string,
+	change: StandingChange,
+): Promise<Result<'changed' | 'in_progress' | 'watching' | null, ApiError>> {
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			const thread = await lockThread(tx, threadId);
+			if (
+				thread === null ||
+				thread.parentThreadId === null ||
+				thread.subAgentOfId !== null ||
+				thread.orgId !== member.orgId ||
+				thread.userId !== member.userId
+			) {
+				return null;
+			}
+			const open = await tx.agentJob.count({
+				where: {
+					status: {in: ['queued', 'running']},
+					OR: [{threadId}, {thread: {subAgentOfId: threadId}}],
+				},
+			});
+			if (open > 0) {
+				return 'in_progress';
+			}
+			if (change === 'done') {
+				await markDone(tx, {id: threadId}, false);
+				return 'changed';
+			}
+			if (change === 'unarchive') {
+				await tx.agentThread.update({
+					where: {id: threadId},
+					data: {archived: false},
+					select: {id: true},
+				});
+				return 'changed';
+			}
+			if ((await tx.agentAlert.count({where: {threadId}})) > 0) {
+				return 'watching';
+			}
+			await archive(tx, {id: threadId});
+			return 'changed';
 		}),
 	);
 }

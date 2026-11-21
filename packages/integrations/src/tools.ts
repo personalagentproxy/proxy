@@ -288,7 +288,7 @@ function collectionTools(integration: Integration, collection: Collection): Coll
 			}
 			return make('command', command.id, {
 				title: command.label,
-				description: `${command.label}: one ${collection.singular}, by its id.${what}${conditionText(collection, command.where)}`,
+				description: `${command.label}: one ${collection.singular}, by its id.${command.description ? ` ${command.description}` : what}${conditionText(collection, command.where)}`,
 				inputSchema: objectSchema({id: ID_PROPERTY}, ['id']),
 				where: command.where,
 			});

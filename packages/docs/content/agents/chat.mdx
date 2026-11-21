@@ -142,12 +142,20 @@ told of all your alerts, whichever thread each was set in.
 ### Asking about your other threads
 
 Since every message opens a thread of its own, what you ask about earlier work, such as "what is
-waiting for me?" or "what did we decide about the pricing review?", is a thread too. Its agent
-reads your other threads, with every agent of yours, through your
-[Chat connection](/connections/chat): each by its title, where it stands and the sentence that says
-so, and what was said in the ones that matter. It answers with what it found and a link to the
-thread, which opens beside the chat, or in Slack for one that began in [Slack](/agents/slack); to go
-on with that work, reply there. An agent never writes into another thread.
+waiting for me?" or "what did we decide about the pricing review?", is a thread too. Each thread's
+agent is told which thread it is and whether it lives in Chat or in [Slack](/agents/slack), and is
+shown your few latest other threads, with every agent of yours, leaving out those you archived: each
+by its title, the agent it is with, where it lives, where it stands and the sentence that says so.
+The rest it reads through your [Chat connection](/connections/chat), with what was said in the
+ones that matter. It answers with what it found and a link to the thread, which opens beside the
+chat, or in Slack for one that began there; to go on with that work, reply there.
+
+It can also mark your other threads done, archive them or bring archived ones back, through the
+same connection, so "archive everything that's done" is one request. A thread still in progress,
+or whose sub-agents are still at work, is left as it is. Marking a thread done keeps the alerts that
+come to it, so it is watching; archiving one cancels them, as the Chat page does, so the agent
+archives none that alerts still come to until you have had them cancelled. An agent never writes
+what was said into another thread.
 
 A thread can go on for as long as you like. Once it has grown long, the agent reads a summary of
 the earlier part in place of it, and keeps the last turns as they were; the thread shows everything

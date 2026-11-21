@@ -13,8 +13,9 @@ import type {ApiError} from '@proxy/utils';
 // sweep posts in the Slack thread, the session at work while the sub-agent is and nothing posted of
 // the sub-agent; a failure, an alert that fires and an answer follow, each posted once, the session
 // going `active`, `processing` and `active` after them; a reply in the Slack thread continues the
-// same thread; and the app neither shows the thread nor takes a reply in it, since it lives in
-// Slack alone. Run with the database up (`bun run --cwd packages/db db:dev`) and the environment
+// same thread; the app neither shows the thread nor takes a reply in it, since it lives in Slack
+// alone; and archived through the member's Chat connection its session goes `active`, until a
+// reply in Slack brings it back, as one in the app does. Run with the database up (`bun run --cwd packages/db db:dev`) and the environment
 // loaded, `bun --env-file=../../.env test --isolate src/slack/round-trip.test.ts` from this
 // package. Without DATABASE_URL, as `bun run test` runs, it is skipped. Everything made here is
 // one organization's, deleted at the end. The sweep is run for this test's place alone: any other
@@ -313,5 +314,43 @@ describe.skipIf(!databaseUrl)('a message from Slack, to a thread and back', () =
 		await db.agentThread.update({where: {id: thread.id}, data: {waitingForMember: false}});
 		await sweep();
 		expect(asked()).toEqual(['status:active']);
+
+		// Waiting again, then archived through the member's Chat connection: no longer waiting there,
+		// so active, and nothing posted; a reply in Slack brings it back, as one in the app would.
+		await db.agentThread.update({where: {id: thread.id}, data: {waitingForMember: true}});
+		await sweep();
+		expect(asked()).toEqual(['status:suspended']);
+		const {threadsConnector} = await import('../native/chat/connector');
+		const {findCollection, findIntegration} = await import('@proxy/integrations');
+		const chat = findIntegration('chat');
+		const collection = chat && findCollection(chat, 'threads');
+		if (!collection) {
+			throw new Error('No threads collection');
+		}
+		const connection = {
+			id: 'chat-1',
+			integrationId: 'chat',
+			orgId,
+			ownerUserId: owner,
+			sharedWithEveryone: false,
+			shares: [],
+			account: 'Slack round trip test',
+			createdAt: new Date(),
+			tools: null,
+			name: null,
+			defaults: [],
+			credentialRejectedAt: null,
+			credential: null,
+		};
+		const archived = unwrap(await threadsConnector.commands.archive({connection, collection}, thread.id));
+		expect(archived?.values).toMatchObject({standing: 'Archived', place: 'Slack'});
+		await sweep();
+		expect(asked()).toEqual(['status:active']);
+		await send({text: 'Actually, make it Saturday', ts: '1800000000.000700', thread_ts: '1800000000.000100'});
+		expect(await db.agentThread.findUniqueOrThrow({where: {id: thread.id}, select: {archived: true}})).toEqual({archived: false});
+		expect(asked()).toEqual(['status:processing']);
+		await answer(thread.id, 'Moved to Saturday.');
+		await sweep();
+		expect(asked()).toEqual(['Moved to Saturday.', 'status:active']);
 	});
 });
