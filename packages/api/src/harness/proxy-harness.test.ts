@@ -84,8 +84,9 @@ describe('proxyHarness', () => {
 					{role: 'tool', tool_call_id: 'c1', content: 'rows'},
 				],
 				tools: [{name: 'read', description: 'Reads', parameters: {type: 'object', properties: {}}}],
-				maxTokens: 4000,
-				timeoutMs: 120_000,
+				maxTokens: 32_000,
+				reasoningTokens: 16_000,
+				timeoutMs: 600_000,
 			},
 		]);
 		expect(events).toEqual([
@@ -156,6 +157,60 @@ describe('proxyHarness', () => {
 		const turnedDown = Err(ApiErr.unavailable('OpenRouter turned the server’s key down (401): bad key'));
 		askForTurn.mockResolvedValue(turnedDown);
 		expect(await Array.fromAsync(harness.turn(turnInput([entry('person', 'Hi')])))).toEqual([{kind: 'failed', error: turnedDown.error, retry: false}]);
+	});
+
+	test('either model may write 32,000 tokens a call, GLM thinking with at most 16,000 of them', async () => {
+		await Array.fromAsync(harness.turn(turnInput([entry('person', 'Hi')])));
+		await Array.fromAsync(harness.turn(turnInput([entry('person', 'Hi')], {model: 'glm'})));
+
+		expect(requests().map(({maxTokens, reasoningTokens, timeoutMs}) => ({maxTokens, reasoningTokens, timeoutMs}))).toEqual([
+			{maxTokens: 32_000, reasoningTokens: undefined, timeoutMs: 600_000},
+			{maxTokens: 32_000, reasoningTokens: 16_000, timeoutMs: 600_000},
+		]);
+	});
+
+	test('a model cut off at its limit is asked again in the turn, after what it had written, told so, its calls dropped; the turn costs what every call wrote', async () => {
+		askForTurn
+			.mockResolvedValueOnce(Ok({text: 'Writing the file.', toolCalls: [{id: 'c1', name: 'read', arguments: '{"content":"lo'}], inputTokens: 100, outputTokens: 32_000, cutOff: true}))
+			.mockResolvedValueOnce(Ok({text: '', toolCalls: [], inputTokens: 200, outputTokens: 32_000, cutOff: true}))
+			.mockResolvedValueOnce(Ok({text: 'In parts, then.', toolCalls: [{id: 'c2', name: 'read', arguments: '{}'}], inputTokens: 300, outputTokens: 500}));
+
+		const events = await Array.fromAsync(harness.turn(turnInput([entry('person', 'Write the file')], {model: 'glm'})));
+
+		const note =
+			'[Your last answer was cut off at the 32,000-token limit of an answer before it was complete, and was dropped: any call in it was not made. Go on with less in one answer: think less before acting, and write a large file or script in parts, one call each.]';
+		expect(requests()[1]?.messages.slice(1)).toEqual([
+			{role: 'user', content: 'Write the file'},
+			{role: 'assistant', content: 'Writing the file.'},
+			{role: 'user', content: note},
+		]);
+		expect(requests()[2]?.messages.slice(-2)).toEqual([
+			{role: 'user', content: note},
+			{role: 'user', content: note},
+		]);
+		expect(events).toEqual([
+			{kind: 'text', text: 'In parts, then.'},
+			{kind: 'tool_call', id: 'c2', name: 'read', arguments: '{}'},
+			{kind: 'done', session: null, system: 'You are signed in.', inputTokens: 300, outputTokens: 64_500},
+		]);
+	});
+
+	test('a model cut off every time it is asked tells the person it ran out of room, after what it had written, rather than nothing', async () => {
+		askForTurn
+			.mockResolvedValueOnce(Ok({text: '', toolCalls: [], inputTokens: 5712, outputTokens: 32_000, cutOff: true}))
+			.mockResolvedValueOnce(Ok({text: '', toolCalls: [], inputTokens: 5800, outputTokens: 32_000, cutOff: true}))
+			.mockResolvedValueOnce(Ok({text: 'The plan, so far:', toolCalls: [{id: 'c1', name: 'read', arguments: '{'}], inputTokens: 5900, outputTokens: 32_000, cutOff: true}));
+
+		const events = await Array.fromAsync(harness.turn(turnInput([entry('person', 'Write a plan')], {model: 'glm'})));
+
+		expect(askForTurn).toHaveBeenCalledTimes(3);
+		expect(events).toEqual([
+			{
+				kind: 'text',
+				text: 'The plan, so far:\n\nI kept running out of room: GLM 5.3 stops at 32,000 tokens an answer, and I was cut off 3 times before I could finish. Say something to try again, or switch this thread to another model.',
+			},
+			{kind: 'done', session: null, system: 'You are signed in.', inputTokens: 5900, outputTokens: 96_000},
+		]);
 	});
 
 	test('an answer of no words yields no text; a model it has not got, or a turn stopped before it began, fails without asking', async () => {
