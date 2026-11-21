@@ -201,6 +201,24 @@ describe('UnreadProvider', () => {
 		expect(readCalls()).toHaveLength(1);
 	});
 
+	test('counts nothing and tells of nothing where there is no conversation at all, as once every agent was deleted', async () => {
+		serve(() => []);
+		renderProvider();
+
+		await waitFor(() => {
+			expect(listCalls()).toHaveLength(1);
+		});
+		comeBack();
+		await waitFor(() => {
+			expect(listCalls()).toHaveLength(2);
+		});
+		expect(screen.getByTestId('count').textContent).toBe('0');
+		expect(screen.getByTestId('answers').textContent).toBe('');
+		expect(document.title).toBe('Personal Agent Proxy');
+		expect(notifyDesktop).not.toHaveBeenCalled();
+		expect(readCalls()).toHaveLength(0);
+	});
+
 	test('reads nothing while the window is not the one the person is in', async () => {
 		renderProvider();
 		await waitFor(() => {

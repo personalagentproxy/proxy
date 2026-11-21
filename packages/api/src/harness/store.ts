@@ -88,7 +88,6 @@ export type HarnessStore = {
 	listAnswers: (orgId: string, userId: string) => Promise<Result<ChatAnswerRow[], ApiError>>;
 	/** What the members who made shared personas are called, those still in the organization, as the list says who made one. */
 	listMemberNames: typeof listMemberNames;
-	ensureFirstPersona: (orgId: string) => Promise<Result<PersonaRow, ApiError>>;
 	getPersona: (orgId: string, userId: string, personaId: string) => Promise<Result<PersonaRow | null, ApiError>>;
 	createPersona: (orgId: string, userId: string, persona: Persona, shared: boolean) => Promise<Result<PersonaRow, ApiError>>;
 	updatePersona: (orgId: string, personaId: string, persona: Persona) => Promise<Result<boolean, ApiError>>;
@@ -198,7 +197,6 @@ export const harnessStore: HarnessStore = {
 	listPersonas: harness.listPersonas,
 	listAnswers: harness.listAnswers,
 	listMemberNames,
-	ensureFirstPersona: harness.ensureFirstPersona,
 	getPersona: harness.getPersona,
 	createPersona: harness.createPersona,
 	updatePersona: harness.updatePersona,

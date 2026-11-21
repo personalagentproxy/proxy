@@ -35,11 +35,49 @@ export function NewAgentWidget({
 	typed: string;
 	bar: BarAction;
 }) {
-	const org = useOrgSlug();
-	const [name, setName] = useSuggested(
-		(fieldTexts(intent, 'agentName')[0] ?? '').slice(0, AGENT_NAME_MAX),
+	return (
+		<AgentMaker
+			suggestedName={fieldTexts(intent, 'agentName')[0] ?? ''}
+			suggestedTask={fieldTexts(intent, 'agentTask')[0] ?? ''}
+			typed={typed}
+			bar={bar}
+		/>
 	);
-	const [task, setTask] = useSuggested(fieldTexts(intent, 'agentTask')[0] ?? '');
+}
+
+// What no quick action does, where there is no agent in Chat to send it to, as in an organization
+// whose agents were all deleted: it says so, and offers to make one, told what was typed as its
+// first message, once the person names it.
+export function NoAgentWidget({typed, bar}: {typed: string; bar: BarAction}) {
+	return (
+		<AgentMaker
+			lead="There is no agent to send this to yet. Make one, and it starts on this."
+			suggestedName=""
+			suggestedTask={typed}
+			typed={typed}
+			bar={bar}
+		/>
+	);
+}
+
+// The card that makes an agent, named and told what to do as suggested, under `lead` where there is
+// one.
+function AgentMaker({
+	lead,
+	suggestedName,
+	suggestedTask,
+	typed,
+	bar,
+}: {
+	lead?: string;
+	suggestedName: string;
+	suggestedTask: string;
+	typed: string;
+	bar: BarAction;
+}) {
+	const org = useOrgSlug();
+	const [name, setName] = useSuggested(suggestedName.slice(0, AGENT_NAME_MAX));
+	const [task, setTask] = useSuggested(suggestedTask);
 	const [head, setHead] = useState(freshHead);
 	const [status, setStatus] = useWriteStatus(typed);
 	// Made once, however fast Enter is pressed again.
@@ -82,6 +120,7 @@ export function NewAgentWidget({
 				</EnterButton>
 			}
 		>
+			{lead !== undefined && <p className="text-muted-foreground">{lead}</p>}
 			{/* As an agent's row in Chat's list: its head, its name, and under it what is said first. */}
 			<div className="flex items-start gap-3">
 				<button

@@ -188,14 +188,15 @@ export const connectionLoader = later(
 	},
 );
 
-// Chat opens on the persona the person was last active with, the first the api lists, which makes
-// one where the organization has none yet, on the thread it last had open in this browser.
+// Chat opens on the persona the person was last active with, the first the api lists, on the
+// thread it last had open in this browser. Where they see none, as in an organization whose agents
+// were all deleted, it stays here with no chat open, and the page offers to make one.
 export const chatIndexLoader = later(async (args: OrgParams) => {
 	const org = orgOf(args);
-	const {personas} = unwrapLoaderResult(await listPersonas(org));
+	const {personas, harnesses} = unwrapLoaderResult(await listPersonas(org));
 	const first = personas[0];
 	if (!first) {
-		throw redirect(`/${org}/connections`);
+		return {chat: null, personas, harnesses};
 	}
 	throw redirect(personaChatPath(org, first.id));
 });

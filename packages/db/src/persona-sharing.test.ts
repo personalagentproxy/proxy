@@ -2,12 +2,12 @@ import {afterAll, beforeAll, describe, expect, test} from 'bun:test';
 import type {Result} from 'ts-results-es';
 
 import type {ApiError} from '@proxy/utils';
-import {readyForInference} from '@proxy/utils/harness';
+import {DEFAULT_LOOK, readyForInference} from '@proxy/utils/harness';
 
 import {db} from '.';
 import {
 	createPersona,
-	ensureFirstPersona,
+	deletePersona,
 	ensureMemberChat,
 	getMemberChat,
 	getPersona,
@@ -18,6 +18,7 @@ import {
 	takeBackPersona,
 	type ThreadRow,
 } from './harness';
+import {provisionOrganization, removeMembership} from './organization';
 
 // Sharing a persona with the organization and taking it back, against a database, as
 // harness.test.ts runs: with `bun run test:db` from the repository's root; skipped without
@@ -37,7 +38,10 @@ describe.skipIf(!databaseUrl)('sharing a persona, against the database', () => {
 	const stamp = `${Date.now()}-${process.pid}`;
 	let maker = '';
 	let other = '';
+	let leaver = '';
 	let orgId = '';
+	// Organizations made in the tests besides the one they share.
+	const alsoMade: string[] = [];
 	let agentId = '';
 
 	// The member's chat with the persona, made where they have none.
@@ -65,37 +69,41 @@ describe.skipIf(!databaseUrl)('sharing a persona, against the database', () => {
 		return unwrap(await listPersonas(orgId, userId)).find(({id}) => id === personaId)?.usedByOthers;
 	}
 
+	// An organization `owner` owns, made as a new one is, with its built-in agent and General.
+	async function provision(owner: string, name: string): Promise<string> {
+		const made = unwrap(
+			await provisionOrganization({
+				owner: {userId: owner},
+				name,
+				slugSource: `${name}-${stamp}`,
+				onboardedAt: new Date(),
+				builtInAgent: {name: 'Chat', username: `${name}-${stamp}`, passwordHash: ''},
+				connections: [],
+			}),
+		);
+		return made.org.id;
+	}
+
 	beforeAll(async () => {
 		maker = (await db.user.create({data: {email: `sharing-test-${stamp}@example.test`}})).id;
 		other = (await db.user.create({data: {email: `sharing-test-other-${stamp}@example.test`}})).id;
-		const org = await db.organization.create({
-			data: {name: 'Sharing test', slug: `sharing-test-${stamp}`, ownerUserId: maker},
-		});
-		orgId = org.id;
+		leaver = (await db.user.create({data: {email: `sharing-test-leaver-${stamp}@example.test`}}))
+			.id;
+		orgId = await provision(maker, 'sharing-test');
 		await db.orgMember.createMany({
 			data: [
-				{orgId, userId: maker},
 				{orgId, userId: other},
+				{orgId, userId: leaver},
 			],
 		});
-		const agent = await db.agent.create({
-			data: {
-				orgId,
-				providerId: 'proxy',
-				name: 'Built in',
-				username: `sharing-test-${stamp}`,
-				passwordHash: '',
-			},
-		});
-		agentId = agent.id;
-		unwrap(await ensureFirstPersona(orgId));
+		agentId = (await db.agent.findFirstOrThrow({where: {orgId, providerId: 'proxy'}})).id;
 	});
 
 	afterAll(async () => {
-		if (orgId !== '') {
-			await db.organization.delete({where: {id: orgId}});
-		}
-		await db.user.deleteMany({where: {id: {in: [maker, other].filter((id) => id !== '')}}});
+		await db.organization.deleteMany({where: {id: {in: [orgId, ...alsoMade]}}});
+		await db.user.deleteMany({
+			where: {id: {in: [maker, other, leaver].filter((id) => id !== '')}},
+		});
 		await db.$disconnect();
 	});
 
@@ -148,7 +156,7 @@ describe.skipIf(!databaseUrl)('sharing a persona, against the database', () => {
 		expect(unwrap(await takeBackPersona(orgId, maker, travel.id))).toBe('missing');
 	});
 
-	test('a shared persona another member has said something to stays shared, as General always does', async () => {
+	test('a shared persona another member has said something to stays shared', async () => {
 		const billing = unwrap(
 			await createPersona(orgId, maker, {name: 'Billing', look, color: 'pink'}, true),
 		);
@@ -157,10 +165,54 @@ describe.skipIf(!databaseUrl)('sharing a persona, against the database', () => {
 		expect(await usedByOthers(maker, billing.id)).toBe(true);
 		expect(unwrap(await takeBackPersona(orgId, maker, billing.id))).toBe('used');
 		expect(unwrap(await getPersona(orgId, other, billing.id))?.ownerUserId).toBeNull();
+	});
 
-		const general = unwrap(await ensureFirstPersona(orgId));
-		expect(general.createdById).toBeNull();
-		expect(unwrap(await takeBackPersona(orgId, maker, general.id))).toBe('missing');
-		expect(unwrap(await getPersona(orgId, other, general.id))?.ownerUserId).toBeNull();
+	test('General, which the organization started with, is its owner’s making: they take it back while nobody else has talked to it, and not once someone has', async () => {
+		const [general] = unwrap(await listPersonas(orgId, other)).filter(
+			({name}) => name === 'General',
+		);
+		expect(general).toMatchObject({
+			ownerUserId: null,
+			createdById: maker,
+			look: DEFAULT_LOOK,
+			color: 'blue',
+		});
+		const id = general?.id ?? '';
+		await chatOf(id, other);
+
+		expect(unwrap(await takeBackPersona(orgId, other, id))).toBe('missing');
+		expect(unwrap(await takeBackPersona(orgId, maker, id))).toBe('taken');
+		expect(unwrap(await getPersona(orgId, other, id))).toBeNull();
+
+		expect(unwrap(await sharePersona(orgId, maker, id))).toBe(true);
+		await say(await chatOf(id, other), 'What is on this week?');
+		expect(unwrap(await takeBackPersona(orgId, maker, id))).toBe('used');
+		expect(unwrap(await getPersona(orgId, other, id))?.ownerUserId).toBeNull();
+	});
+
+	test('a shared persona whose maker left the organization stays everyone’s, and nobody can take it back', async () => {
+		const scout = unwrap(
+			await createPersona(orgId, leaver, {name: 'Scout', look, color: 'green'}, true),
+		);
+		unwrap(await removeMembership({orgId, userId: leaver, sharedAgentPasswordHash: '-'}));
+
+		expect(unwrap(await getPersona(orgId, other, scout.id))).toMatchObject({
+			ownerUserId: null,
+			createdById: leaver,
+		});
+		expect(unwrap(await takeBackPersona(orgId, maker, scout.id))).toBe('missing');
+		expect(unwrap(await takeBackPersona(orgId, other, scout.id))).toBe('missing');
+	});
+
+	test('an organization whose agents were all deleted has none, and listing them makes none', async () => {
+		const emptied = await provision(other, 'emptied-test');
+		alsoMade.push(emptied);
+		const [general, ...more] = unwrap(await listPersonas(emptied, other));
+		expect(more).toEqual([]);
+		expect(general).toMatchObject({name: 'General', ownerUserId: null, createdById: other});
+
+		expect(unwrap(await deletePersona(emptied, general?.id ?? ''))).toBe(true);
+		expect(unwrap(await listPersonas(emptied, other))).toEqual([]);
+		expect(unwrap(await listPersonas(emptied, other))).toEqual([]);
 	});
 });

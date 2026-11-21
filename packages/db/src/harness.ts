@@ -9,7 +9,6 @@ import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, wrapDb} from '@proxy/utils';
 import {
-	DEFAULT_LOOK,
 	type HarnessSession,
 	type Look,
 	type LogEntry,
@@ -29,8 +28,7 @@ import type {NewAgentTask} from './task';
 
 /**
  * The Chat page: the organization's personas, each its maker's alone or shared with every member,
- * as General is, with a chat per member who sees it, and the chat's threads, each with its log and its
- * jobs. A chat runs no agent of its own: it keeps what the member typed and hasn't sent, the files
+ * with a chat per member who sees it, and the chat's threads, each with its log and its jobs. A chat runs no agent of its own: it keeps what the member typed and hasn't sent, the files
  * in its input and how far they have read, and every message they post in it opens a thread, whose
  * agent answers them there. The member's reply, or an alert set in the thread, takes the thread up
  * again; its answer with no calls ends its turn, and where it then stands, whether it waits for the
@@ -96,8 +94,8 @@ export type Persona = {name: string; look: Look; color: string} & Partial<Person
 
 /**
  * A persona as the Chat page lists it, with the harness and the model chosen for it, whose it is,
- * null for one every member sees, as General is, who made it, who may change such a one beside
- * the organization's owner, and when.
+ * null for one every member sees, who made it, who may change such a one beside the
+ * organization's owner, and when.
  */
 export type PersonaRow = Omit<Persona, keyof PersonaModel> &
 	PersonaModel & {
@@ -569,39 +567,6 @@ export async function listAnswers(
 			unread: unread.get(chat.personaId) ?? [],
 		}));
 	});
-}
-
-/**
- * The organization's first persona, General, every member's, made by nobody in particular where
- * it has none every member sees: the organization's row is locked meanwhile, so two first
- * openings of Chat make one. The one there is otherwise, which is the oldest of them.
- */
-export async function ensureFirstPersona(orgId: string): Promise<Result<PersonaRow, ApiError>> {
-	return (
-		await wrapDb(() =>
-			db.$transaction(async (tx) => {
-				await tx.$queryRaw`SELECT "id" FROM "Organization" WHERE "id" = ${orgId} FOR UPDATE`;
-				const existing = await tx.persona.findFirst({
-					where: {orgId, ownerUserId: null},
-					select: personaSelect,
-					orderBy: {createdAt: 'asc'},
-				});
-				if (existing) {
-					return existing;
-				}
-				return tx.persona.create({
-					data: {
-						orgId,
-						createdById: null,
-						name: 'General',
-						look: JSON.stringify(DEFAULT_LOOK),
-						color: 'blue',
-					},
-					select: personaSelect,
-				});
-			}),
-		)
-	).map(toPersona);
 }
 
 /** Personas by id, those of the organization among `ids`, for what names them. */

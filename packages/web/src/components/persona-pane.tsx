@@ -13,8 +13,8 @@ import {describeApiError} from '@/lib/loader-utils';
 
 const LINE = 'text-sm text-muted-foreground';
 
-// Whose the agent is, in a line under its name: a shared one by who made it, or, where nobody did,
-// as General, or its maker has left the organization, just whom it is for.
+// Whose the agent is, in a line under its name: a shared one by who made it, or, where its maker
+// has left the organization, just whom it is for.
 function whoseLine(persona: ListedPersona, orgName: string): string {
 	if (!persona.shared) {
 		return 'Yours alone';

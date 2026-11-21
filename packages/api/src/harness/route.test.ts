@@ -135,9 +135,8 @@ beforeEach(async () => {
 	store.addDraftAttachment.mockResolvedValue(Ok(true));
 	store.removeDraftAttachment.mockResolvedValue(Ok(true));
 	store.listMemberNames.mockResolvedValue(Ok([{orgId: 'org-1', userId: 'user-2', name: 'Dana'}]));
-	const {listPersonas, ensureFirstPersona, getPersona, createPersona, updatePersona, deletePersona, getMemberChat, ensureMemberChat, getChatDraft} = store;
+	const {listPersonas, getPersona, createPersona, updatePersona, deletePersona, getMemberChat, ensureMemberChat, getChatDraft} = store;
 	deletePersona.mockResolvedValue(Ok(true));
-	ensureFirstPersona.mockResolvedValue(Ok({...persona, id: 'persona-9', name: 'General', ownerUserId: null, createdById: null}));
 	requireViewer.mockResolvedValue(Ok(viewer));
 	listPersonas.mockResolvedValue(Ok([{...persona, lastMessage: {kind: 'assistant', text: 'Your vault\n has  one entry.', createdAt: now}, draft: null, draftAttachments: [], usedByOthers: false}]));
 	getPersona.mockResolvedValue(Ok(persona));
@@ -224,7 +223,7 @@ describe('the chat routes', () => {
 		const listed = (await handleListAnswersRoute(request())).unwrap();
 
 		expect(store.listAnswers).toHaveBeenCalledWith('org-1', 'user-1');
-		expect(store.ensureFirstPersona).not.toHaveBeenCalled();
+		expect(store.createPersona).not.toHaveBeenCalled();
 		expect(listed).toEqual({
 			answers: [
 				{personaId: 'persona-1', name: 'Finance', answer: {id: 'e9', text: 'Your vault has one entry.'}, unread: [{threadId: 'thread-2', answer: {id: 'e7', text: 'Paid both.'}, ended: true}]},
@@ -232,18 +231,33 @@ describe('the chat routes', () => {
 		});
 	});
 
-	test('a viewer who sees no persona gets the organization’s General one, every member’s, on their first listing', async () => {
+	test('an organization whose personas were all deleted lists none, and listing makes none', async () => {
 		const {handleListPersonasRoute} = routes;
 		store.listPersonas.mockResolvedValue(Ok([]));
-		store.ensureFirstPersona.mockResolvedValue(Ok({...persona, id: 'persona-9', name: 'General', ownerUserId: null, createdById: null}));
 
 		const listed = (await handleListPersonasRoute(request())).unwrap();
 
-		expect(store.ensureFirstPersona).toHaveBeenCalledWith('org-1');
-		expect(listed).toEqual({
-			personas: [{...listedResponse, id: 'persona-9', name: 'General', shared: true, mayChange: false, madeBy: null, staysShared: 'General is every member’s, so it can’t be made anyone’s own.'}],
-			harnesses: offered,
-		});
+		expect(listed).toEqual({personas: [], harnesses: offered});
+		expect(store.createPersona).not.toHaveBeenCalled();
+	});
+
+	test('list General, which the organization started with, as its owner made it: theirs to change and to take back, and only to change for another member', async () => {
+		const {handleListPersonasRoute} = routes;
+		const general = {...persona, id: 'persona-9', name: 'General', ownerUserId: null, createdById: 'user-2', lastMessage: null, draft: null, draftAttachments: [], usedByOthers: false};
+		store.listPersonas.mockResolvedValue(Ok([general]));
+		store.listMemberNames.mockResolvedValue(Ok([]));
+		requireViewer.mockResolvedValue(Ok({...viewer, userId: 'user-2', role: 'owner'}));
+
+		expect((await handleListPersonasRoute(request())).unwrap().personas).toEqual([
+			{...listedResponse, id: 'persona-9', name: 'General', shared: true, mayChange: true, madeBy: 'you', staysShared: null},
+		]);
+
+		store.listMemberNames.mockResolvedValue(Ok([{orgId: 'org-1', userId: 'user-2', name: 'Dana'}]));
+		requireViewer.mockResolvedValue(Ok(viewer));
+		expect((await handleListPersonasRoute(request())).unwrap().personas).toEqual([
+			{...listedResponse, id: 'persona-9', name: 'General', shared: true, mayChange: false, madeBy: {name: 'Dana'}, staysShared: 'Only whoever made General can make it theirs alone.'},
+		]);
+		expect(store.createPersona).not.toHaveBeenCalled();
 	});
 
 	test('list who made each persona: the viewer, another member by what they are called, or nobody where its maker has left', async () => {
@@ -270,16 +284,13 @@ describe('the chat routes', () => {
 		]);
 	});
 
-	test('a viewer who sees personas of their own but none every member’s, as where General was deleted, gets General made again, after their own', async () => {
+	test('a viewer who sees personas of their own but none every member’s gets their own alone', async () => {
 		const {handleListPersonasRoute} = routes;
 
 		const listed = (await handleListPersonasRoute(request())).unwrap();
 
-		expect(store.ensureFirstPersona).toHaveBeenCalledWith('org-1');
-		expect(listed.personas.map(({id, shared}) => [id, shared])).toEqual([
-			['persona-1', false],
-			['persona-9', true],
-		]);
+		expect(listed.personas.map(({id, shared}) => [id, shared])).toEqual([['persona-1', false]]);
+		expect(store.createPersona).not.toHaveBeenCalled();
 	});
 
 	test('make a persona as given, the viewer’s own, on the server’s first harness with its first model where none was chosen, with the organization’s built-in login where there is none', async () => {
@@ -374,16 +385,46 @@ describe('the chat routes', () => {
 		expect(store.updatePersona).not.toHaveBeenCalled();
 	});
 
-	test('keep General every member’s, and a shared persona somebody else made from being taken by the organization’s owner, who may still change and delete it', async () => {
-		const {handleDeletePersonaRoute, handleUpdatePersonaRoute} = routes;
+	test('let the organization’s owner take back General, which they made, while nobody else has talked to it, and refuse them once someone has, as anyone', async () => {
+		const {handleUpdatePersonaRoute} = routes;
 		const body = {name: 'General', look, color: 'blue' as const, shared: false};
 		requireViewer.mockResolvedValue(Ok({...viewer, role: 'owner'}));
+		store.getPersona.mockResolvedValue(Ok({...persona, name: 'General', ownerUserId: null, createdById: 'user-1'}));
 
-		store.getPersona.mockResolvedValue(Ok({...persona, name: 'General', ownerUserId: null, createdById: null}));
-		expect((await handleUpdatePersonaRoute(request({personaId: 'persona-1'}, body))).unwrapErr()).toEqual(ApiErr.conflict('General is every member’s, so it can’t be made anyone’s own.'));
+		store.takeBackPersona.mockResolvedValue(Ok('taken'));
+		expect((await handleUpdatePersonaRoute(request({personaId: 'persona-1'}, body))).unwrap().persona).toMatchObject({name: 'General', shared: false});
+		expect(store.takeBackPersona).toHaveBeenCalledWith('org-1', 'user-1', 'persona-1');
+
+		store.takeBackPersona.mockResolvedValue(Ok('used'));
+		expect((await handleUpdatePersonaRoute(request({personaId: 'persona-1'}, body))).unwrapErr()).toEqual(ApiErr.conflict('Others in Acme are using General, so it stays shared.'));
+	});
+
+	test('keep a shared persona whose maker has left, or that names none, everyone’s: the organization’s owner changes it but nobody takes it back, and the list names no maker', async () => {
+		const {handleListPersonasRoute, handleUpdatePersonaRoute} = routes;
+		requireViewer.mockResolvedValue(Ok({...viewer, role: 'owner'}));
+		store.listMemberNames.mockResolvedValue(Ok([]));
+		for (const createdById of ['user-gone', null]) {
+			const scout = {...persona, name: 'Scout', ownerUserId: null, createdById};
+			store.getPersona.mockResolvedValue(Ok(scout));
+			store.listPersonas.mockResolvedValue(Ok([{...scout, lastMessage: null, draft: null, draftAttachments: [], usedByOthers: false}]));
+
+			expect((await handleUpdatePersonaRoute(request({personaId: 'persona-1'}, {name: 'Scout', look, color: 'blue', shared: false}))).unwrapErr()).toEqual(
+				ApiErr.conflict('Only whoever made Scout can make it theirs alone.'),
+			);
+			expect((await handleUpdatePersonaRoute(request({personaId: 'persona-1'}, {name: 'Scout', look, color: 'teal'}))).isOk()).toBe(true);
+			const [listed] = (await handleListPersonasRoute(request())).unwrap().personas;
+			expect(listed).toMatchObject({madeBy: null, mayChange: true, staysShared: 'Only whoever made Scout can make it theirs alone.'});
+		}
+		expect(store.takeBackPersona).not.toHaveBeenCalled();
+	});
+
+	test('keep a shared persona somebody else made from being taken by the organization’s owner, who may still change and delete it', async () => {
+		const {handleDeletePersonaRoute, handleUpdatePersonaRoute} = routes;
+		const body = {name: 'Finance', look, color: 'blue' as const, shared: false};
+		requireViewer.mockResolvedValue(Ok({...viewer, role: 'owner'}));
 
 		store.getPersona.mockResolvedValue(Ok({...persona, ownerUserId: null, createdById: 'user-2'}));
-		expect((await handleUpdatePersonaRoute(request({personaId: 'persona-1'}, {...body, name: 'Finance'}))).unwrapErr()).toEqual(ApiErr.conflict('Only whoever made Finance can make it theirs alone.'));
+		expect((await handleUpdatePersonaRoute(request({personaId: 'persona-1'}, body))).unwrapErr()).toEqual(ApiErr.conflict('Only whoever made Finance can make it theirs alone.'));
 		expect(store.takeBackPersona).not.toHaveBeenCalled();
 		expect(store.updatePersona).not.toHaveBeenCalled();
 
@@ -775,7 +816,7 @@ describe('the chat’s threads', () => {
 	test('switch what runs a thread of the viewer’s chat, of any persona they see, without changing the persona; refuse a harness or a model the server hasn’t got, and say where there is no such thread', async () => {
 		const {handleSetThreadModelRoute} = routes;
 		store.setThreadModel.mockResolvedValue(Ok(true));
-		// General, which the viewer may not change, as a member.
+		// A shared one another member made, which the viewer may not change.
 		store.getPersona.mockResolvedValue(Ok({...persona, ownerUserId: null, createdById: 'user-2'}));
 		const asked = (body: unknown, threadId = 'thread-2') => handleSetThreadModelRoute(request({personaId: 'persona-1', threadId}, body));
 

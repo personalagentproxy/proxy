@@ -2,7 +2,7 @@ import {afterAll, beforeAll, describe, expect, test} from 'bun:test';
 import type {Result} from 'ts-results-es';
 
 import type {ApiError} from '@proxy/utils';
-import {readyForInference} from '@proxy/utils/harness';
+import {DEFAULT_LOOK, readyForInference} from '@proxy/utils/harness';
 
 import {db} from '.';
 import {
@@ -21,7 +21,7 @@ import {
 import {
 	claimJob,
 	completeInference,
-	ensureFirstPersona,
+	createPersona,
 	ensureMemberChat,
 	finishJob,
 	type JobRow,
@@ -93,7 +93,15 @@ describe.skipIf(!databaseUrl)('the alerts, against the database', () => {
 		});
 		connectionId = connection.id;
 		poll = {connectionId, collectionId: 'emails', cursor: null};
-		const persona = unwrap(await ensureFirstPersona(orgId));
+		// General, shared, as an organization starts with it.
+		const persona = unwrap(
+			await createPersona(
+				orgId,
+				userId,
+				{name: 'General', look: DEFAULT_LOOK, color: 'blue'},
+				true,
+			),
+		);
 		chat = unwrap(
 			await ensureMemberChat({orgId, agentId: agent.id, personaId: persona.id, userId}),
 		);

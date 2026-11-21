@@ -48,7 +48,7 @@ function AgentPicker({
 
 // A message to one of Chat's agents, which makes the bar Chat's message box: under the input, a
 // widget that is only its foot, a line as the one that names the model there, saying whom it goes
-// to, beside the Send button, the card's main one. What no quick action does is sent as it was typed ("Send this to General"); what was
+// to, beside the Send button, the card's main one. What no quick action does is sent as it was typed ("Send this to Finance"); what was
 // said to an agent by name, without the name ("Send “pay the invoice” to Finance"). The agent is
 // `suggested`, or another picked in the line. Enter in the bar's input sends it, as in Chat, and
 // the app goes to the conversation, where the agent answers.

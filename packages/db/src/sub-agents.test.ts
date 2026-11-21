@@ -2,7 +2,7 @@ import {afterAll, beforeAll, describe, expect, test} from 'bun:test';
 import type {Result} from 'ts-results-es';
 
 import type {ApiError} from '@proxy/utils';
-import {readyForInference} from '@proxy/utils/harness';
+import {DEFAULT_LOOK, readyForInference} from '@proxy/utils/harness';
 
 import {db} from '.';
 import {
@@ -10,7 +10,7 @@ import {
 	claimJob,
 	type ClaimedJob,
 	completeInference,
-	ensureFirstPersona,
+	createPersona,
 	ensureMemberChat,
 	failJob,
 	getChatThread,
@@ -106,7 +106,15 @@ describe.skipIf(!databaseUrl)('sub-agents, against the database', () => {
 			},
 		});
 		agentId = agent.id;
-		const persona = unwrap(await ensureFirstPersona(orgId));
+		// General, shared, as an organization starts with it.
+		const persona = unwrap(
+			await createPersona(
+				orgId,
+				userId,
+				{name: 'General', look: DEFAULT_LOOK, color: 'blue'},
+				true,
+			),
+		);
 		chat = unwrap(await ensureMemberChat({orgId, agentId, personaId: persona.id, userId}));
 		const task = {
 			orgId,

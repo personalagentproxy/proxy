@@ -2,7 +2,7 @@ import {afterAll, beforeAll, describe, expect, test} from 'bun:test';
 import type {Result} from 'ts-results-es';
 
 import type {ApiError} from '@proxy/utils';
-import {readyForInference} from '@proxy/utils/harness';
+import {DEFAULT_LOOK, readyForInference} from '@proxy/utils/harness';
 
 import {db} from '.';
 import {
@@ -14,7 +14,6 @@ import {
 	completeInference,
 	completeToolJob,
 	createPersona,
-	ensureFirstPersona,
 	ensureMemberChat,
 	failJob,
 	finishJob,
@@ -36,6 +35,7 @@ import {
 	requeueJob,
 	saveChatDraft,
 	saveThreadDraft,
+	type PersonaRow,
 	type ThreadRow,
 } from './harness';
 import {removeMembership} from './organization';
@@ -65,7 +65,9 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 	let userId = '';
 	let orgId = '';
 	let agentId = '';
-	// The member's chat with General, and the thread the tests below go on in.
+	// General, shared, as the organization starts with it; the member's chat with it, and the
+	// thread the tests below go on in.
+	let general: PersonaRow;
 	let chat: ThreadRow;
 	let thread: ThreadRow;
 
@@ -125,8 +127,15 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 			},
 		});
 		agentId = agent.id;
-		const persona = unwrap(await ensureFirstPersona(orgId));
-		chat = unwrap(await ensureMemberChat({orgId, agentId, personaId: persona.id, userId}));
+		general = unwrap(
+			await createPersona(
+				orgId,
+				userId,
+				{name: 'General', look: DEFAULT_LOOK, color: 'blue'},
+				true,
+			),
+		);
+		chat = unwrap(await ensureMemberChat({orgId, agentId, personaId: general.id, userId}));
 		thread = (await open(chat, 'Find my invoices')).thread;
 	});
 
@@ -281,7 +290,7 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 	});
 
 	test('each thread’s last answer is unread until the thread is read up to it, never back, each thread on its own; a reply reads the thread up to it', async () => {
-		const persona = unwrap(await ensureFirstPersona(orgId));
+		const persona = general;
 		const lastAnswer = async () =>
 			unwrap(await listAnswers(orgId, userId)).find(
 				(candidate) => candidate.personaId === persona.id,
@@ -366,7 +375,6 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 	});
 
 	test('the personas are listed the one last active first: the last thing said in it, or its making before anything was', async () => {
-		const general = unwrap(await ensureFirstPersona(orgId));
 		const look = {nose: 0.5, noseOut: 0.3, eye: 25, eyeTheta: 50, eyeLat: 8, eyes: 2 as const};
 		const travel = unwrap(
 			await createPersona(orgId, userId, {name: 'Travel', look, color: 'teal'}),
@@ -393,8 +401,7 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		unwrap(await finishJob(job.id, 'worker-p'));
 	});
 
-	test('a persona is its maker’s, which no other member lists or finds, where General is every member’s, and it goes when its maker leaves', async () => {
-		const general = unwrap(await ensureFirstPersona(orgId));
+	test('a persona is its maker’s, which no other member lists or finds, where a shared one is every member’s, and it goes when its maker leaves', async () => {
 		const look = {nose: 0.5, noseOut: 0.3, eye: 25, eyeTheta: 50, eyeLat: 8, eyes: 2 as const};
 		const other = await db.user.create({data: {email: `harness-test-other-${stamp}@example.test`}});
 		await db.orgMember.create({data: {orgId, userId: other.id}});
@@ -413,8 +420,6 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		expect(unwrap(await getPersona(orgId, userId, own.id))?.id).toBe(own.id);
 		expect(unwrap(await getPersona(orgId, other.id, own.id))).toBeNull();
 		expect(unwrap(await getPersona(orgId, other.id, general.id))?.id).toBe(general.id);
-		// General is the one every member sees, however many of their own there are.
-		expect(unwrap(await ensureFirstPersona(orgId)).id).toBe(general.id);
 
 		unwrap(await removeMembership({orgId, userId: other.id, sharedAgentPasswordHash: ''}));
 		expect(await db.persona.findUnique({where: {id: theirs.id}})).toBeNull();

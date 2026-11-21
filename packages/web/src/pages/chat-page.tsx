@@ -65,7 +65,7 @@ import {IconButton} from '@/components/icon-button';
 import {PersonaDialog} from '@/components/persona-dialog';
 import {settingsPath, usePersonaPane} from '@/hooks/use-persona-pane';
 import {ContentBoundary} from '@/components/route-error';
-import {preview} from '@proxy/utils/harness';
+import {DEFAULT_LOOK, preview} from '@proxy/utils/harness';
 import {PillTab} from '@proxy/ui/components/pill-tab';
 import {cn} from '@proxy/ui/lib/utils';
 import type {AttachmentInput} from '@/hooks/use-attachments';
@@ -88,7 +88,7 @@ import {describeApiError, describeFetchError} from '@/lib/loader-utils';
 import {isDesktopApp} from '@/lib/desktop';
 import {isShortcut} from '@/lib/platform';
 import type {Shortcut} from '@/components/shortcut-hint';
-import type {chatLoader} from '@/loaders';
+import type {chatIndexLoader, chatLoader} from '@/loaders';
 import {OpenThread, THREAD_ROUTE, type ThreadContext, type ThreadLoad} from '@/pages/chat-thread';
 import {
 	ContextMenu,
@@ -154,8 +154,7 @@ type ShownSaid = {personaId: string; last: LastMessage};
 type ShownDraft = {personaId: string; draft: string};
 type Shown = {personaId: string; last: LastMessage; draft: string};
 
-// The personas the person sees, their own and those shared with everyone, General among them, in
-// the sidebar, each with its head, its name, a shared one marked beside it once anyone else is in
+// The personas the person sees, their own and those shared with everyone, in the sidebar, each with its head, its name, a shared one marked beside it once anyone else is in
 // the organization or invited, and the last thing said between it and the person, marked where the
 // person hasn't seen it, or what they typed and haven't sent, the open one's as it is typed, the open one lit, each head
 // watching the pointer while it is over that agent's row. The one last active is on top, the open
@@ -560,7 +559,7 @@ export function ChatPage() {
 	const threadLoad = useRouteLoaderData<{later: ThreadLoad}>(THREAD_ROUTE)?.later;
 	// The agents as last listed, with each chat as it loads; until the first has, as the list last
 	// came anywhere (lib/persona-list.ts), so they are there as the page opens.
-	const listed = useLastLoaded<typeof chatLoader>();
+	const listed = useLastLoaded<ChatLoaders>();
 	const list = listed.answer ?? rememberedPersonaList(org);
 	const personas = list?.personas ?? null;
 	const persona = personas?.find((candidate) => candidate.id === current);
@@ -931,7 +930,9 @@ export function ChatPage() {
 					</div>
 				}
 				contentKey={current}
-				side={side}
+				// No agent is open at Chat's own address, as where the person sees none: no task's place
+				// beside what the page shows instead.
+				side={current === '' ? undefined : side}
 				pane={pane}
 			>
 				<OpenChat
@@ -953,6 +954,7 @@ export function ChatPage() {
 					managing={managing}
 					listError={error}
 					withSettings={withSettings}
+					onNewAgent={() => setEditing('new')}
 				/>
 			</AppShell>
 			{editing !== null && (
@@ -1040,10 +1042,42 @@ type Opened = {
 	withSettings: (path: string) => string;
 };
 
+// What Chat's routes load: an agent's chat, or, at Chat's own address, no chat where the person
+// sees no agent (`chatIndexLoader`, which goes to the first otherwise).
+type ChatLoaders = typeof chatLoader | typeof chatIndexLoader;
+
 // The chat the address names, once loaded: started over when the address names another agent.
-function OpenChat(opened: Opened) {
-	const {chat, harnesses} = useLoaded<typeof chatLoader>();
+// Without one, as where the person sees no agent, what there is to do instead: `onNewAgent` opens
+// the dialog that makes one.
+function OpenChat({onNewAgent, ...opened}: Opened & {onNewAgent: () => void}) {
+	const {chat, harnesses} = useLoaded<ChatLoaders>();
+	if (chat === null) {
+		return <NoAgents onNew={onNewAgent} />;
+	}
 	return <Chat key={chat.persona.id} loaded={chat} harnesses={harnesses} {...opened} />;
+}
+
+// Chat with no agent to talk to, as in an organization whose agents were all deleted, across the
+// page beside the list that says so: what an agent is, and the way to make one.
+function NoAgents({onNew}: {onNew: () => void}) {
+	return (
+		<div className="page-column flex min-h-0 flex-1 flex-col items-center justify-center gap-2 overflow-y-auto py-12 text-center">
+			<LiveHead look={DEFAULT_LOOK} color="mono" size={64} />
+			<p className="text-lg font-medium">No agents yet</p>
+			<p className="max-w-md text-sm text-muted-foreground">
+				An agent works on what you ask it, each task on its own, with what is shared with everyone
+				and what you connected yourself, as far as its access allows. Make one for yourself, and
+				share it with everyone if you like.
+			</p>
+			<div className="pt-2">
+				<AddButton
+					label="New agent"
+					shortcut={windowShortcut({letter: 'n', shift: true})}
+					onClick={onNew}
+				/>
+			</div>
+		</div>
+	);
 }
 
 // What the person said in the chat to open a thread; null for a thread something else opened.

@@ -9,6 +9,7 @@ import {fillIntent, type Intent, pickIntent} from '@/client/intent-client';
 import {AnimatedHeight} from '@/components/animated-height';
 import {CommandRows} from '@/components/command-rows';
 import {AgentWidget} from '@/components/widgets/agent-widget';
+import {NoAgentWidget} from '@/components/widgets/new-agent-widget';
 import {FillingWidget, IntentWidget} from '@/components/widgets/intent-widget';
 import {UnsupportedWidget} from '@/components/widgets/unsupported-widget';
 import {Input} from '@proxy/ui/components/input';
@@ -105,8 +106,10 @@ type Props = {
  * external agents the words lead to, which Enter opens; the api picks the widget for what is
  * typed every 300 ms while typing goes on, which shows at once and fills in when its fields come.
  * In an organization with Chat, a wish for a new agent opens into one to make, and what no quick
- * action does into a message to one of Chat's agents, General unless the text names another;
- * Enter makes the one and sends the other, and leads to the conversation. A text said to an agent
+ * action does into a message to one of Chat's agents, the one the text names, else the oldest
+ * shared one, else the first listed (lib/command-bar.ts personaFor), or, with no agent at all, into
+ * one to make that starts on it; Enter makes the one and sends the other, and leads to the
+ * conversation. A text said to an agent
  * by name ("ask Finance …") is a message to it, of what follows the name, without being classified
  * at all.
  */
@@ -448,7 +451,18 @@ export function CommandBar({connections, agents, personas, open: up, onClose}: P
 		if (rows.length > 0) {
 			return null;
 		}
-		if (personas !== null && personas.length > 0) {
+		if (personas !== null && personas.length === 0) {
+			return {
+				key: 'no-agent',
+				view: (
+					<NoAgentWidget
+						typed={words}
+						bar={{entered: enteredOn(words), onEnter: onEnterKey, setAction, done}}
+					/>
+				),
+			};
+		}
+		if (personas !== null) {
 			return {
 				key: 'agent',
 				view: (

@@ -44,7 +44,7 @@ import type {HarnessStore} from './store';
 
 /**
  * The Chat page's routes, under the organization: the personas the member sees, their own and
- * those shared with every member, as General is, each named and given a head, all acting through the
+ * those shared with every member, each named and given a head, all acting through the
  * organization's one built-in agent login, and the member's own chat with each, which holds
  * threads: each message they post in the chat opens one, whose agent works on it and answers them
  * there, and a reply in a thread goes on with it; the chat lists its threads, and each is read on
@@ -62,7 +62,6 @@ export type ChatStore = Pick<
 	| 'listPersonas'
 	| 'listMemberNames'
 	| 'listAnswers'
-	| 'ensureFirstPersona'
 	| 'getPersona'
 	| 'createPersona'
 	| 'updatePersona'
@@ -119,16 +118,13 @@ function inUse(viewer: OrgViewer, persona: PersonaRow): string {
 	return `Others in ${viewer.name} are using ${persona.name}, so it stays shared.`;
 }
 
-// Why the viewer can't make a shared persona theirs alone again: General, or another one nobody
-// made, is every member's; one somebody else made is theirs to take back, not the organization's
-// owner's, and nobody's where they have left; and one another member has said something to stays
-// everyone's. Null where they can, and for one that isn't shared.
+// Why the viewer can't make a shared persona theirs alone again: only whoever made it takes it
+// back, not the organization's owner, and nobody where they have left or it names no maker; and one
+// another member has said something to stays everyone's. Null where they can, and for one that
+// isn't shared.
 function staysShared(viewer: OrgViewer, persona: PersonaRow, usedByOthers: boolean): string | null {
 	if (persona.ownerUserId !== null) {
 		return null;
-	}
-	if (persona.createdById === null) {
-		return `${persona.name} is every member’s, so it can’t be made anyone’s own.`;
 	}
 	if (persona.createdById !== viewer.userId) {
 		return `Only whoever made ${persona.name} can make it theirs alone.`;
@@ -163,7 +159,7 @@ function toPersona(harnesses: Harnesses, viewer: OrgViewer, persona: PersonaRow 
 }
 
 // Who made the persona, as its settings say: the viewer, or another member by what they are called
-// (`names`, by their id); nobody for one nobody made, as General, or whose maker has left.
+// (`names`, by their id); nobody for one whose maker has left, or that names none.
 function madeBy(viewer: OrgViewer, persona: PersonaRow, names: ReadonlyMap<string, string>): ListedPersona['madeBy'] {
 	if (persona.createdById === null) {
 		return null;
@@ -288,7 +284,7 @@ function ensureChat(store: ChatStore, viewer: OrgViewer, persona: PersonaRow): P
 	});
 }
 
-/** `GET /api/orgs/:org/chat/personas`: the organization's personas the viewer sees, their own and those every member does, the one last active in the viewer's chat with it first, and the harnesses the server has for one to run on; a General one, every member's, is made where there is none, after the viewer's own, so a message that names no agent always has one to go to. */
+/** `GET /api/orgs/:org/chat/personas`: the organization's personas the viewer sees, their own and those every member does, the one last active in the viewer's chat with it first, and the harnesses the server has for one to run on. It makes none: an organization whose personas were all deleted lists none. */
 function handleListPersonasRoute(store: ChatStore, harnesses: Harnesses, request: AuthenticatedRequest): Promise<Result<z.infer<typeof personaListSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
@@ -298,13 +294,7 @@ function handleListPersonasRoute(store: ChatStore, harnesses: Harnesses, request
 		const makers = new Set(personas.flatMap(({createdById}) => (createdById === null || createdById === viewer.userId ? [] : [createdById])));
 		const named = $(await store.listMemberNames([...makers].map((userId) => ({orgId: viewer.orgId, userId}))));
 		const names = new Map(named.map(({userId, name}) => [userId, name]));
-		const listed = personas.map((persona) => toListedPersona(harnesses, viewer, persona, names));
-		if (personas.some((persona) => persona.ownerUserId === null)) {
-			return {personas: listed, harnesses: offered};
-		}
-		// Just made, with nothing said to it yet.
-		const general = $(await store.ensureFirstPersona(viewer.orgId));
-		return {personas: [...listed, toListedPersona(harnesses, viewer, {...general, usedByOthers: false}, names)], harnesses: offered};
+		return {personas: personas.map((persona) => toListedPersona(harnesses, viewer, persona, names)), harnesses: offered};
 	});
 }
 

@@ -32,7 +32,6 @@ export function fakeStore(): FakeStore {
 		listPersonas: mock<HarnessStore['listPersonas']>(),
 		listAnswers: mock<HarnessStore['listAnswers']>(),
 		listMemberNames: mock<HarnessStore['listMemberNames']>(),
-		ensureFirstPersona: mock<HarnessStore['ensureFirstPersona']>(),
 		getPersona: mock<HarnessStore['getPersona']>(),
 		createPersona: mock<HarnessStore['createPersona']>(),
 		updatePersona: mock<HarnessStore['updatePersona']>(),

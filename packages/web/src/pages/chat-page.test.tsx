@@ -22,7 +22,7 @@ import {ChatPage} from '@/pages/chat-page';
 import {THREAD_ROUTE} from '@/pages/chat-thread';
 import {FROM_COMMAND_BAR} from '@/lib/command-bar';
 import {later} from '@/lib/loader-utils';
-import {shouldRevalidateChat} from '@/loaders';
+import {chatIndexLoader, shouldRevalidateChat} from '@/loaders';
 import {testHuman, testOrg} from '@/test-org';
 
 const realFetch = globalThis.fetch;
@@ -60,8 +60,8 @@ const harnesses = [
 	},
 ];
 
-// General, which nobody made.
-const general = {...persona('general', 'General', false), madeBy: null};
+// General, which the organization's owner made with it, and the person, a member, may not change.
+const general = {...persona('general', 'General', false), madeBy: {name: 'Dana'}};
 const finance = persona('finance', 'Finance', true);
 
 // A thread of General's chat, as the chat lists it: one the person opened, stopped, unless a test
@@ -222,6 +222,9 @@ function renderChatPage({
 				loader: () => testHuman({...testOrg, memberCount: others ? 3 : 1}),
 				element: <HumanSide />,
 				children: [
+					// Chat's own address, which goes to the first agent the api lists, or, with none,
+					// stays with no chat open.
+					{path: '/:org/chat', loader: chatIndexLoader, element: <ChatPage />},
 					{
 						path: '/:org/chat/:id',
 						loader: later(async ({params}: {params: {id?: string}}) => {
@@ -574,6 +577,54 @@ describe('ChatPage', () => {
 				expect.objectContaining({method: 'DELETE'}),
 			);
 		});
+	});
+
+	test('deleting the last agent, the open one, leaves Chat with none: the list says so, and the page offers to make one', async () => {
+		let listed: ListedPersona[] = [finance];
+		answering((input, init) => {
+			if (input === '/api/orgs/acme/chat/personas' && (init?.method ?? 'GET') === 'GET') {
+				return Promise.resolve(Response.json({personas: listed, harnesses}));
+			}
+			if (init?.method === 'DELETE') {
+				listed = [];
+			}
+			return null;
+		});
+		const {router} = renderChatPage({
+			personas: [finance],
+			open: 'finance',
+			listPersonas: () => listed,
+		});
+
+		fireEvent.contextMenu(await screen.findByRole('link', {name: /Finance/}));
+		fireEvent.click(await screen.findByRole('menuitem', {name: 'Delete'}));
+		await act(async () => {
+			fireEvent.click(screen.getByRole('button', {name: 'Delete'}));
+		});
+
+		await waitFor(() => expect(router.state.location.pathname).toBe('/acme/chat'));
+		expect(await screen.findByText('No agents yet')).toBeDefined();
+		expect(screen.getByText('No agents yet.')).toBeDefined();
+		expect(screen.queryByRole('link', {name: /Finance/})).toBeNull();
+		expect(screen.queryByLabelText('Tasks')).toBeNull();
+
+		// The page's own New agent, beside the list's, opens the dialog that makes one.
+		const buttons = screen.getAllByRole('button', {name: /New agent/});
+		expect(buttons).toHaveLength(2);
+		fireEvent.click(buttons[1] as HTMLElement);
+		expect(screen.getByRole('heading', {name: 'New agent'})).toBeDefined();
+	});
+
+	test('Chat’s own address goes to the first agent listed, where there is one', async () => {
+		answering((input) =>
+			input === '/api/orgs/acme/chat/personas'
+				? Promise.resolve(Response.json({personas: [finance, general], harnesses}))
+				: null,
+		);
+		const {router} = renderChatPage({initial: '/acme/chat'});
+
+		await waitFor(() => expect(router.state.location.pathname).toBe('/acme/chat/finance'));
+		expect(await screen.findByText('What should Finance do?')).toBeDefined();
 	});
 
 	test('marks a shared agent beside its name once anyone else is in the organization, and not while the person is alone in it', async () => {
@@ -1805,7 +1856,7 @@ describe('ChatPage', () => {
 			await follow(await screen.findByRole('menuitem', {name: 'Settings'}));
 			const pane = await screen.findByRole('region', {name: 'Agent settings'});
 			expect(router.state.location.pathname).toBe('/acme/chat/general/settings');
-			expect(within(pane).getByText('For everyone in Acme')).toBeTruthy();
+			expect(within(pane).getByText('Made by Dana')).toBeTruthy();
 			expect(
 				within(pane).getByText(
 					'Everyone in Acme. Each person’s conversation with it is their own.',
@@ -1843,22 +1894,23 @@ describe('ChatPage', () => {
 			).toBeTruthy();
 		});
 
-		test('say whose a shared agent is: made by the person, by another member, or, where nobody did or its maker has left, whom it is for', async () => {
+		test('say whose a shared agent is: made by the person, by another member, or, where its maker has left, whom it is for', async () => {
 			const travel = {...persona('travel', 'Travel', true), shared: true};
 			const research = {
 				...persona('research', 'Research', false),
 				shared: true,
 				madeBy: {name: 'Dana'},
 			};
-			const everyone = {...general, shared: true};
+			// Whose maker has left the organization.
+			const scout = {...persona('scout', 'Scout', false), shared: true, madeBy: null};
 			const lines: Array<[ListedPersona, string]> = [
 				[travel, 'Made by you, for everyone in Acme'],
 				[research, 'Made by Dana'],
-				[everyone, 'For everyone in Acme'],
+				[scout, 'For everyone in Acme'],
 			];
 			for (const [shown, line] of lines) {
 				renderChatPage({
-					personas: [everyone, travel, research],
+					personas: [scout, travel, research],
 					open: shown.id,
 					initial: `/acme/chat/${shown.id}/settings`,
 				});

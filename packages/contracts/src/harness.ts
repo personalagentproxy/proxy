@@ -4,9 +4,9 @@ import {z} from 'zod';
 
 /**
  * The Chat page (`/api/orgs/:org/chat/…`): the personas the person sees in the organization,
- * their own and those shared with every member, General among them, each named and given a head,
- * and the person's own chat with each: its threads, each opened by what they said in the chat, and what is said in
- * each.
+ * their own and those shared with every member, General among them where the organization keeps
+ * the one it started with, each named and given a head, and the person's own chat with each: its
+ * threads, each opened by what they said in the chat, and what is said in each.
  */
 
 /**
@@ -42,7 +42,7 @@ export const chatPersonaSchema = z.object({
 	/** The harness that runs it and the model it answers with, by their ids, as this server has them. */
 	harness: z.string(),
 	chatModel: z.string(),
-	/** Every member's, as General is, rather than the person's own, which nobody else sees. */
+	/** Every member's rather than the person's own, which nobody else sees. */
 	shared: z.boolean(),
 	/**
 	 * Whether the person may rename, reface, switch the harness or the model of, share, or delete
@@ -71,8 +71,8 @@ export type ChatPersona = z.infer<typeof chatPersonaSchema>;
  */
 export const listedPersonaSchema = chatPersonaSchema.extend({
 	/**
-	 * Who made it: the person, or another member, by their name; null for one nobody made, as
-	 * General, or whose maker is no longer in the organization.
+	 * Who made it: the person, or another member, by their name; null for one whose maker is no
+	 * longer in the organization.
 	 */
 	madeBy: z.union([z.literal('you'), z.object({name: z.string()})]).nullable(),
 	/**
@@ -81,8 +81,8 @@ export const listedPersonaSchema = chatPersonaSchema.extend({
 	 */
 	usedByOthers: z.boolean(),
 	/**
-	 * Why the person can't make it theirs alone, where it is shared, as the page says it: General,
-	 * which nobody made; one somebody else made; or one others have said something to. Null where
+	 * Why the person can't make it theirs alone, where it is shared, as the page says it: one
+	 * somebody else made, or whose maker has left; or one others have said something to. Null where
 	 * they can, and for their own.
 	 */
 	staysShared: z.string().nullable(),
@@ -137,7 +137,8 @@ export type ChatAnswer = z.infer<typeof chatAnswerSchema>;
 
 /**
  * `GET chat/answers`: the last answer in each of the person's chats that has one, as every page
- * asks every so often; it makes nothing, where `GET chat/personas` makes General.
+ * asks every so often. Neither it nor `GET chat/personas` makes anything: an organization whose
+ * personas were all deleted has none, and no answers.
  */
 export const chatAnswersSchema = z.object({answers: z.array(chatAnswerSchema)});
 
