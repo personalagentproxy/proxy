@@ -16,7 +16,8 @@ Agents see the inbox, drafts and sent mail as one list. You can allow each actio
   with its attachments listed, and an attachment is read as text: a spreadsheet's tabs as CSV, a
   PDF's or a Word document's text, a forwarded email, or a text file as it is, the first 100,000
   characters of it. Images and other files can't be read, but any attachment can be made a
-  [blob](/connections/files#moving-files-between-connections), to put in a drive.
+  [blob](/connections/files#moving-files-between-connections), to put in a drive or attach to
+  another email.
 - **Mark read or unread**, **Flag**, **Archive** and **Move to Trash** act on messages in the
   inbox, and require Read. Trash can still be restored at the provider.
 - **Write drafts** creates, edits and deletes drafts, and requires Read. A draft takes a Cc and a
@@ -24,6 +25,12 @@ Agents see the inbox, drafts and sent mail as one list. You can allow each actio
   draft in its thread.
 - **Send** sends a new email or a saved draft. It does not require Read, so an agent can send
   without seeing the mailbox. Sending a reply needs Read too, since it reads the email it answers.
+
+An agent attaches files to a draft, a reply or an email it sends by naming
+[blobs](/connections/files#moving-files-between-connections) it made: another email's attachment,
+to forward it, a file from a drive, or a file from its own shell. They go out under their own
+names, 25 MB together at most, or less where the mail server takes less. A draft keeps the
+attachments it has when it is edited, with any named then added, and when it is sent.
 
 A reply goes to whoever the email asks replies to go to, else its sender, or, for an email you
 sent, to whom it went, under the email's subject with "Re:", and joins its thread. A reply to all

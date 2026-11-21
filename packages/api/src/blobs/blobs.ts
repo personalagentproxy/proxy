@@ -17,7 +17,8 @@ import {signBlobToken} from './token';
  * the server's blob store (native/files/content.ts), made by one agent and used only by it. A tool
  * on the connection a file is in makes a blob of it, through that connection's gate, as reading it
  * is: `attachments_blob` of an email's attachment, `files_blob` of a drive's file. A tool on the
- * connection it goes to takes the blob, through that one's: `files_upload` puts it in a drive. So
+ * connection it goes to takes the blob, through that one's: `files_upload` puts it in a drive, and
+ * an email or a reply attaches the blobs its `attach` names (records/email-attachments.ts). So
  * every step is checked and logged on its own connection, and nothing is particular to a pair of
  * them. Bytes from outside, a model's shell or a sandbox, come in through a URL `pap.upload()`
  * answers with, and go out through one `pap.download(blob)` does (route.ts).

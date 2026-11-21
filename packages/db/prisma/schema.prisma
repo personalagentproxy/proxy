@@ -688,9 +688,10 @@ model FileVersion {
 // outlives it until then.
 //
 // An agent's blob (api blobs/) is a file on its way through Personal Agent Proxy: an email's
-// attachment, a drive's file, or bytes sent to a URL, which the agent then puts in a drive or
-// fetches. Only that agent may use it, so `agentId` is who made it, a plain id as the activity
-// log has it; with the file's name and media type where its source had them.
+// attachment, a drive's file, or bytes sent to a URL, which the agent then puts in a drive,
+// attaches to an email or fetches. Only that agent may use it, so `agentId` is who made it, a
+// plain id as the activity log has it; with the file's name and media type where its source had
+// them.
 model FileBlob {
   id        String  @id @default(cuid())
   orgId     String

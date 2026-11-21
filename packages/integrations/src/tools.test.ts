@@ -79,6 +79,7 @@ describe('integrationTools', () => {
 			'bcc',
 			'subject',
 			'body',
+			'attach',
 		]);
 		expect(findTool(email, 'emails_update')?.inputSchema.required).toEqual(['id']);
 	});
@@ -153,7 +154,11 @@ test('a reply is sent with the actions sending and reading email, or saved as a 
 		'body',
 		'replyAll',
 		'quote',
+		'attach',
 	]);
+	expect(send?.inputSchema.properties?.attach?.description).toStartWith(
+		'Attach: the ids of blobs to attach, comma-separated',
+	);
 	expect(send?.inputSchema.properties?.replyAll?.enum).toEqual(['Yes', 'No']);
 	expect(findTool(integration('google'), 'replies_send')).toMatchObject({
 		action: 'sendEmails',

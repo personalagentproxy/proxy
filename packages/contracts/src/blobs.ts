@@ -4,7 +4,7 @@ import {z} from 'zod';
  * A blob is a file on its way through Personal Agent Proxy (api blobs/): bytes kept for a day,
  * made by one agent and usable only by it. A tool makes one of a file somewhere, as
  * `attachments_blob` of an email's attachment or `files_blob` of a drive's file, and a tool takes
- * one, as `files_upload` puts it in a drive. Bytes move between a blob and whatever an agent runs
+ * one, as `files_upload` puts it in a drive and an email attaches it. Bytes move between a blob and whatever an agent runs
  * on, a model's shell or a sandbox, through URLs of Personal Agent Proxy's own, which
  * `pap.upload()` and `pap.download(blob)` answer with. The URL is the only credential, signed and
  * good for an hour, so it needs no session, no token and no particular origin.

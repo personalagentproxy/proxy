@@ -28,6 +28,7 @@ import {
 	type RecordValues,
 	type RunOnly,
 } from './connector';
+import {type Attached, attachedBlobs, attachmentOptions, requireAttachable} from './email-attachments';
 import {gmailQuery, type EmailSearch, type MailSearch} from './email-search';
 import {replyCommands, replyContent, replyHeaders, type MailReply, type Quoted, type ReplyHeaders} from './email-reply';
 
@@ -40,8 +41,10 @@ import {replyCommands, replyContent, replyHeaders, type MailReply, type Quoted, 
  *
  * IMAP messages can't be changed, so updating a draft saves a new one and deletes the old: the
  * draft gets a new id. Received emails are only flagged or moved: archived, or moved to Trash.
- * Email goes out over SMTP, from a draft or straight from values typed in. An email's attachments
- * are read from the message whole, as the `attachments` collection's one command. A reply, the
+ * Email goes out over SMTP, from a draft or straight from values typed in, with the agent's blobs
+ * it names attached (email-attachments.ts); a draft keeps the attachments it has when it is edited
+ * and when it is sent. An email's attachments are read from the message whole, as the
+ * `attachments` collection's commands. A reply, the
  * `replies` collection's, is written in the thread of the email it answers, sent or saved in Drafts.
  * What is new for a watch on the mailbox is the inbox's messages above the UID the last look left
  * off at, read by their envelopes alone.
@@ -579,7 +582,9 @@ async function parsedMessage(session: Session, id: string): Promise<Result<{mess
 		}
 
 		const source = message.source;
-		const parsed = $((await Result.wrapAsync(() => simpleParser(source))).mapErr((cause) => ApiErr.providerUnreachable(cause)));
+		// A picture the HTML shows stays an attachment the HTML names by its id, as it was written,
+		// so a draft written again shows it as before; mailparser would put its bytes in the HTML.
+		const parsed = $((await Result.wrapAsync(() => simpleParser(source, {skipImageLinks: true}))).mapErr((cause) => ApiErr.providerUnreachable(cause)));
 		return {message, parsed};
 	});
 }
@@ -616,6 +621,17 @@ function withAttachment(answer: (target: RecordTarget, email: string, number: nu
 		});
 }
 
+// The attachments a draft has, to write it again with: a picture its HTML shows by its id keeps
+// the id where the HTML is kept, and is a file like any other where it isn't.
+function keptAttachments(parsed: ParsedMail, withHtml: boolean): Attached[] {
+	return parsed.attachments.map((attachment, index) => ({
+		filename: attachment.filename ?? `attachment-${index + 1}`,
+		contentType: attachment.contentType,
+		content: attachment.content,
+		...(withHtml && attachment.cid ? {cid: attachment.cid} : {}),
+	}));
+}
+
 // The headers that keep a reply in the thread of the email it answers.
 type Thread = Pick<ReplyHeaders, 'inReplyTo' | 'references'>;
 
@@ -643,8 +659,8 @@ function copyOptions(values: RecordValues): Mail.Options {
 	return {...(values.cc ? {cc: values.cc} : {}), ...(values.bcc ? {bcc: values.bcc} : {})};
 }
 
-/** Saves a draft from the typed-in values, from the connected address, a reply in `thread`, with `html` beside its text where given: its UID. */
-async function saveDraft(session: Session, values: RecordValues, thread: Thread | null, html: string | null = null): Promise<Result<number, ApiError>> {
+/** Saves a draft from the typed-in values, from the connected address, a reply in `thread`, with `html` beside its text where given and the files `attached`: its UID. */
+async function saveDraft(session: Session, values: RecordValues, thread: Thread | null, html: string | null = null, attached: Attached[] = []): Promise<Result<number, ApiError>> {
 	return Do(async ($) => {
 		const {client, mailbox, credential} = session;
 		const messageId = `<${randomUUID()}@proxy>`;
@@ -655,6 +671,7 @@ async function saveDraft(session: Session, values: RecordValues, thread: Thread 
 			subject: values.subject,
 			text: values.body,
 			...htmlOptions(html),
+			...attachmentOptions(attached),
 			messageId,
 			...threadOptions(thread),
 		}).compile();
@@ -679,10 +696,10 @@ async function saveDraft(session: Session, values: RecordValues, thread: Thread 
 	});
 }
 
-/** Saves a draft from the typed-in values, from the connected address, a reply in `thread` with `html` beside its text, and reads it back. */
-async function appendDraft(session: Session, values: RecordValues, thread: Thread | null = null, html: string | null = null): Promise<Result<DataRecord, ApiError>> {
+/** Saves a draft from the typed-in values, from the connected address, a reply in `thread` with `html` beside its text and the files `attached`, and reads it back. */
+async function appendDraft(session: Session, values: RecordValues, thread: Thread | null = null, html: string | null = null, attached: Attached[] = []): Promise<Result<DataRecord, ApiError>> {
 	return Do(async ($) => {
-		const uid = $(await saveDraft(session, values, thread, html));
+		const uid = $(await saveDraft(session, values, thread, html, attached));
 		return $(await getMessage(session, recordId(session, uid)));
 	});
 }
@@ -745,7 +762,14 @@ function moveTo(uses: SpecialUse[], name: string): CommandRunner {
  * does that itself): its Message-ID. Once the email is out, a copy left unfiled is only logged: a
  * failure then would invite the agent to send it twice.
  */
-async function deliver(client: ImapFlow, credential: EmailCredential, values: RecordValues, thread: Thread | null = null, html: string | null = null): Promise<Result<string, ApiError>> {
+async function deliver(
+	client: ImapFlow,
+	credential: EmailCredential,
+	values: RecordValues,
+	thread: Thread | null = null,
+	html: string | null = null,
+	attached: Attached[] = [],
+): Promise<Result<string, ApiError>> {
 	return Do(async ($) => {
 		const to = values.to?.trim() ?? '';
 		if (`${to}${values.cc ?? ''}${values.bcc ?? ''}`.trim() === '') {
@@ -760,6 +784,7 @@ async function deliver(client: ImapFlow, credential: EmailCredential, values: Re
 			subject: values.subject ?? '',
 			text: values.body ?? '',
 			...htmlOptions(html),
+			...attachmentOptions(attached),
 			messageId,
 			...threadOptions(thread),
 		};
@@ -783,14 +808,15 @@ async function deliver(client: ImapFlow, credential: EmailCredential, values: Re
 	});
 }
 
-// Sends a draft and deletes it, in the thread it was a reply in; a draft left behind once sent is
-// only logged, as in `deliver`.
+// Sends a draft and deletes it, in the thread it was a reply in, with the attachments it has; a
+// draft left behind once sent is only logged, as in `deliver`.
 async function sendDraft(session: Session, id: string): Promise<Result<null, ApiError>> {
 	return Do(async ($) => {
 		const uid = $(uidOf(session, id));
 		const draft = $(await getMessage(session, id));
 		const {parsed} = $(await parsedMessage(session, id));
-		$(await deliver(session.client, session.credential, draft.values, threadOf(parsed), parsed.html || null));
+		const html = parsed.html || null;
+		$(await deliver(session.client, session.credential, draft.values, threadOf(parsed), html, keptAttachments(parsed, html !== null)));
 
 		const removed = await Result.wrapAsync(() => session.client.messageDelete(String(uid), {uid: true}));
 		if (removed.isErr()) {
@@ -859,10 +885,10 @@ const replyToMailbox: MailReply = (target, id, reply) =>
 			const content = replyContent(reply.body, reply.quote ? quoted : null, reply.timeZone);
 			const values = {to: headers.to, cc: headers.cc, subject: headers.subject, body: content.text};
 			if (reply.send) {
-				const messageId = $(await deliver(client, credential, values, headers, content.html));
+				const messageId = $(await deliver(client, credential, values, headers, content.html, reply.attached));
 				return {...headers, id: messageId, thread: ''};
 			}
-			const draft = $(await inFolder(client, credential, DRAFTS, async (session) => (await saveDraft(session, values, headers, content.html)).map((uid) => recordId(session, uid))));
+			const draft = $(await inFolder(client, credential, DRAFTS, async (session) => (await saveDraft(session, values, headers, content.html, reply.attached)).map((uid) => recordId(session, uid))));
 			return {...headers, id: draft, thread: ''};
 		}),
 	);
@@ -871,23 +897,32 @@ export const emailConnector = {
 	list: listPage,
 	changes: inboxChanges,
 	get: (target, id) => withRecord(target, id, (session) => getMessage(session, id)),
-	create: (target, values) => withFolder(target, DRAFTS, (session) => appendDraft(session, values)),
+	create: (target, values) =>
+		Do(async ($) => {
+			const attached = $(await attachedBlobs(target, values.attach));
+			return $(await withFolder(target, DRAFTS, (session) => appendDraft(session, values, null, null, attached)));
+		}),
 	update: (target, id, values) =>
-		Do(async ($) =>
-			$(
+		Do(async ($) => {
+			const added = $(await attachedBlobs(target, values.attach));
+			return $(
 				await withFolder(target, $(requireDraft(id)), (session) =>
 					Do(async ($$) => {
 						// An edited reply stays in the thread it was written in, and keeps its HTML, as a
 						// quoted reply has, while its text is as it was; text written anew goes as text.
+						// The attachments it has stay, with those named now after them.
 						const {parsed} = $$(await parsedMessage(session, id));
 						const sameText = (values.body ?? '').trim() === (parsed.text ?? '').trim();
-						const draft = $$(await appendDraft(session, values, threadOf(parsed), sameText ? parsed.html || null : null));
+						const html = sameText ? parsed.html || null : null;
+						const attached = [...keptAttachments(parsed, html !== null), ...added];
+						$$(requireAttachable(attached));
+						const draft = $$(await appendDraft(session, values, threadOf(parsed), html, attached));
 						$$(await deleteMessage(session, id));
 						return draft;
 					}),
 				),
-			),
-		),
+			);
+		}),
 	remove: (target, id) => Do(async ($) => $(await withFolder(target, $(requireDraft(id)), (session) => deleteMessage(session, id)))),
 	commands: {
 		markRead: setFlag('\\Seen', true),
@@ -899,7 +934,11 @@ export const emailConnector = {
 		send: (target, id) => withRecord(target, id, (session) => sendDraft(session, id)),
 	},
 	newCommands: {
-		sendNew: (target, values) => withClient(target, async (client, credential) => (await deliver(client, credential, values)).map(() => null)),
+		sendNew: (target, values) =>
+			Do(async ($) => {
+				const attached = $(await attachedBlobs(target, values.attach));
+				return $(await withClient(target, async (client, credential) => (await deliver(client, credential, values, null, null, attached)).map(() => null)));
+			}),
 	},
 	findEmails: findInboxEmails,
 	reply: replyToMailbox,

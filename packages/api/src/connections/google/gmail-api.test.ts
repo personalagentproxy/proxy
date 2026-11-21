@@ -88,8 +88,8 @@ describe('messageBody', () => {
 
 		expect(messageBody(payload)).toBe('Grüße, Sam');
 		expect(attachmentsOf(payload)).toEqual([
-			{name: 'invoice.pdf', type: 'application/pdf', size: 1200, data: null, attachmentId: 'att-1'},
-			{name: 'receipt.pdf', type: 'application/pdf', size: 1200, data: null, attachmentId: 'att-1'},
+			{name: 'invoice.pdf', type: 'application/pdf', size: 1200, data: null, attachmentId: 'att-1', cid: null},
+			{name: 'receipt.pdf', type: 'application/pdf', size: 1200, data: null, attachmentId: 'att-1', cid: null},
 		]);
 	});
 

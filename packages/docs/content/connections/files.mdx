@@ -108,9 +108,14 @@ connection and in the activity log under it:
   names it otherwise, in the folder given, or the next version of a file whose version the agent
   read, keeping the one before. It needs Add files for a new file and Edit files to write over
   one, and the file is in the drive's history as the agent's, for the task it was put there for.
+- An email attaches blobs: a new draft, an edit of one, a reply, or an email sent at once names
+  them in `attach`, in Gmail or any mailbox, and they go out under their own names, 25 MB
+  together at most.
 
 So an attachment goes into a drive in two calls, `attachments_blob` and then `files_upload`, and a
-file from Google Drive into Files, or the other way, the same way with `files_blob`.
+file from Google Drive into Files, or the other way, the same way with `files_blob`. An attachment
+is forwarded the same way, made a blob and attached to the new email, and so is a file of a drive
+sent by email.
 
 A file from wherever the agent runs, with a shell and `curl` and nothing of Personal Agent
 Proxy's installed, becomes a blob through a URL: `pap.upload()` in a script answers with one, and

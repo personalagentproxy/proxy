@@ -282,6 +282,24 @@ describe.skipIf(!databaseUrl)('blobs, through a drive of Files', () => {
 		expect(unwrap(await tool('files_upload', {blob: readers}, readerId))).toStartWith('Added readers.txt.');
 	});
 
+	test('hands a blob over to attach to an email, to the agent that made it alone', async () => {
+		const {attachedBlobs} = await import('../records/email-attachments');
+		const {loadRunTarget} = await import('../agent-side/tools');
+		const {findCollection, findIntegration} = await import('@proxy/integrations');
+		const email = findIntegration('email');
+		const collection = email && findCollection(email, 'emails');
+		if (!collection) {
+			throw new Error('No emails collection');
+		}
+		// Whose blobs they are is the agent's alone, whatever the connection the email is written on.
+		const {connection} = unwrap(await loadRunTarget({agent: agentOf(agentId), via: 'mcp', taskId}, connectionId));
+		const as = (agent: string) => ({connection, collection, by: {agentId: agent, taskId}});
+		const offer = await upload('%PDF offer', 'offer.pdf');
+
+		expect(unwrap(await attachedBlobs(as(agentId), offer))).toEqual([{filename: 'offer.pdf', contentType: 'application/pdf', content: Buffer.from('%PDF offer')}]);
+		expect(refusal(await attachedBlobs(as(otherId), offer))).toStartWith(`not_found: There is no blob ${offer} of yours.`);
+	});
+
 	test('refuses more bytes than a file may be as they come, and URLs that aren’t, or have run out', async () => {
 		const {url} = await pap('upload', []);
 		const over = await fetch(local(String(url)), {method: 'PUT', body: 'x'.repeat(1024 * 1024 + 1)});

@@ -144,7 +144,7 @@ can allow each action separately:
   text: a spreadsheet's tabs as CSV, a PDF's or a Word document's text, a forwarded email, or a
   text file as it is, the first 100,000 characters of it. Images and other files can't be read,
   but any attachment can be made a [blob](/connections/files#moving-files-between-connections),
-  to put in a drive.
+  to put in a drive or attach to another email.
 - **Mark read or unread**, **Star**, **Archive** and **Move email to Trash** act on messages in
   the inbox, and require Read email. Archived email stays in All Mail, and Gmail keeps Trash 30
   days before deleting it; nothing is deleted for good.
@@ -157,12 +157,16 @@ can allow each action separately:
   `label:receipts` finds the email under one.
 - **Write drafts** creates, edits and deletes drafts, and requires Read email. A draft takes a
   Cc and a Bcc beside its To, and an edit can change them. An edit keeps the draft's thread, and
-  its formatting while its text is unchanged; text written anew goes out as plain text. A draft with attachments isn't edited, since it would lose them.
-  Received messages are never edited or deleted. A reply to an email is saved as a draft in its
-  thread.
+  its formatting while its text is unchanged; text written anew goes out as plain text. A draft
+  keeps the attachments it has when it is edited. Received messages are never edited or deleted.
+  A reply to an email is saved as a draft in its thread.
 - **Send** sends a new email or a saved draft from the account's own address, and Gmail files it
   in Sent. It does not require Read email, so an agent can send without seeing the mailbox.
   Sending a reply needs Read email too, since it reads the email it answers.
+- A draft, a reply or an email sent at once goes out with the files the agent attaches, by naming
+  [blobs](/connections/files#moving-files-between-connections) it made: another email's
+  attachment, to forward it, a file from Drive, or a file from its own shell. They go out under
+  their own names, 25 MB together at most, as Gmail takes.
 
 A reply goes to whoever the email asks replies to go to, else its sender, or, for an email you
 sent, to whom it went, under the email's subject with "Re:", in the email's thread in Gmail. A

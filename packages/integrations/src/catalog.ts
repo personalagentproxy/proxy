@@ -1,4 +1,4 @@
-import type {Collection, Condition, Integration} from './types';
+import type {Collection, Condition, Field, Integration} from './types';
 
 const INBOX: Condition = {field: 'folder', values: ['Inbox']};
 
@@ -31,10 +31,22 @@ const STAR: FlagWords = {
 	unflagged: 'Unstarred',
 };
 
+// The blobs an email or a reply goes out with, which only an agent has: made of another email's
+// attachment, of a drive's file, or of a file sent to the URL pap.upload() gives, and attached
+// under their own names. A draft keeps the attachments it has; these are added to them.
+const ATTACH_FIELD: Field = {
+	key: 'attach',
+	label: 'Attach',
+	type: 'text',
+	description:
+		'the ids of blobs to attach, comma-separated, as attachments_blob, files_blob or a file sent to the URL pap.upload() gives makes them, 25 MB together at most; a draft keeps the attachments it has, and these are added',
+};
+
 /**
  * A mailbox's email as one collection, the same for any mailbox and for Gmail, so agents see one
  * kind of email: the same fields and commands, under each integration's own action ids. Drafts
- * are the only email edited or deleted; commands act on email in the inbox.
+ * are the only email edited or deleted; commands act on email in the inbox. A draft, and an email
+ * sent at once, goes out with the agent's blobs it names.
  */
 function emailsCollection(args: {
 	actions: EmailActions;
@@ -149,6 +161,7 @@ function emailsCollection(args: {
 			// "Unread, Flagged" ("Unread, Starred" on Gmail), for an email in the inbox.
 			{key: 'status', label: 'Status', type: 'text', system: true},
 			{key: 'body', label: 'Body', type: 'longtext'},
+			ATTACH_FIELD,
 			// One a line, numbered as the attachments collection reads them by: "1. Q3.xlsx
 			// (application/…, 48 KB)".
 			{key: 'attachments', label: 'Attachments', type: 'longtext', system: true},
@@ -166,11 +179,12 @@ function emailsCollection(args: {
 /**
  * Replies to email, each written in the thread of the email it answers: never listed or opened,
  * only sent at once, with the action sending email and the one reading it, or saved as a draft,
- * with the one writing drafts. Who it goes to, its subject and its thread come from the email.
+ * with the one writing drafts. Who it goes to, its subject and its thread come from the email,
+ * and it goes out with the agent's blobs it names.
  */
 function repliesCollection(actions: Pick<EmailActions, 'read' | 'write' | 'send'>): Collection {
 	const what =
-		'Name the email by its id, as a list gives it, and write the reply as body: whom it goes to, its subject and its thread come from the email, as a mail app’s Reply writes them. With replyAll Yes it also goes to everyone else the email went to. The email is quoted below the reply, as Gmail quotes it, unless quote is No. Answers whom it went to, its subject and its id among email, with its thread on Gmail.';
+		'Name the email by its id, as a list gives it, and write the reply as body: whom it goes to, its subject and its thread come from the email, as a mail app’s Reply writes them. With replyAll Yes it also goes to everyone else the email went to. The email is quoted below the reply, as Gmail quotes it, unless quote is No. attach names blobs to send with it, as another email’s attachment made one with attachments_blob. Answers whom it went to, its subject and its id among email, with its thread on Gmail.';
 	return {
 		id: 'replies',
 		name: 'Replies',
@@ -203,6 +217,7 @@ function repliesCollection(actions: Pick<EmailActions, 'read' | 'write' | 'send'
 			{key: 'body', label: 'Body', type: 'longtext'},
 			{key: 'replyAll', label: 'Reply all', type: 'select', options: ['Yes', 'No']},
 			{key: 'quote', label: 'Quote the email', type: 'select', options: ['Yes', 'No']},
+			ATTACH_FIELD,
 			{key: 'to', label: 'To', type: 'email', system: true},
 			{key: 'cc', label: 'Cc', type: 'email', system: true},
 			{key: 'subject', label: 'Subject', type: 'text', system: true},
@@ -241,7 +256,7 @@ function attachmentsCollection(read: string): Collection {
 				on: 'new',
 				label: 'Make blob',
 				description:
-					'Makes a blob of one of an email’s attachments, whatever kind of file it is: a PDF, a picture, a spreadsheet. A blob is a file passed between tools for a day, usable only by you: files_upload puts it in a drive, and pap.download(blob) gives a URL to fetch it into a shell. Name the email by its id, as a list gives it, and the attachment by its number among the attachments the email lists, or its name. Answers with the blob’s id.',
+					'Makes a blob of one of an email’s attachments, whatever kind of file it is: a PDF, a picture, a spreadsheet. A blob is a file passed between tools for a day, usable only by you: files_upload puts it in a drive, an email or a reply attaches it (attach), and pap.download(blob) gives a URL to fetch it into a shell. Name the email by its id, as a list gives it, and the attachment by its number among the attachments the email lists, or its name. Answers with the blob’s id.',
 				action: read,
 				readOnly: true,
 				done: 'Made a blob of {}',
@@ -1595,7 +1610,7 @@ const google: Integration = {
 			name: 'files_blob',
 			title: 'Make blob of file',
 			description:
-				'Makes a blob of a Drive file’s bytes: a file of its own bytes as they are, now or at an earlier version; a Doc, Sheet or Slides file as Drive exports it now, a Doc as Markdown, a Sheet as xlsx and a Slides file as pptx unless as says otherwise, and a Sheet as CSV its first tab or the one tab names, up to the 10 MB Drive exports. A blob is a file passed between tools for a day, usable only by you: files_upload puts it in a drive, and pap.download(blob) gives a URL to fetch it into a shell. Answers with the blob’s id.',
+				'Makes a blob of a Drive file’s bytes: a file of its own bytes as they are, now or at an earlier version; a Doc, Sheet or Slides file as Drive exports it now, a Doc as Markdown, a Sheet as xlsx and a Slides file as pptx unless as says otherwise, and a Sheet as CSV its first tab or the one tab names, up to the 10 MB Drive exports. A blob is a file passed between tools for a day, usable only by you: files_upload puts it in a drive, an email or a reply attaches it (attach), and pap.download(blob) gives a URL to fetch it into a shell. Answers with the blob’s id.',
 			action: 'readFiles',
 			readOnly: true,
 			inputSchema: {
@@ -2342,7 +2357,7 @@ const files: Integration = {
 			name: 'files_blob',
 			title: 'Make blob of file',
 			description:
-				'Makes a blob of a file’s bytes, as they are: what it holds now, or an earlier version. A blob is a file passed between tools for a day, usable only by you: files_upload puts it in a drive, and pap.download(blob) gives a URL to fetch it into a shell. Answers with the blob’s id.',
+				'Makes a blob of a file’s bytes, as they are: what it holds now, or an earlier version. A blob is a file passed between tools for a day, usable only by you: files_upload puts it in a drive, an email or a reply attaches it (attach), and pap.download(blob) gives a URL to fetch it into a shell. Answers with the blob’s id.',
 			action: 'readFiles',
 			readOnly: true,
 			inputSchema: {

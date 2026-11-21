@@ -1,11 +1,9 @@
-import {randomUUID} from 'node:crypto';
-
 import type {Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {type ApiError, Do} from '@proxy/utils';
 
-import {googleRequest, googleSession, googleStream, googleText, googleTransfer, googleUpload, googleWrite} from './google-client';
+import {googleRequest, googleSession, googleStream, googleText, googleTransfer, googleUpload, googleWrite, multipartRelated} from './google-client';
 
 /**
  * The Drive v3 calls the `files` collection makes, and the reading of their answers. Every call
@@ -152,13 +150,6 @@ function textType(type: string): string {
 	return `${type}; charset=UTF-8`;
 }
 
-// A file's metadata and its text in one request, as Drive's multipart upload takes them.
-function multipart(metadata: object, type: string, content: string): {type: string; body: Blob} {
-	const boundary = `proxy-${randomUUID()}`;
-	const head = [`--${boundary}`, 'Content-Type: application/json; charset=UTF-8', '', JSON.stringify(metadata), `--${boundary}`, `Content-Type: ${type}`, '', ''].join('\r\n');
-	return {type: `multipart/related; boundary=${boundary}`, body: new Blob([head, content, `\r\n--${boundary}--`])};
-}
-
 function metadataOf(file: NewFile): object {
 	return {name: file.name, mimeType: file.mimeType, parents: [file.parent]};
 }
@@ -170,7 +161,13 @@ export function createFile(accessToken: string, file: NewFile, upload: Upload | 
 	if (upload === null) {
 		return googleWrite(accessToken, 'POST', driveUrl('/files', WRITE_PARAMS), metadataOf(file), driveFileSchema);
 	}
-	return googleUpload(accessToken, 'POST', driveUrl('/files', {...WRITE_PARAMS, uploadType: 'multipart'}, UPLOAD), multipart(metadataOf(file), textType(upload.type), upload.body), driveFileSchema);
+	return googleUpload(
+		accessToken,
+		'POST',
+		driveUrl('/files', {...WRITE_PARAMS, uploadType: 'multipart'}, UPLOAD),
+		multipartRelated(metadataOf(file), textType(upload.type), upload.body),
+		driveFileSchema,
+	);
 }
 
 /** A copy of a file, made by Drive itself, in the folder given under the name given. */

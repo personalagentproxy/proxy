@@ -119,7 +119,7 @@ export function handleReplyEmailRoute(request: AuthenticatedRequest): Promise<Re
 		$(await requireReadable(viewer, body.connectionId, 'emails'));
 		const reply = $(requirePresent(source.connector.reply, ApiErr.forbidden()));
 		const timeZone = await replyTimeZone(viewer.userId);
-		const written = $(await reply(source, body.emailId, {body: body.body, send: body.send, all: false, quote: true, timeZone}));
+		const written = $(await reply(source, body.emailId, {body: body.body, send: body.send, all: false, quote: true, timeZone, attached: []}));
 		await afterWrite({viewer, source, action: write, title: written.subject, parent: undefined});
 		return {sent: body.send};
 	});
