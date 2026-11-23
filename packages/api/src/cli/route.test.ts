@@ -41,9 +41,10 @@ mock.module('../agent-side/tasks', () => ({...realTasks, requireOpenTask}));
 
 const listAgentConnections = mock();
 const listAgentTools = mock();
+const refreshAgentTools = mock();
 const runAgentTool = mock();
 
-mock.module('../agent-side/tools', () => ({...realTools, listAgentConnections, listAgentTools, runAgentTool}));
+mock.module('../agent-side/tools', () => ({...realTools, listAgentConnections, listAgentTools, refreshAgentTools, runAgentTool}));
 
 const loadConnection = mock();
 
@@ -249,6 +250,14 @@ describe('POST /api/cli/call', () => {
 
 		expect(res).toEqual({status: 200, body: {result: []}});
 		expect(listAgentTools).toHaveBeenCalledWith(signedIn, 'mail-1');
+	});
+
+	test('refreshTools asks a custom server for its tools again', async () => {
+		refreshAgentTools.mockResolvedValue(Ok({tools: [], notAllowed: ['get_timeline']}));
+		const res = await call({method: 'refreshTools', args: ['mcp-1']});
+
+		expect(res).toEqual({status: 200, body: {result: {tools: [], notAllowed: ['get_timeline']}}});
+		expect(refreshAgentTools).toHaveBeenCalledWith(signedIn, 'mcp-1');
 	});
 
 	test('a Sandboxes connection’s tools are refused from inside a sandbox', async () => {

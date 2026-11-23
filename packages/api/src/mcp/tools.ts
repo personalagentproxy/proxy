@@ -58,6 +58,7 @@ export function scriptToolDescription(via: 'mcp' | 'web' | 'harness'): string {
 			: []),
 		'pap.connections() → [{connection, integration, name?, account, shared, can}]',
 		'pap.tools(connection) → [{name, description, params}], params as JSON Schema',
+		'pap.refreshTools(connection) → {tools, notAllowed}: asks a custom MCP server for its tools again, when they seem out of date; notAllowed names the ones the person hasn’t turned on for you.',
 		'pap.call(connection, tool, params?) → what the tool answers',
 		...(withTasks ? ['pap.finishTask({outcome?}): ends the task, saying what was done.'] : []),
 		'pap.feedback({message, connection?, tool?}): tells the makers of Personal Agent Proxy what didn’t work as expected.',

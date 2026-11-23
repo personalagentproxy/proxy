@@ -27,6 +27,7 @@ import {
 } from '@proxy/integrations';
 
 import {callCustomTool} from '../connections/custom/custom-mcp';
+import {listsOwnTools, refreshCustomTools, unlessToolGone, withFreshTools, withToolListed} from '../connections/custom/refresh-tools';
 import {apiIntegration} from '../connections/integrations';
 import {toolMetrics} from '../observability/metrics';
 import {noteRejectedSignIn} from '../connections/rejected-sign-in';
@@ -115,12 +116,46 @@ export function listAgentConnections(signedIn: SignedInAgent): Promise<Result<z.
 	});
 }
 
-/** The tools the agent has with one connection: none for one it can't use. */
+/**
+ * The tools the agent has with one connection: none for one it can't use. A custom server's are
+ * asked for again first where they are an hour old (connections/custom/refresh-tools.ts).
+ */
 export function listAgentTools(signedIn: SignedInAgent, connectionId: string): Promise<Result<Tool[], ApiError>> {
 	return Do(async ($) => {
 		const agent = $(await requireAgent(signedIn));
-		const {connection, integration} = $(await loadConnection(agentViewer(signedIn), connectionId));
+		const {connection, integration} = await withFreshTools($(await loadConnection(agentViewer(signedIn), connectionId)));
 		return allowedTools(integration, actionsOf(agent, connection, integration, unavailableActions(connection)));
+	});
+}
+
+/** A custom server's tools asked for again: those the agent has now, and the names of the rest, which the person can turn on. */
+export type RefreshedTools = {tools: Tool[]; notAllowed: string[]};
+
+/**
+ * Asks a custom MCP server for its tools again and keeps the new list, as the person can from the
+ * connection's page, for an agent that can use the connection, or could once it is signed in to
+ * again; any other is not found, as it isn't among the agent's connections. Any other integration's
+ * tools are built in, so there is nothing to ask for.
+ */
+export function refreshAgentTools(signedIn: SignedInAgent, connectionId: string): Promise<Result<RefreshedTools, ApiError>> {
+	return Do(async ($) => {
+		const agent = $(await requireAgent(signedIn));
+		const {connection, integration} = $(await loadConnection(agentViewer(signedIn), connectionId));
+		if (actionsOf(agent, connection, integration, []).length === 0) {
+			return $(Err(ApiErr.notFound('connection', connectionId)));
+		}
+		if (!listsOwnTools(connection)) {
+			return $(Err(ApiErr.validationError(`${integration.name}’s tools are built in: only a custom MCP server’s can be asked for again.`)));
+		}
+		if (needsSignIn(connection)) {
+			return $(Err(signInNeededError(integration, connection.account)));
+		}
+		const refreshed = $(await refreshCustomTools(connection));
+		const actions = actionsOf(agent, refreshed.connection, refreshed.integration, unavailableActions(refreshed.connection));
+		return {
+			tools: allowedTools(refreshed.integration, actions),
+			notAllowed: refreshed.integration.actions.map((action) => action.id).filter((id) => !actions.includes(id)),
+		};
 	});
 }
 
@@ -244,10 +279,14 @@ export function runAgentTool(caller: TaskCaller, connectionId: string, toolName:
 		]);
 		const agent = $(agentRead);
 		$(taskRead);
-		const {connection, integration} = $(connectionRead);
+		// A custom server's tool the kept list lacks may be one the server added since.
+		const loaded = await withToolListed($(connectionRead), toolName);
+		const {connection, integration} = loaded;
 		const tool = $(requirePresent(findTool(integration, toolName), ApiErr.notFound('tool', toolName)));
 		if (tool.kind === 'call' || tool.kind === 'native') {
-			return $(await noteRejectedSignIn(connection, connection.credential, await runParamsTool({caller, agent, connection, integration, startedAt}, tool, params)));
+			const ran = await noteRejectedSignIn(connection, connection.credential, await runParamsTool({caller, agent, connection, integration, startedAt}, tool, params));
+			// And one it has may be one the server took away since.
+			return $(tool.kind === 'call' ? await unlessToolGone(loaded, toolName, ran) : ran);
 		}
 
 		const collection = $(requirePresent(findCollection(integration, tool.collectionId), ApiErr.notFound('tool', toolName)));

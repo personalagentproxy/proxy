@@ -385,6 +385,8 @@ export async function markCredentialRejected(data: {
  * Replaces a custom MCP server's tools, as JSON, once the server lists them again, and drops the
  * defaults and agents' settings for actions no longer among `actions`, the tools' names: a setting
  * kept for a tool the server no longer lists would apply to whatever it later lists by that name.
+ * Only while it is still a custom connection: one moved to a built-in integration since it was
+ * read (`takeOverConnection`) keeps its settings, which are that integration's now.
  */
 export async function updateConnectionTools(data: {
 	connectionId: string;
@@ -392,13 +394,19 @@ export async function updateConnectionTools(data: {
 	actions: string[];
 }): Promise<Result<void, ApiError>> {
 	const {connectionId, tools, actions} = data;
-	return wrapDb(async () => {
-		await db.$transaction([
-			db.connection.update({where: {id: connectionId}, data: {tools}}),
-			db.connectionDefault.deleteMany({where: {connectionId, actionId: {notIn: actions}}}),
-			db.agentGrant.deleteMany({where: {connectionId, actionId: {notIn: actions}}}),
-		]);
-	});
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			const {count} = await tx.connection.updateMany({
+				where: {id: connectionId, integrationId: 'mcp'},
+				data: {tools},
+			});
+			if (count === 0) {
+				return;
+			}
+			await tx.connectionDefault.deleteMany({where: {connectionId, actionId: {notIn: actions}}});
+			await tx.agentGrant.deleteMany({where: {connectionId, actionId: {notIn: actions}}});
+		}),
+	);
 }
 
 /** Renames a connection; null is no name of its own, so it shows as its integration again. */

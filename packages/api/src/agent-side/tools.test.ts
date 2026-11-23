@@ -1,4 +1,4 @@
-import {beforeEach, describe, expect, mock, test} from 'bun:test';
+import {afterEach, beforeEach, describe, expect, mock, spyOn, test} from 'bun:test';
 import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError} from '@proxy/utils';
@@ -27,7 +27,14 @@ mock.module('@proxy/db/task', () => ({
 const listConnectionsWithCredential = mock();
 
 const markCredentialRejected = mock(async () => Ok(true));
-mock.module('@proxy/db/connection', () => ({markCredentialRejected, listConnectionsWithCredential, updateConnectionCredential: mock(), getConnectionCredential: mock(async () => Ok(null))}));
+const updateConnectionTools = mock(async () => Ok(undefined));
+mock.module('@proxy/db/connection', () => ({
+	markCredentialRejected,
+	listConnectionsWithCredential,
+	updateConnectionCredential: mock(),
+	getConnectionCredential: mock(async () => Ok(null)),
+	updateConnectionTools,
+}));
 
 // Readable stand-ins for encryption, so a test can write the credential it means.
 mock.module('../utils/secret-crypto', () => ({
@@ -43,8 +50,9 @@ mock.module('../records/target', () => ({loadConnection}));
 mock.module('../records/connectors', () => ({connectorFor: () => connector}));
 
 const callCustomTool = mock();
+const listCustomTools = mock();
 
-mock.module('../connections/custom/custom-mcp', () => ({callCustomTool}));
+mock.module('../connections/custom/custom-mcp', () => ({callCustomTool, listCustomTools}));
 
 // Of the integrations' modules, Google's partial consent alone, read from its credential.
 const {unavailableGoogleConnectionActions} = await import('../connections/google/unavailable');
@@ -52,6 +60,8 @@ const {unavailableGoogleConnectionActions} = await import('../connections/google
 const apiIntegration = mock((id: string): unknown => (id === 'google' ? {id, connectors: {}, unavailableActions: unavailableGoogleConnectionActions} : undefined));
 
 mock.module('../connections/integrations', () => ({apiIntegration}));
+
+const {forgetAskedForTests} = await import('../connections/custom/refresh-tools');
 
 function integration(id: string): Integration {
 	const found = findIntegration(id);
@@ -717,9 +727,11 @@ describe('custom MCP servers', () => {
 	};
 
 	beforeEach(() => {
+		forgetAskedForTests();
 		loadConnection.mockResolvedValue(Ok({connection: customConnection, integration: integrationFor({integrationId: 'mcp', tools: [search, publish]})}));
 		listConnectionsWithCredential.mockResolvedValue(Ok([customConnection]));
 		callCustomTool.mockResolvedValue(Ok('3 results'));
+		listCustomTools.mockResolvedValue(Ok([search, publish]));
 	});
 
 	test('lists the connection with the tools the agent may run as its actions, and only those tools', async () => {
@@ -774,6 +786,151 @@ describe('custom MCP servers', () => {
 		expect(failed).toEqual(ApiErr.validationError('query is required'));
 		expect(logAgentRequest).toHaveBeenCalledTimes(1);
 		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({collectionId: 'tools', action: 'search_docs', query: null, outcome: 'failed', error: 'validation_error'});
+		expect(listCustomTools).not.toHaveBeenCalled();
+	});
+});
+
+// A custom server's tools, kept on the connection, asked for again as they may have changed.
+describe("a custom MCP server's tools asked for again", () => {
+	const search = {name: 'search_docs', inputSchema: {type: 'object', properties: {query: {type: 'string'}}}, annotations: {readOnlyHint: true}};
+	const publish = {name: 'publish_doc', inputSchema: {type: 'object', properties: {id: {type: 'string'}}}};
+	const timeline = {name: 'get_timeline', inputSchema: {type: 'object', properties: {id: {type: 'string'}}}, annotations: {readOnlyHint: true}};
+	const customConnection = {
+		id: 'mcp-1',
+		integrationId: 'mcp',
+		orgId: 'org-1',
+		ownerUserId: 'user-1',
+		sharedWithEveryone: false,
+		shares: [],
+		account: 'mcp.example.com/mcp',
+		createdAt: new Date(),
+		tools: JSON.stringify([search, publish]),
+		name: null,
+		defaults: [{actionId: 'search_docs'}],
+		credentialRejectedAt: null,
+		credential: 'v1.x.y.z',
+	};
+	let clock = 0;
+	let now: ReturnType<typeof spyOn<DateConstructor, 'now'>>;
+
+	beforeEach(() => {
+		forgetAskedForTests();
+		clock = Date.UTC(2026, 10, 21);
+		now = spyOn(Date, 'now').mockImplementation(() => clock);
+		loadConnection.mockResolvedValue(Ok({connection: customConnection, integration: integrationFor({integrationId: 'mcp', tools: [search, publish]})}));
+		callCustomTool.mockResolvedValue(Ok('3 results'));
+		listCustomTools.mockResolvedValue(Ok([search, publish, timeline]));
+	});
+
+	afterEach(() => {
+		now.mockRestore();
+	});
+
+	test('an agent reading them has the server asked again once they are an hour old, and keeps what it lists', async () => {
+		const {listAgentTools} = await import('./tools');
+		expect((await listAgentTools(signedIn, 'mcp-1')).unwrap().map((tool) => tool.name)).toEqual(['search_docs']);
+		expect(updateConnectionTools).toHaveBeenCalledWith({connectionId: 'mcp-1', tools: JSON.stringify([search, publish, timeline]), actions: ['search_docs', 'publish_doc', 'get_timeline']});
+
+		clock += 59 * 60 * 1000;
+		await listAgentTools(signedIn, 'mcp-1');
+		expect(listCustomTools).toHaveBeenCalledTimes(1);
+
+		clock += 2 * 60 * 1000;
+		await listAgentTools(signedIn, 'mcp-1');
+		expect(listCustomTools).toHaveBeenCalledTimes(2);
+	});
+
+	test('a server that can’t be asked leaves the kept list to read, and isn’t asked again at once', async () => {
+		listCustomTools.mockResolvedValue(Err(ApiErr.providerUnreachable(new Error('down'))));
+		const {listAgentTools} = await import('./tools');
+		expect((await listAgentTools(signedIn, 'mcp-1')).unwrap().map((tool) => tool.name)).toEqual(['search_docs']);
+		await listAgentTools(signedIn, 'mcp-1');
+
+		expect(listCustomTools).toHaveBeenCalledTimes(1);
+		expect(updateConnectionTools).not.toHaveBeenCalled();
+	});
+
+	test('two reads at once ask the server once', async () => {
+		const {listAgentTools} = await import('./tools');
+		await Promise.all([listAgentTools(signedIn, 'mcp-1'), listAgentTools(signedIn, 'mcp-1')]);
+
+		expect(listCustomTools).toHaveBeenCalledTimes(1);
+	});
+
+	test('a call naming a tool the list lacks asks the server again, and finds one it added, off until the person turns it on', async () => {
+		const {runAgentTool} = await import('./tools');
+		expect((await runAgentTool(caller, 'mcp-1', 'get_timeline', {id: 'rec-1'})).unwrapErr().kind).toBe('forbidden');
+
+		expect(listCustomTools).toHaveBeenCalledTimes(1);
+		expect(callCustomTool).not.toHaveBeenCalled();
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({action: 'get_timeline', outcome: 'denied'});
+	});
+
+	test('a call naming a tool the server doesn’t list either is not found, and asks again no sooner than a minute later', async () => {
+		listCustomTools.mockResolvedValue(Ok([search, publish]));
+		const {runAgentTool} = await import('./tools');
+		expect((await runAgentTool(caller, 'mcp-1', 'get_everything', {})).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'tool'});
+		await runAgentTool(caller, 'mcp-1', 'get_everything', {});
+		expect(listCustomTools).toHaveBeenCalledTimes(1);
+
+		clock += 61 * 1000;
+		await runAgentTool(caller, 'mcp-1', 'get_everything', {});
+		expect(listCustomTools).toHaveBeenCalledTimes(2);
+		expect(logAgentRequest).not.toHaveBeenCalled();
+	});
+
+	test('a tool the server says it no longer has, and no longer lists, is not found; one it still lists fails as the server said', async () => {
+		const gone = ApiErr.validationError('MCP error -32602: Tool search_docs not found');
+		callCustomTool.mockResolvedValue(Err(gone));
+		listCustomTools.mockResolvedValue(Ok([publish, timeline]));
+		const {runAgentTool} = await import('./tools');
+		expect((await runAgentTool(caller, 'mcp-1', 'search_docs', {query: 'q'})).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'tool', id: 'search_docs'});
+		expect(updateConnectionTools).toHaveBeenCalledWith({connectionId: 'mcp-1', tools: JSON.stringify([publish, timeline]), actions: ['publish_doc', 'get_timeline']});
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({action: 'search_docs', outcome: 'failed'});
+
+		forgetAskedForTests();
+		listCustomTools.mockResolvedValue(Ok([search, publish]));
+		expect((await runAgentTool(caller, 'mcp-1', 'search_docs', {query: 'q'})).unwrapErr()).toEqual(gone);
+	});
+
+	test('a tool failing for any other reason doesn’t ask the server for its tools', async () => {
+		callCustomTool.mockResolvedValue(Err(ApiErr.validationError('No card abc was found')));
+		const {runAgentTool} = await import('./tools');
+		await runAgentTool(caller, 'mcp-1', 'search_docs', {query: 'q'});
+
+		expect(listCustomTools).not.toHaveBeenCalled();
+	});
+
+	test('refreshAgentTools asks the server now, answering with the tools the agent has and the names of the rest', async () => {
+		const {listAgentTools, refreshAgentTools} = await import('./tools');
+		await listAgentTools(signedIn, 'mcp-1');
+		const refreshed = (await refreshAgentTools(signedIn, 'mcp-1')).unwrap();
+
+		expect(listCustomTools).toHaveBeenCalledTimes(2);
+		expect(refreshed.tools.map((tool) => tool.name)).toEqual(['search_docs']);
+		expect(refreshed.notAllowed.toSorted()).toEqual(['get_timeline', 'publish_doc']);
+	});
+
+	test('refreshAgentTools passes on what the server failed with, noting a sign-in it turned down', async () => {
+		listCustomTools.mockResolvedValue(Err(ApiErr.credentialsRejected()));
+		const {refreshAgentTools} = await import('./tools');
+
+		expect((await refreshAgentTools(signedIn, 'mcp-1')).unwrapErr().kind).toBe('credentials_rejected');
+		expect(markCredentialRejected).toHaveBeenCalledWith({connectionId: 'mcp-1', credential: 'v1.x.y.z'});
+	});
+
+	test('refreshAgentTools refuses a built-in integration’s connection, one the agent can do nothing with, and one to sign in to again, without asking', async () => {
+		const {refreshAgentTools} = await import('./tools');
+		useConnection(vaultConnection);
+		expect((await refreshAgentTools(signedIn, 'vault-1')).unwrapErr().kind).toBe('validation_error');
+
+		loadConnection.mockResolvedValue(Ok({connection: {...customConnection, defaults: []}, integration: integrationFor({integrationId: 'mcp', tools: [search, publish]})}));
+		expect((await refreshAgentTools(signedIn, 'mcp-1')).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'connection'});
+
+		loadConnection.mockResolvedValue(Ok({connection: {...customConnection, credentialRejectedAt: new Date()}, integration: integrationFor({integrationId: 'mcp', tools: [search, publish]})}));
+		expect((await refreshAgentTools(signedIn, 'mcp-1')).isErr()).toBe(true);
+
+		expect(listCustomTools).not.toHaveBeenCalled();
 	});
 });
 

@@ -10,7 +10,7 @@ import {sendAgentFeedback} from '../agent-side/feedback';
 import {blobDownloadUrl, blobUploadUrl, ownerOf} from '../blobs/blobs';
 import {connectionSummary, toolSummary} from '../agent-side/summaries';
 import {finishAgentTask, requireOpenTask, startAgentTask} from '../agent-side/tasks';
-import {type AgentCaller, agentViewer, listAgentConnections, listAgentTools, runAgentTool} from '../agent-side/tools';
+import {type AgentCaller, agentViewer, listAgentConnections, listAgentTools, refreshAgentTools, runAgentTool} from '../agent-side/tools';
 import {log, serializeError} from '../observability/log';
 import {loadConnection} from '../records/target';
 import {jsonSchema, type Json} from './protocol';
@@ -25,6 +25,8 @@ import type {PapAnswer, ScriptHost} from './run-script';
  * - `pap.finishTask({outcome?})`: finishes the script's task.
  * - `pap.connections()`: the connections the agent can use.
  * - `pap.tools(connection)`: a connection's tools.
+ * - `pap.refreshTools(connection)`: a custom MCP server's tools asked for again, and kept: those
+ *   the agent has now, and the names of the ones it hasn't, which the person can turn on.
  * - `pap.call(connection, tool, params?)`: runs a tool, one that reads or one that changes something.
  * - `pap.feedback({message, connection?, tool?})`: feedback for the makers of Personal Agent Proxy.
  * - `pap.upload()`: a URL to PUT files to, each made a blob of the agent's (blobs/).
@@ -47,6 +49,7 @@ const NO_SANDBOXES = 'Sandboxes can’t be used from inside a sandbox: run sandb
 const ARGS = {
 	connections: z.tuple([]),
 	tools: z.tuple([z.string().min(1)]),
+	refreshTools: z.tuple([z.string().min(1)]),
 	call: z.tuple([z.string().min(1), z.string().min(1), z.record(z.string(), jsonSchema).optional()]),
 	startTask: z.tuple([z.object({title: z.string(), goal: z.string(), parent: z.string().optional()})]),
 	finishTask: z.tuple([z.object({outcome: z.string().optional()}).optional()]),
@@ -61,6 +64,7 @@ const ARGS = {
 const SCRIPT_USAGE: Record<PapMethod, string> = {
 	connections: 'pap.connections()',
 	tools: 'pap.tools(connection)',
+	refreshTools: 'pap.refreshTools(connection)',
 	call: 'pap.call(connection, tool, params)',
 	startTask: 'pap.startTask({title, goal, parent?})',
 	finishTask: 'pap.finishTask({outcome?})',
@@ -73,6 +77,7 @@ const CLI_USAGE: Record<PapMethod, string> = {
 	...SCRIPT_USAGE,
 	connections: '`pap connections`',
 	tools: '`pap tools <connection>`',
+	refreshTools: '`pap tools <connection> --refresh`',
 	call: '`pap call <connection> <tool> [json]`',
 	feedback: '`pap feedback <message> [--connection <id>] [--tool <name>]`',
 	upload: '`pap upload <file>`',
@@ -205,6 +210,16 @@ function answer(signedIn: SignedInAgent, options: HostOptions, state: HostState,
 			const [task, tools] = await Promise.all([requireOpenTask(signedIn, taskId), listAgentTools(signedIn, connection)]);
 			$(task);
 			return $(tools).map(toolSummary);
+		}
+		if (method === 'refreshTools') {
+			const [connection] = $(argsOf(options.via, method, ARGS.refreshTools, args));
+			if (!options.sandboxes) {
+				$(await refuseSandboxes(signedIn, connection));
+			}
+			// The task first, as asking the server changes what the connection keeps.
+			$(await requireOpenTask(signedIn, taskId));
+			const {tools, notAllowed} = $(await refreshAgentTools(signedIn, connection));
+			return {tools: tools.map(toolSummary), notAllowed};
 		}
 		const [connection, tool, params] = $(argsOf(options.via, method, ARGS.call, args));
 		if (!options.sandboxes) {
