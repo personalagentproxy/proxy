@@ -41,6 +41,7 @@ function persona(id: string, name: string, mayChange: boolean): ChatPersona {
 		chatModel: 'claude',
 		lastMessage: null,
 		draft: null,
+		pinnedAt: null,
 		createdAt: '2026-10-20T10:00:00Z',
 	};
 }
@@ -596,13 +597,103 @@ describe('ChatPage', () => {
 		});
 	});
 
-	test('does not offer deletion for a protected agent', async () => {
+	test('does not offer deletion for a protected agent, but pinning it', async () => {
 		renderChatPage();
 
 		fireEvent.contextMenu(await screen.findByRole('link', {name: /General/}));
 
+		expect(await screen.findByRole('menuitem', {name: 'Pin'})).toBeDefined();
 		expect(screen.queryByRole('menuitem', {name: 'Edit'})).toBeNull();
 		expect(screen.queryByRole('menuitem', {name: 'Delete'})).toBeNull();
+	});
+
+	test('pins an agent from its right-click menu to the top of the list, at once and on the server, and unpins it back', async () => {
+		let pinnedAt: string | null = null;
+		fetchMock.mockImplementation((input, init) => {
+			if (init?.method === 'PUT' && input === '/api/orgs/acme/chat/personas/finance/pin') {
+				const {pinned} = JSON.parse(String(init.body)) as {pinned: boolean};
+				pinnedAt = pinned ? '2026-10-21T10:05:00Z' : null;
+			}
+			return Promise.resolve(new Response(null, {status: 204}));
+		});
+		renderChatPage({listPersonas: () => [general, {...finance, pinnedAt}]});
+
+		expect(screen.queryByRole('list', {name: 'Pinned'})).toBeNull();
+		fireEvent.contextMenu(await screen.findByRole('link', {name: /Finance/}));
+		fireEvent.click(await screen.findByRole('menuitem', {name: 'Pin'}));
+
+		const pinnedList = await screen.findByRole('list', {name: 'Pinned'});
+		expect(within(pinnedList).getByRole('link', {name: /Finance/})).toBeDefined();
+		expect(within(pinnedList).queryByRole('link', {name: /General/})).toBeNull();
+		await waitFor(() => {
+			expect(fetchMock).toHaveBeenCalledWith(
+				'/api/orgs/acme/chat/personas/finance/pin',
+				expect.objectContaining({method: 'PUT', body: JSON.stringify({pinned: true})}),
+			);
+		});
+		await waitFor(() => expect(pinnedAt).not.toBeNull());
+		await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+
+		fireEvent.contextMenu(
+			within(await screen.findByRole('list', {name: 'Pinned'})).getByRole('link', {
+				name: /Finance/,
+			}),
+		);
+		fireEvent.click(await screen.findByRole('menuitem', {name: 'Unpin'}));
+
+		await waitFor(() => {
+			expect(screen.queryByRole('list', {name: 'Pinned'})).toBeNull();
+		});
+		expect(screen.getByRole('link', {name: /Finance/})).toBeDefined();
+		await waitFor(() => {
+			expect(fetchMock).toHaveBeenCalledWith(
+				'/api/orgs/acme/chat/personas/finance/pin',
+				expect.objectContaining({method: 'PUT', body: JSON.stringify({pinned: false})}),
+			);
+		});
+	});
+
+	test('lists the pinned agents in the order they were pinned, above the rest', async () => {
+		const research = persona('research', 'Research', true);
+		renderChatPage({
+			personas: [
+				general,
+				{...finance, pinnedAt: '2026-10-21T10:02:00Z'},
+				{...research, pinnedAt: '2026-10-21T10:01:00Z'},
+			],
+		});
+
+		const pinnedList = await screen.findByRole('list', {name: 'Pinned'});
+		expect(
+			within(pinnedList)
+				.getAllByRole('link')
+				.map((link) => link.textContent),
+		).toEqual([expect.stringContaining('Research'), expect.stringContaining('Finance')]);
+		expect(within(pinnedList).queryByRole('link', {name: /General/})).toBeNull();
+	});
+
+	test('where the server can’t pin an agent, it is back where it was, saying why', async () => {
+		fetchMock.mockImplementation((input, init) => {
+			if (init?.method === 'PUT' && input === '/api/orgs/acme/chat/personas/finance/pin') {
+				return Promise.resolve(Response.json({error: 'Something went wrong'}, {status: 500}));
+			}
+			return Promise.resolve(new Response(null, {status: 204}));
+		});
+		renderChatPage();
+
+		fireEvent.contextMenu(await screen.findByRole('link', {name: /Finance/}));
+		fireEvent.click(await screen.findByRole('menuitem', {name: 'Pin'}));
+
+		await waitFor(() => {
+			expect(fetchMock).toHaveBeenCalledWith(
+				'/api/orgs/acme/chat/personas/finance/pin',
+				expect.objectContaining({method: 'PUT'}),
+			);
+		});
+		await waitFor(() => {
+			expect(screen.queryByRole('list', {name: 'Pinned'})).toBeNull();
+		});
+		expect(await screen.findByText('Something went wrong. Try again.')).toBeTruthy();
 	});
 
 	test('counts on each agent in the list its threads ended unread, the open one’s too, and marks one whose only news is from a thread at work, but the open one', async () => {

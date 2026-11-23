@@ -35,6 +35,7 @@ import {
 	replyInThread,
 	requeueJob,
 	saveChatDraft,
+	setChatPinned,
 	saveThreadDraft,
 	type ThreadRow,
 } from './harness';
@@ -420,6 +421,37 @@ describe.skipIf(!databaseUrl)('the harness, against the database', () => {
 		expect(await db.persona.findUnique({where: {id: theirs.id}})).toBeNull();
 		expect(await db.persona.findUnique({where: {id: own.id}})).not.toBeNull();
 		await db.user.delete({where: {id: other.id}});
+	});
+
+	test('a chat pinned stays pinned where it was until it is unpinned, and is listed with its persona; a thread is never pinned', async () => {
+		const look = {nose: 0.5, noseOut: 0.3, eye: 25, eyeTheta: 50, eyeLat: 8, eyes: 2 as const};
+		const pins = unwrap(await createPersona(orgId, userId, {name: 'Pins', look, color: 'teal'}));
+		const pinChat = unwrap(await ensureMemberChat({orgId, agentId, personaId: pins.id, userId}));
+		const listedPin = async () =>
+			unwrap(await listPersonas(orgId, userId)).find((persona) => persona.id === pins.id)?.pinnedAt;
+
+		expect(await listedPin()).toBeNull();
+
+		expect(unwrap(await setChatPinned(pinChat.id, true))).toBe(true);
+		const pinnedAt = await listedPin();
+		expect(pinnedAt).toBeInstanceOf(Date);
+		// Pinned again, it keeps its place among the pinned.
+		expect(unwrap(await setChatPinned(pinChat.id, true))).toBe(true);
+		expect(await listedPin()).toEqual(pinnedAt);
+
+		expect(unwrap(await setChatPinned(pinChat.id, false))).toBe(true);
+		expect(await listedPin()).toBeNull();
+		// Unpinned again, it stays as it is.
+		expect(unwrap(await setChatPinned(pinChat.id, false))).toBe(true);
+		expect(await listedPin()).toBeNull();
+
+		expect(unwrap(await setChatPinned('no-such-chat', true))).toBe(false);
+		const sent = (await open(pinChat, 'Move the pricing review')).thread;
+		expect(unwrap(await setChatPinned(sent.id, true))).toBe(false);
+
+		// The job the message woke is done with, so the tests after this claim only their own.
+		const job = await claimFor('worker-pin', sent.id);
+		unwrap(await finishJob(job.id, 'worker-pin'));
 	});
 
 	test('a draft is kept until it is replaced, forgotten or sent, and listed with its persona', async () => {

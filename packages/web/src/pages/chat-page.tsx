@@ -8,9 +8,18 @@ import type {
 	ThreadStanding,
 	ThreadView,
 } from '@proxy/contracts/harness';
-import {ArchiveIcon, CheckIcon, ChevronLeftIcon, PencilIcon, Trash2Icon} from 'lucide-react';
+import {
+	ArchiveIcon,
+	CheckIcon,
+	ChevronLeftIcon,
+	PencilIcon,
+	PinIcon,
+	PinOffIcon,
+	Trash2Icon,
+} from 'lucide-react';
 import {
 	memo,
+	type ReactElement,
 	Suspense,
 	useCallback,
 	useEffect,
@@ -26,6 +35,7 @@ import {
 	deletePersona,
 	markThreadDone,
 	openThread,
+	pinPersona,
 	renameThread,
 	removeAttachment,
 	updatePersona,
@@ -82,6 +92,7 @@ import {
 	ContextMenu,
 	ContextMenuContent,
 	ContextMenuItem,
+	ContextMenuSeparator,
 	ContextMenuTrigger,
 } from '@proxy/ui/components/context-menu';
 
@@ -142,21 +153,219 @@ type ShownSaid = {personaId: string; last: LastMessage};
 type ShownDraft = {personaId: string; draft: string};
 type Shown = {personaId: string; last: LastMessage; draft: string};
 
-// The personas the person sees, their own and General, in the sidebar, each with its head, its
-// name and the last thing said between it and the person, marked where the person hasn't seen it,
-// or what they typed and haven't sent, the open one's as it is typed, the open one lit, each head
-// watching the pointer while it is over that agent's row. The one last active is on top, the open
-// one by what the page shows of it, so what the person just said moves it up at once. It stays as
-// it is from one chat to the next: the one in the address is lit at once, while it loads. A row
-// that comes, goes or changes places moves there (`useListMotion`): an agent made, deleted or
-// moved up by what was said. At the column's foot, below the agents however many, the button that
-// makes a new agent.
+// What a row of the list, or a pinned head, marks: how many of the persona's threads ended their
+// turn with an answer the person hasn't opened them to see, or, with none, a dot where a thread
+// at work said something they haven't seen.
+function UnreadMark({
+	marked,
+	fresh,
+	className,
+}: {
+	marked: number;
+	fresh: boolean;
+	className?: string;
+}) {
+	if (marked > 0) {
+		return (
+			<span
+				role="status"
+				aria-label={`${marked} unread`}
+				className={cn(
+					'flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-primary px-1 text-[10px] leading-none font-medium text-primary-foreground',
+					className,
+				)}
+			>
+				{marked}
+			</span>
+		);
+	}
+	if (!fresh) {
+		return null;
+	}
+	return (
+		<span
+			role="status"
+			aria-label="Unread"
+			className={cn('size-2 shrink-0 rounded-full bg-primary', className)}
+		/>
+	);
+}
+
+// The right-click menu of a persona, in the list or pinned: pinning it to the top, or unpinning
+// it, for any the person sees, since the pin is theirs alone; and changing or deleting it, for one
+// they may.
+function PersonaMenu({
+	persona,
+	pinned,
+	onPin,
+	onEdit,
+	onDelete,
+	children,
+}: {
+	persona: ChatPersona;
+	pinned: boolean;
+	onPin: (persona: ChatPersona, pinned: boolean) => void;
+	onEdit: (persona: ChatPersona) => void;
+	onDelete: (persona: ChatPersona) => void;
+	children: ReactElement;
+}) {
+	return (
+		<ContextMenu>
+			<ContextMenuTrigger render={<div />}>{children}</ContextMenuTrigger>
+			<ContextMenuContent>
+				<ContextMenuItem onClick={() => onPin(persona, !pinned)}>
+					{pinned ? <PinOffIcon /> : <PinIcon />}
+					{pinned ? 'Unpin' : 'Pin'}
+				</ContextMenuItem>
+				{persona.mayChange && (
+					<>
+						<ContextMenuSeparator />
+						<ContextMenuItem onClick={() => onEdit(persona)}>
+							<PencilIcon />
+							Edit
+						</ContextMenuItem>
+						<ContextMenuItem variant="destructive" onClick={() => onDelete(persona)}>
+							<Trash2Icon />
+							Delete
+						</ContextMenuItem>
+					</>
+				)}
+			</ContextMenuContent>
+		</ContextMenu>
+	);
+}
+
+// The pinned personas, the first pinned first, and the rest, the one last active first.
+function pinnedFirst<T extends {persona: ChatPersona; last: LastMessage}>(
+	rows: T[],
+): {pinned: T[]; rest: T[]} {
+	const pinned = rows
+		.flatMap((row) =>
+			row.persona.pinnedAt === null ? [] : [{row, at: Date.parse(row.persona.pinnedAt)}],
+		)
+		.toSorted((a, b) => a.at - b.at || a.row.persona.name.localeCompare(b.row.persona.name))
+		.map(({row}) => row);
+	const rest = rows
+		.filter((row) => row.persona.pinnedAt === null)
+		.toSorted((a, b) => lastActive(b.persona, b.last) - lastActive(a.persona, a.last));
+	return {pinned, rest};
+}
+
+// What a persona's link in the list shows and does, pinned or not.
+type PersonaLinkProps = {
+	persona: ChatPersona;
+	to: string;
+	lit: boolean;
+	marked: number;
+	fresh: boolean;
+	watching: boolean;
+};
+
+// A pinned persona: its head, larger, marked where something is unread, with its name under it.
+function PinnedPersonaLink({persona, to, lit, marked, fresh, watching}: PersonaLinkProps) {
+	return (
+		<Link
+			to={to}
+			aria-current={lit ? 'page' : undefined}
+			className={cn(
+				'flex w-full flex-col items-center gap-1.5 rounded-lg px-1 pt-2.5 pb-2 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+				lit && 'bg-sidebar-accent text-sidebar-accent-foreground',
+			)}
+		>
+			<span className="relative">
+				<LiveHead
+					look={persona.look}
+					color={persona.color}
+					size={56}
+					watching={watching}
+					tracking="head"
+				/>
+				<UnreadMark
+					marked={marked}
+					fresh={fresh}
+					className="absolute -top-0.5 -right-0.5 ring-2 ring-sidebar"
+				/>
+			</span>
+			<span className="w-full truncate text-center text-xs">{persona.name}</span>
+		</Link>
+	);
+}
+
+// A persona's row: its head, its name, when it was last active and the last thing said, or what
+// the person typed and hasn't sent.
+function PersonaRowLink({
+	persona,
+	to,
+	lit,
+	marked,
+	fresh,
+	watching,
+	last,
+	draft,
+}: PersonaLinkProps & {last: LastMessage; draft: string | null}) {
+	return (
+		<Link
+			to={to}
+			aria-current={lit ? 'page' : undefined}
+			className={cn(
+				'flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+				lit && 'bg-sidebar-accent text-sidebar-accent-foreground',
+			)}
+		>
+			<LiveHead
+				look={persona.look}
+				color={persona.color}
+				size={40}
+				watching={watching}
+				tracking="head"
+			/>
+			<span className="flex min-w-0 flex-1 flex-col">
+				<span className="flex items-baseline gap-2">
+					<span className="min-w-0 flex-1 truncate text-sm font-medium">{persona.name}</span>
+					{last && (
+						<span className="shrink-0 text-xs text-muted-foreground">{formatAgo(last.at)}</span>
+					)}
+				</span>
+				<span className="flex items-center gap-2">
+					<span
+						className={cn(
+							'min-w-0 flex-1 truncate text-xs',
+							fresh ? 'font-medium' : 'text-muted-foreground',
+						)}
+					>
+						{draft === null ? (
+							subtitle(last)
+						) : (
+							<>
+								<span className="font-medium text-foreground">Draft:</span> {draft}
+							</>
+						)}
+					</span>
+					<UnreadMark marked={marked} fresh={fresh} />
+				</span>
+			</span>
+		</Link>
+	);
+}
+
+// The personas the person sees, their own and General, in the sidebar. Those they pinned are at
+// the top, three heads to a row, each with its name under it, in the order they were pinned; the
+// rest below, each with its head, its name and the last thing said between it and the person,
+// marked where the person hasn't seen it, or what they typed and haven't sent, the open one's as
+// it is typed, the open one lit, pinned or not, each head watching the pointer while it is over
+// that agent. The one last active is on top, the open one by what the page shows of it, so what
+// the person just said moves it up at once. It stays as it is from one chat to the next: the one
+// in the address is lit at once, while it loads. A row that comes, goes or changes places moves
+// there (`useListMotion`): an agent made, deleted, pinned, unpinned or moved up by what was said.
+// Right-clicked, each pins or unpins it, and changes or deletes one the person may. At the
+// column's foot, below the agents however many, the button that makes a new agent.
 function PersonaList({
 	personas,
 	current,
 	shown,
 	recallDraft,
 	onNew,
+	onPin,
 	onEdit,
 	onDelete,
 }: {
@@ -165,6 +374,7 @@ function PersonaList({
 	shown: Shown | null;
 	recallDraft: (personaId: string) => string | null;
 	onNew: () => void;
+	onPin: (persona: ChatPersona, pinned: boolean) => void;
 	onEdit: (persona: ChatPersona) => void;
 	onDelete: (persona: ChatPersona) => void;
 }) {
@@ -181,8 +391,20 @@ function PersonaList({
 			?.unread.filter((thread) => thread.ended).length ?? 0;
 	const isUnread = (persona: ChatPersona) =>
 		persona.id !== current && unread.unreadIds.has(persona.id);
-	const rows = personas
-		.map((persona) => {
+	const linkOf = (persona: ChatPersona): PersonaLinkProps => {
+		const marked = markedOf(persona);
+		return {
+			persona,
+			to: personaChatPath(org, persona.id),
+			lit: persona.id === current,
+			marked,
+			fresh: marked > 0 || isUnread(persona),
+			watching: hovered === persona.id,
+		};
+	};
+	const menu = {onPin, onEdit, onDelete};
+	const {pinned, rest} = pinnedFirst(
+		personas.map((persona) => {
 			const open = shown?.personaId === persona.id ? shown : null;
 			return {
 				persona,
@@ -193,8 +415,8 @@ function PersonaList({
 					open ? open.draft : (recallDraft(persona.id) ?? persona.draft),
 				),
 			};
-		})
-		.toSorted((a, b) => lastActive(b.persona, b.last) - lastActive(a.persona, a.last));
+		}),
+	);
 	return (
 		<div className="flex h-full min-h-0 flex-col">
 			{/* Right under the sidebar's way back up, as close as the rows are to each other. */}
@@ -205,101 +427,36 @@ function PersonaList({
 				{personas.length === 0 && (
 					<span className="px-2 py-1.5 text-sm text-muted-foreground">No agents yet.</span>
 				)}
-				<ul className="flex flex-col gap-0.5">
-					{rows.map(({persona, last, draft}) => {
-						const marked = markedOf(persona);
-						const fresh = marked > 0 || isUnread(persona);
-						const lit = persona.id === current;
-						const row = (
-							<Link
-								// A chat opens on the thread it last had open, this one's on the one open.
-								to={personaChatPath(org, persona.id)}
-								aria-current={lit ? 'page' : undefined}
-								className={cn(
-									'flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
-									lit && 'bg-sidebar-accent text-sidebar-accent-foreground',
-								)}
-							>
-								<LiveHead
-									look={persona.look}
-									color={persona.color}
-									size={40}
-									watching={hovered === persona.id}
-									tracking="head"
-								/>
-								<span className="flex min-w-0 flex-1 flex-col">
-									<span className="flex items-baseline gap-2">
-										<span className="min-w-0 flex-1 truncate text-sm font-medium">
-											{persona.name}
-										</span>
-										{last && (
-											<span className="shrink-0 text-xs text-muted-foreground">
-												{formatAgo(last.at)}
-											</span>
-										)}
-									</span>
-									<span className="flex items-center gap-2">
-										<span
-											className={cn(
-												'min-w-0 flex-1 truncate text-xs',
-												fresh ? 'font-medium' : 'text-muted-foreground',
-											)}
-										>
-											{draft === null ? (
-												subtitle(last)
-											) : (
-												<>
-													<span className="font-medium text-foreground">Draft:</span> {draft}
-												</>
-											)}
-										</span>
-										{marked > 0 && (
-											<span
-												role="status"
-												aria-label={`${marked} unread`}
-												className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-primary px-1 text-[10px] leading-none font-medium text-primary-foreground"
-											>
-												{marked}
-											</span>
-										)}
-										{marked === 0 && fresh && (
-											<span
-												role="status"
-												aria-label="Unread"
-												className="size-2 shrink-0 rounded-full bg-primary"
-											/>
-										)}
-									</span>
-								</span>
-							</Link>
-						);
-						return (
+				{pinned.length > 0 && (
+					<ul aria-label="Pinned" className="grid grid-cols-3 gap-0.5 pb-2">
+						{/* The list's motion slides rows up and down, not across, so a head pinned fades in. */}
+						{pinned.map(({persona}) => (
 							<li
 								key={persona.id}
-								data-row={persona.id}
+								className="min-w-0 animate-in duration-200 fade-in-0 zoom-in-95"
 								onPointerEnter={() => setHovered(persona.id)}
 								onPointerLeave={() => setHovered(null)}
 							>
-								{persona.mayChange ? (
-									<ContextMenu>
-										<ContextMenuTrigger render={<div />}>{row}</ContextMenuTrigger>
-										<ContextMenuContent>
-											<ContextMenuItem onClick={() => onEdit(persona)}>
-												<PencilIcon />
-												Edit
-											</ContextMenuItem>
-											<ContextMenuItem variant="destructive" onClick={() => onDelete(persona)}>
-												<Trash2Icon />
-												Delete
-											</ContextMenuItem>
-										</ContextMenuContent>
-									</ContextMenu>
-								) : (
-									row
-								)}
+								<PersonaMenu persona={persona} pinned {...menu}>
+									<PinnedPersonaLink {...linkOf(persona)} />
+								</PersonaMenu>
 							</li>
-						);
-					})}
+						))}
+					</ul>
+				)}
+				<ul className="flex flex-col gap-0.5">
+					{rest.map(({persona, last, draft}) => (
+						<li
+							key={persona.id}
+							data-row={persona.id}
+							onPointerEnter={() => setHovered(persona.id)}
+							onPointerLeave={() => setHovered(null)}
+						>
+							<PersonaMenu persona={persona} pinned={false} {...menu}>
+								<PersonaRowLink {...linkOf(persona)} last={last} draft={draft} />
+							</PersonaMenu>
+						</li>
+					))}
 				</ul>
 			</div>
 			<div className="flex shrink-0 p-2">
@@ -559,6 +716,47 @@ export function ChatPage() {
 	const [editing, setEditing] = useState<'new' | ChatPersona | null>(null);
 	const [deleting, setDeleting] = useState<ChatPersona | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	// The pins the person changed here, each by the persona's id with when it was pinned, or null
+	// where it was unpinned, and the change it was: shown at once, until the list read again has
+	// it, or the server refused it, and the chat's box says why. A later change of the same pin
+	// stays shown however the one before it ends.
+	const [pinning, setPinning] = useState<
+		ReadonlyMap<string, {pinnedAt: string | null; change: symbol}>
+	>(() => new Map());
+	const pin = useCallback(
+		async (persona: ChatPersona, pinned: boolean) => {
+			const change = Symbol(persona.id);
+			const pinnedAt = pinned ? (persona.pinnedAt ?? new Date().toISOString()) : null;
+			setPinning((before) => new Map(before).set(persona.id, {pinnedAt, change}));
+			const settled = () =>
+				setPinning((before) => {
+					if (before.get(persona.id)?.change !== change) {
+						return before;
+					}
+					const after = new Map(before);
+					after.delete(persona.id);
+					return after;
+				});
+			const done = await pinPersona(org, persona.id, pinned);
+			if (done.isErr()) {
+				setError(describeFetchError(done.error));
+				settled();
+				return;
+			}
+			setError(null);
+			await reload();
+			settled();
+		},
+		[org, reload],
+	);
+	const listedPersonas = useMemo(
+		() =>
+			personas?.map((persona) => {
+				const changed = pinning.get(persona.id);
+				return changed === undefined ? persona : {...persona, pinnedAt: changed.pinnedAt};
+			}) ?? null,
+		[personas, pinning],
+	);
 	// The threads the person said are done here, each by its id with when it last had a message
 	// then, and whether its alerts stayed: until something more is said in it, it is done on the
 	// page, or watching where alerts still come to it, whatever a read from before the server had it
@@ -854,16 +1052,17 @@ export function ChatPage() {
 	};
 
 	const panel = () => {
-		if (personas === null) {
+		if (listedPersonas === null) {
 			return listed.pending ? <PanelWaiting /> : null;
 		}
 		return (
 			<PersonaList
-				personas={personas}
+				personas={listedPersonas}
 				current={current}
 				shown={shown}
 				recallDraft={recallDraft}
 				onNew={() => setEditing('new')}
+				onPin={(persona, pinned) => void pin(persona, pinned)}
 				onEdit={setEditing}
 				onDelete={setDeleting}
 			/>

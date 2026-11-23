@@ -9,6 +9,7 @@ import {
 	personaAnswerSchema,
 	personaListSchema,
 	type Persona,
+	type pinBodySchema,
 	type postMessageBodySchema,
 	postedReplySchema,
 	type removeAttachmentBodySchema,
@@ -69,6 +70,13 @@ export function updatePersona(org: string, personaId: string, persona: Persona) 
 
 export function deletePersona(org: string, personaId: string) {
 	return apiSend('DELETE', `${orgApi(org)}/chat/personas/${personaId}`);
+}
+
+/** Pins the person's chat with the persona to the top of their list, or unpins it. */
+export function pinPersona(org: string, personaId: string, pinned: boolean) {
+	return apiSend('PUT', `${orgApi(org)}/chat/personas/${personaId}/pin`, {
+		pinned,
+	} satisfies z.input<typeof pinBodySchema>);
 }
 
 export function listThreads(org: string, personaId: string) {

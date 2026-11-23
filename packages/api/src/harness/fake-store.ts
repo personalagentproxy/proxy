@@ -58,6 +58,7 @@ export function fakeStore(): FakeStore {
 		getThreadDraft: mock<HarnessStore['getThreadDraft']>(),
 		saveThreadDraft: mock<HarnessStore['saveThreadDraft']>(),
 		saveChatDraft: mock<HarnessStore['saveChatDraft']>(),
+		setChatPinned: mock<HarnessStore['setChatPinned']>(),
 		listDraftAttachments: mock<HarnessStore['listDraftAttachments']>(),
 		addDraftAttachment: mock<HarnessStore['addDraftAttachment']>(),
 		removeDraftAttachment: mock<HarnessStore['removeDraftAttachment']>(),
