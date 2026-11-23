@@ -81,6 +81,7 @@ function renderConnectionPage(
 	github: GitHubReach | null = null,
 	files: Drive | null = null,
 	history: DriveHistoryLoaded | null = null,
+	vaultSecrets: DataRecord[] | null = vaultEntries === null ? null : [],
 ) {
 	const loads = {count: 0};
 	const router = createMemoryRouter(
@@ -102,6 +103,7 @@ function renderConnectionPage(
 								tasks: [],
 								members: [dana],
 								vaultEntries,
+								vaultSecrets,
 								sandboxes,
 								github,
 								files,
@@ -800,6 +802,7 @@ describe('a vault’s page', () => {
 		expect(row.textContent).not.toContain('Berlin');
 		expect(tabs()).toEqual([
 			['Entries1', 'page'],
+			['Secrets0', null],
 			['Permissions', null],
 			['Recent activity', null],
 		]);
@@ -814,6 +817,7 @@ describe('a vault’s page', () => {
 		).toBeDefined();
 		expect(tabs().map(([label]) => label)).toEqual([
 			'Entries0',
+			'Secrets0',
 			'Permissions',
 			'Sharing',
 			'Recent activity',
@@ -844,6 +848,31 @@ describe('a vault’s page', () => {
 
 		fireEvent.click(screen.getByRole('button', {name: /Phone/}));
 		expect(await screen.findByRole('button', {name: 'Save'})).toHaveProperty('disabled', false);
+	});
+
+	test('its secrets are listed by name and note, each value hidden until shown', async () => {
+		const key = entry('secret-1', {
+			name: 'OPENAI_API_KEY',
+			value: 'sk-test-123',
+			note: 'For the reports',
+		});
+		renderConnectionPage(
+			'/acme/connections/conn-1?tab=secrets',
+			ownVault,
+			[claude],
+			[home],
+			null,
+			null,
+			null,
+			null,
+			[key],
+		);
+
+		const row = await screen.findByRole('button', {name: /OPENAI_API_KEY/});
+		expect(row.textContent).toContain('For the reports');
+		expect(document.body.textContent).not.toContain('sk-test-123');
+		fireEvent.click(screen.getByRole('button', {name: 'Show'}));
+		expect(await screen.findByText('sk-test-123')).toBeDefined();
 	});
 });
 

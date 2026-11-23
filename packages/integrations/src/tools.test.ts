@@ -710,6 +710,11 @@ describe("an integration's own tools", () => {
 			'entries_create',
 			'entries_update',
 			'entries_delete',
+			'secrets_list',
+			'secrets_get',
+			'secrets_create',
+			'secrets_update',
+			'secrets_delete',
 			'entries_count',
 			'entries_purge',
 		]);

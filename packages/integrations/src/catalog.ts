@@ -2063,6 +2063,12 @@ const plaid: Integration = {
 	],
 };
 
+/** The vault's secrets, beside its entries. */
+export const VAULT_SECRETS_COLLECTION_ID = 'secrets';
+
+/** What a secret's name has to be: an environment variable's, as OPENAI_API_KEY. */
+export const SECRET_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
 // What a vault entry's value is, so a row shows it as such and an agent knows what it holds.
 export const VAULT_ENTRY_TYPES = ['Text', 'Address', 'Phone number', 'Email', 'Link', 'Date'];
 
@@ -2072,16 +2078,38 @@ export const VAULT_ENTRY_TYPES = ['Text', 'Address', 'Phone number', 'Email', 'L
 const vault: Integration = {
 	id: VAULT_INTEGRATION_ID,
 	name: 'Vault',
-	description: 'What agents should know, kept in Personal Agent Proxy',
+	description:
+		'What agents should know, and the secrets they may use, kept in Personal Agent Proxy',
 	native: true,
-	made: {one: 'vault', holds: 'entries'},
+	made: {one: 'vault', holds: 'entries and secrets'},
 	actions: [
-		{id: 'readEntries', label: 'Read entries', description: 'List and open entries', risk: 'low'},
+		{
+			id: 'readEntries',
+			label: 'Read entries',
+			description: 'List and open entries, and see which secrets there are',
+			risk: 'low',
+		},
 		{
 			id: 'writeEntries',
 			label: 'Edit entries',
 			description: 'Add, edit and delete entries',
 			risk: 'medium',
+			requires: 'readEntries',
+		},
+		{
+			id: 'writeSecrets',
+			label: 'Save secrets',
+			description:
+				'Add, replace and delete secrets, such as a key it made, without reading any back',
+			risk: 'medium',
+			requires: 'readEntries',
+		},
+		{
+			id: 'useSecrets',
+			label: 'Use secrets',
+			description:
+				'Give secrets to sandbox commands as environment variables. A command can read what it is given and send it anywhere',
+			risk: 'high',
 			requires: 'readEntries',
 		},
 	],
@@ -2101,12 +2129,32 @@ const vault: Integration = {
 				{key: 'content', label: 'Content', type: 'longtext'},
 			],
 		},
+		// Secrets, such as API keys, by the environment variable a command is given each as: an
+		// agent sees a secret's name and note, never its value, which only the person reads, on the
+		// vault's page. Agents with Use secrets have them given to a sandbox command by name
+		// (native/sandbox/secrets.ts); with Save secrets, add, replace and delete them, as a key
+		// they made, without ever reading one back.
+		{
+			id: VAULT_SECRETS_COLLECTION_ID,
+			name: 'Secrets',
+			singular: 'secret',
+			titleField: 'name',
+			summaryField: 'note',
+			read: 'readEntries',
+			writes: {create: 'writeSecrets', update: 'writeSecrets', delete: 'writeSecrets'},
+			searchHint: 'Matches the words in the name or the note, in any case.',
+			fields: [
+				{key: 'name', label: 'Name', type: 'text'},
+				{key: 'value', label: 'Value', type: 'text', secret: true},
+				{key: 'note', label: 'Note', type: 'longtext'},
+			],
+		},
 	],
 };
 
 // What agents may do with a vault by default, a member's own and any they make: read it, and
-// keep what they learn there, unless told otherwise.
-export const VAULT_DEFAULT_ACTIONS: string[] = vault.actions.map((action) => action.id);
+// keep what they learn there, unless told otherwise. Its secrets are the person's to hand out.
+export const VAULT_DEFAULT_ACTIONS: string[] = ['readEntries', 'writeEntries'];
 
 export const SANDBOX_INTEGRATION_ID = 'sandbox';
 
@@ -2224,6 +2272,12 @@ const sandbox: Integration = {
 					pap: {
 						type: 'boolean',
 						description: 'Lets the command use pap, to call your connections from code',
+					},
+					secrets: {
+						type: 'array',
+						items: {type: 'string'},
+						description:
+							'Vault secrets to give the command as environment variables, by name, as OPENAI_API_KEY, or as Vault name/NAME where two vaults have it. Where any command prints a secret’s value, it is shown as [secret NAME]',
 					},
 				},
 				required: ['sandbox', 'command'],

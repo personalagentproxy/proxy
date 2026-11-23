@@ -24,6 +24,7 @@ import {
 	UploadIcon,
 } from 'lucide-react';
 import {Fragment, useEffect, useRef, useState, type DragEvent} from 'react';
+import {createPortal} from 'react-dom';
 import {Link, useNavigate} from 'react-router';
 import {
 	createFolder,
@@ -551,6 +552,8 @@ type Props = {
 	place: DrivePlace;
 	list: FileList | null;
 	shown: FileDetail | null;
+	// Where its search and buttons go, on the page's row of tabs (page-tabs.tsx).
+	toolbar: HTMLElement | null;
 };
 
 // The Files part of a drive's page, the first of its connection's tabs: the folder the person is
@@ -559,7 +562,7 @@ type Props = {
 // dropping files on the list, and a new folder. A file opens over its folder with its versions,
 // and a file or a folder is renamed, moved into another folder, or put in the trash from its
 // row's menu. The trash is a list of its own, each thing in it taken out again.
-export function FileBrowser({connectionId, place, list, shown}: Props) {
+export function FileBrowser({connectionId, place, list, shown, toolbar}: Props) {
 	const org = useOrgSlug();
 	const navigate = useNavigate();
 	const reload = useReload();
@@ -601,10 +604,16 @@ export function FileBrowser({connectionId, place, list, shown}: Props) {
 
 	return (
 		<div className="flex flex-col gap-2">
-			<div className="flex min-h-8 flex-wrap items-center justify-between gap-x-4 gap-y-2 text-sm text-muted-foreground">
-				<Trail trail={list?.trail ?? []} trash={trash} />
-				{!trash && list !== null && (
-					<span className="ml-auto flex items-center gap-1">
+			{(trash || (list?.trail.length ?? 0) > 0) && (
+				<div className="flex min-h-8 items-center text-sm text-muted-foreground">
+					<Trail trail={list?.trail ?? []} trash={trash} />
+				</div>
+			)}
+			{toolbar !== null &&
+				!trash &&
+				list !== null &&
+				createPortal(
+					<span className="flex items-center gap-1 text-sm text-muted-foreground">
 						<Search key={folder ?? 'top'} place={place} />
 						<IconButton label="Trash" to={driveQuery({trash: true})}>
 							<Trash2Icon />
@@ -619,9 +628,9 @@ export function FileBrowser({connectionId, place, list, shown}: Props) {
 						>
 							{uploading > 0 ? <LoaderCircleIcon className="animate-spin" /> : <UploadIcon />}
 						</IconButton>
-					</span>
+					</span>,
+					toolbar,
 				)}
-			</div>
 			<input
 				ref={picker}
 				type="file"

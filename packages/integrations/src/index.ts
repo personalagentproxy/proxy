@@ -16,9 +16,11 @@ export {
 	SANDBOX_EXEC_DEFAULT_SECONDS,
 	SANDBOX_EXEC_MAX_SECONDS,
 	SANDBOX_INTEGRATION_ID,
+	SECRET_NAME_PATTERN,
 	VAULT_DEFAULT_ACTIONS,
 	VAULT_ENTRY_TYPES,
 	VAULT_INTEGRATION_ID,
+	VAULT_SECRETS_COLLECTION_ID,
 } from './catalog';
 export {allowedTools, findTool, integrationTools, toolName} from './tools';
 export type {

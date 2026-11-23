@@ -15,6 +15,9 @@ export type Field = {
 	// The action writing it needs beyond the collection's write: creating or editing a record where
 	// it holds anything, before the write or after it, as an event's guests need Invite guests.
 	action?: string;
+	// Never given to an agent, as a vault's secret's value: the person reads it on the connection's
+	// page, and agents only use it where an action lets them.
+	secret?: true;
 };
 
 // One thing an agent can be allowed to do with a connection, set on its own: Read, Archive, Send.
