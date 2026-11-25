@@ -1,0 +1,180 @@
+---
+title: Slack
+description: Add a shared agent to your Slack workspace as an app of its own, and talk to it there.
+---
+
+An agent shared with your organization can be added to a Slack workspace as a Slack app of its
+own, named for it, which members find in Slack's sidebar like any other app. Each member writes to
+it in its direct messages, as themselves: every message opens a thread that lives in Slack, the
+agent answers there, and Slack shows where each thread stands. Personal Agent Proxy makes the app
+for you, keeps it up to date and removes it; each agent has its own, in one workspace.
+
+<Callout>
+Slack is being tried out with some organizations first, so it is only offered to an organization
+that has it turned on.
+</Callout>
+
+Only a [shared agent](/agents/chat) can be added: the settings of one that is yours alone say it
+has to be shared first. Whoever may change the agent adds it, updates it and removes it from the
+**Slack** card of its settings on the Chat page (click its name over its list of tasks): the card
+says where it stands, and its button, **Add to Slack** or **Manage**, opens everything else. Any
+other member sees there where it is in Slack, with **Open in Slack**. While it is in Slack, it
+stays shared: it can't be made anyone's alone again until it is removed from Slack.
+
+<Steps>
+
+### Link a Slack workspace
+
+Personal Agent Proxy makes apps in a workspace with a Slack app configuration token, which a
+member links once for the whole organization. At [api.slack.com/apps](https://api.slack.com/apps),
+signed in to the workspace, find **Your App Configuration Tokens**, choose **Generate Token**,
+pick the workspace, and paste both the access token and the refresh token under **Add to Slack**.
+Use the account of someone allowed to install apps in the workspace.
+
+A configuration token lasts twelve hours, so Personal Agent Proxy rotates it before then, for as
+long as the workspace is linked. If Slack stops taking it, because it was revoked or the person
+who made it left the workspace, the dialog behind the Slack card says so and asks for a new pair. A
+workspace can be unlinked while no agent's app is in it.
+
+### Add the agent
+
+Choose **Add to** the workspace. Personal Agent Proxy makes a Slack app for the agent, named for
+it: Slack allows an app's name 35 characters, so a longer name is cut at a word, while the bot in
+Slack keeps the whole name. Slack then opens to install the app in the workspace; once you allow it,
+you're back on the Chat page with the agent in Slack, under its handle.
+
+The app asks Slack for as little as it needs: to read the messages people send it in its direct
+messages, to post its answers, Slack's agent experience, and to open its direct messages with a
+member. It can't read channels, files or anyone's email address.
+
+### Get it approved, where a Slack admin has to
+
+Where the workspace has a Slack admin approve apps, the install sends them a request instead, and
+nothing comes back to Personal Agent Proxy: the Slack card says the app is waiting to be
+installed. Once the admin has approved it, choose **Install** to finish.
+
+### Give it its picture
+
+Slack only lets an app's picture be set by hand. Under **Manage**, save the agent's head as a
+picture, and upload it under **Display Information** in the app's settings in Slack, which it links
+to.
+
+</Steps>
+
+## Talking to it in Slack
+
+Open the agent's app in Slack and write to it in its **Messages** tab. Each message you send there
+opens a thread, and a reply in that message's Slack thread goes on with the same thread. The agent
+works in it as it does in the app, as you, with your connections and your model account, and
+answers you in that Slack thread.
+
+A thread that began in Slack lives there: it isn't among your tasks on the Chat page, and you read
+it and reply in it in Slack alone, as a task you start in the app stays in the app. An agent in any of your threads can still
+find it through your [Chat connection](/connections/chat), which says it is in Slack and links to
+it there, and so does an alert set in it on the **Alerts** page.
+
+### Confirming who you are
+
+The first time you write to any of your organization's agents in a Slack workspace, the app
+answers under your message with a link to confirm who you are. Open it, signed in to Personal Agent
+Proxy, and choose **Confirm**: your Slack account in that workspace is then linked to you in the
+organization, for every agent of it there, and the message you wrote is taken up without your
+sending it again. The link works for a day; write again for a new one.
+
+Personal Agent Proxy never tells who someone is from their email address, in Slack or anywhere,
+since a Slack account's address isn't proof of who is using it: only your own confirmation, signed
+in, links the two. A Slack account is linked to one member of an organization. If you open the link
+signed in as someone who isn't a member, the page says so, and whom to ask for an invitation, and
+nothing is linked. Someone linked who has since left the organization is told so in Slack, and
+nothing they write is taken up.
+
+### Unlinking
+
+**Account**, at the foot of the sidebar, lists the Slack accounts you're linked to, by workspace,
+each with **Unlink**. Once unlinked, your next message to an agent there asks you to confirm who you
+are again. Unlinking the workspace from the organization unlinks everyone in it.
+
+### What is taken up
+
+Only what you write to the agent in its direct messages: not channels, mentions or group messages.
+Links, mentions and Slack's formatting come into the thread as you would have typed them in the app.
+Files aren't read yet: the words of a message with files are taken up and the app says the files
+weren't, and files alone open nothing. Edits and deletions in Slack don't change the thread, and
+each message is taken up once, however often Slack sends it.
+
+### What comes back to Slack
+
+What you would read of the thread is posted in its Slack thread, in order, within a moment of being
+written: the agent's answers, what it tells you as it works, a failure, and an alert that fires in
+the thread, as one line marked as an alert. What the agent works through on the way, its tool calls
+and their results, isn't posted, and neither are the sub-agents it starts or what they tell it:
+while they work, Slack shows the thread at work. All of it is in the activity log, as for any task.
+
+Files don't go to Slack: a picture in an answer comes as a link with its description, and a link to
+something in Personal Agent Proxy opens it there. A long answer comes as several messages.
+
+Nothing is posted while the agent's app is removed from Slack, while you aren't linked or no longer
+in the organization, or while Slack is turned off for it; the thread picks up where it left off
+once that changes. If the Slack thread or its conversation is gone in Slack, nothing more is posted
+to it.
+
+### Where a thread stands in Slack
+
+Each Slack thread shows where it stands with Slack's own status for an agent's work, as the Chat
+page shows a task with a word over it:
+
+- While the agent is at work, or asleep until it wakes, and while any sub-agent it started still
+  works, Slack shows it working. It does so as soon as your message is taken up, before anything is
+  posted, so you can see it was received.
+- Once the agent has stopped and waits for you, Slack shows that it needs you.
+- Otherwise, once the thread is done, or watching for alerts that still come to it, Slack shows it
+  ready for your next message.
+
+The status changes once what the agent wrote is posted, not before, and follows the thread as it
+changes: your reply, or an alert that fires in it, sets it working again.
+
+Slack lists the thread under a title. It starts as the first line of the message that opened it;
+a moment later, once the agent has named the thread in a few words, as it names every task, Slack's
+title changes to that, once. If you rename it in Slack after that, your title stays.
+
+The status and the title use Slack's agent features, which some Slack plans don't include. Where a
+workspace doesn't have them, Slack just shows no status: everything else, the messages both ways,
+works the same, and Personal Agent Proxy tries again a day later in case they were turned on.
+
+### What isn't there yet
+
+Only direct messages: the agent can't be mentioned in channels or added to group messages. Files
+don't go either way. A thread can't be marked done from Slack, and Slack's button to stop an agent
+at work isn't offered. A thread stays where it began: a task you start in the app doesn't appear in
+Slack, and a thread that began in Slack doesn't appear in the app.
+
+## Updating it
+
+When Personal Agent Proxy changes what an agent's app is made from, or the agent is renamed, the
+Slack card says the app is out of date: **Update** changes it in Slack in place. Where the new
+version asks Slack for more than the app was allowed, Slack opens to install it again.
+
+## Removing it
+
+**Remove from Slack** deletes the app in Slack, which takes it out of the workspace, and forgets it
+here. Deleting the agent removes its app first. If Slack can't be reached, or the workspace's token
+no longer works, you can forget the app here instead: it then stays in Slack for an admin there to
+delete.
+
+If a Slack admin removes the app in Slack, or revokes its token, the Slack card says so, with
+**Add again**, which installs it again, or **Forget it here**.
+
+## The plan's app limit
+
+Some Slack plans limit how many apps a workspace holds, and each agent added is one app. Where the
+workspace has no room for another, adding an agent says so: remove an app there, or upgrade the
+plan, and try again.
+
+## Self-hosting
+
+Slack calls Personal Agent Proxy at `APP_URL`, so it has to be an https address that Slack can
+reach from the internet: adding an agent is refused otherwise, saying why. Two paths must reach
+the api: `/slack/events/`, where Slack sends each app's events, and `/slack/install`, where an
+install comes back to. The [image](/self-hosting/get-started) serves both. Each agent's app is made
+in Slack with its own secrets, which Personal Agent Proxy keeps encrypted with `ENCRYPTION_KEY`, and
+the links to confirm who someone is are signed with `AUTH_SECRET`, which has to be set.

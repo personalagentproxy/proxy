@@ -13,7 +13,6 @@ import {IntegrationLogo} from '@/components/brand-logo';
 import {Head} from '@/components/head';
 import {useOrgSlug} from '@/hooks/use-org';
 import {formatDateTime} from '@/lib/format';
-import {threadTo} from '@/lib/alerts';
 import {findIntegration} from '@/lib/integrations';
 
 type Props = {
@@ -62,8 +61,8 @@ function splitText(split: NonNullable<Alert['split']>): string {
 
 // An alert in full: what it is, when it comes again where it repeats, where it watches and for
 // which words, where it comes, into its thread, with a link to it, or as a new thread each time,
-// and the thread it was set in, what the agent noted for it, who set it, with a link to the chat,
-// and when it last matched.
+// and the thread it was set in, each linked where it lives, in Chat or in Slack, what the agent
+// noted for it, who set it, with a link to the chat, and when it last matched.
 export function AlertDetailDialog({alert, onClose}: Props) {
 	return (
 		<Dialog
@@ -125,9 +124,7 @@ function AlertDetailContent({alert}: {alert: Alert}) {
 					{alert.thread === null ? (
 						<span>A new thread each time</span>
 					) : (
-						<Link to={threadTo(org, alert)} className="min-w-0 truncate hover:underline">
-							{alert.thread.title || 'Thread'}
-						</Link>
+						<AlertThreadLink org={org} alert={alert} thread={alert.thread} />
 					)}
 				</Detail>
 				{alert.split !== null && <Detail label="Threads">{splitText(alert.split)}</Detail>}
@@ -136,12 +133,7 @@ function AlertDetailContent({alert}: {alert: Alert}) {
 						{alert.setIn === null ? (
 							<span className="text-muted-foreground">A thread that is gone</span>
 						) : (
-							<Link
-								to={`/${org}/chat/${alert.persona.id}/threads/${alert.setIn.id}`}
-								className="min-w-0 truncate hover:underline"
-							>
-								{alert.setIn.title || 'Thread'}
-							</Link>
+							<AlertThreadLink org={org} alert={alert} thread={alert.setIn} />
 						)}
 					</Detail>
 				)}
@@ -169,5 +161,37 @@ function AlertDetailContent({alert}: {alert: Alert}) {
 				)}
 			</dl>
 		</DialogContent>
+	);
+}
+
+type ThreadRef = NonNullable<Alert['thread']>;
+
+/**
+ * A thread of an alert's, linked where it lives: its page in Chat, or its thread in Slack, which
+ * the app doesn't show, opened in a tab of its own.
+ */
+export function AlertThreadLink({
+	org,
+	alert,
+	thread,
+	className = 'min-w-0 truncate hover:underline',
+}: {
+	org: string;
+	alert: Alert;
+	thread: ThreadRef;
+	className?: string;
+}) {
+	const title = thread.title || 'Thread';
+	if (thread.slackUrl !== null) {
+		return (
+			<a href={thread.slackUrl} target="_blank" rel="noreferrer" className={className}>
+				{title} <span className="text-muted-foreground">in Slack</span>
+			</a>
+		);
+	}
+	return (
+		<Link to={`/${org}/chat/${alert.persona.id}/threads/${thread.id}`} className={className}>
+			{title}
+		</Link>
 	);
 }

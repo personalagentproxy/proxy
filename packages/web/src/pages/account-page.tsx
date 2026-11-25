@@ -12,6 +12,7 @@ import {Link} from 'react-router';
 import {PillButton} from '@proxy/ui/components/pill-button';
 import {signOut} from '@/client/auth-client';
 import {deleteAccount, deleteOtherSessions, deleteSession} from '@/client/me-client';
+import {unlinkSlackLink} from '@/client/slack-client';
 import {AppShell, PageTitle} from '@/components/app-shell';
 import {ClaudeCard} from '@/components/claude-card';
 import {DangerCard} from '@/components/danger-card';
@@ -42,7 +43,8 @@ import type {accountLoader} from '@/loaders';
 // next version its version and the look (one from before that hears of the update on the Claude
 // card), their own Claude account, which the built-in agent
 // runs under for them, the organizations they are in, each to its own
-// settings, every browser and desktop app they are signed in on, each to sign out, and deleting
+// settings, the Slack accounts they are linked to, each to unlink, every browser and desktop app
+// they are signed in on, each to sign out, and deleting
 // the account, which deletes every one they own.
 export function AccountPage() {
 	return (
@@ -54,10 +56,12 @@ export function AccountPage() {
 
 function Account() {
 	const human = useHuman();
-	const {sessions, claude} = useLoaded<typeof accountLoader>();
+	const {sessions, claude, slackLinks} = useLoaded<typeof accountLoader>();
 	const [deleting, setDeleting] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [slackError, setSlackError] = useState<string | null>(null);
 	const apply = useApply(setError);
+	const applySlack = useApply(setSlackError);
 
 	// Everywhere: the others first, so a failure leaves this browser signed in to say so, then here.
 	async function signOutAll() {
@@ -137,6 +141,34 @@ function Account() {
 						))}
 					</RowList>
 				</Section>
+				{slackLinks.length > 0 && (
+					<Section title="Slack" detail={slackLinks.length}>
+						{slackError && <p className="text-sm text-destructive">{slackError}</p>}
+						<RowList>
+							{slackLinks.map((link) => (
+								<li key={link.id} className="bleed flex h-10 min-w-0 items-center gap-3 text-sm">
+									<span className="min-w-0 flex-1 truncate">
+										{link.workspaceName}
+										<span className="text-muted-foreground"> · {link.orgName}</span>
+									</span>
+									<span className="hidden shrink-0 text-muted-foreground tabular-nums sm:block">
+										Linked {formatDate(link.createdAt)}
+									</span>
+									<PillButton
+										variant="ghost"
+										onClick={() => void applySlack(unlinkSlackLink(link.id))}
+									>
+										Unlink
+									</PillButton>
+								</li>
+							))}
+						</RowList>
+						<p className="text-sm text-muted-foreground">
+							Agents in these Slack workspaces take what you write to them as you. Unlink one, and
+							your next message there asks you to confirm who you are again.
+						</p>
+					</Section>
+				)}
 				<Section
 					title="Sessions"
 					detail={sessions.length}

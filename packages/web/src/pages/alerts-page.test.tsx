@@ -30,7 +30,7 @@ const alerts: Alert[] = [
 		persona,
 		opens: 'new_thread',
 		thread: null,
-		setIn: {id: 't-9', title: 'Bank follow-up'},
+		setIn: {id: 't-9', title: 'Bank follow-up', slackUrl: null},
 		at: null,
 		every: null,
 		split: 'per_record',
@@ -46,8 +46,8 @@ const alerts: Alert[] = [
 		brief: 'Remind them of the call.',
 		persona,
 		opens: 'this_thread',
-		thread: {id: 't-1', title: 'Pricing review with Dana'},
-		setIn: {id: 't-1', title: 'Pricing review with Dana'},
+		thread: {id: 't-1', title: 'Pricing review with Dana', slackUrl: null},
+		setIn: {id: 't-1', title: 'Pricing review with Dana', slackUrl: null},
 		at: '2026-11-05T09:00:00.000Z',
 		every: null,
 		split: null,
@@ -64,7 +64,7 @@ const alerts: Alert[] = [
 		persona,
 		opens: 'new_thread',
 		thread: null,
-		setIn: {id: 't-1', title: 'Pricing review with Dana'},
+		setIn: {id: 't-1', title: 'Pricing review with Dana', slackUrl: null},
 		at: '2026-11-09T08:00:00.000Z',
 		every: 'every week on Monday at 9:00 (Europe/Berlin)',
 		split: null,
@@ -202,6 +202,24 @@ describe('AlertsPage', () => {
 		const weekly = await screen.findByRole('dialog');
 		expect(weekly.textContent).toContain('every week on Monday at 9:00 (Europe/Berlin)');
 		expect(weekly.textContent).toContain('Set in');
+	});
+
+	test('an alert of a thread that lives in Slack links to it there, in a tab of its own, as the app doesn’t show it', async () => {
+		const url = 'https://app.slack.com/client/T0001/D0001/thread/D0001-1761040800.000100';
+		const inSlack = {id: 't-5', title: 'Plan the offsite in Lisbon', slackUrl: url};
+		const second = alerts[1];
+		if (!second) {
+			throw new Error('no alert');
+		}
+		renderPage([{...second, thread: inSlack, setIn: inSlack}]);
+		fireEvent.click((await screen.findByText('Call Dana')).closest('button') as HTMLElement);
+		const dialog = await screen.findByRole('dialog');
+		const comes = [...dialog.querySelectorAll('a')].find((a) =>
+			a.textContent?.startsWith('Plan the offsite in Lisbon'),
+		);
+		expect(comes?.getAttribute('href')).toBe(url);
+		expect(comes?.getAttribute('target')).toBe('_blank');
+		expect(comes?.textContent).toBe('Plan the offsite in Lisbon in Slack');
 	});
 
 	test('deleting one asks first, then deletes it', async () => {

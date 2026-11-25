@@ -153,7 +153,7 @@ describe('the words', () => {
 	});
 
 	test('a thread’s agent is told of every alert of the person’s, with the thread it comes to, or that it opens new ones and where it was set', () => {
-		const mine: MemberAlertRow = {...watch, persona, thread: {id: 'thread-1', title: 'Watch the bank'}, setIn: {id: 'thread-1', title: 'Watch the bank'}};
+		const mine: MemberAlertRow = {...watch, persona, thread: {id: 'thread-1', title: 'Watch the bank', slack: null}, setIn: {id: 'thread-1', title: 'Watch the bank', slack: null}};
 		const morning: MemberAlertRow = {
 			...timed,
 			id: 'alert-2',
@@ -161,10 +161,10 @@ describe('the words', () => {
 			setInThreadId: 'thread-2',
 			title: 'Morning check',
 			persona,
-			thread: {id: 'thread-2', title: 'Check the review every morning'},
-			setIn: {id: 'thread-2', title: 'Check the review every morning'},
+			thread: {id: 'thread-2', title: 'Check the review every morning', slack: null},
+			setIn: {id: 'thread-2', title: 'Check the review every morning', slack: null},
 		};
-		const own: MemberAlertRow = {...watch, id: 'alert-3', threadId: null, split: 'per_record', persona, thread: null, setIn: {id: 'thread-1', title: 'Watch the bank'}};
+		const own: MemberAlertRow = {...watch, id: 'alert-3', threadId: null, split: 'per_record', persona, thread: null, setIn: {id: 'thread-1', title: 'Watch the bank', slack: null}};
 
 		expect(alertsParagraph([], 'thread-1')).toBe('No alerts.');
 		expect(alertsParagraph([mine, morning, own], 'thread-1')).toBe(

@@ -7,7 +7,9 @@ import {updatePersona} from '@/client/harness-client';
 import {DangerCard} from '@/components/danger-card';
 import {LiveHead} from '@/components/head';
 import {PANE_CARD} from '@/components/pane-row';
+import {SlackPresenceRow, SlackRow} from '@/components/slack-settings';
 import {useOrgSlug} from '@/hooks/use-org';
+import type {PersonaSlackRead} from '@/hooks/use-persona-slack';
 import {useReload} from '@/hooks/use-reload';
 import {describeApiError} from '@/lib/loader-utils';
 
@@ -37,27 +39,36 @@ function sharingLine(shared: boolean, orgName: string): string {
 }
 
 // What deleting the agent takes with it: every member's conversation where others have talked to
-// it, the person's own otherwise.
-function deleteCardLine(persona: ListedPersona): string {
+// it, the person's own otherwise; and its Slack app where it is in Slack.
+function deleteCardLine(persona: ListedPersona, inSlack: boolean): string {
 	const conversations = persona.usedByOthers
 		? `Every member’s conversation with ${persona.name} goes with it, not only yours: others have talked to it.`
 		: `Your conversation with ${persona.name} goes with it.`;
-	return `${conversations} This cannot be undone.`;
+	const slack = inSlack ? ' It is removed from Slack first.' : '';
+	return `${conversations}${slack} This cannot be undone.`;
 }
 
 // The pane's content, scrolling within itself: the agent, whose it is, and Edit, which opens its
-// name and head in their dialog; a card for who sees it, which holds as it is chosen; and, at the
-// pane's foot however short the rest, the card that deletes it. Without `mayChange`, it is read
-// alone: who sees it said, and neither Edit, the choice nor the card.
+// name and head in their dialog; a card for who sees it, which holds as it is chosen; where the
+// organization has Slack (`slack`), a card for the agent in Slack, whose action opens a dialog of
+// its own; and, at the pane's foot however short the rest, the card that deletes it. Without
+// `mayChange`, it is read alone: who sees it said, Slack where it is there, and neither Edit, the
+// choice nor the card.
 export function PersonaSettings({
 	orgName,
 	persona,
+	slack,
+	slackRead,
 	onEdit,
+	onSlack,
 	onDelete,
 }: {
 	orgName: string;
 	persona: ListedPersona;
+	slack: boolean;
+	slackRead: PersonaSlackRead;
 	onEdit: () => void;
+	onSlack: () => void;
 	onDelete: () => void;
 }) {
 	const org = useOrgSlug();
@@ -142,11 +153,15 @@ export function PersonaSettings({
 					{persona.mayChange && keptShared && <p className={LINE}>{persona.staysShared}</p>}
 					{refused !== null && <p className="text-sm text-destructive">{refused}</p>}
 				</section>
+				{slack && persona.mayChange && (
+					<SlackRow shared={persona.shared} orgName={orgName} slack={slackRead} onOpen={onSlack} />
+				)}
+				{slack && !persona.mayChange && <SlackPresenceRow org={org} personaId={persona.id} />}
 				{persona.mayChange && (
 					<div className="mt-auto pt-6">
 						<DangerCard
 							title={`Delete ${persona.name}`}
-							description={deleteCardLine(persona)}
+							description={deleteCardLine(persona, (slackRead.loaded?.app ?? null) !== null)}
 							button="Delete agent"
 							onClick={onDelete}
 						/>

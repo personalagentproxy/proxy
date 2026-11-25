@@ -2677,23 +2677,29 @@ export const CHAT_STANDINGS = {
 	archived: 'Archived',
 } as const;
 
-// Chat: the person's own threads with their agents on the Chat page, and the alerts set in them,
-// as records, so that an agent can be asked about the others: what waits for the person, what was
-// found in one, which alerts are set. Every member has one, theirs alone, made with their
-// membership as their vault is. A thread is read, never written: whoever reads one
-// points the person to it by its url, its page in Chat, and they go on there. An alert is seen and
-// cancelled; one is set in a thread, by its agent, since it comes back to that thread or opens new
-// ones in its chat.
+/** Where a thread lives, as its record says it: in Chat, on the Chat page, or in Slack, where it began, and where alone it is read and answered. */
+export const CHAT_PLACES = {
+	chat: 'Chat',
+	slack: 'Slack',
+} as const;
+
+// Chat: the person's own threads with their agents, on the Chat page or in Slack, and the alerts
+// set in them, as records, so that an agent can be asked about the others: what waits for the
+// person, what was found in one, which alerts are set. Every member has one, theirs alone, made
+// with their membership as their vault is. A thread is read, never written: whoever reads one
+// points the person to it by its url, its page in Chat or its thread in Slack, wherever it lives,
+// and they go on there. An alert is seen and cancelled; one is set in a thread, by its agent, since
+// it comes back to that thread or opens new ones in its chat.
 const chat: Integration = {
 	id: CHAT_INTEGRATION_ID,
 	name: 'Chat',
-	description: 'Your threads with your agents on the Chat page, and the alerts set in them',
+	description: 'Your threads with your agents, in Chat and in Slack, and the alerts set in them',
 	native: true,
 	actions: [
 		{
 			id: 'readThreads',
 			label: 'Read threads',
-			description: 'List your threads in Chat and read what was said in them',
+			description: 'List your threads and read what was said in them',
 			risk: 'low',
 		},
 		{
@@ -2730,6 +2736,13 @@ const chat: Integration = {
 					label: 'Standing',
 					type: 'select',
 					options: Object.values(CHAT_STANDINGS),
+					system: true,
+				},
+				{
+					key: 'place',
+					label: 'Place',
+					type: 'select',
+					options: Object.values(CHAT_PLACES),
 					system: true,
 				},
 				{key: 'summary', label: 'Summary', type: 'longtext', system: true},

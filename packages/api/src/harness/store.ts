@@ -84,7 +84,7 @@ export type HarnessStore = {
 	listPersonas: (
 		orgId: string,
 		userId: string,
-	) => Promise<Result<Array<PersonaRow & {lastMessage: LastMessage | null; draft: string | null; draftAttachments: DraftAttachment[]; usedByOthers: boolean}>, ApiError>>;
+	) => Promise<Result<Array<PersonaRow & {lastMessage: LastMessage | null; draft: string | null; draftAttachments: DraftAttachment[]; usedByOthers: boolean; inSlack: boolean}>, ApiError>>;
 	listAnswers: (orgId: string, userId: string) => Promise<Result<ChatAnswerRow[], ApiError>>;
 	/** What the members who made shared personas are called, those still in the organization, as the list says who made one. */
 	listMemberNames: typeof listMemberNames;
@@ -106,6 +106,8 @@ export type HarnessStore = {
 	replyInThread: (chatId: string, threadId: string, text: string, attachments?: EntryAttachment[]) => Promise<Result<EntryRow | null, ApiError>>;
 	listChatThreads: (chatId: string, calls: string[], now: Date) => Promise<Result<ChatThreadRow[], ApiError>>;
 	getChatThread: (chatId: string, threadId: string, calls: string[], now: Date) => Promise<Result<ChatThreadRow | null, ApiError>>;
+	/** Any thread, in the app or in Slack, as the member sees it: what naming it and writing where it stands read. */
+	getShownThread: (threadId: string, calls: string[], now: Date) => Promise<Result<ChatThreadRow | null, ApiError>>;
 	hasChatThread: (chatId: string, threadId: string) => Promise<Result<boolean, ApiError>>;
 	/** The member switches what runs one of their chat's threads, leaving its persona as it is. */
 	setThreadModel: (chatId: string, threadId: string, model: PersonaModel) => Promise<Result<boolean, ApiError>>;
@@ -210,6 +212,7 @@ export const harnessStore: HarnessStore = {
 	replyInThread: (chatId, threadId, text, attachments) => harness.replyInThread(chatId, threadId, text, readyForInference, attachments),
 	listChatThreads: harness.listChatThreads,
 	getChatThread: harness.getChatThread,
+	getShownThread: harness.getShownThread,
 	hasChatThread: harness.hasChatThread,
 	setThreadModel: harness.setThreadModel,
 	writeThreadStanding: harness.writeThreadStanding,

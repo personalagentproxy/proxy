@@ -9,9 +9,9 @@ import type {ChatThreadRow} from '@proxy/db/harness';
 mock.module('../../utils/env', () => ({env: {APP_URL: 'https://app.example.test'}}));
 
 const listMemberThreads = mock();
-const getThreadPlace = mock();
+const getThreadAddress = mock();
 const getOrgSlug = mock();
-mock.module('@proxy/db/chat', () => ({listMemberThreads, getThreadPlace, getOrgSlug}));
+mock.module('@proxy/db/chat', () => ({listMemberThreads, getThreadAddress, getOrgSlug}));
 
 const getMemberThread = mock();
 mock.module('@proxy/db/harness', () => ({getMemberThread}));
@@ -50,6 +50,10 @@ const all = {search: null, page: null, filter: null, parent: null};
 
 const at = (minute: number) => new Date(Date.UTC(2026, 9, 21, 10, minute));
 
+// Where a thread that lives in Slack is there, and its link: the thread under its root message in the DM.
+const SLACK = {teamId: 'T0001', channel: 'D0001', rootTs: '1761040800.000100'};
+const SLACK_URL = 'https://app.slack.com/client/T0001/D0001/thread/D0001-1761040800.000100';
+
 // A thread as a list of the member's has it: stopped, waiting for them, its summary current.
 function listed(over: Partial<MemberThreadRow> = {}): MemberThreadRow {
 	return {
@@ -57,6 +61,7 @@ function listed(over: Partial<MemberThreadRow> = {}): MemberThreadRow {
 		personaId: 'persona-1',
 		personaName: 'Finance',
 		title: 'Pricing review with Dana',
+		slack: null,
 		createdAt: at(0),
 		state: {kind: 'stopped'},
 		standing: {waitingForMember: true, summary: 'Asks which day suits Dana.', summarySeq: 2, archived: false},
@@ -69,12 +74,12 @@ function listed(over: Partial<MemberThreadRow> = {}): MemberThreadRow {
 beforeEach(() => {
 	mock.clearAllMocks();
 	listMemberThreads.mockResolvedValue(Ok({orgSlug: 'acme', threads: [listed()]}));
-	getThreadPlace.mockResolvedValue(Ok({orgSlug: 'acme', personaName: 'Finance'}));
+	getThreadAddress.mockResolvedValue(Ok({orgSlug: 'acme', personaName: 'Finance', slack: null}));
 	getOrgSlug.mockResolvedValue(Ok('acme'));
 });
 
 describe('the Chat connection’s threads', () => {
-	test('are the member’s, whoever reads them through the connection, each with whom it is with, where it stands, its summary and its page in Chat', async () => {
+	test('are the member’s, whoever reads them through the connection, each with whom it is with, where it lives, where it stands, its summary and its page in Chat', async () => {
 		const {threadsConnector} = await import('./connector');
 
 		const page = (await threadsConnector.list(threads, all)).unwrap();
@@ -87,6 +92,7 @@ describe('the Chat connection’s threads', () => {
 					values: {
 						title: 'Pricing review with Dana',
 						agent: 'Finance',
+						place: 'Chat',
 						standing: 'Waiting for you',
 						summary: 'Asks which day suits Dana.',
 						lastMessageAt: at(2).toISOString(),
@@ -193,12 +199,13 @@ describe('the Chat connection’s threads', () => {
 		const record = (await threadsConnector.get(threads, 'thread-1')).unwrap();
 
 		expect(getMemberThread).toHaveBeenCalledWith({orgId: 'org-1', userId: 'user-1'}, 'thread-1', ['send_to_person']);
-		expect(getThreadPlace).toHaveBeenCalledWith('org-1', 'persona-1');
+		expect(getThreadAddress).toHaveBeenCalledWith(thread);
 		expect(record).toEqual({
 			id: 'thread-1',
 			values: {
 				title: 'Pricing review with Dana',
 				agent: 'Finance',
+				place: 'Chat',
 				standing: 'Waiting for you',
 				summary: 'Asks which day suits Dana.',
 				lastMessageAt: at(2).toISOString(),
@@ -208,8 +215,28 @@ describe('the Chat connection’s threads', () => {
 			url: 'https://app.example.test/acme/chat/persona-1/threads/thread-1',
 		});
 
+		// One that lives in Slack says so, and its url is its thread there.
+		getThreadAddress.mockResolvedValue(Ok({orgSlug: 'acme', personaName: 'Finance', slack: SLACK}));
+		const inSlack = (await threadsConnector.get(threads, 'thread-1')).unwrap();
+		expect(inSlack.values.place).toBe('Slack');
+		expect(inSlack.url).toBe(SLACK_URL);
+
 		getMemberThread.mockResolvedValue(Ok(null));
 		expect((await threadsConnector.get(threads, 'thread-9')).unwrapErr()).toMatchObject({kind: 'not_found', resource: 'record'});
+	});
+});
+
+describe('the Chat connection’s threads in Slack', () => {
+	test('say a thread that lives in Slack is there, its url its thread in Slack, which the app doesn’t show', async () => {
+		const {threadsConnector} = await import('./connector');
+		listMemberThreads.mockResolvedValue(Ok({orgSlug: 'acme', threads: [listed({id: 'in-slack', slack: SLACK}), listed({id: 'in-chat'})]}));
+
+		const {records} = (await threadsConnector.list(threads, all)).unwrap();
+
+		expect(records.map(({id, values, url}) => [id, values.place, url])).toEqual([
+			['in-slack', 'Slack', SLACK_URL],
+			['in-chat', 'Chat', 'https://app.example.test/acme/chat/persona-1/threads/in-chat'],
+		]);
 	});
 });
 
@@ -235,8 +262,8 @@ describe('the Chat connection’s alerts', () => {
 		lastMatchedAt: null,
 		createdAt: at(0),
 		persona: {id: 'persona-1', name: 'Finance', look, color: 'teal', harness: 'proxy', chatModel: 'claude', ownerUserId: null, createdById: null, createdAt: at(0)},
-		thread: {id: 'thread-2', title: 'Check the review every morning'},
-		setIn: {id: 'thread-2', title: 'Check the review every morning'},
+		thread: {id: 'thread-2', title: 'Check the review every morning', slack: null},
+		setIn: {id: 'thread-2', title: 'Check the review every morning', slack: null},
 	};
 	const record = {
 		id: 'alert-1',
@@ -260,6 +287,24 @@ describe('the Chat connection’s alerts', () => {
 
 		listMemberAlerts.mockResolvedValue(Ok([]));
 		expect((await alertsConnector.list(alerts, all)).unwrap()).toEqual({records: [], nextPage: null});
+	});
+
+	test('link one that comes to a thread in Slack, or opens new threads and was set in one, to that thread there', async () => {
+		const {alertsConnector} = await import('./connector');
+		const inSlack = {id: 'thread-2', title: 'Check the review every morning', slack: SLACK};
+		listMemberAlerts.mockResolvedValue(
+			Ok([
+				{...alert, thread: inSlack, setIn: inSlack},
+				{...alert, id: 'alert-2', threadId: null, thread: null, setIn: inSlack},
+			]),
+		);
+
+		const {records} = (await alertsConnector.list(alerts, all)).unwrap();
+
+		expect(records.map(({id, url}) => [id, url])).toEqual([
+			['alert-1', SLACK_URL],
+			['alert-2', SLACK_URL],
+		]);
 	});
 
 	test('are cancelled as the member’s, whichever thread one was set in', async () => {

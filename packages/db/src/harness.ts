@@ -242,7 +242,8 @@ export type AfterAnswer = {plans: Record<string, CallPlan>} | {end: ThreadEnd};
 export type FailureNote =
 	{kind: 'answer'; callId: string; text: string} | {kind: 'end'; text: string; end: ThreadEnd};
 
-const threadSelect = {
+/** The columns of a thread, as `ThreadRow` has them. */
+export const threadSelect = {
 	id: true,
 	orgId: true,
 	agentId: true,
@@ -261,8 +262,8 @@ const threadSelect = {
 
 type ThreadRecord = Prisma.AgentThreadGetPayload<{select: typeof threadSelect}>;
 
-// A thread as read, its harness's session parsed from the JSON it is kept as.
-function toThread(thread: ThreadRecord): ThreadRow {
+/** A thread as read, its harness's session parsed from the JSON it is kept as. */
+export function toThread(thread: ThreadRecord): ThreadRow {
 	return {...thread, harnessSession: parseHarnessSession(thread.harnessSession)};
 }
 
@@ -271,8 +272,52 @@ function inChatSql(chat: Prisma.Sql, t: Prisma.Sql): Prisma.Sql {
 	return Prisma.sql`(${t}."id" = ${chat} OR (${t}."parentThreadId" = ${chat} AND ${t}."subAgentOfId" IS NULL))`;
 }
 
-// A thread's jobs still to run or running, as much of them as says what its agent is up to.
-const openJobsSelect = {
+// A thread lives in one place: one with a place in Slack (SlackThreadPlace), which began there, is
+// read and answered in Slack alone, with the sub-agents its agent starts, and every other in the
+// app. The app never shows a Slack thread, nor writes to one: what the Chat page reads and writes
+// of a chat's threads is picked by these, `IN_APP` for Prisma where sub-agents are left out already,
+// `inAppSql` for the thread `t` in SQL, and `isInApp` for one thread by its id. Slack's own code,
+// the agent's turns, the worker, the alerts' sweep and the member's Chat connection, which says
+// where each thread lives, read every thread.
+const IN_APP = {slackPlace: {is: null}} satisfies Prisma.AgentThreadWhereInput;
+
+function inAppSql(t: Prisma.Sql): Prisma.Sql {
+	return Prisma.sql`NOT EXISTS (SELECT 1 FROM "SlackThreadPlace" AS place WHERE place."threadId" = COALESCE(${t}."subAgentOfId", ${t}."id"))`;
+}
+
+// Whether the chat has the thread in the app: one of its threads, a sub-agent's among them, that
+// isn't in Slack. A thread's place is made with it and never moves, so what this says holds for the
+// rest of a transaction without a lock.
+async function isInApp(client: Tx, chatId: string, threadId: string): Promise<boolean> {
+	const rows = await client.$queryRaw<Array<{id: string}>>`
+		SELECT t."id" FROM "AgentThread" AS t
+		WHERE t."id" = ${threadId} AND t."parentThreadId" = ${chatId} AND ${inAppSql(Prisma.raw('t'))}`;
+	return rows.length > 0;
+}
+
+/**
+ * Where a thread that lives in Slack is there: its workspace, by Slack's id for it, the DM's
+ * channel and the `ts` of the root message the thread hangs under, which its link is made from;
+ * null for one whose root message isn't posted yet.
+ */
+export type SlackThreadRow = {teamId: string; channel: string; rootTs: string | null};
+
+/** What a thread's Slack place is read with, for its link (toSlackThread). */
+export const slackThreadSelect = {
+	select: {channel: true, rootTs: true, app: {select: {workspace: {select: {teamId: true}}}}},
+} as const;
+
+/** A thread's Slack place as read with slackThreadSelect; null for a thread that lives in the app. */
+export function toSlackThread(
+	place: {channel: string; rootTs: string | null; app: {workspace: {teamId: string}}} | null,
+): SlackThreadRow | null {
+	return place === null
+		? null
+		: {teamId: place.app.workspace.teamId, channel: place.channel, rootTs: place.rootTs};
+}
+
+/** A thread's jobs still to run or running, as much of them as says what its agent is up to (threadState). */
+export const openJobsSelect = {
 	where: {status: {in: ['queued', 'running']}},
 	select: {kind: true, runAt: true},
 } satisfies Prisma.AgentThread$jobsArgs;
@@ -373,17 +418,18 @@ export function toEntry(entry: EntryRecord): EntryRow {
 	return {...entry, toolCalls: toToolCalls(entry.toolCalls)};
 }
 
-// An entry's calls, as they are kept: as JSON.
-function toToolCalls(kept: string | null): ToolCall[] | null {
+/** An entry's calls, as they are kept: as JSON. */
+export function toToolCalls(kept: string | null): ToolCall[] | null {
 	return kept === null ? null : (JSON.parse(kept) as ToolCall[]);
 }
 
 /**
  * The organization's personas the member sees, their own and those every member does, with the
- * last thing said in the member's chat with each, across the chat and its threads, what they typed
+ * last thing said in the member's chat with each, across the chat and its threads in the app (not
+ * those in Slack, which the app doesn't show, nor their sub-agents), what they typed
  * in it and the files they put in its input and haven't sent, and whether any other member has
- * said anything to it, the one last active first: the last thing said in it, or, before anything
- * was, its making.
+ * said anything to it and whether it is in Slack, the one last active first: the last thing said
+ * in it, or, before anything was, its making.
  */
 export async function listPersonas(
 	orgId: string,
@@ -396,6 +442,7 @@ export async function listPersonas(
 				draft: string | null;
 				draftAttachments: DraftAttachment[];
 				usedByOthers: boolean;
+				inSlack: boolean;
 			}
 		>,
 		ApiError
@@ -407,12 +454,17 @@ export async function listPersonas(
 			select: {
 				...personaSelect,
 				_count: {select: {threads: {where: saidToByOthers(userId)}}},
+				// Its Slack app, where it has one, which keeps it shared.
+				slackApp: {select: {id: true}},
 				// The member's chat and its threads, but those an alert opened and its agent dismissed
 				// (or the member archived), which said nothing to them.
 				threads: {
 					where: {userId, NOT: {openedByAlert: true, archived: true}},
 					select: {
+						id: true,
 						parentThreadId: true,
+						subAgentOfId: true,
+						slackPlace: {select: {id: true}},
 						draft: true,
 						attachments: {
 							where: {entryId: null},
@@ -432,12 +484,20 @@ export async function listPersonas(
 			},
 			orderBy: {createdAt: 'desc'},
 		});
-		const listed = personas.map(({threads, _count, ...persona}) => ({
-			persona,
-			usedByOthers: _count.threads > 0,
-			chat: threads.find((thread) => thread.parentThreadId === null),
-			last: threads.flatMap((thread) => thread.entries).toSorted((a, b) => b.seq - a.seq)[0],
-		}));
+		const listed = personas.map(({threads, _count, slackApp, ...persona}) => {
+			// The threads in Slack, whose sub-agents are there too.
+			const slack = new Set(threads.flatMap((thread) => (thread.slackPlace ? [thread.id] : [])));
+			const inApp = threads.filter(
+				(thread) => !slack.has(thread.id) && !slack.has(thread.subAgentOfId ?? ''),
+			);
+			return {
+				persona,
+				usedByOthers: _count.threads > 0,
+				inSlack: slackApp !== null,
+				chat: inApp.find((thread) => thread.parentThreadId === null),
+				last: inApp.flatMap((thread) => thread.entries).toSorted((a, b) => b.seq - a.seq)[0],
+			};
+		});
 		// What each chat's last says, read for those alone.
 		const lastIds = listed.flatMap(({last}) => (last ? [last.id] : []));
 		const said =
@@ -449,11 +509,12 @@ export async function listPersonas(
 					});
 		const textOf = new Map(said.map((entry) => [entry.id, entry.text]));
 		return listed
-			.map(({persona, usedByOthers, chat, last}) => {
+			.map(({persona, usedByOthers, inSlack, chat, last}) => {
 				const text = last ? textOf.get(last.id) : undefined;
 				return {
 					...toPersona(persona),
 					usedByOthers,
+					inSlack,
 					lastMessage:
 						last && text !== undefined && (last.kind === 'person' || last.kind === 'assistant')
 							? {kind: last.kind, text, createdAt: last.createdAt}
@@ -491,7 +552,7 @@ export type ChatAnswerRow = {
 
 /**
  * The persona's last answer in each of the member's chats that has one, across the chat and its
- * threads, with each thread whose last answer is past its read marker but for one archived, which
+ * threads in the app, not those in Slack, which are read there, with each thread whose last answer is past its read marker but for one archived, which
  * the member put away and its list no longer has to open it by, and whether its turn is
  * over, a thread at work being one with a turn to run or any job due, as `threadState` reads its
  * jobs; but for a thread an alert opened that is archived, as its agent dismissed it, which told the
@@ -540,7 +601,7 @@ export async function listAnswers(
 						LIMIT 1
 					) AS last
 					WHERE t."orgId" = ${orgId} AND t."userId" = ${userId} AND t."parentThreadId" IS NULL
-						AND NOT (c."openedByAlert" AND c."archived")
+						AND NOT (c."openedByAlert" AND c."archived") AND ${inAppSql(Prisma.raw('c'))}
 				) AS answered
 				WHERE "rank" = 1 OR "unread"
 				ORDER BY "seq" ASC
@@ -668,13 +729,14 @@ export async function sharePersona(
 
 /**
  * What making a shared persona its maker's own again came to: done; refused, since another member
- * has said something to it; or no such persona, shared and made by them, in the organization.
+ * has said something to it, or since it has a Slack app, which only a shared persona has; or no
+ * such persona, shared and made by them, in the organization.
  */
-export type TakeBack = 'taken' | 'used' | 'missing';
+export type TakeBack = 'taken' | 'used' | 'in_slack' | 'missing';
 
 /**
- * Makes a shared persona its maker's own again, while no other member has said anything to it:
- * their chat stays as it is, and the chats other members opened with it and said nothing in, a
+ * Makes a shared persona its maker's own again, while no other member has said anything to it and
+ * it has no Slack app: their chat stays as it is, and the chats other members opened with it and said nothing in, a
  * draft at most, go. The persona's row is locked, so no member's first chat with it is made
  * meanwhile (ensureMemberChat), and so are the other members' chats with it, so no thread is opened
  * in one meanwhile (openThread): what was said before is seen, and nothing is said after.
@@ -700,6 +762,10 @@ export async function takeBackPersona(
 				FOR UPDATE`;
 			if ((await tx.agentThread.count({where: {personaId, ...saidToByOthers(userId)}})) > 0) {
 				return 'used';
+			}
+			// A Slack app is made under the same lock (startSlackApp), so none is made meanwhile.
+			if ((await tx.slackApp.count({where: {personaId}})) > 0) {
+				return 'in_slack';
 			}
 			await tx.agentThread.deleteMany({where: {personaId, userId: {not: userId}}});
 			await tx.persona.update({where: {id: personaId}, data: {ownerUserId: userId}});
@@ -771,7 +837,7 @@ export type LastAnswer = {id: string; text: string};
 /**
  * Marks the thread of the chat the entry is in read up to it, as far as the member was shown it,
  * never back: what the persona said in it after stays unread, and the chat's other threads are
- * read on their own. `Ok(false)` means no such entry in a thread of the chat.
+ * read on their own. `Ok(false)` means no such entry in a thread of the chat in the app.
  */
 export async function markThreadRead(
 	chatId: string,
@@ -780,7 +846,7 @@ export async function markThreadRead(
 	return (
 		await wrapDb(
 			() =>
-				db.$executeRaw`UPDATE "AgentThread" AS c SET "readSeq" = GREATEST(c."readSeq", e."seq") FROM "AgentEntry" AS e WHERE e."id" = ${entryId} AND c."id" = e."threadId" AND c."parentThreadId" = ${chatId}`,
+				db.$executeRaw`UPDATE "AgentThread" AS c SET "readSeq" = GREATEST(c."readSeq", e."seq") FROM "AgentEntry" AS e WHERE e."id" = ${entryId} AND c."id" = e."threadId" AND c."parentThreadId" = ${chatId} AND ${inAppSql(Prisma.raw('c'))}`,
 		)
 	).map((count) => count > 0);
 }
@@ -978,48 +1044,57 @@ export async function getThreadModel(
 	});
 }
 
-/** Switches what runs one of the chat's threads from its next turn on, leaving its persona as it is; `Ok(false)` means no such thread of the chat. */
+/** Switches what runs one of the chat's threads in the app from its next turn on, leaving its persona as it is; `Ok(false)` means no such thread of the chat in the app. */
 export async function setThreadModel(
 	chatId: string,
 	threadId: string,
 	model: PersonaModel,
 ): Promise<Result<boolean, ApiError>> {
-	return (
-		await wrapDb(() =>
-			db.agentThread.updateMany({
-				where: {id: threadId, parentThreadId: chatId},
-				data: {chosenHarness: model.harness, chosenModel: model.chatModel},
-			}),
-		)
-	).map(({count}) => count > 0);
+	return wrapDb(async () => {
+		if (!(await isInApp(db, chatId, threadId))) {
+			return false;
+		}
+		const {count} = await db.agentThread.updateMany({
+			where: {id: threadId, parentThreadId: chatId},
+			data: {chosenHarness: model.harness, chosenModel: model.chatModel},
+		});
+		return count > 0;
+	});
 }
 
-/** What the member has typed in a thread of their chat and not sent; null with nothing, and for no such thread. */
+/** What the member has typed in a thread of their chat and not sent; null with nothing, and for no such thread in the app. */
 export async function getThreadDraft(
 	chatId: string,
 	threadId: string,
 ): Promise<Result<string | null, ApiError>> {
-	return (
-		await wrapDb(() =>
-			db.agentThread.findFirst({
-				where: {id: threadId, parentThreadId: chatId},
-				select: {draft: true},
-			}),
-		)
-	).map((thread) => thread?.draft ?? null);
+	return wrapDb(async () => {
+		if (!(await isInApp(db, chatId, threadId))) {
+			return null;
+		}
+		const thread = await db.agentThread.findFirst({
+			where: {id: threadId, parentThreadId: chatId},
+			select: {draft: true},
+		});
+		return thread?.draft ?? null;
+	});
 }
 
-/** What the member has typed in a thread of their chat and not sent, kept in place of what was; null forgets it. False for no such thread. */
+/** What the member has typed in a thread of their chat and not sent, kept in place of what was; null forgets it. False for no such thread in the app. */
 export async function saveThreadDraft(
 	chatId: string,
 	threadId: string,
 	draft: string | null,
 ): Promise<Result<boolean, ApiError>> {
-	return (
-		await wrapDb(() =>
-			db.agentThread.updateMany({where: {id: threadId, parentThreadId: chatId}, data: {draft}}),
-		)
-	).map(({count}) => count > 0);
+	return wrapDb(async () => {
+		if (!(await isInApp(db, chatId, threadId))) {
+			return false;
+		}
+		const {count} = await db.agentThread.updateMany({
+			where: {id: threadId, parentThreadId: chatId},
+			data: {draft},
+		});
+		return count > 0;
+	});
 }
 
 /** The name of the thread's persona; `Ok(null)` where the persona is gone. */
@@ -1519,10 +1594,11 @@ export async function openThread(
 }
 
 /**
- * Lands what the member replied in one of their chat's threads, with the files they attached, and
- * wakes the thread's agent as wakeWith does, its task under way again. Replying, the member has
- * read the thread: it is read up to their reply, so it isn't unread while it works on it; what its
- * agent says after is unread again. `Ok(null)` means no such thread of the chat.
+ * Lands what the member replied in one of their chat's threads in the app, with the files they
+ * attached, and wakes the thread's agent as wakeWith does, its task under way again. Replying, the
+ * member has read the thread: it is read up to their reply, so it isn't unread while it works on
+ * it; what its agent says after is unread again. `Ok(null)` means no such thread of the chat, as
+ * for one in Slack, which is replied to there (slack-messages.ts).
  */
 export async function replyInThread(
 	chatId: string,
@@ -1534,7 +1610,7 @@ export async function replyInThread(
 	return wrapDb(() =>
 		db.$transaction(async (tx) => {
 			const chat = await lockChat(tx, chatId);
-			if (!chat) {
+			if (!chat || !(await isInApp(tx, chatId, threadId))) {
 				return null;
 			}
 			const found = await tx.agentThread.findFirst({
@@ -1689,7 +1765,7 @@ async function readChatThreads(
 }
 
 /**
- * The chat's threads, oldest first, each with what it is up to, the entries of it the member sees,
+ * The chat's threads in the app, oldest first, each with what it is up to, the entries of it the member sees,
  * in order, what is pending last, the answers that made a call of one of `calls` among them, and
  * the files attached to what opened it, which is all of them a list shows.
  */
@@ -1699,28 +1775,47 @@ export function listChatThreads(
 	now = new Date(),
 ): Promise<Result<ChatThreadRow[], ApiError>> {
 	return readChatThreads(
-		{parentThreadId: chatId, subAgentOfId: null, archived: false},
+		{parentThreadId: chatId, subAgentOfId: null, ...IN_APP, archived: false},
 		calls,
 		now,
 		'opener',
 	);
 }
 
-/** One of the chat's threads, as listChatThreads has it, with the files attached to every entry of it; `Ok(null)` for no such thread of the chat. */
+/** One of the chat's threads in the app, as listChatThreads has it, with the files attached to every entry of it; `Ok(null)` for no such thread of the chat, and for one in Slack. */
 export async function getChatThread(
 	chatId: string,
 	threadId: string,
 	calls: string[],
 	now = new Date(),
 ): Promise<Result<ChatThreadRow | null, ApiError>> {
+	const inApp = await wrapDb(() => isInApp(db, chatId, threadId));
+	if (inApp.isErr() || !inApp.value) {
+		return inApp.map(() => null);
+	}
 	return (await readChatThreads({id: threadId, parentThreadId: chatId}, calls, now, 'all')).map(
 		(threads) => threads[0] ?? null,
 	);
 }
 
 /**
- * One of the member's threads in the organization, whichever persona's chat it is of, as
- * getChatThread has it: what their Chat connection reads one by (chat.ts). `Ok(null)` for no such
+ * Any thread of a chat, in the app or in Slack, as getChatThread has it: what the worker reads of
+ * one to name it and to write where it stands (api harness/thread-title.ts, thread-standing.ts).
+ * `Ok(null)` for no such thread, and for a chat.
+ */
+export async function getShownThread(
+	threadId: string,
+	calls: string[],
+	now = new Date(),
+): Promise<Result<ChatThreadRow | null, ApiError>> {
+	return (
+		await readChatThreads({id: threadId, parentThreadId: {not: null}}, calls, now, 'all')
+	).map((threads) => threads[0] ?? null);
+}
+
+/**
+ * One of the member's threads in the organization, whichever persona's chat it is of and wherever
+ * it lives, in the app or in Slack, as getChatThread has it: what their Chat connection reads one by (chat.ts). `Ok(null)` for no such
  * thread of theirs.
  */
 export async function getMemberThread(
@@ -1733,14 +1828,12 @@ export async function getMemberThread(
 	return (await readChatThreads(where, calls, now, 'all')).map((threads) => threads[0] ?? null);
 }
 
-/** Whether the chat has the thread: what a write into one asks first, without reading it. */
-export async function hasChatThread(
+/** Whether the chat has the thread in the app: what a write into one asks first, without reading it. */
+export function hasChatThread(
 	chatId: string,
 	threadId: string,
 ): Promise<Result<boolean, ApiError>> {
-	return (
-		await wrapDb(() => db.agentThread.count({where: {id: threadId, parentThreadId: chatId}}))
-	).map((count) => count > 0);
+	return wrapDb(() => isInApp(db, chatId, threadId));
 }
 
 /**
@@ -1791,7 +1884,7 @@ export async function writeThreadStanding(
 /**
  * The member says the thread is done: it no longer waits for them; with `cancelAlerts`, the alerts
  * that come to it are deleted too, in the same transaction. `Ok(false)` for no such thread of the
- * chat.
+ * chat in the app.
  */
 export async function markThreadDone(
 	chatId: string,
@@ -1800,6 +1893,9 @@ export async function markThreadDone(
 ): Promise<Result<boolean, ApiError>> {
 	return wrapDb(() =>
 		db.$transaction(async (tx) => {
+			if (!(await isInApp(tx, chatId, threadId))) {
+				return false;
+			}
 			const {count} = await tx.agentThread.updateMany({
 				where: {id: threadId, parentThreadId: chatId},
 				data: {waitingForMember: false},
@@ -1831,13 +1927,21 @@ async function archive(
 /**
  * The member archives the thread: their chat's list no longer has it, until they reply in it or an
  * alert of another thread's takes it up (wakeWith); the alerts that come to it are deleted with
- * it. It can still be opened by its address. \`Ok(false)\` for no such thread of the chat.
+ * it. It can still be opened by its address. \`Ok(false)\` for no such thread of the chat in the
+ * app.
  */
 export async function archiveThread(
 	chatId: string,
 	threadId: string,
 ): Promise<Result<boolean, ApiError>> {
-	return wrapDb(() => db.$transaction((tx) => archive(tx, {id: threadId, parentThreadId: chatId})));
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			if (!(await isInApp(tx, chatId, threadId))) {
+				return false;
+			}
+			return archive(tx, {id: threadId, parentThreadId: chatId});
+		}),
+	);
 }
 
 /**
@@ -1918,9 +2022,9 @@ export async function writeThreadTitle(
 }
 
 /**
- * The member renames a thread of their chat, an alert's included; its task, which the activity log
- * lists, is named the same, and the small model, counting it written, names it no more.
- * `Ok(false)` for no such thread of the chat.
+ * The member renames a thread of their chat in the app, an alert's included; its task, which the
+ * activity log lists, is named the same, and the small model, counting it written, names it no
+ * more. `Ok(false)` for no such thread of the chat in the app.
  */
 export async function renameThread(
 	chatId: string,
@@ -1929,6 +2033,9 @@ export async function renameThread(
 ): Promise<Result<boolean, ApiError>> {
 	return wrapDb(() =>
 		db.$transaction(async (tx) => {
+			if (!(await isInApp(tx, chatId, threadId))) {
+				return false;
+			}
 			const {count} = await tx.agentThread.updateMany({
 				where: {id: threadId, parentThreadId: chatId},
 				data: {title, titleWritten: true},

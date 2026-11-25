@@ -26,6 +26,8 @@ export default defineConfig(({mode}) => {
 				'^/mcp$': api,
 				'/oauth/': api,
 				'/.well-known/': api,
+				// What Slack sends a persona's app, and where installing one comes back to.
+				'/slack/': api,
 			},
 		},
 	};

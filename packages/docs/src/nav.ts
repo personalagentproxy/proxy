@@ -37,7 +37,7 @@ export const NAV: {title: string; pages: NavEntry[]}[] = [
 			'connections/custom-mcp',
 		],
 	},
-	{title: 'External agents', pages: ['agents/mcp', 'agents/chat', 'agents/web']},
+	{title: 'External agents', pages: ['agents/mcp', 'agents/chat', 'agents/slack', 'agents/web']},
 	{
 		title: 'Self-hosting',
 		pages: [

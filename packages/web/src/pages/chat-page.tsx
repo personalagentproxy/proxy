@@ -27,7 +27,15 @@ import {
 	useRef,
 	useState,
 } from 'react';
-import {Link, useLocation, useNavigate, useParams, useRouteLoaderData} from 'react-router';
+import {
+	Link,
+	useLocation,
+	useNavigate,
+	useParams,
+	useRouteLoaderData,
+	useSearchParams,
+} from 'react-router';
+import {slackInstallOutcomeSchema} from '@proxy/contracts/slack';
 import {
 	archiveThread,
 	createPersona,
@@ -589,14 +597,32 @@ export function ChatPage() {
 	const openTo = threadId === undefined ? chatTo : `${chatTo}/threads/${threadId}`;
 	// The agent's settings at the page's right, at the address of the chat or the open task with
 	// theirs after it, so opening another task, archiving one or starting one keeps them open.
-	const {open: settingsOpen, pane} = usePersonaPane({
+	const {
+		open: settingsOpen,
+		pane,
+		overlay: paneOverlay,
+		showSlackReturn,
+	} = usePersonaPane({
 		orgName: human?.org.name ?? 'the organization',
 		persona: persona ?? null,
 		pending: listed.pending,
+		slack: human?.org.slack ?? false,
 		under: openTo,
 		onEdit: setEditing,
 		onDelete: setDeleting,
 	});
+	// Back from Slack's install (`?slack=`): the agent's settings open with its Slack dialog on how
+	// it ended, at an address that forgets it, so a reload doesn't say it again.
+	const [searchParams] = useSearchParams();
+	const slackReturn = slackInstallOutcomeSchema.safeParse(searchParams.get('slack')).data ?? null;
+	const returned = slackReturn !== null && personas !== null;
+	useEffect(() => {
+		if (!returned || slackReturn === null) {
+			return;
+		}
+		showSlackReturn(current, slackReturn);
+		void navigate(settingsPath(openTo), {replace: true});
+	}, [returned, slackReturn, showSlackReturn, current, navigate, openTo]);
 	const withSettings = useCallback(
 		(path: string) => (settingsOpen ? settingsPath(path) : path),
 		[settingsOpen],
@@ -774,7 +800,8 @@ export function ChatPage() {
 	const removePersona = async (persona: ListedPersona) => {
 		const removed = await deletePersona(org, persona.id);
 		if (removed.isErr()) {
-			setError(describeFetchError(removed.error));
+			// In the api's words, as where Slack couldn't remove its app first.
+			setError(describeApiError(removed.error));
 			return;
 		}
 		setError(null);
@@ -974,6 +1001,7 @@ export function ChatPage() {
 					onSave={savePersona}
 				/>
 			)}
+			{paneOverlay}
 			<AlertsPendingDialog
 				confirming={confirming}
 				onClose={() => setConfirming(null)}

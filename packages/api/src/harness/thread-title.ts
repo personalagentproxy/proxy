@@ -25,8 +25,8 @@ import {inTime, threadForModel} from './thread-standing';
  * turn trying again where that fails too.
  */
 
-/** What naming a thread needs of the store: the thread as the member sees it, whether it needs a title, and the write. */
-export type TitleStore = Pick<HarnessStore, 'getJobThread' | 'getChatThread' | 'threadNeedsTitle' | 'writeThreadTitle'>;
+/** What naming a thread needs of the store: the thread as the member sees it, in the app or in Slack, whether it needs a title, and the write. */
+export type TitleStore = Pick<HarnessStore, 'getJobThread' | 'getShownThread' | 'threadNeedsTitle' | 'writeThreadTitle'>;
 
 const titleSchema = z.object({title: z.string()});
 
@@ -98,7 +98,7 @@ export function writeTitle(store: TitleStore, model: TitleModel, threadId: strin
 		if (row === null || row.parentThreadId === null || row.subAgentOfId !== null) {
 			return 'skipped';
 		}
-		const thread = $(await store.getChatThread(row.parentThreadId, threadId, SHOWN_CALLS, clock()));
+		const thread = $(await store.getShownThread(threadId, SHOWN_CALLS, clock()));
 		const shown = thread === null ? '' : threadForModel(thread);
 		if (shown === '') {
 			return 'skipped';

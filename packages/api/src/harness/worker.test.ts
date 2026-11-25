@@ -174,7 +174,7 @@ describe('the worker', () => {
 			createdAt: now,
 		};
 		store.getJobThread.mockImplementation(async (threadId) => Ok(row(threadId)));
-		store.getChatThread.mockImplementation(async (_chatId, threadId) =>
+		store.getShownThread.mockImplementation(async (threadId) =>
 			Ok({
 				...row(threadId),
 				state: {kind: 'stopped'},
@@ -239,7 +239,7 @@ describe('the worker', () => {
 				createdAt: now,
 			}),
 		);
-		store.getChatThread.mockResolvedValue(
+		store.getShownThread.mockResolvedValue(
 			Ok({
 				id: 't1',
 				orgId: 'org-1',
@@ -306,7 +306,7 @@ describe('the worker', () => {
 				createdAt: now,
 			}),
 		);
-		store.getChatThread.mockImplementation(async (_chatId, threadId) => {
+		store.getShownThread.mockImplementation(async (threadId) => {
 			await settle();
 			return Ok({
 				id: threadId,
@@ -375,7 +375,7 @@ describe('the worker', () => {
 				createdAt: now,
 			}),
 		);
-		store.getChatThread.mockResolvedValue(
+		store.getShownThread.mockResolvedValue(
 			Ok({
 				id: 't1',
 				orgId: 'org-1',

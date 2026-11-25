@@ -15,6 +15,8 @@ export const orgSchema = z.object({
 	role: roleSchema,
 	/** Whether it has been through the welcome flow, or skipped it; the web app shows it until then. */
 	onboarded: z.boolean(),
+	/** Whether the `slack` experiment is on for it: its shared agents can be added to Slack. */
+	slack: z.boolean(),
 	memberCount: z.number(),
 	/** Invitations not taken up yet. */
 	invitationCount: z.number(),

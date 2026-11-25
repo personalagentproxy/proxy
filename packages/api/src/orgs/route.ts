@@ -3,7 +3,7 @@ import {randomBytes} from 'node:crypto';
 import {Err, type Result} from 'ts-results-es';
 import type {z} from 'zod';
 
-import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
+import {ApiErr, type ApiError, Do, hasExperiment, parseSchema, requirePresent} from '@proxy/utils';
 import {type Invitation, inviteBodySchema, type Member, type memberListSchema, type Org, type orgListSchema, orgNameBodySchema} from '@proxy/contracts/orgs';
 import {listLeavingConnectionsWithCredential, listOrgConnectionsWithCredential} from '@proxy/db/connection';
 import {createInvitation, deleteInvitation, listInvitations, type InvitationRow} from '@proxy/db/invitation';
@@ -42,7 +42,7 @@ import {NAMED_AFTER_ORGANIZATION} from './starter-connections';
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 function toOrg(row: UserOrgRow): Org {
-	return {id: row.id, slug: row.slug, name: row.name, role: row.role, onboarded: row.onboarded, memberCount: row.memberCount, invitationCount: row.invitationCount};
+	return {id: row.id, slug: row.slug, name: row.name, role: row.role, onboarded: row.onboarded, slack: hasExperiment(row, 'slack'), memberCount: row.memberCount, invitationCount: row.invitationCount};
 }
 
 function toMember(row: MemberRow): Member {
@@ -82,7 +82,7 @@ export function handleCreateOrgRoute(request: AuthenticatedRequest): Promise<Res
 	return Do(async ($) => {
 		const {name} = $(parseSchema(orgNameBodySchema, request.body));
 		const org = $(await createOrganization({userId: request.user.userId, name}));
-		return {id: org.id, slug: org.slug, name: org.name, role: 'owner' as const, onboarded: true, memberCount: 1, invitationCount: 0};
+		return {id: org.id, slug: org.slug, name: org.name, role: 'owner' as const, onboarded: true, slack: false, memberCount: 1, invitationCount: 0};
 	});
 }
 

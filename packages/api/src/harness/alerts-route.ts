@@ -3,11 +3,12 @@ import type {z} from 'zod';
 
 import {type ApiError, ApiErr, Do} from '@proxy/utils';
 import {toAvatarColor} from '@proxy/utils/harness';
-import type {MemberAlertRow} from '@proxy/db/alerts';
+import type {MemberAlertRow, ThreadRef} from '@proxy/db/alerts';
 import type {ConnectionRow} from '@proxy/db/connection';
 import type {Alert, alertListSchema} from '@proxy/contracts/alerts';
 
 import type {AuthenticatedRequest} from '../server/middleware/require-auth';
+import {slackThreadUrl} from '../slack/thread-link';
 import {requireViewer} from '../utils/user-org';
 import {DEFAULT_TIME_ZONE, everyText} from './alert-repeat';
 import {collectionName, connectionName} from './alerts';
@@ -28,6 +29,14 @@ function nextAt(alert: MemberAlertRow): Date | null {
 	return alert.every === null ? alert.at : (alert.nextAt ?? alert.at);
 }
 
+// A thread of the alert's, linked to Slack where it lives there, since the app doesn't show it.
+function toThread(thread: ThreadRef | null): Alert['thread'] {
+	if (thread === null) {
+		return null;
+	}
+	return {id: thread.id, title: thread.title, slackUrl: thread.slack === null ? null : slackThreadUrl(thread.slack)};
+}
+
 function toAlert(alert: MemberAlertRow, connections: Map<string, ConnectionRow>): Alert {
 	return {
 		id: alert.id,
@@ -35,8 +44,8 @@ function toAlert(alert: MemberAlertRow, connections: Map<string, ConnectionRow>)
 		brief: alert.brief,
 		persona: {id: alert.persona.id, name: alert.persona.name, look: alert.persona.look, color: toAvatarColor(alert.persona.color)},
 		opens: alert.threadId === null ? 'new_thread' : 'this_thread',
-		thread: alert.thread,
-		setIn: alert.setIn,
+		thread: toThread(alert.thread),
+		setIn: toThread(alert.setIn),
 		at: nextAt(alert)?.toISOString() ?? null,
 		every: alert.every === null ? null : everyText(alert.every, alert.timeZone ?? DEFAULT_TIME_ZONE),
 		split: alert.split,
@@ -51,7 +60,7 @@ function toAlert(alert: MemberAlertRow, connections: Map<string, ConnectionRow>)
 	};
 }
 
-/** `GET /api/orgs/:org/alerts`: the viewer's alerts in the organization, newest first, each with the persona it was set with and the connections it watches. */
+/** `GET /api/orgs/:org/alerts`: the viewer's alerts in the organization, newest first, each with the persona it was set with, its threads, linked to Slack where they live there, and the connections it watches. */
 function handleListAlertsRoute(store: AlertsStore, request: AuthenticatedRequest): Promise<Result<z.infer<typeof alertListSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));

@@ -50,6 +50,7 @@ model User {
   writeTargets WriteTarget[]
   desktopCodes DesktopAuthCode[]
   claudeAccount ClaudeAccount?
+  slackLinks   SlackMemberLink[]
 }
 
 // A sign-in provider identity linked to a user, such as their Google account. Only who it is:
@@ -152,6 +153,9 @@ model Organization {
   alerts      AgentAlert[]
   sandboxes   Sandbox[]
   fileChanges FileChange[]
+  slackWorkspaces SlackWorkspace[]
+  slackApps       SlackApp[]
+  slackMembers    SlackMemberLink[]
 
   @@index([ownerUserId])
 }
@@ -800,6 +804,8 @@ model Persona {
   org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   owner   User?        @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
   threads AgentThread[]
+  // Its Slack app, which only a shared persona has, and which keeps it shared.
+  slackApp SlackApp?
 
   @@index([orgId, createdAt])
   @@index([ownerUserId])
@@ -936,6 +942,7 @@ model AgentThread {
   chatAlerts  AgentAlert[]         @relation("AlertChat")
   setAlerts   AgentAlert[]         @relation("AlertSetIn")
   attachments AgentEntryAttachment[]
+  slackPlace  SlackThreadPlace?
 
   @@index([personaId, userId])
   @@index([agentId])
@@ -993,8 +1000,9 @@ model AgentEntry {
 
   createdAt DateTime @default(now())
 
-  thread      AgentThread            @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  attachments AgentEntryAttachment[]
+  thread       AgentThread            @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  attachments  AgentEntryAttachment[]
+  slackMessage SlackMessage?
 
   @@index([threadId, seq])
 }
@@ -1251,4 +1259,187 @@ model ClaudeAccount {
   updatedAt DateTime @default(now()) @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// A Slack workspace linked to an organization, which lets Personal Agent Proxy make Slack apps
+// there for its shared personas (SlackApp): a member pasted an app configuration token and its
+// refresh token, which are one Slack user's (`slackUserId`) in that workspace (`teamId`). One per
+// workspace in an organization. `credential` is JSON encrypted with ENCRYPTION_KEY,
+// `{token, refreshToken}`: the token lasts twelve hours (`expiresAt`), and a refresh token works
+// once, so they are rotated together, each time under a lock on the row, and the sweep (api
+// slack/workspace-token.ts) takes those due at `rotateAt`, moving it on as it takes them, so one
+// api instance takes each. `refusedAt` says Slack turned the refresh token down for good: nothing
+// is asked of Slack with it until a member pastes a token again. Unlinked only while no persona's
+// app is in it.
+model SlackWorkspace {
+  id          String    @id @default(cuid())
+  orgId       String
+  teamId      String
+  // The workspace's name, as Slack last said it.
+  name        String
+  slackUserId String
+  // The member who linked it, a plain id, so it stays when they are gone.
+  linkedById  String?
+  credential  String
+  expiresAt   DateTime
+  rotateAt    DateTime
+  refusedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  org     Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  apps    SlackApp[]
+  members SlackMemberLink[]
+
+  @@unique([orgId, teamId])
+  @@index([rotateAt])
+}
+
+// A shared persona's own Slack app, one per persona, made from a manifest (api slack/manifest.ts)
+// in a linked workspace. Its id is in the address Slack sends the app's events to
+// (`/slack/events/<id>`), so the row is made a moment before the app, which Slack may call before
+// it has answered; `slackAppId`, `clientId` and `secrets` are null until it has. `secrets` is JSON
+// encrypted with ENCRYPTION_KEY, `{clientSecret, signingSecret}`. `manifestVersion` and
+// `manifestName` are what the app was last made or updated with: an older version, or a persona
+// renamed since, is an app out of date. Installed once `botToken` (encrypted) is there, with the
+// bot's user id and handle and the scopes Slack granted, which an update that asks for more needs
+// installed again; `removedAt` once Slack said it was uninstalled or its token revoked, or the
+// token stopped working.
+model SlackApp {
+  id              String    @id @default(cuid())
+  orgId           String
+  personaId       String    @unique
+  workspaceId     String
+  slackAppId      String?   @unique
+  clientId        String?
+  secrets         String?
+  manifestVersion Int
+  manifestName    String
+  botToken        String?
+  botUserId       String?
+  botName         String?
+  scopes          String[]  @default([])
+  installedAt     DateTime?
+  removedAt       DateTime?
+  // Until when no agent session calls are made for the app, as Slack said its agent features
+  // aren't there for it or its workspace (api slack/sessions.ts).
+  sessionsOffUntil DateTime?
+  // The member who added it, a plain id, so it stays when they are gone.
+  addedById       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  org       Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  persona   Persona        @relation(fields: [personaId], references: [id], onDelete: Cascade)
+  // A workspace an app is in isn't unlinked (unlinkSlackWorkspace), so the cascade is only the
+  // organization's deletion taking both.
+  workspace SlackWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  threads   SlackThreadPlace[]
+  messages  SlackMessage[]
+
+  @@index([orgId])
+  @@index([workspaceId])
+}
+
+// A Slack user's link to a member of the organization, in one of its linked workspaces: who
+// is speaking when that Slack user writes to any of the organization's personas there. Made once,
+// by the member's own confirmation, from a link the app gave the Slack user (api
+// slack/confirm-link.ts); email addresses are never used to tell who someone is. One member per
+// Slack user in a workspace, and so in the organization; the member unlinks it from their account.
+// It stays when they leave the organization, so the app can tell them they are no longer in it;
+// it goes with the workspace when that is unlinked, and with their account.
+model SlackMemberLink {
+  id          String @id @default(cuid())
+  orgId       String
+  workspaceId String
+  slackUserId String
+  userId      String
+
+  createdAt DateTime @default(now())
+
+  org       Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  workspace SlackWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, slackUserId])
+  @@index([orgId])
+  @@index([userId])
+}
+
+// A thread's place in Slack: the Slack thread in a persona's app's direct message it is, by the
+// DM's channel and its root message's `ts`. A thread with one lives in Slack alone, and so do the
+// sub-agents its agent starts: the app never shows them nor writes to them. A reply in that Slack
+// thread continues the thread, and what the member would read of the thread is posted back there.
+// One place per thread, and one thread per Slack thread. `rootTs` is null for a place whose root
+// message the app has yet to post.
+// How far the thread is delivered to Slack: every entry up to `deliveredSeq` is, and of the entry
+// `partSeq`, its first `partsPosted` messages. The delivery sweep takes a place from `nextAt`,
+// moving it on as it takes it, so it is one instance's (`claimedBy`) for a while, and later where
+// Slack asked it to wait or failed (`attempts` in a row at the next message). `stoppedAt` is set,
+// with why, where the Slack thread or its channel is gone.
+// Where the thread stands in Slack, as its agent session's status (api slack/sessions.ts):
+// `sessionStatus` is the status last set, null before one was, when the session is made with the
+// thread's title; `sessionTitle` the title it was made with or last renamed to, so it is renamed
+// where the thread's title changed since; `sessionSetAt` when the status was set, so `processing`
+// is set again before Slack's hour runs out; and after a failure, `sessionAttempts` in a row,
+// tried again from `sessionRetryAt`.
+model SlackThreadPlace {
+  id       String  @id @default(cuid())
+  appId    String
+  channel  String
+  rootTs   String?
+  threadId String  @unique
+
+  deliveredSeq Int       @default(0)
+  partSeq      Int?
+  partsPosted  Int       @default(0)
+  attempts     Int       @default(0)
+  nextAt       DateTime  @default(now())
+  claimedBy    String?
+  stoppedAt    DateTime?
+  stoppedWhy   String?
+
+  sessionStatus   SlackSessionStatus?
+  sessionTitle    String?
+  sessionSetAt    DateTime?
+  sessionAttempts Int                 @default(0)
+  sessionRetryAt  DateTime?
+
+  createdAt DateTime @default(now())
+
+  app    SlackApp    @relation(fields: [appId], references: [id], onDelete: Cascade)
+  thread AgentThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@unique([appId, channel, rootTs])
+  @@index([stoppedAt, nextAt])
+}
+
+// The status of a Slack agent session: its agent at work, Slack showing it working; waiting for the
+// member; or neither, ready for their next message.
+enum SlackSessionStatus {
+  processing
+  suspended
+  active
+}
+
+// A message a member wrote to a persona's app in Slack, by the app, the DM's channel and its
+// `ts`, kept once however often Slack sends it: the app answers one with a line at most once, and
+// takes one up into a thread at most once (`takenUpAt`), the entry it became being `entryId`. One
+// the app only answered, as before its writer confirmed who they are, has neither.
+model SlackMessage {
+  id        String    @id @default(cuid())
+  appId     String
+  channel   String
+  ts        String
+  entryId   String?   @unique
+  takenUpAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  app   SlackApp    @relation(fields: [appId], references: [id], onDelete: Cascade)
+  entry AgentEntry? @relation(fields: [entryId], references: [id], onDelete: SetNull)
+
+  @@unique([appId, channel, ts])
 }

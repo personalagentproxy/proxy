@@ -50,7 +50,7 @@ function makeRequest() {
 	};
 }
 
-const mine = {id: 'org-1', slug: 'tests-workspace', name: "Test's Workspace", role: 'owner', onboarded: true, memberCount: 1, invitationCount: 0};
+const mine = {id: 'org-1', slug: 'tests-workspace', name: "Test's Workspace", role: 'owner', onboarded: true, memberCount: 1, invitationCount: 0, experiments: []};
 
 beforeEach(() => {
 	mock.clearAllMocks();
@@ -132,7 +132,7 @@ describe('handleDeleteMeRoute', () => {
 	});
 
 	test('leaves an organization someone else owns, its connections untouched', async () => {
-		listUserOrgs.mockResolvedValue(Ok([mine, {id: 'org-2', slug: 'acme', name: 'Acme', role: 'member', onboarded: true, memberCount: 2, invitationCount: 0}]));
+		listUserOrgs.mockResolvedValue(Ok([mine, {id: 'org-2', slug: 'acme', name: 'Acme', role: 'member', onboarded: true, memberCount: 2, invitationCount: 0, experiments: []}]));
 		const {handleDeleteMeRoute} = await import('./route');
 		await handleDeleteMeRoute(makeRequest() as never, makeRes() as never);
 
@@ -143,7 +143,7 @@ describe('handleDeleteMeRoute', () => {
 	});
 
 	test('deletes an organization they own with others in it, every connection there undone first', async () => {
-		listUserOrgs.mockResolvedValue(Ok([{id: 'org-2', slug: 'acme', name: 'Acme', role: 'owner', onboarded: true, memberCount: 2, invitationCount: 0}]));
+		listUserOrgs.mockResolvedValue(Ok([{id: 'org-2', slug: 'acme', name: 'Acme', role: 'owner', onboarded: true, memberCount: 2, invitationCount: 0, experiments: []}]));
 		listOrgConnectionsWithCredential.mockResolvedValue(Ok([google, bank]));
 		const {handleDeleteMeRoute} = await import('./route');
 		const res = makeRes();
