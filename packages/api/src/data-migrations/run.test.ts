@@ -9,6 +9,7 @@ mock.module('@proxy/db/instance-meta', () => ({hasInstanceMetaKey, setInstanceMe
 
 mock.module('../connections/take-over-custom', () => ({takeOverCustomConnections: mock()}));
 mock.module('../native/vault/vault-entries', () => ({convertOldVaultRecords: mock()}));
+mock.module('../connections/mcp/unify-credentials', () => ({unifyMcpCredentials: mock()}));
 
 const error = mock();
 mock.module('../observability/log', () => ({

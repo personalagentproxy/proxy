@@ -207,6 +207,7 @@ const meetings = await connect({
 	account: 'demo@acme-corp.com',
 	credential: encrypt(
 		JSON.stringify({
+			auth: 'oauth',
 			clientId: 'demo-client',
 			accessToken: 'demo-access-token',
 			refreshToken: null,
@@ -223,6 +224,7 @@ const wiki = await connect({
 	account: 'demo@acme-corp.com · Acme',
 	credential: encrypt(
 		JSON.stringify({
+			auth: 'oauth',
 			clientId: 'demo-client',
 			accessToken: 'demo-access-token',
 			refreshToken: null,
@@ -239,6 +241,7 @@ const tracker = await connect({
 	account: 'demo@acme-corp.com · Acme',
 	credential: encrypt(
 		JSON.stringify({
+			auth: 'oauth',
 			clientId: 'demo-client',
 			accessToken: 'demo-access-token',
 			refreshToken: null,

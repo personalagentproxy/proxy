@@ -3,6 +3,7 @@ import type {Result} from 'ts-results-es';
 import type {ApiError} from '@proxy/utils';
 import {hasInstanceMetaKey, setInstanceMetaValue} from '@proxy/db/instance-meta';
 
+import {unifyMcpCredentials} from '../connections/mcp/unify-credentials';
 import {takeOverCustomConnections} from '../connections/take-over-custom';
 import {log, serializeError} from '../observability/log';
 import {convertOldVaultRecords} from '../native/vault/vault-entries';
@@ -22,6 +23,7 @@ export type DataMigration = {id: string; run: () => Promise<Result<void, ApiErro
 export const DATA_MIGRATIONS: DataMigration[] = [
 	{id: 'take-over-custom-connections', run: takeOverCustomConnections},
 	{id: 'convert-old-vault-records', run: convertOldVaultRecords},
+	{id: 'unify-mcp-credentials', run: unifyMcpCredentials},
 ];
 
 function metaKey(id: string): string {

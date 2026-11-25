@@ -479,6 +479,45 @@ export async function setConnectionDefaults(data: {
 	});
 }
 
+/** A connection's encrypted credential, by its id, for a data migration rewriting credentials. */
+export type StoredCredentialRow = {id: string; credential: string};
+
+/** Every organization's connections of these integrations that have a credential. */
+export async function listIntegrationCredentials(
+	integrationIds: string[],
+): Promise<Result<StoredCredentialRow[], ApiError>> {
+	const rows = await wrapDb(() =>
+		db.connection.findMany({
+			where: {integrationId: {in: integrationIds}, credential: {not: null}},
+			select: {id: true, credential: true},
+		}),
+	);
+	return rows.map((found) =>
+		found.flatMap(({id, credential}) => (credential === null ? [] : [{id, credential}])),
+	);
+}
+
+/**
+ * Rewrites a connection's credential in another shape, only while it is still `previous`, so tokens
+ * refreshed meanwhile are never undone: `Ok(false)` when it had changed. Unlike a refresh, it says
+ * nothing of whether the provider turned the credential down, which stays as it was.
+ */
+export async function rewriteConnectionCredential(data: {
+	connectionId: string;
+	previous: string;
+	credential: string;
+}): Promise<Result<boolean, ApiError>> {
+	const {connectionId, previous, credential} = data;
+	return (
+		await wrapDb(() =>
+			db.connection.updateMany({
+				where: {id: connectionId, credential: previous},
+				data: {credential},
+			}),
+		)
+	).map(({count}) => count > 0);
+}
+
 /** A custom MCP connection, for moving it to a built-in integration: its id, and its server's address, which it shows as its account. */
 export type CustomMcpConnectionRow = {id: string; account: string};
 
