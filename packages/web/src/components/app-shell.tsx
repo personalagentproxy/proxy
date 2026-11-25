@@ -51,6 +51,9 @@ type Props = {
 	// A column beside the content, on a page that scrolls inside, as Chat's open task, with its own
 	// cell of the title bar (`Side`).
 	side?: Side;
+	// A column at the right of the side, as Chat's agent settings beside the open task, with its own
+	// cell of the title bar (`Pane`).
+	pane?: Pane;
 };
 
 /**
@@ -65,16 +68,31 @@ export type Side = {
 	narrow: 'side' | 'content';
 };
 
+/**
+ * A column at the page's right, beside the side, as Chat's agent settings beside its open task: its
+ * cell of the title bar, and what is under it. It is as wide as `--pane-width`, the side giving it
+ * room first; where the content, the side and the pane can't all stand side by side, the content
+ * gives way, as the list of tasks does to the open task, and on a narrow window, the pane shows
+ * alone.
+ */
+export type Pane = {
+	header: ReactNode;
+	content: ReactNode;
+};
+
 // The content's width while a side stands beside it, the side taking the rest of the page's
 // (`cqw`, the page being the container): as wide as the person dragged the line between them, on
 // this device (`--content-width`), or, until they do, as wide as the navigation starts out (ui's
 // sidebar.tsx), as a second sidebar resized apart from it; but never so wide that the side has
-// less than `SIDE_ROOM` beside it. The side's cell of the title bar is as wide as its column, so
+// less than `SIDE_ROOM` beside it, and a pane's width besides where one stands at the right
+// (`--pane-width`, none without one). The side's cell of the title bar is as wide as its column, so
 // the line between the two cells falls in the same place in the title bar and under it.
 const CONTENT_MIN = 192;
 const SIDE_ROOM = 420;
 const SIDE_DEFAULTS =
-	'@container [--content-width:16rem] [--side-room:420px] [--content-split:min(var(--content-width),_100cqw_-_var(--side-room))] [--side-width:calc(100cqw_-_var(--content-split))]';
+	'@container [--content-width:16rem] [--side-room:420px] [--pane-width:0px] [--content-split:min(var(--content-width),_100cqw_-_var(--side-room)_-_var(--pane-width))] [--side-width:calc(100cqw_-_var(--content-split)_-_var(--pane-width))]';
+// With a pane, as wide as its settings read well.
+const PANE_DEFAULTS = '[--pane-width:22rem]';
 
 // Where in the header the content puts what only it knows, once loaded: the title and its
 // actions. Null until the frame has drawn them, and where it has none.
@@ -185,6 +203,7 @@ export function AppShell({
 	waiting,
 	contentKey,
 	side,
+	pane,
 }: Props) {
 	const {pathname} = useLocation();
 	const titleBarHeader = useTitleBarHeader();
@@ -194,6 +213,7 @@ export function AppShell({
 	useFollowRedirect();
 	const page = useRef<HTMLDivElement>(null);
 	const contentColumn = useRef<HTMLDivElement>(null);
+	const paneColumn = useRef<HTMLDivElement>(null);
 	// Its own key: the width the chat's wider column was dragged to before it became a second
 	// sidebar, under `proxy-content-width`, would open it far wider than the navigation.
 	const {width: storedContentWidth, setWidth: setContentWidth} = useStoredWidth('proxy-list-width');
@@ -201,20 +221,31 @@ export function AppShell({
 	// Each address has its own content, and its own failure, unless the page says what it is.
 	const key = contentKey ?? pathname;
 	// The content's column and its cell of the title bar: the rest of the page beside the side's,
-	// or, on a narrow window, the page's whole width, or none where the side shows in its place.
+	// or, on a narrow window, the page's whole width, or none where the side shows in its place,
+	// and none below `xl` beside a pane.
 	const contentSlide = cn(
 		'flex min-w-0 flex-1 overflow-hidden',
 		side?.narrow === 'side' && 'max-lg:hidden',
+		pane !== undefined && 'max-xl:hidden',
 	);
 	// The side's column and its cell of the title bar: as wide as the page less the content's
-	// column, or, on a narrow window, the page's whole width, or none where the content shows in its
-	// place.
+	// column and the pane's, or, on a narrow window, the page's whole width, or none where the
+	// content or the pane shows in its place. Below `xl` beside a pane, where the content gives way,
+	// the rest of the page beside the pane.
 	const sideSlide =
 		side !== undefined &&
 		cn(
-			'flex min-w-0 overflow-hidden max-lg:flex-1 lg:w-(--side-width) lg:shrink-0 lg:border-l',
-			side.narrow === 'content' && 'max-lg:hidden',
+			'flex min-w-0 overflow-hidden lg:border-l',
+			pane === undefined
+				? 'max-lg:flex-1 lg:w-(--side-width) lg:shrink-0'
+				: 'max-xl:flex-1 xl:w-(--side-width) xl:shrink-0',
+			(side.narrow === 'content' || pane !== undefined) && 'max-lg:hidden',
 		);
+	// The pane's column and its cell of the title bar: its own width at the page's right, or, on a
+	// narrow window, the page's whole width.
+	const paneSlide =
+		pane !== undefined &&
+		'flex min-w-0 overflow-hidden max-lg:flex-1 lg:w-(--pane-width) lg:shrink-0 lg:border-l';
 	const content = (
 		<Suspense
 			key={key}
@@ -238,6 +269,7 @@ export function AppShell({
 					'relative flex w-full min-w-0 flex-1 flex-col bg-background text-foreground',
 					scroll === 'inside' ? 'h-dvh overflow-hidden' : 'min-h-dvh',
 					SIDE_DEFAULTS,
+					pane !== undefined && PANE_DEFAULTS,
 				)}
 				style={
 					storedContentWidth === null
@@ -273,6 +305,14 @@ export function AppShell({
 							</div>
 						</div>
 					)}
+					{pane !== undefined && (
+						<div className={cn('h-full', paneSlide)}>
+							<div className="flex h-full w-full min-w-0 items-center gap-2.5 pr-2.5">
+								<span aria-hidden className="w-2.5 shrink-0 max-lg:hidden" />
+								{pane.header}
+							</div>
+						</div>
+					)}
 				</header>
 				<main
 					className={cn(
@@ -296,6 +336,11 @@ export function AppShell({
 									<div className="flex min-h-0 w-full min-w-0 flex-col">{side.content}</div>
 								</div>
 							)}
+							{pane !== undefined && (
+								<div ref={paneColumn} className={cn('min-h-0', paneSlide)}>
+									<div className="flex min-h-0 w-full min-w-0 flex-col">{pane.content}</div>
+								</div>
+							)}
 							{/* On the line between the content and the side. */}
 							{side !== undefined && (
 								<ResizeHandle
@@ -306,11 +351,17 @@ export function AppShell({
 									}
 									bounds={() => ({
 										min: CONTENT_MIN,
-										max: (page.current?.getBoundingClientRect().width ?? 0) - SIDE_ROOM,
+										max:
+											(page.current?.getBoundingClientRect().width ?? 0) -
+											SIDE_ROOM -
+											(paneColumn.current?.getBoundingClientRect().width ?? 0),
 									})}
 									apply={(next) => page.current?.style.setProperty('--content-width', `${next}px`)}
 									commit={setContentWidth}
-									className="absolute inset-y-0 left-(--content-split) z-10 -translate-x-1/2 max-lg:hidden"
+									className={cn(
+										'absolute inset-y-0 left-(--content-split) z-10 -translate-x-1/2 max-lg:hidden',
+										pane !== undefined && 'max-xl:hidden',
+									)}
 								/>
 							)}
 						</>

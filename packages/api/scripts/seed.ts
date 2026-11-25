@@ -100,7 +100,8 @@ if (existing) {
 
 // ---- User and organization ------------------------------------------------------------------
 
-// Made as a sign-up makes them, the organization with its owner's vault, then dated back.
+// Made as a sign-up makes them, the organization with its owner's vault and Chat, its built-in agent
+// and General, then dated back.
 const provisioned = must(
 	await provisionOrganization({
 		owner: {

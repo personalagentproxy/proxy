@@ -25,6 +25,7 @@ import type {
 	Persona,
 	PersonaModel,
 	PersonaRow,
+	TakeBack,
 	ThreadOpening,
 	SaidToParent,
 	SubAgentRow,
@@ -38,6 +39,7 @@ import type {TranscriptKey, TranscriptLine} from '@proxy/db/harness-transcript';
 import {type AgentTaskRow, createAgentTask, getAgentTask, type NewAgentTask} from '@proxy/db/task';
 import type {SignedInAgent} from '@proxy/db/agent';
 import {getUserTimeZone} from '@proxy/db/user';
+import {listMemberNames} from '@proxy/db/organization';
 
 /**
  * What the harness reads and writes: the job queue, each thread's log and its jobs, the Chat
@@ -79,12 +81,20 @@ export type HarnessStore = {
 	getAgentTask: (orgId: string, agentId: string, taskId: string) => Promise<Result<AgentTaskRow | null, ApiError>>;
 	createAgentTask: (task: NewAgentTask) => Promise<Result<AgentTaskRow | null, ApiError>>;
 
-	listPersonas: (orgId: string, userId: string) => Promise<Result<Array<PersonaRow & {lastMessage: LastMessage | null; draft: string | null; draftAttachments: DraftAttachment[]}>, ApiError>>;
+	listPersonas: (
+		orgId: string,
+		userId: string,
+	) => Promise<Result<Array<PersonaRow & {lastMessage: LastMessage | null; draft: string | null; draftAttachments: DraftAttachment[]; usedByOthers: boolean}>, ApiError>>;
 	listAnswers: (orgId: string, userId: string) => Promise<Result<ChatAnswerRow[], ApiError>>;
-	ensureFirstPersona: (orgId: string) => Promise<Result<PersonaRow, ApiError>>;
+	/** What the members who made shared personas are called, those still in the organization, as the list says who made one. */
+	listMemberNames: typeof listMemberNames;
 	getPersona: (orgId: string, userId: string, personaId: string) => Promise<Result<PersonaRow | null, ApiError>>;
-	createPersona: (orgId: string, userId: string, persona: Persona) => Promise<Result<PersonaRow, ApiError>>;
+	createPersona: (orgId: string, userId: string, persona: Persona, shared: boolean) => Promise<Result<PersonaRow, ApiError>>;
 	updatePersona: (orgId: string, personaId: string, persona: Persona) => Promise<Result<boolean, ApiError>>;
+	/** The member's own persona shared with the organization; false for no such persona of theirs. */
+	sharePersona: (orgId: string, userId: string, personaId: string) => Promise<Result<boolean, ApiError>>;
+	/** A shared persona its maker's own again, refused where another member has said anything to it. */
+	takeBackPersona: (orgId: string, userId: string, personaId: string) => Promise<Result<TakeBack, ApiError>>;
 	deletePersona: (orgId: string, personaId: string) => Promise<Result<boolean, ApiError>>;
 	getMemberChat: (personaId: string, userId: string) => Promise<Result<ThreadRow | null, ApiError>>;
 	ensureMemberChat: (data: {orgId: string; agentId: string; personaId: string; userId: string}) => Promise<Result<ThreadRow, ApiError>>;
@@ -186,10 +196,12 @@ export const harnessStore: HarnessStore = {
 
 	listPersonas: harness.listPersonas,
 	listAnswers: harness.listAnswers,
-	ensureFirstPersona: harness.ensureFirstPersona,
+	listMemberNames,
 	getPersona: harness.getPersona,
 	createPersona: harness.createPersona,
 	updatePersona: harness.updatePersona,
+	sharePersona: harness.sharePersona,
+	takeBackPersona: harness.takeBackPersona,
 	deletePersona: harness.deletePersona,
 	getMemberChat: harness.getMemberChat,
 	ensureMemberChat: harness.ensureMemberChat,

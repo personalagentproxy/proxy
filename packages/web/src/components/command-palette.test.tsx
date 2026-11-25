@@ -2,7 +2,7 @@
 
 import type {AgentLogin} from '@proxy/contracts/agents';
 import type {Connection} from '@proxy/contracts/connections';
-import type {ChatPersona} from '@proxy/contracts/harness';
+import type {ListedPersona} from '@proxy/contracts/harness';
 import {afterEach, beforeEach, describe, expect, setSystemTime, test} from 'bun:test';
 import {cleanup, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {createMemoryRouter, RouterProvider, useLocation} from 'react-router';
@@ -14,12 +14,15 @@ import {clearWidgetLookups} from '@/test-widgets-api';
 
 const look = {nose: 0.48, noseOut: 0.35, eye: 27, eyeTheta: 55, eyeLat: 8, eyes: 2 as const};
 
-function persona(id: string, name: string, shared: boolean): ChatPersona {
+function persona(id: string, name: string, shared: boolean): ListedPersona {
 	return {
 		id,
 		name,
 		shared,
 		mayChange: true,
+		madeBy: 'you',
+		usedByOthers: false,
+		staysShared: null,
 		look,
 		color: 'blue',
 		harness: 'proxy',
@@ -63,6 +66,8 @@ const claude: AgentLogin = {
 };
 
 const personas = [persona('finance', 'Finance', false), persona('general', 'General', true)];
+// Chat's agents as the api lists them: those above, unless a test says otherwise.
+let listedPersonas: ListedPersona[] = personas;
 
 // What the bar sends the api, as far as the tests look at it: what is typed, sent with the files
 // attached, which from the bar are none, or kept as a draft, and the name of an agent made.
@@ -99,7 +104,7 @@ async function answer(path: string, method: string): Promise<Response> {
 		return Response.json({fields: await fields, ms: 1});
 	}
 	if (path.endsWith('/chat/personas') && method === 'GET') {
-		return Response.json({personas, harnesses: []});
+		return Response.json({personas: listedPersonas, harnesses: []});
 	}
 	if (path.endsWith('/chat/personas') && method === 'POST') {
 		return Response.json({persona: persona('made', 'Stretch reminders', false)});
@@ -139,6 +144,7 @@ async function answer(path: string, method: string): Promise<Response> {
 
 beforeEach(() => {
 	asked = [];
+	listedPersonas = personas;
 	picked = {widget: 'none'};
 	fields = [];
 	messageSent = null;
@@ -352,7 +358,7 @@ describe('the command bar over any page', () => {
 		await arrivedAt('/acme/members');
 	});
 
-	test('what no quick action does is a message to General, sent on Enter, which leads to the conversation', async () => {
+	test('what no quick action does is a message to the oldest shared agent, General here, sent on Enter, which leads to the conversation', async () => {
 		renderApp();
 		const input = await openBar();
 
@@ -371,6 +377,34 @@ describe('the command bar over any page', () => {
 			{text: 'plan my trip to Lisbon in March', attachments: []},
 		]);
 		expect(barIsOpen()).toBe(false);
+	});
+
+	test('with no agent in Chat, what no quick action does says there is none to send it to, and offers to make one that starts on it, once named', async () => {
+		listedPersonas = [];
+		renderApp();
+		const input = await openBar();
+
+		fireEvent.change(input, {target: {value: 'plan my trip to Lisbon in March'}});
+		const card = await cardNamed('New agent');
+		expect(card.textContent).toContain('There is no agent to send this to yet.');
+		expect(
+			(within(card).getByRole('textbox', {name: 'What it does'}) as HTMLTextAreaElement).value,
+		).toBe('plan my trip to Lisbon in March');
+		const create = within(card).getByRole('button', {name: 'Create agent'}) as HTMLButtonElement;
+		expect(create.disabled).toBe(true);
+		fireEvent.keyDown(input, {key: 'Enter'});
+		expect(posts('/chat/personas')).toEqual([]);
+
+		fireEvent.change(within(card).getByRole('textbox', {name: 'Name'}), {
+			target: {value: 'Trips'},
+		});
+		fireEvent.keyDown(input, {key: 'Enter'});
+
+		await arrivedAt('/acme/chat/made');
+		expect(posts('/chat/personas').map((one) => one.body)).toMatchObject([{name: 'Trips'}]);
+		expect(posts('/chat/personas/made/threads').map((one) => one.body)).toEqual([
+			{text: 'plan my trip to Lisbon in March', attachments: []},
+		]);
 	});
 
 	test('it goes to the agent the text names, or the one picked', async () => {

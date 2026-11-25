@@ -4,11 +4,19 @@ import type {
 	ChatPersona,
 	ChatThread,
 	ChatThreads,
+	ListedPersona,
 	Persona,
 	ThreadStanding,
 	ThreadView,
 } from '@proxy/contracts/harness';
-import {ArchiveIcon, CheckIcon, ChevronLeftIcon, PencilIcon, Trash2Icon} from 'lucide-react';
+import {
+	ArchiveIcon,
+	CheckIcon,
+	ChevronLeftIcon,
+	SlidersHorizontalIcon,
+	Trash2Icon,
+	UsersIcon,
+} from 'lucide-react';
 import {
 	memo,
 	Suspense,
@@ -55,8 +63,10 @@ import {Dialog, DialogContent, DialogTitle} from '@proxy/ui/components/dialog';
 import {LiveHead} from '@/components/head';
 import {IconButton} from '@/components/icon-button';
 import {PersonaDialog} from '@/components/persona-dialog';
+import {settingsPath, usePersonaPane} from '@/hooks/use-persona-pane';
 import {ContentBoundary} from '@/components/route-error';
-import {preview} from '@proxy/utils/harness';
+import {DEFAULT_LOOK, preview} from '@proxy/utils/harness';
+import {PillTab} from '@proxy/ui/components/pill-tab';
 import {cn} from '@proxy/ui/lib/utils';
 import type {AttachmentInput} from '@/hooks/use-attachments';
 import {useChatDraft} from '@/hooks/use-chat-draft';
@@ -65,6 +75,7 @@ import {useLastLoaded, useLoaded} from '@/hooks/use-loaded';
 import {personaChatPath, rememberLastThread} from '@/lib/last-thread';
 import {rememberedPersonaList} from '@/lib/persona-list';
 import {useListMotion} from '@/hooks/use-list-motion';
+import {useHuman} from '@/hooks/use-human';
 import {useOrgSlug} from '@/hooks/use-org';
 import {usePoll} from '@/hooks/use-poll';
 import {useReload} from '@/hooks/use-reload';
@@ -72,11 +83,12 @@ import {useSending} from '@/hooks/use-sending';
 import {useUnread} from '@/hooks/use-unread';
 import {rowDraftPreview} from '@/lib/chat-sidebar-preview';
 import {formatAgo} from '@/lib/format';
+import {hasOtherPeople} from '@/lib/orgs';
 import {describeApiError, describeFetchError} from '@/lib/loader-utils';
 import {isDesktopApp} from '@/lib/desktop';
 import {isShortcut} from '@/lib/platform';
 import type {Shortcut} from '@/components/shortcut-hint';
-import type {chatLoader} from '@/loaders';
+import type {chatIndexLoader, chatLoader} from '@/loaders';
 import {OpenThread, THREAD_ROUTE, type ThreadContext, type ThreadLoad} from '@/pages/chat-thread';
 import {
 	ContextMenu,
@@ -142,33 +154,37 @@ type ShownSaid = {personaId: string; last: LastMessage};
 type ShownDraft = {personaId: string; draft: string};
 type Shown = {personaId: string; last: LastMessage; draft: string};
 
-// The personas the person sees, their own and General, in the sidebar, each with its head, its
-// name and the last thing said between it and the person, marked where the person hasn't seen it,
-// or what they typed and haven't sent, the open one's as it is typed, the open one lit, each head
+// The personas the person sees, their own and those shared with everyone, in the sidebar, each with its head, its name, a shared one marked beside it once anyone else is in
+// the organization or invited, and the last thing said between it and the person, marked where the
+// person hasn't seen it, or what they typed and haven't sent, the open one's as it is typed, the open one lit, each head
 // watching the pointer while it is over that agent's row. The one last active is on top, the open
 // one by what the page shows of it, so what the person just said moves it up at once. It stays as
 // it is from one chat to the next: the one in the address is lit at once, while it loads. A row
 // that comes, goes or changes places moves there (`useListMotion`): an agent made, deleted or
-// moved up by what was said. At the column's foot, below the agents however many, the button that
-// makes a new agent.
+// moved up by what was said. Each has a right-click menu, opening its settings beside its chat and,
+// where the person may change it, deleting it. At the column's foot, below the agents however
+// many, the button that makes a new agent.
 function PersonaList({
 	personas,
 	current,
 	shown,
 	recallDraft,
 	onNew,
-	onEdit,
 	onDelete,
 }: {
-	personas: ChatPersona[];
+	personas: ListedPersona[];
 	current: string;
 	shown: Shown | null;
 	recallDraft: (personaId: string) => string | null;
 	onNew: () => void;
-	onEdit: (persona: ChatPersona) => void;
-	onDelete: (persona: ChatPersona) => void;
+	onDelete: (persona: ListedPersona) => void;
 }) {
 	const org = useOrgSlug();
+	const human = useHuman();
+	const navigate = useNavigate();
+	// Who sees a shared one, said beside it only where that is anyone but the person.
+	const everyone =
+		human !== null && hasOtherPeople(human.org) ? `Everyone in ${human.org.name}` : null;
 	const unread = useUnread();
 	const [hovered, setHovered] = useState<string | null>(null);
 	const list = useListMotion<HTMLDivElement>();
@@ -229,8 +245,17 @@ function PersonaList({
 								/>
 								<span className="flex min-w-0 flex-1 flex-col">
 									<span className="flex items-baseline gap-2">
-										<span className="min-w-0 flex-1 truncate text-sm font-medium">
-											{persona.name}
+										<span className="flex min-w-0 flex-1 items-center gap-1.5">
+											<span className="min-w-0 truncate text-sm font-medium">{persona.name}</span>
+											{persona.shared && everyone !== null && (
+												<UsersIcon
+													role="img"
+													aria-label={everyone}
+													className="size-3 shrink-0 text-muted-foreground"
+												>
+													<title>{everyone}</title>
+												</UsersIcon>
+											)}
 										</span>
 										{last && (
 											<span className="shrink-0 text-xs text-muted-foreground">
@@ -280,23 +305,23 @@ function PersonaList({
 								onPointerEnter={() => setHovered(persona.id)}
 								onPointerLeave={() => setHovered(null)}
 							>
-								{persona.mayChange ? (
-									<ContextMenu>
-										<ContextMenuTrigger render={<div />}>{row}</ContextMenuTrigger>
-										<ContextMenuContent>
-											<ContextMenuItem onClick={() => onEdit(persona)}>
-												<PencilIcon />
-												Edit
-											</ContextMenuItem>
+								<ContextMenu>
+									<ContextMenuTrigger render={<div />}>{row}</ContextMenuTrigger>
+									<ContextMenuContent>
+										<ContextMenuItem
+											onClick={() => void navigate(settingsPath(personaChatPath(org, persona.id)))}
+										>
+											<SlidersHorizontalIcon />
+											Settings
+										</ContextMenuItem>
+										{persona.mayChange && (
 											<ContextMenuItem variant="destructive" onClick={() => onDelete(persona)}>
 												<Trash2Icon />
 												Delete
 											</ContextMenuItem>
-										</ContextMenuContent>
-									</ContextMenu>
-								) : (
-									row
-								)}
+										)}
+									</ContextMenuContent>
+								</ContextMenu>
 							</li>
 						);
 					})}
@@ -519,7 +544,8 @@ function AlertsPendingDialog({
 
 // The page: the organization's agents in the sidebar, beside the person's chat with the one in its
 // address, a list of its threads as a second sidebar, and beside that, always, the thread the
-// address names (pages/chat-thread.tsx), or, with none named, the box that starts a new one. The
+// address names (pages/chat-thread.tsx), or, with none named, the box that starts a new one; and,
+// where the address opens them, the agent's settings at the right (hooks/use-persona-pane.tsx). The
 // list of agents is the frame's, so moving to another chat shows it at once, lit in the list and
 // named in the header, while it loads; the chat is started over as the agent in the address
 // changes, so what one showed never lingers on another, and stays as it is as one thread of it
@@ -533,7 +559,7 @@ export function ChatPage() {
 	const threadLoad = useRouteLoaderData<{later: ThreadLoad}>(THREAD_ROUTE)?.later;
 	// The agents as last listed, with each chat as it loads; until the first has, as the list last
 	// came anywhere (lib/persona-list.ts), so they are there as the page opens.
-	const listed = useLastLoaded<typeof chatLoader>();
+	const listed = useLastLoaded<ChatLoaders>();
 	const list = listed.answer ?? rememberedPersonaList(org);
 	const personas = list?.personas ?? null;
 	const persona = personas?.find((candidate) => candidate.id === current);
@@ -555,9 +581,26 @@ export function ChatPage() {
 			rememberLastThread(org, current, threadMissing ? null : (threadId ?? null));
 		}
 	}, [org, current, threadId, threadMissing]);
-	// The agent dialog: making a new one, or changing the selected one; closed as null.
-	const [editing, setEditing] = useState<'new' | ChatPersona | null>(null);
-	const [deleting, setDeleting] = useState<ChatPersona | null>(null);
+	// The agent dialog: making a new one, or changing the name and head of one; closed as null.
+	const [editing, setEditing] = useState<'new' | ListedPersona | null>(null);
+	const [deleting, setDeleting] = useState<ListedPersona | null>(null);
+	const human = useHuman();
+	const chatTo = `/${org}/chat/${current}`;
+	const openTo = threadId === undefined ? chatTo : `${chatTo}/threads/${threadId}`;
+	// The agent's settings at the page's right, at the address of the chat or the open task with
+	// theirs after it, so opening another task, archiving one or starting one keeps them open.
+	const {open: settingsOpen, pane} = usePersonaPane({
+		orgName: human?.org.name ?? 'the organization',
+		persona: persona ?? null,
+		pending: listed.pending,
+		under: openTo,
+		onEdit: setEditing,
+		onDelete: setDeleting,
+	});
+	const withSettings = useCallback(
+		(path: string) => (settingsOpen ? settingsPath(path) : path),
+		[settingsOpen],
+	);
 	const [error, setError] = useState<string | null>(null);
 	// The threads the person said are done here, each by its id with when it last had a message
 	// then, and whether its alerts stayed: until something more is said in it, it is done on the
@@ -728,7 +771,7 @@ export function ChatPage() {
 	// Deletes a persona with the chats with it: the person's, and for one every member sees,
 	// everyone's. If it was open, opens whichever is first; otherwise refreshes the list around the
 	// chat that stays open.
-	const removePersona = async (persona: ChatPersona) => {
+	const removePersona = async (persona: ListedPersona) => {
 		const removed = await deletePersona(org, persona.id);
 		if (removed.isErr()) {
 			setError(describeFetchError(removed.error));
@@ -768,14 +811,13 @@ export function ChatPage() {
 		listedThread === null || titleOf(listedThread) === listedThread.title
 			? listedThread
 			: {...listedThread, title: titleOf(listedThread)};
-	const chatTo = `/${org}/chat/${current}`;
-	// The thread open beside the chat gives its place to a new one's box as it is archived.
+	// The thread open beside the chat gives its place to the agent's as it is archived.
 	const openArchived = openThread !== null && isArchived(openThread);
 	useEffect(() => {
 		if (openArchived) {
-			void navigate(chatTo);
+			void navigate(withSettings(chatTo));
 		}
-	}, [openArchived, navigate, chatTo]);
+	}, [openArchived, navigate, withSettings, chatTo]);
 	const managing = editing !== null || deleting !== null;
 	const composing = composingFor === current && current !== '';
 	// A new task: its box, floating over the page, with the keyboard's focus.
@@ -847,7 +889,13 @@ export function ChatPage() {
 
 	const title = () => {
 		if (name !== undefined) {
-			return <PageTitle>{name}</PageTitle>;
+			return (
+				<SettingsTitle
+					name={name}
+					open={settingsOpen}
+					to={settingsOpen ? openTo : settingsPath(openTo)}
+				/>
+			);
 		}
 		// A chat not in the list once it has loaded, as one that could not be.
 		return listed.pending ? <TitleWaiting /> : <PageTitle>Chat</PageTitle>;
@@ -864,7 +912,6 @@ export function ChatPage() {
 				shown={shown}
 				recallDraft={recallDraft}
 				onNew={() => setEditing('new')}
-				onEdit={setEditing}
 				onDelete={setDeleting}
 			/>
 		);
@@ -883,7 +930,10 @@ export function ChatPage() {
 					</div>
 				}
 				contentKey={current}
-				side={side}
+				// No agent is open at Chat's own address, as where the person sees none: no task's place
+				// beside what the page shows instead.
+				side={current === '' ? undefined : side}
+				pane={pane}
 			>
 				<OpenChat
 					openThread={shownThread?.persona.id === current ? shownThread : null}
@@ -903,6 +953,8 @@ export function ChatPage() {
 					onPutAwayNewTask={putAwayNewTask}
 					managing={managing}
 					listError={error}
+					withSettings={withSettings}
+					onNewAgent={() => setEditing('new')}
 				/>
 			</AppShell>
 			{editing !== null && (
@@ -920,14 +972,6 @@ export function ChatPage() {
 					}
 					onClose={() => setEditing(null)}
 					onSave={savePersona}
-					onDelete={
-						editing !== 'new'
-							? async () => {
-									setDeleting(editing);
-									return null;
-								}
-							: undefined
-					}
 				/>
 			)}
 			<AlertsPendingDialog
@@ -939,11 +983,7 @@ export function ChatPage() {
 			<ConfirmDialog
 				open={deleting !== null}
 				title={deleting ? `Delete ${deleting.name}?` : ''}
-				description={
-					deleting
-						? `This deletes ${deleting.name} and ${deleting.shared ? "every member's" : 'your'} conversation with it. This cannot be undone.`
-						: ''
-				}
+				description={deleting ? deleteLine(deleting) : ''}
 				confirmLabel="Delete"
 				destructive
 				onClose={() => setDeleting(null)}
@@ -956,6 +996,15 @@ export function ChatPage() {
 			/>
 		</>
 	);
+}
+
+// What deleting a persona takes with it: the person's conversation, and every other member's where
+// anyone else has said something to it.
+function deleteLine(persona: ListedPersona): string {
+	if (persona.usedByOthers) {
+		return `This deletes ${persona.name} and every member's conversation with it, not only yours: others have talked to it. This cannot be undone.`;
+	}
+	return `This deletes ${persona.name} and your conversation with it. This cannot be undone.`;
 }
 
 // What the page gives the chat open in it.
@@ -988,12 +1037,47 @@ type Opened = {
 	// What marking a thread done, archiving or renaming it, or deleting an agent failed with, said
 	// over the list.
 	listError: string | null;
+	// A task's address as a link to it goes, the agent's settings after it while they are open, so
+	// they stay open as another task opens.
+	withSettings: (path: string) => string;
 };
 
+// What Chat's routes load: an agent's chat, or, at Chat's own address, no chat where the person
+// sees no agent (`chatIndexLoader`, which goes to the first otherwise).
+type ChatLoaders = typeof chatLoader | typeof chatIndexLoader;
+
 // The chat the address names, once loaded: started over when the address names another agent.
-function OpenChat(opened: Opened) {
-	const {chat, harnesses} = useLoaded<typeof chatLoader>();
+// Without one, as where the person sees no agent, what there is to do instead: `onNewAgent` opens
+// the dialog that makes one.
+function OpenChat({onNewAgent, ...opened}: Opened & {onNewAgent: () => void}) {
+	const {chat, harnesses} = useLoaded<ChatLoaders>();
+	if (chat === null) {
+		return <NoAgents onNew={onNewAgent} />;
+	}
 	return <Chat key={chat.persona.id} loaded={chat} harnesses={harnesses} {...opened} />;
+}
+
+// Chat with no agent to talk to, as in an organization whose agents were all deleted, across the
+// page beside the list that says so: what an agent is, and the way to make one.
+function NoAgents({onNew}: {onNew: () => void}) {
+	return (
+		<div className="page-column flex min-h-0 flex-1 flex-col items-center justify-center gap-2 overflow-y-auto py-12 text-center">
+			<LiveHead look={DEFAULT_LOOK} color="mono" size={64} />
+			<p className="text-lg font-medium">No agents yet</p>
+			<p className="max-w-md text-sm text-muted-foreground">
+				An agent works on what you ask it, each task on its own, with what is shared with everyone
+				and what you connected yourself, as far as its access allows. Make one for yourself, and
+				share it with everyone if you like.
+			</p>
+			<div className="pt-2">
+				<AddButton
+					label="New agent"
+					shortcut={windowShortcut({letter: 'n', shift: true})}
+					onClick={onNew}
+				/>
+			</div>
+		</div>
+	);
 }
 
 // What the person said in the chat to open a thread; null for a thread something else opened.
@@ -1117,6 +1201,7 @@ const Chat = memo(function Chat({
 	onPutAwayNewTask,
 	managing,
 	listError,
+	withSettings,
 }: Opened & {loaded: ChatThreads; harnesses: ChatHarness[]}) {
 	const org = useOrgSlug();
 	const navigate = useNavigate();
@@ -1250,9 +1335,9 @@ const Chat = memo(function Chat({
 		sent.current = null;
 		onPutAwayNewTask();
 		if (id !== null) {
-			void navigate(`/${org}/chat/${personaId}/threads/${id}`);
+			void navigate(withSettings(`/${org}/chat/${personaId}/threads/${id}`));
 		}
-	}, [navigate, org, personaId, onPutAwayNewTask]);
+	}, [navigate, org, personaId, onPutAwayNewTask, withSettings]);
 
 	return (
 		<>
@@ -1275,7 +1360,7 @@ const Chat = memo(function Chat({
 							<li key={key} data-row={key}>
 								<ThreadItem
 									thread={thread}
-									to={id === null ? null : `/${org}/chat/${personaId}/threads/${id}`}
+									to={id === null ? null : withSettings(`/${org}/chat/${personaId}/threads/${id}`)}
 									open={id !== null && id === threadId}
 									unread={id !== null && marked.has(id)}
 									onDone={onDone}
@@ -1456,5 +1541,23 @@ function ChatComposer({
 			onSent={onSent}
 			className="p-0 **:data-[slot=input-group]:shadow-lg **:data-[slot=input-group-control]:min-h-28"
 		/>
+	);
+}
+
+// The agent's name in the title bar over its tasks, which opens its settings at the page's right
+// and closes them again, lit while they are open.
+function SettingsTitle({name, open, to}: {name: string; open: boolean; to: string}) {
+	const navigate = useNavigate();
+	return (
+		<PillTab
+			type="button"
+			chosen={open}
+			aria-pressed={open}
+			aria-label={`${name} settings`}
+			className="bleed min-w-0 justify-start [--bleed:--spacing(2.5)]"
+			onClick={() => void navigate(to)}
+		>
+			<span className="truncate">{name}</span>
+		</PillTab>
 	);
 }

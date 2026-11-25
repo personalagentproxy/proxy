@@ -10,6 +10,7 @@ import {
 	type ChatPersona,
 	type ChatThread,
 	type ChatThreads,
+	type ListedPersona,
 	markReadBodySchema,
 	MAX_ATTACHMENTS,
 	personaBodySchema,
@@ -43,7 +44,7 @@ import type {HarnessStore} from './store';
 
 /**
  * The Chat page's routes, under the organization: the personas the member sees, their own and
- * General, which every member does, each named and given a head, all acting through the
+ * those shared with every member, each named and given a head, all acting through the
  * organization's one built-in agent login, and the member's own chat with each, which holds
  * threads: each message they post in the chat opens one, whose agent works on it and answers them
  * there, and a reply in a thread goes on with it; the chat lists its threads, and each is read on
@@ -59,11 +60,13 @@ import type {HarnessStore} from './store';
 export type ChatStore = Pick<
 	HarnessStore,
 	| 'listPersonas'
+	| 'listMemberNames'
 	| 'listAnswers'
-	| 'ensureFirstPersona'
 	| 'getPersona'
 	| 'createPersona'
 	| 'updatePersona'
+	| 'sharePersona'
+	| 'takeBackPersona'
 	| 'deletePersona'
 	| 'getMemberChat'
 	| 'ensureMemberChat'
@@ -94,7 +97,7 @@ export type RouteFiles = Pick<ChatFiles, 'upload' | 'discard' | 'resolve' | 'sho
 /** The harnesses this server has, read where a route needs them, so that nothing is made as the routes are mounted. */
 export type Harnesses = () => HarnessRegistry;
 
-// Whether the viewer may rename, reface, switch the harness or the model of, or delete the persona: their own, or one every member sees that they made or whose organization they own (utils/manages.ts).
+// Whether the viewer may rename, reface, switch the harness or the model of, share, or delete the persona: their own, or one every member sees that they made or whose organization they own (utils/manages.ts).
 function managesPersona(viewer: OrgViewer, persona: PersonaRow): boolean {
 	return manages(viewer, {ownerUserId: persona.ownerUserId, byId: persona.createdById});
 }
@@ -107,6 +110,29 @@ function draftPreview(persona: {draft?: string | null; draftAttachments?: DraftA
 	}
 	const names = (persona.draftAttachments ?? []).map((attachment) => attachment.name);
 	return names.length === 0 ? null : preview(names.join(', '));
+}
+
+// What the page says where another member has said something to a shared persona, which its
+// maker then can't make theirs alone again.
+function inUse(viewer: OrgViewer, persona: PersonaRow): string {
+	return `Others in ${viewer.name} are using ${persona.name}, so it stays shared.`;
+}
+
+// Why the viewer can't make a shared persona theirs alone again: only whoever made it takes it
+// back, not the organization's owner, and nobody where they have left or it names no maker; and one
+// another member has said something to stays everyone's. Null where they can, and for one that
+// isn't shared.
+function staysShared(viewer: OrgViewer, persona: PersonaRow, usedByOthers: boolean): string | null {
+	if (persona.ownerUserId !== null) {
+		return null;
+	}
+	if (persona.createdById !== viewer.userId) {
+		return `Only whoever made ${persona.name} can make it theirs alone.`;
+	}
+	if (usedByOthers) {
+		return inUse(viewer, persona);
+	}
+	return null;
 }
 
 // What runs a persona or a thread as this server offers the organization, which is what a turn of
@@ -132,6 +158,35 @@ function toPersona(harnesses: Harnesses, viewer: OrgViewer, persona: PersonaRow 
 	};
 }
 
+// Who made the persona, as its settings say: the viewer, or another member by what they are called
+// (`names`, by their id); nobody for one whose maker has left, or that names none.
+function madeBy(viewer: OrgViewer, persona: PersonaRow, names: ReadonlyMap<string, string>): ListedPersona['madeBy'] {
+	if (persona.createdById === null) {
+		return null;
+	}
+	if (persona.createdById === viewer.userId) {
+		return 'you';
+	}
+	const name = names.get(persona.createdById);
+	return name === undefined ? null : {name};
+}
+
+// A persona as the list has it, with who made it, whether another member has said anything to it
+// and why the viewer can't make it theirs alone, which its settings say.
+function toListedPersona(
+	harnesses: Harnesses,
+	viewer: OrgViewer,
+	persona: PersonaRow & {usedByOthers: boolean; lastMessage?: LastMessage | null; draft?: string | null; draftAttachments?: DraftAttachment[]},
+	names: ReadonlyMap<string, string>,
+): ListedPersona {
+	return {
+		...toPersona(harnesses, viewer, persona),
+		madeBy: madeBy(viewer, persona, names),
+		usedByOthers: persona.usedByOthers,
+		staysShared: staysShared(viewer, persona, persona.usedByOthers),
+	};
+}
+
 // The harnesses a persona of the viewer's organization can run on here, as the dialog offers them.
 function toHarnesses(registry: HarnessRegistry, viewer: OrgViewer): ChatHarness[] {
 	return harnessesOf(offeredTo(registry, viewer)).map(({id, label, models}) => ({id, label, models}));
@@ -141,20 +196,21 @@ function toHarnesses(registry: HarnessRegistry, viewer: OrgViewer): ChatHarness[
 // offers it the organization: a harness named has to be one of those, and a model named one of
 // the harness's; the model left out is the harness's first, or the persona's own where the harness
 // stays. With neither named, one changed (`existing`) keeps what it has, and a new one gets the
-// first harness offered with its first model.
-function readPersona(harnesses: Harnesses, viewer: OrgViewer, request: AuthenticatedRequest, existing: PersonaModel | null): Result<Persona, ApiError> {
+// first harness offered with its first model. Apart from it, whether it is to be shared with the
+// organization, where that is said.
+function readPersona(harnesses: Harnesses, viewer: OrgViewer, request: AuthenticatedRequest, existing: PersonaModel | null): Result<{persona: Persona; shared: boolean | undefined}, ApiError> {
 	const parsed = parseSchema(personaBodySchema, request.body);
 	if (parsed.isErr()) {
 		return Err(parsed.error);
 	}
-	const {harness, chatModel, ...persona} = parsed.value;
+	const {harness, chatModel, shared, ...persona} = parsed.value;
 	if (existing !== null && harness === undefined && chatModel === undefined) {
-		return Ok(persona);
+		return Ok({persona, shared});
 	}
 	const sameHarness = harness === undefined || harness === existing?.harness;
 	const chosen = chosenFor(offeredTo(harnesses(), viewer), {harness: harness ?? existing?.harness ?? '', chatModel: chatModel ?? (sameHarness ? (existing?.chatModel ?? '') : '')});
 	if (chosen === null) {
-		return Ok(persona);
+		return Ok({persona, shared});
 	}
 	if (harness !== undefined && chosen.harness.id !== harness) {
 		return Err(ApiErr.validationError(`This server has no harness ${harness}.`));
@@ -162,7 +218,38 @@ function readPersona(harnesses: Harnesses, viewer: OrgViewer, request: Authentic
 	if (chatModel !== undefined && chosen.model !== chatModel) {
 		return Err(ApiErr.validationError(`${chosen.harness.label} has no model ${chatModel}.`));
 	}
-	return Ok({...persona, harness: chosen.harness.id, chatModel: chosen.model});
+	return Ok({persona: {...persona, harness: chosen.harness.id, chatModel: chosen.model}, shared});
+}
+
+// The persona shared with the organization, or made the viewer's alone again, where `shared` says
+// it is to be and it isn't yet: their own is theirs to share; a shared one is made theirs again
+// only by whoever made it, and only while no other member has said anything to it, the refusal
+// saying why. What it is to be, whether the viewer is the only one who has talked to it.
+function reshare(store: ChatStore, viewer: OrgViewer, persona: PersonaRow, shared: boolean | undefined): Promise<Result<PersonaRow, ApiError>> {
+	return Do(async ($) => {
+		const isShared = persona.ownerUserId === null;
+		if (shared === undefined || shared === isShared) {
+			return persona;
+		}
+		if (shared && !$(await store.sharePersona(viewer.orgId, viewer.userId, persona.id))) {
+			return $(Err(ApiErr.notFound('persona', persona.id)));
+		}
+		if (shared) {
+			return {...persona, ownerUserId: null};
+		}
+		const refused = staysShared(viewer, persona, false);
+		if (refused !== null) {
+			return $(Err(ApiErr.conflict(refused)));
+		}
+		const taken = $(await store.takeBackPersona(viewer.orgId, viewer.userId, persona.id));
+		if (taken === 'used') {
+			return $(Err(ApiErr.conflict(inUse(viewer, persona))));
+		}
+		if (taken === 'missing') {
+			return $(Err(ApiErr.notFound('persona', persona.id)));
+		}
+		return {...persona, ownerUserId: viewer.userId};
+	});
 }
 
 // The persona in the address, one of the organization's the viewer sees: another member's own is not found.
@@ -197,18 +284,17 @@ function ensureChat(store: ChatStore, viewer: OrgViewer, persona: PersonaRow): P
 	});
 }
 
-/** `GET /api/orgs/:org/chat/personas`: the organization's personas the viewer sees, their own and those every member does, the one last active in the viewer's chat with it first, and the harnesses the server has for one to run on; a General one, every member's, is made where there is none, after the viewer's own, so a message that names no agent always has one to go to. */
+/** `GET /api/orgs/:org/chat/personas`: the organization's personas the viewer sees, their own and those every member does, the one last active in the viewer's chat with it first, and the harnesses the server has for one to run on. It makes none: an organization whose personas were all deleted lists none. */
 function handleListPersonasRoute(store: ChatStore, harnesses: Harnesses, request: AuthenticatedRequest): Promise<Result<z.infer<typeof personaListSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
 		const personas = $(await store.listPersonas(viewer.orgId, viewer.userId));
 		const offered = toHarnesses(harnesses(), viewer);
-		const listed = personas.map((persona) => toPersona(harnesses, viewer, persona));
-		if (personas.some((persona) => persona.ownerUserId === null)) {
-			return {personas: listed, harnesses: offered};
-		}
-		const general = $(await store.ensureFirstPersona(viewer.orgId));
-		return {personas: [...listed, toPersona(harnesses, viewer, general)], harnesses: offered};
+		// What the other members who made the shared ones are called.
+		const makers = new Set(personas.flatMap(({createdById}) => (createdById === null || createdById === viewer.userId ? [] : [createdById])));
+		const named = $(await store.listMemberNames([...makers].map((userId) => ({orgId: viewer.orgId, userId}))));
+		const names = new Map(named.map(({userId, name}) => [userId, name]));
+		return {personas: personas.map((persona) => toListedPersona(harnesses, viewer, persona, names)), harnesses: offered};
 	});
 }
 
@@ -232,26 +318,27 @@ function handleListAnswersRoute(store: ChatStore, request: AuthenticatedRequest)
 	});
 }
 
-/** `POST /api/orgs/:org/chat/personas` with `{name, look, color, harness?, chatModel?}`: a new persona, the viewer's own. */
+/** `POST /api/orgs/:org/chat/personas` with `{name, look, color, harness?, chatModel?, shared?}`: a new persona, the viewer's own, or every member's where `shared`. */
 function handleCreatePersonaRoute(store: ChatStore, harnesses: Harnesses, request: AuthenticatedRequest): Promise<Result<z.infer<typeof personaAnswerSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
-		const persona = $(readPersona(harnesses, viewer, request, null));
-		const made = $(await store.createPersona(viewer.orgId, viewer.userId, persona));
+		const {persona, shared} = $(readPersona(harnesses, viewer, request, null));
+		const made = $(await store.createPersona(viewer.orgId, viewer.userId, persona, shared ?? false));
 		return {persona: toPersona(harnesses, viewer, made)};
 	});
 }
 
-/** `PUT /api/orgs/:org/chat/personas/:personaId` with `{name, look, color, harness?, chatModel?}`: the persona renamed, with another head, or switched to another harness or model from its next turn on, in every thread of every chat with it. */
+/** `PUT /api/orgs/:org/chat/personas/:personaId` with `{name, look, color, harness?, chatModel?, shared?}`: the persona renamed, with another head, or switched to another harness or model from its next turn on, in every thread of every chat with it; and shared with the organization, or made the viewer's alone again (`reshare`), first, so a refusal changes nothing. */
 function handleUpdatePersonaRoute(store: ChatStore, harnesses: Harnesses, request: AuthenticatedRequest): Promise<Result<z.infer<typeof personaAnswerSchema>, ApiError>> {
 	return Do(async ($) => {
 		const viewer = $(await requireViewer(request));
 		const existing = $(await requireManagedPersona(store, viewer, request));
-		const persona = $(readPersona(harnesses, viewer, request, existing));
+		const {persona, shared} = $(readPersona(harnesses, viewer, request, existing));
+		const reshared = $(await reshare(store, viewer, existing, shared));
 		if (!$(await store.updatePersona(viewer.orgId, existing.id, persona))) {
 			return $(Err(ApiErr.notFound('persona', existing.id)));
 		}
-		return {persona: toPersona(harnesses, viewer, {...existing, ...persona})};
+		return {persona: toPersona(harnesses, viewer, {...reshared, ...persona})};
 	});
 }
 

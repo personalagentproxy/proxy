@@ -3,6 +3,7 @@ import {Prisma} from '@prisma/client';
 import {Err, Ok, type Result} from 'ts-results-es';
 
 import {BUILT_IN_AGENT_PROVIDER} from '@proxy/utils/agent-providers';
+import {DEFAULT_LOOK} from '@proxy/utils/harness';
 
 import {
 	ApiErr,
@@ -294,10 +295,12 @@ export async function createStarterConnections(
 }
 
 /**
- * A new organization with its owner's membership, its built-in agent and its starter connections, in one
- * transaction: the owner a person there is, or one made with it, so no user exists without an
- * organization. Its slug is `slugSource`'s (buildBaseSlug), numbered where taken; picking is tried
- * again when a parallel creation took the same one.
+ * A new organization with its owner's membership, its built-in agent, its starter connections and
+ * its first agent of the Chat page, General, in one transaction: the owner a person there is, or
+ * one made with it, so no user exists without an organization. General is shared with every
+ * member and made by the owner, with the first look in blue; from then on it is an agent like any
+ * other, and nothing makes it again. Its slug is `slugSource`'s (buildBaseSlug), numbered where
+ * taken; picking is tried again when a parallel creation took the same one.
  */
 export async function provisionOrganization(data: {
 	owner: {userId: string} | {user: NewUser};
@@ -335,6 +338,17 @@ export async function provisionOrganization(data: {
 					select: {id: true},
 				});
 				await createStarterConnections(tx, connections, {orgId: org.id, userId, name});
+				await tx.persona.create({
+					data: {
+						orgId: org.id,
+						ownerUserId: null,
+						createdById: userId,
+						name: 'General',
+						look: JSON.stringify(DEFAULT_LOOK),
+						color: 'blue',
+					},
+					select: {id: true},
+				});
 				return {org, ownerUserId: userId};
 			}),
 		);

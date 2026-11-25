@@ -4,18 +4,37 @@ description: Talk to an agent Personal Agent Proxy runs itself, with the same ac
 ---
 
 **Chat** in the sidebar is where you talk to agents Personal Agent Proxy runs itself. Every
-organization starts with one, **General**, which every member sees. An agent you make is yours
-alone: make one with **New agent**, giving it a name and a head, or ask for one from
-[the command bar](/quick-actions#handing-it-to-an-agent), and nobody else in the organization sees
-it, its owner included; you rename it, change its head or delete it. General is renamed or deleted
-by the organization's owner. All of them act through one entry on the **External agents** page,
+organization starts with one, **General**, shared with every member and made by the organization's
+owner; otherwise it is an agent like any other, which can be renamed, changed, made the owner's
+alone or deleted. An agent you make is yours alone: make one with **New agent**, giving it a name
+and a head, or ask for one from [the command bar](/quick-actions#handing-it-to-an-agent), and
+nobody else in the organization sees it, its owner included; you rename it, change its head or
+delete it. An organization whose agents were all deleted has none until someone makes one: Chat
+says so, with **New agent**. All of them act through one entry on the
+**External agents** page,
 Chat, shared with everyone, as Claude or ChatGPT are one entry each however many assistants run
 inside them: what the agents may do with each connection is set in its column, once for all of them,
 and every call any of them makes is in the activity log, by the task it was made for, which says
 which agent it was.
 
-Your chat with an agent is yours alone, as a direct message is, General's too: nobody else in the
-organization sees it. In it, the agent acts as you, so it reaches what you use: the connections
+Click an agent's name over its list of tasks, or choose **Settings** from its right-click menu in
+the list, to open its settings at the right, beside the task you have open: whose it is, who sees
+it, and deleting it at the foot. **Edit** there changes its name and head; who sees it holds as soon
+as you choose it. Click the name again, press Back or the cross to close them.
+
+You can share an agent of yours with the organization: in its settings, under **Who sees it**,
+choose **Everyone in** it. Every member then sees it, each with a chat of their own with it, and
+it answers each of them as them. Its name, head, model and harness are the same
+for everyone. Your own chat with it, and its tasks, stay as they were. Once anyone else is in the
+organization, a shared agent has a mark beside its name in the list. You can make it yours alone
+again with **Only you** while nobody else has said anything to it; once someone has, it stays
+shared, and its settings say so. A shared agent is renamed, changed or deleted by whoever made it
+and by the organization's owner, who can't make it theirs alone unless they made it, as they made
+General. One whose maker has left the organization is for everyone in it, and nobody can make it
+theirs alone. Deleting a shared agent deletes every member's chat with it.
+
+Your chat with an agent is yours alone, as a direct message is, a shared agent's too: nobody else
+in the organization sees it. In it, the agent acts as you, so it reaches what you use: the connections
 shared with everyone, the ones shared with you by name, the ones you connected yourself and your
 own vault. Chat has a column on every connection's **Permissions**, beside your other agents, which
 whoever changes the connection's defaults changes: you on your own connections, the organization's
@@ -30,13 +49,14 @@ member's own [Claude account](#your-claude-subscription).
 
 Under the message box, a chat says what runs its agent: the **model**, and beside it the
 **harness**, the loop that runs its turns. For whoever may change the agent, you for one of your
-own and the organization's owner for General, it opens the harnesses down the side, each by its
+own, whoever made a shared one, and the organization's owner for any shared one, it opens the
+harnesses down the side, each by its
 mark, with the models of the one you look at beside them to switch between. The choice is the
 agent's: every thread opened from then on, in any member's chat with the agent, starts with it.
 Threads already open keep what they run on.
 
 A thread's own message box says what runs it, and you can switch it there, in any thread of yours,
-General's included: it holds for that thread alone from its next turn on, and the thread goes on
+a shared agent's included: it holds for that thread alone from its next turn on, and the thread goes on
 from where it was. The agent, and its other threads, stay as they are.
 
 - **Claude** runs on each member's own [Claude account](#your-claude-subscription), with

@@ -4,9 +4,9 @@ import {z} from 'zod';
 
 /**
  * The Chat page (`/api/orgs/:org/chat/…`): the personas the person sees in the organization,
- * their own and General, which every member does, each named and given a head, and the person's
- * own chat with each: its threads, each opened by what they said in the chat, and what is said in
- * each.
+ * their own and those shared with every member, General among them where the organization keeps
+ * the one it started with, each named and given a head, and the person's own chat with each: its
+ * threads, each opened by what they said in the chat, and what is said in each.
  */
 
 /**
@@ -15,7 +15,10 @@ import {z} from 'zod';
  * by its id, and the model it answers with, one of that harness's, by its id
  * (`chatHarnessSchema`). With the harness left out, a new one gets the server's first and one
  * changed keeps its own; with the model left out, it is the harness's first, or the persona's own
- * where the harness stays. One the server hasn't got is refused.
+ * where the harness stays. One the server hasn't got is refused. `shared` says who sees it: every
+ * member, each in a chat of their own with it, or the person alone; left out, a new one is theirs
+ * alone and one changed stays as it is. Their own is shared by them; a shared one is made theirs
+ * alone again only by whoever made it, and only while no other member has said anything to it.
  */
 export const personaBodySchema = z.object({
 	name: z.string().trim().pipe(z.string().min(1).max(AGENT_NAME_MAX)),
@@ -23,6 +26,7 @@ export const personaBodySchema = z.object({
 	color: z.enum(AVATAR_COLORS),
 	harness: z.string().optional(),
 	chatModel: z.string().optional(),
+	shared: z.boolean().optional(),
 });
 
 export type Persona = z.input<typeof personaBodySchema>;
@@ -38,11 +42,11 @@ export const chatPersonaSchema = z.object({
 	/** The harness that runs it and the model it answers with, by their ids, as this server has them. */
 	harness: z.string(),
 	chatModel: z.string(),
-	/** Every member's, as General is, rather than the person's own, which nobody else sees. */
+	/** Every member's rather than the person's own, which nobody else sees. */
 	shared: z.boolean(),
 	/**
-	 * Whether the person may rename, reface, switch the harness or the model of, or delete it: it
-	 * is their own, or one every member sees that they made or whose organization they own.
+	 * Whether the person may rename, reface, switch the harness or the model of, share, or delete
+	 * it: it is their own, or one every member sees that they made or whose organization they own.
 	 */
 	mayChange: z.boolean(),
 	/**
@@ -62,6 +66,31 @@ export const chatPersonaSchema = z.object({
 export type ChatPersona = z.infer<typeof chatPersonaSchema>;
 
 /**
+ * A persona as the list has it, with what its settings say of whose it is, of sharing it and of
+ * deleting it, read for the list alone.
+ */
+export const listedPersonaSchema = chatPersonaSchema.extend({
+	/**
+	 * Who made it: the person, or another member, by their name; null for one whose maker is no
+	 * longer in the organization.
+	 */
+	madeBy: z.union([z.literal('you'), z.object({name: z.string()})]).nullable(),
+	/**
+	 * Whether another member has said anything to it, in a chat of theirs, which deleting it
+	 * deletes too.
+	 */
+	usedByOthers: z.boolean(),
+	/**
+	 * Why the person can't make it theirs alone, where it is shared, as the page says it: one
+	 * somebody else made, or whose maker has left; or one others have said something to. Null where
+	 * they can, and for their own.
+	 */
+	staysShared: z.string().nullable(),
+});
+
+export type ListedPersona = z.infer<typeof listedPersonaSchema>;
+
+/**
  * A harness a persona can run on, as the model switcher offers it: its id, what it is called, and
  * the models it answers with, the first its default.
  */
@@ -79,7 +108,7 @@ export type ChatHarness = z.infer<typeof chatHarnessSchema>;
  * server has for a persona to run on, the first what a new one gets.
  */
 export const personaListSchema = z.object({
-	personas: z.array(chatPersonaSchema),
+	personas: z.array(listedPersonaSchema),
 	harnesses: z.array(chatHarnessSchema),
 });
 
@@ -108,7 +137,8 @@ export type ChatAnswer = z.infer<typeof chatAnswerSchema>;
 
 /**
  * `GET chat/answers`: the last answer in each of the person's chats that has one, as every page
- * asks every so often; it makes nothing, where `GET chat/personas` makes General.
+ * asks every so often. Neither it nor `GET chat/personas` makes anything: an organization whose
+ * personas were all deleted has none, and no answers.
  */
 export const chatAnswersSchema = z.object({answers: z.array(chatAnswerSchema)});
 

@@ -217,13 +217,13 @@ describe('addressedPersona', () => {
 });
 
 describe('personaFor', () => {
-	test('is General, the one every member sees, unless the text names another', () => {
+	test('is the agent the text names, else the oldest shared one, General here', () => {
 		expect(personaFor('summarize my week', personas)?.id).toBe('p-general');
 		expect(personaFor('what does finance think of the offer', personas)?.id).toBe('p-finance');
 		expect(personaFor('ask finance team about the budget', personas)?.id).toBe('p-team');
 	});
 
-	test('is the oldest of those every member sees, else the conversation last active, else none', () => {
+	test('is the oldest of those every member sees, else the first listed, the conversation last active, else none', () => {
 		const older = persona('p-older', 'Everyone', true, '2025-06-01T00:00:00Z');
 		expect(personaFor('hello', [finance, general, older])?.id).toBe('p-older');
 		expect(personaFor('hello', [team, finance])?.id).toBe('p-team');

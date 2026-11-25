@@ -339,18 +339,19 @@ function mentionedPersona(text: string, personas: ChatPersona[]): ChatPersona | 
 	return patternsOf(personas).find(({named}) => named.test(text))?.persona ?? null;
 }
 
-// The persona a message goes to when it names none: General, which is the one every member
-// sees, the oldest of them; without one, the conversation last active.
+// The persona a message goes to when it names none: the oldest of those every member sees, as
+// General is where the organization keeps the one it started with; without a shared one, the first
+// listed, the conversation last active.
 function defaultPersona(personas: ChatPersona[]): ChatPersona | null {
-	const [general] = personas
+	const [oldestShared] = personas
 		.filter((persona) => persona.shared)
 		.toSorted((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
-	return general ?? personas[0] ?? null;
+	return oldestShared ?? personas[0] ?? null;
 }
 
 /**
- * Which of Chat's agents a message no quick action does is for: the one it names, else General.
- * Null with no agent at all.
+ * Which of Chat's agents a message no quick action does is for: the one it names, else the oldest
+ * shared one, else the first listed. Null with no agent at all.
  */
 export function personaFor(text: string, personas: ChatPersona[]): ChatPersona | null {
 	return (

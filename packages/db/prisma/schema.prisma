@@ -763,9 +763,10 @@ model FileChange {
 }
 
 // A persona of the Chat page: an agent Personal Agent Proxy runs itself, named and given a head,
-// one of any number. It is whoever made it's, who alone sees it, talks to it and changes it; General,
-// which every organization starts with, is nobody's, so every member sees it and has a
-// chat of their own with it. Every persona acts through the organization's one built-in
+// one of any number. It is whoever made it's, who alone sees it, talks to it and changes it, until
+// they share it with the organization: every member then sees it and has a chat of their own with
+// it, as with General, which an organization starts with, shared, made by its owner. Every persona
+// acts through the organization's one built-in
 // agent login (Agent, provider `proxy`), whose grants are every persona's: a persona is who did
 // the work, the login is what it may do.
 model Persona {
@@ -782,11 +783,15 @@ model Persona {
   harness   String @default("claude-agent-sdk")
   chatModel String @default("sonnet")
   // The member whose persona it is, which nobody else in the organization sees, its owner
-  // included; null for one every member sees, as General is, and as one from before personas
-  // were anyone's is where others had talked to it.
+  // included; null for one every member sees, as one its maker shared with the organization is,
+  // General among them, and as one from before personas were anyone's is where others had talked
+  // to it. Its maker makes a shared one theirs again only while no other member has said anything
+  // to it.
   ownerUserId String?
-  // Who made it: who may change one every member sees, beside the organization's owner. A plain
-  // id rather than a relation, so such a persona stays when they are gone.
+  // Who made it: who may change one every member sees, beside the organization's owner, and the
+  // only one who may make it theirs again (General's is the organization's owner). A plain id
+  // rather than a relation, so a shared one stays when they are gone, and then nobody can take it
+  // back.
   createdById String?
 
   createdAt DateTime @default(now())

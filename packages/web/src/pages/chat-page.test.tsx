@@ -3,9 +3,9 @@
 import type {
 	ChatAnswer,
 	ChatAttachment,
-	ChatPersona,
 	ChatThread,
 	ChatThreads,
+	ListedPersona,
 	ThreadMessage,
 	ThreadView,
 } from '@proxy/contracts/harness';
@@ -22,19 +22,22 @@ import {ChatPage} from '@/pages/chat-page';
 import {THREAD_ROUTE} from '@/pages/chat-thread';
 import {FROM_COMMAND_BAR} from '@/lib/command-bar';
 import {later} from '@/lib/loader-utils';
-import {shouldRevalidateChat} from '@/loaders';
+import {chatIndexLoader, shouldRevalidateChat} from '@/loaders';
 import {testHuman, testOrg} from '@/test-org';
 
 const realFetch = globalThis.fetch;
 const fetchMock = mock<(input: string, init?: RequestInit) => Promise<Response>>();
 const look = {nose: 0.48, noseOut: 0.35, eye: 27, eyeTheta: 55, eyeLat: 8, eyes: 2 as const};
 
-function persona(id: string, name: string, mayChange: boolean): ChatPersona {
+function persona(id: string, name: string, mayChange: boolean): ListedPersona {
 	return {
 		id,
 		name,
 		shared: false,
 		mayChange,
+		madeBy: 'you',
+		usedByOthers: false,
+		staysShared: null,
 		look,
 		color: 'blue',
 		harness: 'proxy',
@@ -57,7 +60,8 @@ const harnesses = [
 	},
 ];
 
-const general = persona('general', 'General', false);
+// General, which the organization's owner made with it, and the person, a member, may not change.
+const general = {...persona('general', 'General', false), madeBy: {name: 'Dana'}};
 const finance = persona('finance', 'Finance', true);
 
 // A thread of General's chat, as the chat lists it: one the person opened, stopped, unless a test
@@ -182,15 +186,16 @@ function renderChatPage({
 	draft = null,
 	draftAttachments = [],
 	chatAlerts = 0,
+	others = false,
 	answered = () => Promise.resolve(),
 	threadAnswered = () => Promise.resolve(),
 	initial,
 }: {
-	personas?: ChatPersona[];
+	personas?: ListedPersona[];
 	// The open chat's threads, as the chat is read each time.
 	threads?: ChatThread[];
 	listThreads?: () => ChatThread[];
-	listPersonas?: () => ChatPersona[];
+	listPersonas?: () => ListedPersona[];
 	// Each thread as its page shows it, by its id.
 	views?: Record<string, ThreadView>;
 	// The agent whose chat is open, by its id.
@@ -200,6 +205,8 @@ function renderChatPage({
 	draftAttachments?: ChatThreads['draftAttachments'];
 	// How many of the open chat's alerts open threads of their own.
 	chatAlerts?: number;
+	// Whether anyone else is in the organization.
+	others?: boolean;
 	// When the api answers for a chat: at once, unless a test holds it back.
 	answered?: (personaId: string) => Promise<void>;
 	// When the api answers for a thread: at once, unless a test holds it back.
@@ -212,9 +219,12 @@ function renderChatPage({
 		[
 			{
 				id: 'human',
-				loader: () => testHuman(testOrg),
+				loader: () => testHuman({...testOrg, memberCount: others ? 3 : 1}),
 				element: <HumanSide />,
 				children: [
+					// Chat's own address, which goes to the first agent the api lists, or, with none,
+					// stays with no chat open.
+					{path: '/:org/chat', loader: chatIndexLoader, element: <ChatPage />},
 					{
 						path: '/:org/chat/:id',
 						loader: later(async ({params}: {params: {id?: string}}) => {
@@ -241,7 +251,9 @@ function renderChatPage({
 									await threadAnswered();
 									return {thread: views[params.threadId ?? ''] ?? null};
 								}),
+								children: [{path: '/:org/chat/:id/threads/:threadId/settings'}],
 							},
+							{path: '/:org/chat/:id/settings'},
 						],
 					},
 				],
@@ -515,35 +527,6 @@ describe('ChatPage', () => {
 		}
 	});
 
-	test('edits a changeable agent from its right-click menu', async () => {
-		fetchMock.mockImplementation((_input, init) => {
-			if (init?.method === 'PUT') {
-				return Promise.resolve(Response.json({persona: {...finance, name: 'Accounting'}}));
-			}
-			return Promise.resolve(new Response(null, {status: 204}));
-		});
-		renderChatPage();
-
-		fireEvent.contextMenu(await screen.findByRole('link', {name: /Finance/}));
-		fireEvent.click(await screen.findByRole('menuitem', {name: 'Edit'}));
-		expect(screen.getByRole('heading', {name: 'Edit agent'})).toBeDefined();
-		expect(
-			screen.getByText('Its name and its head. The conversation stays as it is.'),
-		).toBeDefined();
-		fireEvent.change(screen.getByLabelText('Name'), {target: {value: 'Accounting'}});
-		fireEvent.click(screen.getByRole('button', {name: 'Save'}));
-
-		await waitFor(() => {
-			expect(fetchMock).toHaveBeenCalledWith(
-				'/api/orgs/acme/chat/personas/finance',
-				expect.objectContaining({
-					method: 'PUT',
-					body: JSON.stringify({name: 'Accounting', look, color: 'blue'}),
-				}),
-			);
-		});
-	});
-
 	test('switches what runs a changeable agent from under the input, keeping its name and head', async () => {
 		fetchMock.mockImplementation((_input, init) => {
 			if (init?.method === 'PUT') {
@@ -596,11 +579,88 @@ describe('ChatPage', () => {
 		});
 	});
 
-	test('does not offer deletion for a protected agent', async () => {
+	test('deleting the last agent, the open one, leaves Chat with none: the list says so, and the page offers to make one', async () => {
+		let listed: ListedPersona[] = [finance];
+		answering((input, init) => {
+			if (input === '/api/orgs/acme/chat/personas' && (init?.method ?? 'GET') === 'GET') {
+				return Promise.resolve(Response.json({personas: listed, harnesses}));
+			}
+			if (init?.method === 'DELETE') {
+				listed = [];
+			}
+			return null;
+		});
+		const {router} = renderChatPage({
+			personas: [finance],
+			open: 'finance',
+			listPersonas: () => listed,
+		});
+
+		fireEvent.contextMenu(await screen.findByRole('link', {name: /Finance/}));
+		fireEvent.click(await screen.findByRole('menuitem', {name: 'Delete'}));
+		await act(async () => {
+			fireEvent.click(screen.getByRole('button', {name: 'Delete'}));
+		});
+
+		await waitFor(() => expect(router.state.location.pathname).toBe('/acme/chat'));
+		expect(await screen.findByText('No agents yet')).toBeDefined();
+		expect(screen.getByText('No agents yet.')).toBeDefined();
+		expect(screen.queryByRole('link', {name: /Finance/})).toBeNull();
+		expect(screen.queryByLabelText('Tasks')).toBeNull();
+
+		// The page's own New agent, beside the list's, opens the dialog that makes one.
+		const buttons = screen.getAllByRole('button', {name: /New agent/});
+		expect(buttons).toHaveLength(2);
+		fireEvent.click(buttons[1] as HTMLElement);
+		expect(screen.getByRole('heading', {name: 'New agent'})).toBeDefined();
+	});
+
+	test('Chat’s own address goes to the first agent listed, where there is one', async () => {
+		answering((input) =>
+			input === '/api/orgs/acme/chat/personas'
+				? Promise.resolve(Response.json({personas: [finance, general], harnesses}))
+				: null,
+		);
+		const {router} = renderChatPage({initial: '/acme/chat'});
+
+		await waitFor(() => expect(router.state.location.pathname).toBe('/acme/chat/finance'));
+		expect(await screen.findByText('What should Finance do?')).toBeDefined();
+	});
+
+	test('marks a shared agent beside its name once anyone else is in the organization, and not while the person is alone in it', async () => {
+		const travel = {...persona('travel', 'Travel', true), shared: true};
+		renderChatPage({personas: [{...general, shared: true}, finance, travel], others: true});
+
+		const row = await screen.findByRole('link', {name: /Travel/});
+		expect(within(row).getByRole('img', {name: 'Everyone in Acme'})).toBeDefined();
+		expect(
+			within(screen.getByRole('link', {name: /Finance/})).queryByRole('img', {
+				name: 'Everyone in Acme',
+			}),
+		).toBeNull();
+		cleanup();
+
+		renderChatPage({personas: [{...general, shared: true}, finance, travel]});
+		const alone = await screen.findByRole('link', {name: /Travel/});
+		expect(within(alone).queryByRole('img', {name: 'Everyone in Acme'})).toBeNull();
+	});
+
+	test('says deleting a shared agent others have talked to deletes their conversations with it too', async () => {
+		const travel = {...persona('travel', 'Travel', true), shared: true, usedByOthers: true};
+		renderChatPage({personas: [general, finance, travel], others: true});
+
+		fireEvent.contextMenu(await screen.findByRole('link', {name: /Travel/}));
+		fireEvent.click(await screen.findByRole('menuitem', {name: 'Delete'}));
+
+		expect(screen.getByText(/every member's conversation with it, not only yours/)).toBeDefined();
+	});
+
+	test('offers an agent the person may not change its settings alone in its right-click menu', async () => {
 		renderChatPage();
 
 		fireEvent.contextMenu(await screen.findByRole('link', {name: /General/}));
 
+		expect(await screen.findByRole('menuitem', {name: 'Settings'})).toBeDefined();
 		expect(screen.queryByRole('menuitem', {name: 'Edit'})).toBeNull();
 		expect(screen.queryByRole('menuitem', {name: 'Delete'})).toBeNull();
 	});
@@ -1730,6 +1790,250 @@ describe('ChatPage', () => {
 
 			fireEvent.click(within(viewer).getByRole('button', {name: 'Close'}));
 			await waitFor(() => expect(viewer.isConnected).toBe(false));
+		});
+	});
+
+	describe('the agent’s settings', () => {
+		const settings = () => screen.getByRole('region', {name: 'Agent settings'});
+
+		test('open at the page’s right from the agent’s name over its tasks, pressed while open, at an address of their own, and close from it again', async () => {
+			const {router} = renderChatPage({open: 'finance'});
+			const title = await screen.findByRole('button', {name: 'Finance settings'});
+			expect(title.getAttribute('aria-pressed')).toBe('false');
+
+			await follow(title);
+			await screen.findByRole('region', {name: 'Agent settings'});
+			expect(router.state.location.pathname).toBe('/acme/chat/finance/settings');
+			expect(
+				screen.getByRole('button', {name: 'Finance settings'}).getAttribute('aria-pressed'),
+			).toBe('true');
+			expect(screen.getByLabelText('Tasks')).toBeTruthy();
+			expect(screen.getByText('What should Finance do?')).toBeTruthy();
+
+			await follow(screen.getByRole('button', {name: 'Finance settings'}));
+			await waitFor(() =>
+				expect(screen.queryByRole('region', {name: 'Agent settings'})).toBeNull(),
+			);
+			expect(router.state.location.pathname).toBe('/acme/chat/finance');
+		});
+
+		test('open beside the open task, which stays open, as another task opens too, and close by their cross back to the task', async () => {
+			const later = thread('t3', {title: 'Invoice for Northwind'});
+			const {router} = renderChatPage({
+				threads: [pricing, later],
+				views: {t1: pricingView, t3: view(later, [said('m5', 'person', 'Send the invoice')])},
+				initial: '/acme/chat/general/threads/t1',
+			});
+			await screen.findByLabelText('Thread');
+
+			await follow(screen.getByRole('button', {name: 'General settings'}));
+			await screen.findByRole('region', {name: 'Agent settings'});
+			expect(router.state.location.pathname).toBe('/acme/chat/general/threads/t1/settings');
+			expect(screen.getByLabelText('Thread')).toBeTruthy();
+			expect(
+				screen.getByRole('link', {name: 'Pricing review with Dana'}).getAttribute('aria-current'),
+			).toBe('page');
+
+			await follow(screen.getByRole('link', {name: 'Invoice for Northwind'}));
+			await screen.findByText('Send the invoice');
+			expect(router.state.location.pathname).toBe('/acme/chat/general/threads/t3/settings');
+			expect(settings()).toBeTruthy();
+
+			await follow(screen.getByRole('button', {name: 'Close settings'}));
+			await waitFor(() =>
+				expect(screen.queryByRole('region', {name: 'Agent settings'})).toBeNull(),
+			);
+			expect(router.state.location.pathname).toBe('/acme/chat/general/threads/t3');
+			expect(screen.getByLabelText('Thread')).toBeTruthy();
+		});
+
+		test('open from Settings in the right-click menu, for an agent the person may not change too, read alone, and close with Back', async () => {
+			const everyone = {...general, shared: true};
+			const {router} = renderChatPage({personas: [everyone, finance]});
+			await screen.findByText('What should General do?');
+
+			fireEvent.contextMenu(screen.getByRole('link', {name: /General/}));
+			await follow(await screen.findByRole('menuitem', {name: 'Settings'}));
+			const pane = await screen.findByRole('region', {name: 'Agent settings'});
+			expect(router.state.location.pathname).toBe('/acme/chat/general/settings');
+			expect(within(pane).getByText('Made by Dana')).toBeTruthy();
+			expect(
+				within(pane).getByText(
+					'Everyone in Acme. Each person’s conversation with it is their own.',
+				),
+			).toBeTruthy();
+			expect(within(pane).queryByRole('button', {name: 'Edit'})).toBeNull();
+			expect(within(pane).queryByRole('button', {name: 'Only you'})).toBeNull();
+			expect(within(pane).queryByRole('button', {name: 'Delete agent'})).toBeNull();
+
+			await act(async () => {
+				await router.navigate(-1);
+			});
+			await waitFor(() =>
+				expect(screen.queryByRole('region', {name: 'Agent settings'})).toBeNull(),
+			);
+		});
+
+		test('show an agent the person may change: its name, whose it is, Edit, who sees it, and the card that deletes it', async () => {
+			renderChatPage({open: 'finance', initial: '/acme/chat/finance/settings'});
+			const pane = await screen.findByRole('region', {name: 'Agent settings'});
+
+			expect(within(pane).getByText('Finance')).toBeTruthy();
+			expect(within(pane).getByText('Yours alone')).toBeTruthy();
+			expect(within(pane).getByRole('button', {name: 'Edit'})).toBeTruthy();
+			expect(within(pane).getByRole('region', {name: 'Who sees it'})).toBeTruthy();
+			expect(
+				within(pane).getByRole('button', {name: 'Only you'}).getAttribute('aria-pressed'),
+			).toBe('true');
+			expect(within(pane).getByText('Nobody else in Acme sees it.')).toBeTruthy();
+			expect(within(pane).getByRole('heading', {name: 'Delete Finance'})).toBeTruthy();
+			expect(
+				within(pane).getByText(
+					'Your conversation with Finance goes with it. This cannot be undone.',
+				),
+			).toBeTruthy();
+		});
+
+		test('say whose a shared agent is: made by the person, by another member, or, where its maker has left, whom it is for', async () => {
+			const travel = {...persona('travel', 'Travel', true), shared: true};
+			const research = {
+				...persona('research', 'Research', false),
+				shared: true,
+				madeBy: {name: 'Dana'},
+			};
+			// Whose maker has left the organization.
+			const scout = {...persona('scout', 'Scout', false), shared: true, madeBy: null};
+			const lines: Array<[ListedPersona, string]> = [
+				[travel, 'Made by you, for everyone in Acme'],
+				[research, 'Made by Dana'],
+				[scout, 'For everyone in Acme'],
+			];
+			for (const [shown, line] of lines) {
+				renderChatPage({
+					personas: [scout, travel, research],
+					open: shown.id,
+					initial: `/acme/chat/${shown.id}/settings`,
+				});
+				const pane = await screen.findByRole('region', {name: 'Agent settings'});
+				expect(within(pane).getByText(line)).toBeTruthy();
+				cleanup();
+			}
+		});
+
+		test('share the agent as soon as everyone is chosen, without a Save', async () => {
+			answering((_input, init) =>
+				init?.method === 'PUT'
+					? Promise.resolve(Response.json({persona: {...finance, shared: true}}))
+					: null,
+			);
+			renderChatPage({open: 'finance', initial: '/acme/chat/finance/settings', others: true});
+			const pane = await screen.findByRole('region', {name: 'Agent settings'});
+
+			fireEvent.click(within(pane).getByRole('button', {name: 'Everyone in Acme'}));
+
+			expect(
+				within(pane).getByRole('button', {name: 'Everyone in Acme'}).getAttribute('aria-pressed'),
+			).toBe('true');
+			expect(
+				within(pane).getByText('Each person’s conversation with it is their own.'),
+			).toBeTruthy();
+			await waitFor(() => {
+				expect(fetchMock).toHaveBeenCalledWith(
+					'/api/orgs/acme/chat/personas/finance',
+					expect.objectContaining({
+						method: 'PUT',
+						body: JSON.stringify({name: 'Finance', look, color: 'blue', shared: true}),
+					}),
+				);
+			});
+			expect(within(pane).queryByRole('button', {name: 'Save'})).toBeNull();
+		});
+
+		test('say in place why the agent can’t be the person’s alone, up front and where the api refuses it', async () => {
+			const refusal = 'Others in Acme are using Finance, so it stays shared.';
+			const kept = {...finance, shared: true, usedByOthers: true, staysShared: refusal};
+			renderChatPage({
+				personas: [general, kept],
+				open: 'finance',
+				initial: '/acme/chat/finance/settings',
+			});
+			let pane = await screen.findByRole('region', {name: 'Agent settings'});
+			expect(within(pane).getByRole('button', {name: 'Only you'}).hasAttribute('disabled')).toBe(
+				true,
+			);
+			expect(within(pane).getByText(refusal)).toBeTruthy();
+			expect(
+				within(pane).getByText(
+					'Every member’s conversation with Finance goes with it, not only yours: others have talked to it. This cannot be undone.',
+				),
+			).toBeTruthy();
+			cleanup();
+
+			// Someone said something to it since the list was read.
+			answering((_input, init) =>
+				init?.method === 'PUT'
+					? Promise.resolve(Response.json({error: 'conflict', message: refusal}, {status: 409}))
+					: null,
+			);
+			renderChatPage({
+				personas: [general, {...finance, shared: true}],
+				open: 'finance',
+				initial: '/acme/chat/finance/settings',
+			});
+			pane = await screen.findByRole('region', {name: 'Agent settings'});
+			fireEvent.click(within(pane).getByRole('button', {name: 'Only you'}));
+
+			expect(await within(pane).findByText(refusal)).toBeTruthy();
+			expect(
+				within(pane).getByRole('button', {name: 'Everyone in Acme'}).getAttribute('aria-pressed'),
+			).toBe('true');
+		});
+
+		test('open the name and the head in their dialog from Edit, saved by Save', async () => {
+			answering((_input, init) =>
+				init?.method === 'PUT'
+					? Promise.resolve(Response.json({persona: {...finance, name: 'Accounting'}}))
+					: null,
+			);
+			renderChatPage({open: 'finance', initial: '/acme/chat/finance/settings'});
+			fireEvent.click(
+				within(await screen.findByRole('region', {name: 'Agent settings'})).getByRole('button', {
+					name: 'Edit',
+				}),
+			);
+
+			expect(screen.getByRole('heading', {name: 'Edit agent'})).toBeDefined();
+			expect(within(screen.getByRole('dialog')).queryByText('Who sees it')).toBeNull();
+			fireEvent.change(screen.getByLabelText('Name'), {target: {value: 'Accounting'}});
+			fireEvent.click(screen.getByRole('button', {name: 'Save'}));
+
+			await waitFor(() => {
+				expect(fetchMock).toHaveBeenCalledWith(
+					'/api/orgs/acme/chat/personas/finance',
+					expect.objectContaining({
+						method: 'PUT',
+						body: JSON.stringify({name: 'Accounting', look, color: 'blue'}),
+					}),
+				);
+			});
+		});
+
+		test('delete the agent from its card after the confirmation, and close with it', async () => {
+			const {router} = renderChatPage({open: 'finance', initial: '/acme/chat/finance/settings'});
+			const pane = await screen.findByRole('region', {name: 'Agent settings'});
+
+			fireEvent.click(within(pane).getByRole('button', {name: 'Delete agent'}));
+			expect(screen.getByRole('heading', {name: 'Delete Finance?'})).toBeDefined();
+			expect(screen.getByText(/and your conversation with it/)).toBeDefined();
+			fireEvent.click(screen.getByRole('button', {name: 'Delete'}));
+
+			await waitFor(() => {
+				expect(fetchMock).toHaveBeenCalledWith(
+					'/api/orgs/acme/chat/personas/finance',
+					expect.objectContaining({method: 'DELETE'}),
+				);
+			});
+			await waitFor(() => expect(router.state.location.pathname).not.toContain('/settings'));
 		});
 	});
 
