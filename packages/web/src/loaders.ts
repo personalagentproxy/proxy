@@ -9,7 +9,7 @@ import {
 	listAgents,
 	listMcpClients,
 } from '@/client/agents-client';
-import {getConnection, listConnections} from '@/client/connections-client';
+import {getConnection, getMcpServer, listConnections} from '@/client/connections-client';
 import {getDriveFileHistory, listDriveHistory} from '@/client/drive-history-client';
 import {getFile, listFiles, listTrashedFiles} from '@/client/files-client';
 import {getGitHubInstallations} from '@/client/github-client';
@@ -162,14 +162,25 @@ export const connectionLoader = later(
 				error: shown?.isErr() ? describeApiError(shown.error) : null,
 			};
 		};
-		const [vaultEntries, vaultSecrets, sandboxes, github, files, history] = await Promise.all([
-			kept(VAULT_INTEGRATION_ID, 'entries'),
-			kept(VAULT_INTEGRATION_ID, VAULT_SECRETS_COLLECTION_ID),
-			kept(SANDBOX_INTEGRATION_ID, 'sandboxes'),
-			reached(),
-			drive(),
-			driveHistory(),
-		]);
+		// The server a custom MCP connection reaches, for its edit dialog; null for every other
+		// connection, for one the person only uses, which the api doesn't show them, and while the
+		// api can't read it, which leaves the page without the dialog rather than failing it.
+		const server = async () => {
+			if (found?.integrationId !== 'mcp') {
+				return null;
+			}
+			return (await getMcpServer(org, found.id)).unwrapOr(null);
+		};
+		const [vaultEntries, vaultSecrets, sandboxes, github, files, history, mcpServer] =
+			await Promise.all([
+				kept(VAULT_INTEGRATION_ID, 'entries'),
+				kept(VAULT_INTEGRATION_ID, VAULT_SECRETS_COLLECTION_ID),
+				kept(SANDBOX_INTEGRATION_ID, 'sandboxes'),
+				reached(),
+				drive(),
+				driveHistory(),
+				server(),
+			]);
 		return {
 			connection: found,
 			connections: unwrapLoaderResult(connections).connections,
@@ -184,6 +195,7 @@ export const connectionLoader = later(
 			github,
 			files,
 			history,
+			mcpServer,
 		};
 	},
 );

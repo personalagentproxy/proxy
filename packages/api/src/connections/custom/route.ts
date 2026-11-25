@@ -1,9 +1,10 @@
 import type {Response} from 'express';
-import {Err, type Result} from 'ts-results-es';
+import {Err, Ok, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
-import {type Connection, connectMcpBodySchema, type connectMcpSchema} from '@proxy/contracts/connections';
+import {findAccountConnection} from '@proxy/db/connection';
+import {type Connection, connectMcpBodySchema, type connectMcpSchema, type CustomMcpServer, editMcpServerBodySchema} from '@proxy/contracts/connections';
 
 import type {AuthenticatedRequest} from '../../server/middleware/require-auth';
 import {sendResult} from '../../server/response';
@@ -11,12 +12,12 @@ import {requireViewer} from '../../utils/user-org';
 import {builtInForHost} from '../built-in-mcp';
 import {respond} from '../connection-response';
 import {saveConnection, signInFlow, type SignInRequest} from '../connect-flow';
-import {requireManagedOf} from '../managed';
+import {manages, requireManagedOf} from '../managed';
 import {listMcpTools} from '../mcp/mcp-client';
 import {keyInAddress} from '../mcp/built-in';
 import {beginBuiltInSignIn, connectWithKey, startMcpSignIn} from '../mcp/mcp-connect';
 import {exchangeMcpCode, mcpEndpoints, mcpEndpointsSchema} from '../mcp/mcp-oauth';
-import {mcpAccount, readOnlyToolNames, type CustomCredential} from './custom-mcp';
+import {mcpAccount, readCustomCredential, readOnlyToolNames, type CustomCredential} from './custom-mcp';
 import {discoverMcpServer, parseMcpServerUrl, probeMcpServer} from './mcp-discovery';
 import {refreshCustomTools} from './refresh-tools';
 
@@ -33,14 +34,17 @@ import {refreshCustomTools} from './refresh-tools';
  * is connected as that integration instead: with the token typed in, or the key in the address, as
  * its API key, where it takes one, else the answer is its sign-in, as signing in to it from the
  * catalog begins, which comes back to its callback; a token for one that takes no key is refused.
+ * A connection's page can move it to another address or token (`PUT …/server`), asked for its tools
+ * there or signed in to as connecting is, the sign-in renewing that connection.
  */
 
 const {beginSignIn, handleCallback: handleCustomMcpCallbackRoute} = signInFlow({
 	integrationId: 'mcp',
 	name: 'MCP server',
 	// The server found from the address and the name the person gave the connection, beside the
-	// client registered for the sign-in.
-	keptSchema: z.object({clientId: z.string(), server: mcpEndpointsSchema, name: z.string()}),
+	// client registered for the sign-in; or, for a connection moved to the server on its page
+	// (`edit`), no name, as it keeps its own.
+	keptSchema: z.object({clientId: z.string(), server: mcpEndpointsSchema, name: z.string().optional(), edit: z.literal(true).optional()}),
 	// Signed in, the server is asked for its tools with the new token, and the connection keeps its
 	// endpoints beside the tokens, for refreshing them.
 	finish: ({redirectUri, code, verifier, kept}) =>
@@ -49,7 +53,14 @@ const {beginSignIn, handleCallback: handleCustomMcpCallbackRoute} = signInFlow({
 			const tokens = $(await exchangeMcpCode(server, {clientId: kept.clientId, redirectUri, code, verifier}));
 			const tools = $(await listMcpTools(server, tokens.accessToken));
 			const credential: CustomCredential = {auth: 'oauth', url: server.url, server, ...tokens};
-			return {account: mcpAccount(new URL(server.url)), credential, defaults: readOnlyToolNames(tools), tools, name};
+			return {
+				account: mcpAccount(new URL(server.url)),
+				credential,
+				defaults: readOnlyToolNames(tools),
+				tools,
+				...(name === undefined ? {} : {name}),
+				...(kept.edit ? {fromConnection: true as const} : {}),
+			};
 		}),
 });
 
@@ -104,4 +115,73 @@ export function handleRefreshCustomMcpToolsRoute(request: AuthenticatedRequest):
 		const {connection} = $(await refreshCustomTools(row));
 		return $(await respond(connection));
 	});
+}
+
+const notCustom = ApiErr.validationError('Only a custom MCP server has an address to change');
+
+/** `GET /api/connections/:connectionId/server`: the custom MCP server a connection reaches, for its edit dialog. */
+export function handleGetCustomMcpServerRoute(request: AuthenticatedRequest): Promise<Result<CustomMcpServer, ApiError>> {
+	return Do(async ($) => {
+		const viewer = $(await requireViewer(request));
+		const row = $(await requireManagedOf(viewer, request.params.connectionId ?? '', 'mcp', notCustom));
+		const credential = $(readCustomCredential(row));
+		const url = new URL(credential.url);
+		url.search = '';
+		return {url: url.toString(), auth: credential.auth};
+	});
+}
+
+// The token a connection moved to `url` keeps where none was typed: its own, only while the server
+// stays on the origin the token was given for, so it is never sent to another server unasked.
+function keptToken(current: CustomCredential, url: URL): Result<string | null, ApiError> {
+	if (current.auth !== 'token') {
+		return Ok(null);
+	}
+	if (new URL(current.url).origin !== url.origin) {
+		return Err(ApiErr.validationError(`The token is only sent to the server it was given for. Enter it again for ${url.host}, or remove it`));
+	}
+	return Ok(current.token);
+}
+
+function editCustomMcp(request: AuthenticatedRequest, res: Response): Promise<Result<z.infer<typeof connectMcpSchema>, ApiError>> {
+	return Do(async ($) => {
+		const body = $(parseSchema(editMcpServerBodySchema, request.body));
+		const viewer = $(await requireViewer(request));
+		const row = $(await requireManagedOf(viewer, request.params.connectionId ?? '', 'mcp', notCustom));
+		const current = $(readCustomCredential(row));
+		const url = body.url === undefined ? new URL(current.url) : $(await parseMcpServerUrl(body.url));
+		// A service's own server is connected as that service, from the catalog, as a new
+		// connection: its actions are not this connection's tools.
+		const builtIn = builtInForHost(url.host);
+		if (builtIn) {
+			return $(Err(ApiErr.validationError(`${builtIn.server.name} has an integration of its own: add it from the connections list instead`)));
+		}
+		const account = mcpAccount(url);
+		const taken = $(await findAccountConnection(viewer, {integrationId: 'mcp', account, providerAccountId: null}));
+		if (taken && taken.id !== row.id && manages(viewer, taken)) {
+			return $(Err(ApiErr.conflict(`${account} is connected already, as ${taken.name ?? taken.account}`)));
+		}
+		const token = body.token === undefined ? $(keptToken(current, url)) : body.token;
+		const probe = $(await probeMcpServer(url, token));
+		if (probe.kind === 'signIn') {
+			const server = $(await discoverMcpServer(url));
+			const start = (signIn: SignInRequest) => startMcpSignIn(server, signIn, {server: mcpEndpoints(server), edit: true as const});
+			const desktop = body.desktop ?? false;
+			return {kind: 'signIn' as const, url: $(await beginSignIn(res, {viewer, returnTo: undefined, desktop, account: null, connectionId: row.id, start}))};
+		}
+		const credential: CustomCredential = token === null ? {auth: 'none', url: url.toString()} : {auth: 'token', url: url.toString(), token};
+		const connected = {account, credential, defaults: readOnlyToolNames(probe.tools), tools: probe.tools, fromConnection: true as const};
+		const saved = $(await saveConnection(viewer, 'mcp', connected, {connectionId: row.id}));
+		return {kind: 'connected' as const, connection: $(await respond({...saved.row, credential: JSON.stringify(credential)}))};
+	});
+}
+
+/**
+ * `PUT /api/connections/:connectionId/server` with `{url?, token?, desktop?}`: moves a custom MCP
+ * connection to another address, another token, or both, after asking the server there for its
+ * tools, or begins the sign-in it asks for, which comes back to this connection. Its name, its
+ * agents' settings for the tools still listed and its activity stay.
+ */
+export async function handleEditCustomMcpServerRoute(request: AuthenticatedRequest, res: Response): Promise<void> {
+	sendResult(res, await editCustomMcp(request, res));
 }

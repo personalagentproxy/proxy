@@ -8,6 +8,8 @@ import {
 	type connectPlaidBodySchema,
 	type createDriveBodySchema,
 	type createVaultBodySchema,
+	customMcpServerSchema,
+	type editMcpServerBodySchema,
 	type moveConnectionBodySchema,
 	type connectWithKeyBodySchema,
 	type plaidLinkTokenBodySchema,
@@ -148,6 +150,35 @@ export function connectWithKey(
 	input: z.input<typeof connectWithKeyBodySchema>,
 ) {
 	return apiRequest('POST', `${orgApi(org)}/connections/${integrationId}`, connectionSchema, input);
+}
+
+/** The custom MCP server a connection reaches, for whoever may change it: its address without the query, and how it is signed in to. */
+export function getMcpServer(org: string, connectionId: string) {
+	return apiRequest(
+		'GET',
+		`${orgApi(org)}/connections/${connectionId}/server`,
+		customMcpServerSchema,
+	);
+}
+
+/**
+ * Moves a custom MCP connection to another address or token, answered as connecting is: the
+ * connection, or the sign-in the server asks for, begun, which comes back to it. `url` left out
+ * keeps the address, `token` left out the token, `null` drops it. A 400 says what is wrong, 409 that
+ * another connection has the address, 422 that the token was turned down, 502 that the server could
+ * not be reached.
+ */
+export function editMcpServer(
+	org: string,
+	connectionId: string,
+	input: z.input<typeof editMcpServerBodySchema>,
+) {
+	return apiRequest(
+		'PUT',
+		`${orgApi(org)}/connections/${connectionId}/server`,
+		connectMcpSchema,
+		input,
+	);
 }
 
 /** Asks a custom MCP server for its tools again and keeps the new list. */

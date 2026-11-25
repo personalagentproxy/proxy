@@ -387,3 +387,108 @@ describe('handleRefreshCustomMcpToolsRoute', () => {
 		expect(listCustomTools).not.toHaveBeenCalled();
 	});
 });
+
+describe('handleEditCustomMcpServerRoute', () => {
+	const tokenCredential = {auth: 'token', url: 'https://mcp.example.com/mcp?v=2', token: 'secret'};
+
+	function stored(credential: Record<string, unknown>) {
+		getConnectionWithCredential.mockResolvedValue(Ok({...row, name: 'Docs', credential: `enc:${JSON.stringify(credential)}`}));
+	}
+
+	async function edit(body: unknown) {
+		const {handleEditCustomMcpServerRoute} = await import('./route');
+		const res = makeRes();
+		await handleEditCustomMcpServerRoute(makeRequest(body, {connectionId: 'mcp-1'}), res as never);
+		return res;
+	}
+
+	test('moves the connection to another address on the same server, its token, name and settings kept', async () => {
+		stored(tokenCredential);
+		const res = await edit({url: 'https://mcp.example.com/v2/mcp'});
+
+		expect(probeMcpServer).toHaveBeenCalledWith(new URL('https://mcp.example.com/v2/mcp'), 'secret');
+		expect(createConnection).not.toHaveBeenCalled();
+		expect(updateConnectionName).not.toHaveBeenCalled();
+		expect(renewConnection).toHaveBeenCalledWith({
+			connectionId: 'mcp-1',
+			account: 'mcp.example.com/v2/mcp',
+			providerAccountId: null,
+			credential: `enc:${JSON.stringify({auth: 'token', url: 'https://mcp.example.com/v2/mcp', token: 'secret'})}`,
+		});
+		expect(updateConnectionTools).toHaveBeenCalledWith({connectionId: 'mcp-1', tools: JSON.stringify([search, publish]), actions: ['search_docs', 'publish_doc']});
+		expect(res.sent).toMatchObject({kind: 'connected', connection: {id: 'mcp-1', name: 'Docs', account: 'mcp.example.com/v2/mcp', tools: [search, publish]}});
+	});
+
+	test('a new token alone keeps the address, its query too', async () => {
+		stored(tokenCredential);
+		await edit({token: ' other '});
+
+		expect(probeMcpServer).toHaveBeenCalledWith(new URL('https://mcp.example.com/mcp?v=2'), 'other');
+		expect(renewConnection.mock.calls[0]?.[0]).toMatchObject({
+			connectionId: 'mcp-1',
+			credential: `enc:${JSON.stringify({auth: 'token', url: 'https://mcp.example.com/mcp?v=2', token: 'other'})}`,
+		});
+	});
+
+	test('the token is never sent to another server unasked: it is typed again, or dropped', async () => {
+		stored(tokenCredential);
+		const refused = await edit({url: 'https://docs.example.org/mcp'});
+		expect(refused.statusCode).toBe(400);
+		expect(probeMcpServer).not.toHaveBeenCalled();
+
+		await edit({url: 'https://docs.example.org/mcp', token: null});
+		expect(probeMcpServer).toHaveBeenCalledWith(new URL('https://docs.example.org/mcp'), null);
+		expect(renewConnection.mock.calls[0]?.[0]).toMatchObject({credential: `enc:${JSON.stringify({auth: 'none', url: 'https://docs.example.org/mcp'})}`});
+	});
+
+	test('refuses an address another of the connections has, and a service built in', async () => {
+		stored(tokenCredential);
+		findAccountConnection.mockResolvedValue(Ok({...row, id: 'mcp-2', account: 'mcp.example.com/other', name: 'Other docs'}));
+		const taken = await edit({url: 'https://mcp.example.com/other', token: null});
+		expect(taken.statusCode).toBe(409);
+
+		findAccountConnection.mockResolvedValue(Ok(null));
+		const builtIn = await edit({url: 'https://mcp.notion.com/mcp', token: null});
+		expect(builtIn.statusCode).toBe(400);
+		expect(probeMcpServer).not.toHaveBeenCalled();
+		expect(renewConnection).not.toHaveBeenCalled();
+	});
+
+	test('only a custom MCP server is edited', async () => {
+		getConnectionWithCredential.mockResolvedValue(Ok({...row, integrationId: 'notion', credential: 'enc:{}'}));
+		const res = await edit({url: 'https://mcp.example.com/mcp'});
+		expect(res.statusCode).toBe(400);
+		expect(probeMcpServer).not.toHaveBeenCalled();
+	});
+
+	test('a server that asks for a sign-in has it begun for this connection, which the callback renews at its new address', async () => {
+		stored({auth: 'none', url: 'https://old.example.com/mcp'});
+		probeMcpServer.mockResolvedValue(Ok({kind: 'signIn'}));
+		const begun = await edit({url: 'https://mcp.example.com/mcp'});
+		expect(begun.sent).toMatchObject({kind: 'signIn'});
+		const state = new URL((begun.sent as {url: string}).url).searchParams.get('state') ?? '';
+		const cookie = `proxy.mcp-state=${encodeURIComponent(begun.cookies[0]?.value ?? '')}`;
+
+		// Another connection of the account would be renewed on a new sign-in; this one is the edited one.
+		findAccountConnection.mockResolvedValue(Ok({...row, id: 'mcp-2'}));
+		exchangeMcpCode.mockResolvedValue(Ok({clientId: 'client-1', accessToken: 'access-1', refreshToken: 'refresh-1', expiresAt: null}));
+		listMcpTools.mockResolvedValue(Ok([search]));
+		const {handleCustomMcpCallbackRoute} = await import('./route');
+		const res = makeRes();
+		await handleCustomMcpCallbackRoute(makeRequest(undefined, {}, {state, code: 'code-1'}, {cookie}), res as never);
+
+		expect(createConnection).not.toHaveBeenCalled();
+		expect(updateConnectionName).not.toHaveBeenCalled();
+		expect(renewConnection.mock.calls[0]?.[0]).toMatchObject({connectionId: 'mcp-1', account: 'mcp.example.com/mcp'});
+		expect(res.redirectedTo).toBe('https://app.example.com/org-1/connections/mcp-1');
+	});
+});
+
+describe('handleGetCustomMcpServerRoute', () => {
+	test('the address without its query, which may hold a key, and how it is signed in to', async () => {
+		getConnectionWithCredential.mockResolvedValue(Ok({...row, credential: `enc:${JSON.stringify({auth: 'token', url: 'https://mcp.example.com/mcp?key=k-1', token: 'secret'})}`}));
+		const {handleGetCustomMcpServerRoute} = await import('./route');
+		const result = (await handleGetCustomMcpServerRoute(makeRequest(undefined, {connectionId: 'mcp-1'}))).unwrap();
+		expect(result).toEqual({url: 'https://mcp.example.com/mcp', auth: 'token'});
+	});
+});

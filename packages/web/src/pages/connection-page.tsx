@@ -1,5 +1,5 @@
 import type {Connection} from '@proxy/contracts/connections';
-import {ListRestartIcon, UnplugIcon} from 'lucide-react';
+import {ListRestartIcon, PencilIcon, UnplugIcon} from 'lucide-react';
 import type {FetchError} from '@proxy/utils';
 import {useState} from 'react';
 import {useNavigate, useSearchParams} from 'react-router';
@@ -17,6 +17,7 @@ import {ConnectWithKeyDialog} from '@/components/connect-with-key-dialog';
 import {SignInAgain} from '@/components/connection-access';
 import {ConnectionSharing} from '@/components/connection-sharing';
 import {ConfirmDialog} from '@/components/confirm-dialog';
+import {EditMcpServerDialog} from '@/components/edit-mcp-server-dialog';
 import {GitHubRepositories} from '@/components/github-repositories';
 import {IconButton} from '@/components/icon-button';
 import {IntegrationLogo} from '@/components/brand-logo';
@@ -64,6 +65,7 @@ function ConnectionDetail() {
 		github,
 		files,
 		history,
+		mcpServer,
 	} = useLoaded<typeof connectionLoader>();
 	const navigate = useNavigate();
 	const reload = useReload();
@@ -73,6 +75,8 @@ function ConnectionDetail() {
 	const [disconnecting, setDisconnecting] = useState(false);
 	const [refreshing, setRefreshing] = useState(false);
 	const [replacingKey, setReplacingKey] = useState(false);
+	// Open from the start when the desktop app handed its sign-in over to the browser (`?server=edit`).
+	const [editingServer, setEditingServer] = useState(searchParams.get('server') === 'edit');
 	const [error, setError] = useState<string | null>(null);
 	// Where the shown part puts its own buttons, on the tabs' row.
 	const [toolbar, setToolbar] = useState<HTMLElement | null>(null);
@@ -185,6 +189,11 @@ function ConnectionDetail() {
 				}
 				actions={
 					<>
+						{mcpServer !== null && mayChange && (
+							<IconButton label="Edit the server" onClick={() => setEditingServer(true)}>
+								<PencilIcon />
+							</IconButton>
+						)}
 						{integration.custom && mayChange && (
 							<IconButton
 								label={
@@ -233,6 +242,22 @@ function ConnectionDetail() {
 						onClose={() => setReplacingKey(false)}
 						onConnected={async () => {
 							setReplacingKey(false);
+							await reload();
+						}}
+					/>
+				)}
+				{editingServer && mcpServer !== null && mayChange && (
+					<EditMcpServerDialog
+						connection={connection}
+						server={mcpServer}
+						handedOver={{
+							url: searchParams.get('url'),
+							dropToken: searchParams.get('token') === 'none',
+							desktop: searchParams.get('desktop') === '1',
+						}}
+						onClose={() => setEditingServer(false)}
+						onSaved={async () => {
+							setEditingServer(false);
 							await reload();
 						}}
 					/>
@@ -363,7 +388,7 @@ function ConnectionDetail() {
 // What asking a custom MCP server for its tools again says when it fails.
 function describeRefreshError(error: FetchError): string {
 	if (error.kind === 'http' && error.status === 422) {
-		return 'The server turned the sign-in down. Disconnect it and connect it again.';
+		return 'The server turned the sign-in down. Edit the server to give it a new token or sign in again.';
 	}
 	if (error.kind === 'http' && error.status === 502) {
 		return 'The server could not be reached. Try again in a moment.';
