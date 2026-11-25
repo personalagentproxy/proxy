@@ -6,18 +6,20 @@ import {renameDue, RENEW_PROCESSING_MS, sessionDue, sessionFailure, sessionRetry
 import type {SessionStatus} from './slack-api';
 
 describe('the status a thread comes to', () => {
-	const table: Array<[ThreadStanding, boolean, SessionStatus]> = [
-		['in_progress', false, 'processing'],
-		['waiting', false, 'suspended'],
-		['watching', false, 'active'],
-		['done', false, 'active'],
-		['waiting', true, 'processing'],
-		['watching', true, 'processing'],
-		['done', true, 'processing'],
+	const table: Array<[ThreadStanding, {subAgentsAtWork: boolean; archived: boolean}, SessionStatus]> = [
+		['in_progress', {subAgentsAtWork: false, archived: false}, 'processing'],
+		['waiting', {subAgentsAtWork: false, archived: false}, 'suspended'],
+		['watching', {subAgentsAtWork: false, archived: false}, 'active'],
+		['done', {subAgentsAtWork: false, archived: false}, 'active'],
+		['waiting', {subAgentsAtWork: true, archived: false}, 'processing'],
+		['watching', {subAgentsAtWork: true, archived: false}, 'processing'],
+		['done', {subAgentsAtWork: true, archived: false}, 'processing'],
+		['waiting', {subAgentsAtWork: false, archived: true}, 'active'],
+		['done', {subAgentsAtWork: false, archived: true}, 'active'],
 	];
-	for (const [standing, subAgentsAtWork, status] of table) {
-		test(`${standing}${subAgentsAtWork ? ', with a sub-agent at work' : ''}: ${status}`, () => {
-			expect(sessionStatusOf(standing, subAgentsAtWork)).toBe(status);
+	for (const [standing, thread, status] of table) {
+		test(`${standing}${thread.subAgentsAtWork ? ', with a sub-agent at work' : ''}${thread.archived ? ', archived' : ''}: ${status}`, () => {
+			expect(sessionStatusOf(standing, thread)).toBe(status);
 		});
 	}
 });

@@ -43,6 +43,12 @@ export const alertSchema = z.object({
 		color: z.enum(AVATAR_COLORS),
 	}),
 	opens: alertOpensSchema,
+	/**
+	 * Whether the new threads one that opens them opens are in Slack, in the person's direct
+	 * messages with the agent's app, as it was set in a thread there; false for one that opens them
+	 * on the Chat page, and for one that comes to its thread.
+	 */
+	opensInSlack: z.boolean(),
 	/** The thread it comes to, for one that opens none; null for one that opens a new thread each time. */
 	thread: threadRefSchema.nullable(),
 	/** The thread it was set in; null once that is gone. */

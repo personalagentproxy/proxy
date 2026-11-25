@@ -2641,3 +2641,63 @@ describe('ChatPage', () => {
 		});
 	});
 });
+
+describe('a message passed on from another thread', () => {
+	const fromChat = {
+		thread: {id: 't9', personaId: 'finance', title: 'Pricing review with Dana', slackUrl: null},
+	};
+	const fromSlack = {
+		thread: {
+			id: 't8',
+			personaId: 'general',
+			title: 'Plan the offsite in Lisbon',
+			slackUrl: 'https://app.slack.com/client/T0001/D0001/thread/D0001-1761040800.000100',
+		},
+	};
+	const passed = (
+		id: string,
+		text: string,
+		passedOn: ThreadMessage['passedOn'],
+	): ThreadMessage => ({
+		...said(id, 'person', text),
+		passedOn,
+	});
+	const vite = thread('t6', {title: 'Upgrade vite'});
+	const viteView = view(vite, [
+		said('m1', 'person', 'Upgrade vite to 7'),
+		said('m2', 'assistant', 'Shall I include the docs site?'),
+		passed('m3', 'Yes, include the docs site too', fromChat),
+		passed('m4', 'And the website', fromSlack),
+		passed('m5', 'And the blog', {thread: null}),
+		said('m6', 'person', 'Thanks'),
+	]);
+
+	test('is the person’s bubble with a quiet line under it, the thread it came from linked where it lives, in Chat or in Slack, or another thread, unlinked, where it is deleted since', async () => {
+		renderChatPage({
+			threads: [vite],
+			views: {t6: viteView},
+			initial: '/acme/chat/general/threads/t6',
+		});
+
+		const opened = await screen.findByLabelText('Thread');
+		const inChat = await within(opened).findByRole('link', {name: 'Pricing review with Dana'});
+		expect(inChat.getAttribute('href')).toBe('/acme/chat/finance/threads/t9');
+		expect(inChat.closest('p')?.textContent).toBe('Passed on from Pricing review with Dana');
+		const bubble = within(opened).getByText('Yes, include the docs site too');
+		expect(bubble.closest('[data-slot=bubble-content]')).not.toBeNull();
+
+		const inSlack = within(opened).getByRole('link', {name: 'Plan the offsite in Lisbon in Slack'});
+		expect(inSlack.getAttribute('href')).toBe(fromSlack.thread.slackUrl);
+		expect(inSlack.getAttribute('target')).toBe('_blank');
+		expect(inSlack.closest('p')?.textContent).toBe(
+			'Passed on from Plan the offsite in Lisbon in Slack',
+		);
+
+		expect(within(opened).getByText('another thread').closest('p')?.textContent).toBe(
+			'Passed on from another thread',
+		);
+		expect(within(opened).getByText('another thread').closest('a')).toBeNull();
+		// What the person wrote in the thread has no such line.
+		expect(within(opened).getAllByText('Passed on from')).toHaveLength(3);
+	});
+});

@@ -12,7 +12,7 @@ const APP = 'https://proxy.example.com';
 let seq = 100;
 function entry(fields: Partial<ShownEntryRow>): ShownEntryRow {
 	seq += 1;
-	return {id: `entry-${seq}`, seq, kind: 'assistant', pending: false, text: '', toolCalls: null, callId: null, isError: false, createdAt: new Date('2026-11-16T10:00:00Z'), ...fields};
+	return {id: `entry-${seq}`, seq, kind: 'assistant', pending: false, text: '', toolCalls: null, callId: null, isError: false, passedOn: null, createdAt: new Date('2026-11-16T10:00:00Z'), ...fields};
 }
 
 const call = (name: string, args: object, id = 'call-1'): ToolCall => ({id, name, arguments: JSON.stringify(args)});
@@ -41,6 +41,16 @@ describe('what a thread’s entries come to in Slack', () => {
 		],
 		['an alert that fired, as the one line the Chat page reads it as, under its lead', {kind: 'event', text: DUE}, ['Alert: “Renewal” is due']],
 		['what the member said, which they wrote in Slack, not again', {kind: 'person', text: 'Book the train'}, []],
+		[
+			'what the member said that another of their threads passed on, quoted under a lead naming it',
+			{kind: 'person', text: 'Yes, include the docs site too', passedOn: {threadId: 'thread-1', thread: {id: 'thread-1', personaId: 'persona-1', title: 'Upgrade vite', slack: null}}},
+			['Your message, passed on from “Upgrade vite”:\n> Yes, include the docs site too'],
+		],
+		[
+			'what was passed on from a thread deleted since, under a lead that names none, each line quoted',
+			{kind: 'person', text: 'Book the train\n\nThe 9:40 if it’s there', passedOn: {threadId: 'thread-0', thread: null}},
+			['Your message, passed on from another thread:\n> Book the train\n>\n> The 9:40 if it’s there'],
+		],
 		['anything pending, not yet', {kind: 'event', text: DUE, pending: true}, []],
 		['a call that isn’t a message to the member, not at all', {toolCalls: [call('search_fares', {to: 'Lyon'})]}, []],
 		['a sub-agent started, no line for it', {toolCalls: [call('create_subagent', {title: 'Fares to Lyon', brief: 'Find the fares'}, 'call-sub')]}, []],

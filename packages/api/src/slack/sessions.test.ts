@@ -48,7 +48,16 @@ function world(fields: Partial<SlackSessionPlace> | null = {}, standing: Partial
 		app: {id: 'app-1', botToken: 'enc:xoxb-bot', removedAt: null, sessionsOffUntil: null},
 		...fields,
 	};
-	const thread: SlackSessionState = {state: {kind: 'working'}, waitingForMember: false, alerts: 0, subAgentsAtWork: false, title: 'Compare the fares to Lyon', lastSeq: 1, ...standing};
+	const thread: SlackSessionState = {
+		state: {kind: 'working'},
+		waitingForMember: false,
+		archived: false,
+		alerts: 0,
+		subAgentsAtWork: false,
+		title: 'Compare the fares to Lyon',
+		lastSeq: 1,
+		...standing,
+	};
 	const done = {statuses: [] as SlackSessionStatus[], titles: [] as Array<string | null>, removed: false};
 	const store: SessionStore = {
 		place: async () => Ok(fields === null ? null : place),
@@ -121,6 +130,7 @@ describe('the session kept true by the sweep', () => {
 		['stopped, waiting for the member', {state: {kind: 'stopped'}, waitingForMember: true}, 'suspended'],
 		['stopped, done', {state: {kind: 'stopped'}}, 'active'],
 		['stopped, watching for alerts, as done is', {state: {kind: 'stopped'}, alerts: 2}, 'active'],
+		['stopped, waiting for the member but archived by them, which Slack can’t hide', {state: {kind: 'stopped'}, waitingForMember: true, archived: true}, 'active'],
 		['stopped, while a sub-agent still works', {state: {kind: 'stopped'}, subAgentsAtWork: true}, 'processing'],
 		['stopped and waiting, while a sub-agent still works', {state: {kind: 'stopped'}, waitingForMember: true, subAgentsAtWork: true}, 'processing'],
 	];

@@ -750,3 +750,68 @@ describe("an integration's own tools", () => {
 		expect(integrationTools(stray).some((tool) => tool.kind === 'native')).toBe(false);
 	});
 });
+
+describe('chat', () => {
+	const chat = integration('chat');
+
+	test('a message is sent to a thread by its id with its text, both required, with Write in threads', () => {
+		const send = findTool(chat, 'threads_send');
+		expect(send).toMatchObject({
+			kind: 'command',
+			operation: 'send',
+			action: 'writeThreads',
+			risk: 'medium',
+			readOnly: false,
+			reachesOthers: false,
+		});
+		expect(send?.inputSchema).toMatchObject({
+			properties: {id: {type: 'string'}, text: {type: 'string'}},
+			required: ['id', 'text'],
+		});
+		expect(send?.description).toStartWith(
+			'Send a message: one thread, by its id. It lands in that thread as your message',
+		);
+	});
+
+	test('a thread is opened with its message, its agent and its place, none of them required, the place by its word, with Write in threads', () => {
+		const open = findTool(chat, 'threads_open');
+		expect(open).toMatchObject({
+			kind: 'newCommand',
+			operation: 'open',
+			action: 'writeThreads',
+			risk: 'medium',
+			readOnly: false,
+		});
+		expect(open?.inputSchema).toEqual({
+			type: 'object',
+			properties: {
+				text: {type: 'string', description: 'The message, in your own words where you gave them'},
+				agent: {
+					type: 'string',
+					description: 'The agent, by its name or id; this thread’s where left out',
+				},
+				place: {
+					type: 'string',
+					description: 'Where it lives; this thread’s place where left out',
+					enum: ['Chat', 'Slack'],
+				},
+			},
+			required: [],
+			additionalProperties: false,
+		});
+		expect(open?.description).toStartWith(
+			'Open a new thread of yours for a different piece of work',
+		);
+	});
+
+	test('writing in threads counts only with reading them', () => {
+		expect(
+			allowedTools(chat, effectiveActions(chat, [], {writeThreads: true})).map((tool) => tool.name),
+		).toEqual([]);
+		expect(
+			allowedTools(chat, effectiveActions(chat, [], {readThreads: true, writeThreads: true})).map(
+				(tool) => tool.name,
+			),
+		).toEqual(expect.arrayContaining(['threads_send', 'threads_open']));
+	});
+});

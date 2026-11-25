@@ -2,7 +2,7 @@ import {Err, Ok, type Result} from 'ts-results-es';
 import {z} from 'zod';
 
 import {ApiErr, type ApiError, parseSchema} from '@proxy/utils';
-import type {Collection} from '@proxy/integrations';
+import type {Collection, Field} from '@proxy/integrations';
 
 import type {RecordValues} from './connector';
 
@@ -13,19 +13,29 @@ const valuesSchema = z.record(z.string(), z.string());
  * the provider sets, unknown fields and options a select doesn't have are refused.
  */
 export function parseRecordValues(collection: Collection, input: unknown): Result<RecordValues, ApiError> {
+	return parseFieldValues(
+		collection.fields.filter((field) => !field.system),
+		input,
+	);
+}
+
+/**
+ * The values of `fields`, missing ones empty, as a command that takes its own (the catalog's
+ * `params`) is given them: unknown fields and options a select doesn't have are refused.
+ */
+export function parseFieldValues(fields: Field[], input: unknown): Result<RecordValues, ApiError> {
 	const parsed = parseSchema(valuesSchema, input);
 	if (parsed.isErr()) {
 		return parsed;
 	}
 
-	const editable = collection.fields.filter((field) => !field.system);
-	const unknown = Object.keys(parsed.value).find((key) => !editable.some((field) => field.key === key));
+	const unknown = Object.keys(parsed.value).find((key) => !fields.some((field) => field.key === key));
 	if (unknown !== undefined) {
 		return Err(ApiErr.validationError(`${unknown} can't be set`));
 	}
 
 	const values: RecordValues = {};
-	for (const field of editable) {
+	for (const field of fields) {
 		const value = parsed.value[field.key] ?? '';
 		if (field.options && value !== '' && !field.options.includes(value)) {
 			return Err(ApiErr.validationError(`${field.key} must be one of ${field.options.join(', ')}`));

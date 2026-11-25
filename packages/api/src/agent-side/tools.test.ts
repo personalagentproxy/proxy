@@ -161,13 +161,19 @@ const draft = {
 };
 
 const archive = mock();
+const markDone = mock();
+const unarchive = mock();
 const send = mock();
 const sendNew = mock();
 const read = mock();
 const sendReply = mock();
-const connector = {list: mock(), get: mock(), create: mock(), update: mock(), remove: mock(), commands: {archive, send}, newCommands: {sendNew, read, send: sendReply}};
+const open = mock();
+const connector = {list: mock(), get: mock(), create: mock(), update: mock(), remove: mock(), commands: {archive, send, markDone, unarchive}, newCommands: {sendNew, read, send: sendReply, open}};
 
-function useConnection(connection: typeof vaultConnection | typeof emailConnection | typeof notionConnection | typeof googleConnection) {
+// A member's Chat, which no agent may do anything with by default.
+const chatConnection = {...vaultConnection, id: 'chat-1', integrationId: 'chat', account: 'Acme', defaults: []};
+
+function useConnection(connection: typeof vaultConnection | typeof emailConnection | typeof notionConnection | typeof googleConnection | typeof chatConnection) {
 	loadConnection.mockResolvedValue(Ok({connection, integration: integration(connection.integrationId)}));
 }
 
@@ -583,6 +589,174 @@ describe('runAgentTool', () => {
 		connector.list.mockResolvedValue(Err(ApiErr.credentialsRejected()));
 		const failedUnlogged = await runAgentTool(caller, 'mail-1', 'emails_list', {});
 		expect(failedUnlogged.unwrapErr().kind).toBe('db_error');
+	});
+});
+
+describe('where a thread stands, through the Chat connection', () => {
+	const thread = (standing: string, place = 'Slack') => ({id: 'thread-2', values: {title: 'Pricing review with Dana', standing, place}, updatedAt: '2026-10-01T00:00:00.000Z'});
+	const builtIn = (actions: string[]) => ({...agent, providerId: 'proxy', grants: actions.map((actionId) => ({connectionId: 'chat-1', actionId, allowed: true}))});
+
+	beforeEach(() => {
+		useConnection(chatConnection);
+		getAgentById.mockResolvedValue(Ok(builtIn(['readThreads', 'markThreads'])));
+		connector.get.mockResolvedValue(Ok(thread('Waiting for you')));
+	});
+
+	test('is marked done, archived and brought back by the connector, each logged with the thread’s title, a thread in Slack as one in Chat', async () => {
+		const {runAgentTool} = await import('./tools');
+		markDone.mockResolvedValue(Ok(thread('Done')));
+		archive.mockResolvedValue(Ok(thread('Archived')));
+		unarchive.mockResolvedValue(Ok(thread('Done', 'Chat')));
+
+		expect((await runAgentTool(caller, 'chat-1', 'threads_mark_done', {id: 'thread-2'})).unwrap()).toEqual({record: thread('Done')});
+		expect((await runAgentTool(caller, 'chat-1', 'threads_archive', {id: 'thread-2'})).unwrap()).toEqual({record: thread('Archived')});
+		connector.get.mockResolvedValue(Ok(thread('Archived', 'Chat')));
+		expect((await runAgentTool(caller, 'chat-1', 'threads_unarchive', {id: 'thread-2'})).unwrap()).toEqual({record: thread('Done', 'Chat')});
+
+		expect(markDone.mock.calls[0]?.[1]).toBe('thread-2');
+		expect(logAgentRequest.mock.calls.map(([logged]) => [logged.connectionId, logged.collectionId, logged.action, logged.recordTitle, logged.outcome])).toEqual([
+			['chat-1', 'threads', 'markDone', 'Pricing review with Dana', 'allowed'],
+			['chat-1', 'threads', 'archive', 'Pricing review with Dana', 'allowed'],
+			['chat-1', 'threads', 'unarchive', 'Pricing review with Dana', 'allowed'],
+		]);
+	});
+
+	test('is refused without Mark done and archive, and logged as denied', async () => {
+		const {runAgentTool} = await import('./tools');
+		getAgentById.mockResolvedValue(Ok(builtIn(['readThreads'])));
+
+		expect((await runAgentTool(caller, 'chat-1', 'threads_archive', {id: 'thread-2'})).unwrapErr().kind).toBe('forbidden');
+		expect(archive).not.toHaveBeenCalled();
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({collectionId: 'threads', action: 'archive', outcome: 'denied'});
+	});
+
+	test('is not changed for a thread in progress, nor archived while watching, nor brought back unless archived, nor for one that isn’t the member’s', async () => {
+		const {runAgentTool} = await import('./tools');
+		connector.get.mockResolvedValue(Ok(thread('In progress')));
+
+		expect((await runAgentTool(caller, 'chat-1', 'threads_archive', {id: 'thread-2'})).unwrapErr()).toMatchObject({kind: 'validation_error', message: expect.stringContaining('Waiting for you')});
+		expect((await runAgentTool(caller, 'chat-1', 'threads_mark_done', {id: 'thread-2'})).unwrapErr().kind).toBe('validation_error');
+		connector.get.mockResolvedValue(Ok(thread('Watching')));
+		expect((await runAgentTool(caller, 'chat-1', 'threads_archive', {id: 'thread-2'})).unwrapErr().kind).toBe('validation_error');
+		connector.get.mockResolvedValue(Ok(thread('Done')));
+		expect((await runAgentTool(caller, 'chat-1', 'threads_unarchive', {id: 'thread-2'})).unwrapErr().kind).toBe('validation_error');
+		expect(archive).not.toHaveBeenCalled();
+		expect(markDone).not.toHaveBeenCalled();
+		expect(unarchive).not.toHaveBeenCalled();
+
+		connector.get.mockResolvedValue(Err(ApiErr.notFound('record', 'thread-9')));
+		expect((await runAgentTool(caller, 'chat-1', 'threads_mark_done', {id: 'thread-9'})).unwrapErr().kind).toBe('not_found');
+		expect(markDone).not.toHaveBeenCalled();
+	});
+});
+
+describe('a message sent to a thread, through the Chat connection', () => {
+	const thread = (standing: string) => ({id: 'thread-2', values: {title: 'Upgrade vite', standing, place: 'Chat'}, updatedAt: '2026-10-01T00:00:00.000Z'});
+	const builtIn = (actions: string[]) => ({...agent, providerId: 'proxy', grants: actions.map((actionId) => ({connectionId: 'chat-1', actionId, allowed: true}))});
+
+	beforeEach(() => {
+		useConnection(chatConnection);
+		getAgentById.mockResolvedValue(Ok(builtIn(['readThreads', 'writeThreads'])));
+		connector.get.mockResolvedValue(Ok(thread('In progress')));
+	});
+
+	test('is sent by the connector with its text, for the caller’s task, to a thread whatever it stands, and logged with the thread’s title', async () => {
+		const {runAgentTool} = await import('./tools');
+		send.mockResolvedValue(Ok(thread('In progress')));
+
+		expect((await runAgentTool(caller, 'chat-1', 'threads_send', {id: 'thread-2', text: 'Yes, include the docs site too'})).unwrap()).toEqual({record: thread('In progress')});
+
+		const [target, recordId, values] = send.mock.calls[0] ?? [];
+		expect(target).toMatchObject({by: {taskId: 'task-1'}, collection: {id: 'threads'}});
+		expect(recordId).toBe('thread-2');
+		expect(values).toEqual({text: 'Yes, include the docs site too'});
+		expect(logAgentRequest.mock.calls.map(([logged]) => [logged.collectionId, logged.action, logged.recordTitle, logged.outcome, logged.taskId])).toEqual([
+			['threads', 'send', 'Upgrade vite', 'allowed', 'task-1'],
+		]);
+	});
+
+	test('needs its text', async () => {
+		const {runAgentTool} = await import('./tools');
+
+		expect((await runAgentTool(caller, 'chat-1', 'threads_send', {id: 'thread-2'})).unwrapErr()).toMatchObject({kind: 'validation_error'});
+		expect(send).not.toHaveBeenCalled();
+	});
+
+	test('is refused without Write in threads, and logged as denied', async () => {
+		const {runAgentTool} = await import('./tools');
+		getAgentById.mockResolvedValue(Ok(builtIn(['readThreads', 'markThreads'])));
+
+		expect((await runAgentTool(caller, 'chat-1', 'threads_send', {id: 'thread-2', text: 'Hello'})).unwrapErr().kind).toBe('forbidden');
+		expect(send).not.toHaveBeenCalled();
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({collectionId: 'threads', action: 'send', outcome: 'denied'});
+	});
+
+	test('the connector refuses is logged as failed, with its kind', async () => {
+		const {runAgentTool} = await import('./tools');
+		send.mockResolvedValue(Err(ApiErr.validationError('Only the agent of one of your threads can send a message to another')));
+
+		expect((await runAgentTool(caller, 'chat-1', 'threads_send', {id: 'thread-2', text: 'Hello'})).unwrapErr()).toMatchObject({kind: 'validation_error'});
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({collectionId: 'threads', action: 'send', recordTitle: 'Upgrade vite', outcome: 'failed', error: 'validation_error'});
+	});
+});
+
+describe('a thread opened from a thread, through the Chat connection', () => {
+	const thread = {
+		id: 'thread-3',
+		values: {title: 'Draft the renewal email', agent: 'Legal', standing: 'In progress', place: 'Slack'},
+		updatedAt: '2026-10-01T00:00:00.000Z',
+		url: 'https://app.slack.com/client/T01/D01',
+	};
+	const builtIn = (actions: string[]) => ({...agent, providerId: 'proxy', grants: actions.map((actionId) => ({connectionId: 'chat-1', actionId, allowed: true}))});
+
+	beforeEach(() => {
+		useConnection(chatConnection);
+		getAgentById.mockResolvedValue(Ok(builtIn(['readThreads', 'writeThreads'])));
+	});
+
+	test('is opened by the connector with its message, agent and place, for the caller’s task, and logged with the new thread’s title', async () => {
+		const {runAgentTool} = await import('./tools');
+		open.mockResolvedValue(Ok(thread));
+
+		expect((await runAgentTool(caller, 'chat-1', 'threads_open', {text: 'Draft the renewal email', agent: 'Legal', place: 'Slack'})).unwrap()).toEqual({record: thread});
+
+		const [target, values] = open.mock.calls[0] ?? [];
+		expect(target).toMatchObject({by: {taskId: 'task-1'}, collection: {id: 'threads'}});
+		expect(values).toEqual({text: 'Draft the renewal email', agent: 'Legal', place: 'Slack'});
+		expect(logAgentRequest.mock.calls.map(([logged]) => [logged.collectionId, logged.action, logged.recordTitle, logged.outcome, logged.taskId])).toEqual([
+			['threads', 'open', 'Draft the renewal email', 'allowed', 'task-1'],
+		]);
+	});
+
+	test('takes its agent and place as left out where not given, and a place only by its word', async () => {
+		const {runAgentTool} = await import('./tools');
+		open.mockResolvedValue(Ok(thread));
+
+		(await runAgentTool(caller, 'chat-1', 'threads_open', {text: 'Draft it'})).unwrap();
+		expect(open.mock.calls[0]?.[1]).toEqual({text: 'Draft it', agent: '', place: ''});
+		expect((await runAgentTool(caller, 'chat-1', 'threads_open', {text: 'Draft it', place: 'Email'})).unwrapErr()).toMatchObject({
+			kind: 'validation_error',
+			message: 'place must be one of Chat, Slack',
+		});
+		expect((await runAgentTool(caller, 'chat-1', 'threads_open', {text: 'Draft it', title: 'Renewal'})).unwrapErr()).toMatchObject({kind: 'validation_error'});
+		expect(open).toHaveBeenCalledTimes(1);
+	});
+
+	test('is refused without Write in threads, and logged as denied', async () => {
+		const {runAgentTool} = await import('./tools');
+		getAgentById.mockResolvedValue(Ok(builtIn(['readThreads', 'markThreads'])));
+
+		expect((await runAgentTool(caller, 'chat-1', 'threads_open', {text: 'Hello'})).unwrapErr().kind).toBe('forbidden');
+		expect(open).not.toHaveBeenCalled();
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({collectionId: 'threads', action: 'open', outcome: 'denied'});
+	});
+
+	test('the connector refuses is logged as failed, with its kind', async () => {
+		const {runAgentTool} = await import('./tools');
+		open.mockResolvedValue(Err(ApiErr.validationError('Finance isn’t in Slack')));
+
+		expect((await runAgentTool(caller, 'chat-1', 'threads_open', {text: 'Hello', place: 'Slack'})).unwrapErr()).toMatchObject({message: 'Finance isn’t in Slack'});
+		expect(logAgentRequest.mock.calls[0]?.[0]).toMatchObject({collectionId: 'threads', action: 'open', outcome: 'failed', error: 'validation_error'});
 	});
 });
 

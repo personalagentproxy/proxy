@@ -1,6 +1,6 @@
 import {afterEach, describe, expect, spyOn, test} from 'bun:test';
 
-import {createApp, deleteApp, exchangeInstallCode, rotateConfigurationToken, testToken, updateApp} from './slack-api';
+import {createApp, deleteApp, exchangeInstallCode, findRootMessage, openDirectMessage, postMessage, rotateConfigurationToken, testToken, updateApp} from './slack-api';
 
 type Seen = {url: string; headers: Headers; body: URLSearchParams};
 
@@ -141,5 +141,60 @@ describe('the Slack Web API client', () => {
 			});
 
 		expect((await exchangeInstallCode({clientId: '1', clientSecret: '2'}, {code: 'c', redirectUri: 'https://x.test/slack/install'})).unwrap()).toMatchObject({team: null, enterprise: true});
+	});
+	test('opens the bot’s DM with a Slack user, and reads its channel', async () => {
+		slack.answer = () => Response.json({ok: true, channel: {id: 'D0123'}});
+
+		expect((await openDirectMessage('xoxb-bot', 'U01')).unwrap()).toBe('D0123');
+		const [sent] = slack.requests;
+		expect(sent?.url).toBe('https://slack.com/api/conversations.open');
+		expect(sent?.headers.get('authorization')).toBe('Bearer xoxb-bot');
+		expect(Object.fromEntries(sent?.body ?? [])).toEqual({users: 'U01'});
+	});
+
+	test('posts a root message at the top of the DM, naming its place in its metadata, and its replies under it', async () => {
+		slack.answer = () => Response.json({ok: true, ts: '1700000000.000100'});
+
+		expect((await postMessage('xoxb-bot', {channel: 'D01', threadTs: null, place: 'place-1', markdown: 'Draft the renewal'})).unwrap()).toEqual({ts: '1700000000.000100'});
+		await postMessage('xoxb-bot', {channel: 'D01', threadTs: '1700000000.000100', markdown: 'Here is a draft.'});
+
+		const [root, reply] = slack.requests;
+		expect(root?.body.has('thread_ts')).toBe(false);
+		expect(JSON.parse(root?.body.get('metadata') ?? '{}')).toEqual({event_type: 'thread_opened', event_payload: {place: 'place-1'}});
+		expect(reply?.body.get('thread_ts')).toBe('1700000000.000100');
+		expect(reply?.body.has('metadata')).toBe(false);
+	});
+
+	test('posts a root message again without its metadata where Slack won’t take that, and nothing else twice', async () => {
+		const answers = [() => Response.json({ok: false, error: 'metadata_must_be_sent_from_app'}), () => Response.json({ok: true, ts: '1700000000.000200'})];
+		slack.answer = () => (answers.shift() ?? (() => Response.json({ok: false, error: 'internal_error'})))();
+
+		expect((await postMessage('xoxb-bot', {channel: 'D01', threadTs: null, place: 'place-1', markdown: 'Draft it'})).unwrap()).toEqual({ts: '1700000000.000200'});
+		expect(slack.requests.map(({body}) => body.has('metadata'))).toEqual([true, false]);
+
+		slack.requests = [];
+		slack.answer = () => Response.json({ok: false, error: 'metadata_must_be_sent_from_app'});
+		expect((await postMessage('xoxb-bot', {channel: 'D01', threadTs: '1700000000.000200', markdown: 'Under it'})).isErr()).toBe(true);
+		expect(slack.requests).toHaveLength(1);
+	});
+
+	test('finds a root message in the DM by the place its metadata names, at the top of the DM alone', async () => {
+		slack.answer = () =>
+			Response.json({
+				ok: true,
+				messages: [
+					{type: 'message', ts: '1700000000.000300', user: 'U01', text: 'Thanks'},
+					{type: 'message', ts: '1700000000.000250', thread_ts: '1700000000.000100', metadata: {event_type: 'thread_opened', event_payload: {place: 'place-1'}}},
+					{type: 'message', ts: '1700000000.000200', metadata: {event_type: 'something_else', event_payload: {count: 2}}},
+					{type: 'message', ts: '1700000000.000100', bot_id: 'B01', metadata: {event_type: 'thread_opened', event_payload: {place: 'place-1'}}},
+				],
+			});
+		const since = new Date(1_700_000_000_000);
+
+		expect((await findRootMessage('xoxb-bot', {channel: 'D01', place: 'place-1', since})).unwrap()).toBe('1700000000.000100');
+		expect((await findRootMessage('xoxb-bot', {channel: 'D01', place: 'place-2', since})).unwrap()).toBeNull();
+		const [sent] = slack.requests;
+		expect(sent?.url).toBe('https://slack.com/api/conversations.history');
+		expect(Object.fromEntries(sent?.body ?? [])).toEqual({channel: 'D01', oldest: '1699999700', limit: '200', include_all_metadata: 'true'});
 	});
 });

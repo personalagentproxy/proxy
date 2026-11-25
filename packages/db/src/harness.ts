@@ -125,6 +125,9 @@ export type EntryRow = LogEntry & {
 	// The job that wrote the entry; for what the person said, or an event, the turn that was given
 	// it as it ran, beside a call's answer (appendTurnEntries); null otherwise.
 	jobId: string | null;
+	// A `person` entry another of the member's threads passed on to this one, at their asking: that
+	// thread, by its id, which may be deleted since; null for what they wrote in the thread itself.
+	passedOnFromId: string | null;
 	createdAt: Date;
 };
 
@@ -190,8 +193,8 @@ export type SubAgentRow = ThreadRow & {state: ThreadState};
  */
 export type Wakes = (tail: LogEntry[]) => boolean;
 
-/** An entry to land in a thread. */
-export type NewEntry = {kind: AgentEntryKind; text: string};
+/** An entry to land in a thread; a `person` one passed on from another of the member's threads names it (passOnToThread). */
+export type NewEntry = {kind: AgentEntryKind; text: string; passedOnFromId?: string};
 
 /** The harness and the model a turn ran on, by their ids, kept with what the model answered. */
 export type RanOn = {harness: string; model: string};
@@ -278,7 +281,8 @@ function inChatSql(chat: Prisma.Sql, t: Prisma.Sql): Prisma.Sql {
 // of a chat's threads is picked by these, `IN_APP` for Prisma where sub-agents are left out already,
 // `inAppSql` for the thread `t` in SQL, and `isInApp` for one thread by its id. Slack's own code,
 // the agent's turns, the worker, the alerts' sweep and the member's Chat connection, which says
-// where each thread lives, read every thread.
+// where each thread lives, read every thread; the Chat connection changes where any stands, and
+// passes a message on to any (passOnToThread), wherever it lives.
 const IN_APP = {slackPlace: {is: null}} satisfies Prisma.AgentThreadWhereInput;
 
 function inAppSql(t: Prisma.Sql): Prisma.Sql {
@@ -384,6 +388,7 @@ export const entrySelect = {
 	harness: true,
 	model: true,
 	jobId: true,
+	passedOnFromId: true,
 	createdAt: true,
 } as const;
 
@@ -641,6 +646,35 @@ export async function listPersonasById(
 	return (
 		await wrapDb(() => db.persona.findMany({where: {orgId, id: {in: ids}}, select: personaSelect}))
 	).map((personas) => personas.map(toPersona));
+}
+
+/**
+ * The organization's personas the member sees, their own and those shared with the organization,
+ * by the id or the name `named`, the name in any case: the one named, or none, or several of one
+ * name. As a thread of theirs opens another with the persona they named.
+ */
+export async function findMemberPersonas(
+	orgId: string,
+	userId: string,
+	named: string,
+): Promise<Result<PersonaRow[], ApiError>> {
+	return (
+		await wrapDb(() =>
+			db.persona.findMany({
+				where: {
+					AND: [
+						seenBy(orgId, userId),
+						{OR: [{id: named}, {name: {equals: named, mode: 'insensitive'}}]},
+					],
+				},
+				select: personaSelect,
+				orderBy: {id: 'asc'},
+			}),
+		)
+	).map((personas) => {
+		const byId = personas.filter((persona) => persona.id === named);
+		return (byId.length > 0 ? byId : personas).map(toPersona);
+	});
 }
 
 /** One of the organization's personas the member sees; `Ok(null)` for none, another member's own among them. */
@@ -1632,6 +1666,177 @@ export async function replyInThread(
 }
 
 /**
+ * Why a thread can't pass a message on to another of the member's threads: the call is made for no
+ * thread of theirs, its task being none's; it is made for a sub-agent, whose task is its own, which
+ * works for its thread's agent and never talks with the member; or the latest the member said in
+ * the thread was itself passed on to it.
+ */
+export type PassOnRefusal = 'not_a_thread' | 'sub_agent' | 'passed_on';
+
+// Whether the latest the member said in the thread, pending or not, was passed on to it from
+// another of their threads, rather than written in it: such a thread passes nothing on in turn,
+// until they write in it directly, so that no message travels along a chain of threads. Only what
+// the member said counts: an alert's event and a sub-agent's answer are events, and a message
+// they steered the turn with as it ran is theirs, written in the thread.
+async function lastPassedOn(tx: Tx, threadId: string): Promise<boolean> {
+	const last = await tx.agentEntry.findFirst({
+		where: {threadId, kind: 'person'},
+		orderBy: {seq: 'desc'},
+		select: {passedOnFromId: true},
+	});
+	return (last?.passedOnFromId ?? null) !== null;
+}
+
+// The thread of the member's whose task `taskId` is, which passes a message on: refused where the
+// call is no thread's of theirs, where it is a sub-agent's, and where the latest the member said in
+// it was passed on to it (lastPassedOn).
+async function passingThread(
+	tx: Tx,
+	member: {orgId: string; userId: string},
+	taskId: string,
+): Promise<{thread: ThreadRow} | {refused: PassOnRefusal}> {
+	const found = await tx.agentThread.findFirst({
+		where: {...member, taskId, parentThreadId: {not: null}},
+		select: threadSelect,
+	});
+	if (!found) {
+		return {refused: 'not_a_thread'};
+	}
+	if (found.subAgentOfId !== null) {
+		return {refused: 'sub_agent'};
+	}
+	if (await lastPassedOn(tx, found.id)) {
+		return {refused: 'passed_on'};
+	}
+	return {thread: toThread(found)};
+}
+
+/**
+ * Passes a message on, from the thread of the member's whose task `taskId` is, to another of their
+ * threads, whichever persona's chat it is of and wherever it lives, in one transaction with its
+ * checks: it lands there as theirs, a `person` entry naming the thread it came from, and wakes the
+ * thread's agent as their reply does (wakeWith), bringing an archived one back; one at work reads
+ * it at its next step, as it reads a reply that came meanwhile. The member hasn't read the thread
+ * for it, so it stays unread as far as it was, and what its agent answers is unread after. Nothing
+ * comes back to the thread that passed it on. Refused where that thread can't pass one on
+ * (passingThread), and for itself; `Ok(null)` for no such thread of theirs to pass it to, a
+ * sub-agent's among them.
+ */
+export async function passOnToThread(
+	member: {orgId: string; userId: string},
+	taskId: string,
+	threadId: string,
+	text: string,
+	wakes: Wakes,
+): Promise<Result<{sent: EntryRow} | {refused: PassOnRefusal | 'itself'} | null, ApiError>> {
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			const passing = await passingThread(tx, member, taskId);
+			if ('refused' in passing) {
+				return passing;
+			}
+			if (passing.thread.id === threadId) {
+				return {refused: 'itself' as const};
+			}
+			const thread = await lockThread(tx, threadId);
+			if (
+				thread === null ||
+				thread.parentThreadId === null ||
+				thread.subAgentOfId !== null ||
+				thread.orgId !== member.orgId ||
+				thread.userId !== member.userId
+			) {
+				return null;
+			}
+			const entry = {kind: 'person' as const, text, passedOnFromId: passing.thread.id};
+			return {sent: await wakeWith(tx, thread, entry, wakes)};
+		}),
+	);
+}
+
+/** Where a thread opened in Slack goes: the persona's app, and the member's DM with it, by its channel. */
+export type SlackOpening = {appId: string; channel: string};
+
+/** The thread that would pass a message on now (passingThread), with where it lives in Slack, null for one in the app. */
+export type PassingThread = {thread: ThreadRow; slack: SlackOpening | null};
+
+/**
+ * The thread of the member's whose task `taskId` is, as it would pass a message on now, with where
+ * it lives, or why it can't (passingThread): what a thread opened from it takes where nothing else
+ * is asked for, its persona and its place, is read before it is opened, as finding the DM in Slack
+ * may ask Slack.
+ */
+export async function getPassingThread(
+	member: {orgId: string; userId: string},
+	taskId: string,
+): Promise<Result<PassingThread | {refused: PassOnRefusal}, ApiError>> {
+	return wrapDb(async () => {
+		const passing = await passingThread(db, member, taskId);
+		if ('refused' in passing) {
+			return passing;
+		}
+		const slack = await db.slackThreadPlace.findUnique({
+			where: {threadId: passing.thread.id},
+			select: {appId: true, channel: true},
+		});
+		return {thread: passing.thread, slack};
+	});
+}
+
+/**
+ * Opens a thread with a message passed on from the thread of the member's whose task `taskId` is,
+ * in their chat `chatId`, whichever persona's it is, in one transaction with its checks, as a
+ * message in the app opens one (openThreadIn): its first entry their message, naming the thread it
+ * came from, which wakes its agent; what they had typed in that chat stays as it is. In Slack where
+ * `slack` says: its place is made with it, before its first entry, with no root message yet, so the
+ * app never shows it, and the delivery sweep posts that message as its root before anything else
+ * (api slack/delivery.ts), by the place's id given with the thread. Refused where the thread can't
+ * pass one on (passingThread); `Ok(null)` for no such chat of theirs.
+ */
+export async function openPassedOnThread(
+	member: {orgId: string; userId: string},
+	taskId: string,
+	open: {chatId: string; text: string; opening: ThreadOpening; slack: SlackOpening | null},
+	wakes: Wakes,
+): Promise<
+	Result<
+		| {opened: {thread: ThreadRow; entry: EntryRow; placeId: string | null}}
+		| {refused: PassOnRefusal}
+		| null,
+		ApiError
+	>
+> {
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			const passing = await passingThread(tx, member, taskId);
+			if ('refused' in passing) {
+				return passing;
+			}
+			const chat = await lockChat(tx, open.chatId);
+			if (
+				chat === null ||
+				chat.parentThreadId !== null ||
+				chat.orgId !== member.orgId ||
+				chat.userId !== member.userId
+			) {
+				return null;
+			}
+			const thread = await openThreadIn(tx, chat, open.opening, false);
+			const place =
+				open.slack === null
+					? null
+					: await tx.slackThreadPlace.create({
+							data: {...open.slack, rootTs: null, threadId: thread.id},
+							select: {id: true},
+						});
+			const said = {kind: 'person' as const, text: open.text, passedOnFromId: passing.thread.id};
+			const entry = await appendEntry(tx, thread, said, wakes);
+			return {opened: {thread, entry, placeId: place?.id ?? null}};
+		}),
+	);
+}
+
+/**
  * Where a thread stands as written when its turn last ended: whether its agent waits for the
  * member, and the sentence saying where it is, with the `seq` of the last entry it was written
  * from; null before one was written, and where it couldn't be.
@@ -1644,14 +1849,33 @@ export type ThreadStandingRow = {
 	archived: boolean;
 };
 
-/** An entry as a thread shows it: what was said, by whom and when, without what the model was sent or how it ran. */
+/**
+ * A thread a message was passed on from, as the thread it was passed on to names it: its title as
+ * it is now, its persona, which its address in the app is under, and its place in Slack, for one
+ * that lives there.
+ */
+export type PassedOnThread = {
+	id: string;
+	personaId: string;
+	title: string | null;
+	slack: SlackThreadRow | null;
+};
+
+/** Where a message was passed on from: the thread, by its id, and as it is now; null where it is deleted since. */
+export type PassedOn = {threadId: string; thread: PassedOnThread | null};
+
+/**
+ * An entry as a thread shows it: what was said, by whom and when, and where it was passed on from,
+ * for what another of the member's threads passed on; without what the model was sent or how it ran.
+ */
 export type ShownEntryRow = Pick<
 	EntryRow,
 	'id' | 'seq' | 'kind' | 'pending' | 'text' | 'toolCalls' | 'callId' | 'isError' | 'createdAt'
->;
+> & {passedOn: PassedOn | null};
 
-// The columns of an entry a thread shows it by, as `ShownEntryRow` has them: not the system prompt
-// each answer keeps, which is long, nor the rest of how it was run.
+// The columns of an entry a thread shows it by, as `ShownEntryRow` has them, but where it was
+// passed on from by the id alone (withPassedOn): not the system prompt each answer keeps, which is
+// long, nor the rest of how it was run.
 const shownEntrySelect = {
 	id: true,
 	seq: true,
@@ -1661,8 +1885,50 @@ const shownEntrySelect = {
 	toolCalls: true,
 	callId: true,
 	isError: true,
+	passedOnFromId: true,
 	createdAt: true,
 } as const;
+
+/** The threads messages were passed on from, by their ids, those not deleted since. */
+export function listPassedOnThreads(ids: string[]): Promise<Result<PassedOnThread[], ApiError>> {
+	return wrapDb(() => readPassedOnThreads(ids));
+}
+
+async function readPassedOnThreads(ids: string[]): Promise<PassedOnThread[]> {
+	const wanted = [...new Set(ids)];
+	if (wanted.length === 0) {
+		return [];
+	}
+	const threads = await db.agentThread.findMany({
+		where: {id: {in: wanted}},
+		select: {id: true, personaId: true, title: true, slackPlace: slackThreadSelect},
+	});
+	return threads.map(({slackPlace, ...thread}) => ({...thread, slack: toSlackThread(slackPlace)}));
+}
+
+/**
+ * The entries with where each was passed on from, in place of the id it is kept by: the thread as
+ * it is now, its title among that, read once for them all, or none where it is deleted since. For
+ * what shows a message passed on as such: the Chat page, the Slack thread it is delivered to, the
+ * Chat connection.
+ */
+export async function withPassedOn<E extends {passedOnFromId: string | null}>(
+	entries: E[],
+): Promise<Array<Omit<E, 'passedOnFromId'> & {passedOn: PassedOn | null}>> {
+	const threads = await readPassedOnThreads(
+		entries.flatMap(({passedOnFromId}) => (passedOnFromId === null ? [] : [passedOnFromId])),
+	);
+	return entries.map(({passedOnFromId, ...entry}) => ({
+		...entry,
+		passedOn:
+			passedOnFromId === null
+				? null
+				: {
+						threadId: passedOnFromId,
+						thread: threads.find((thread) => thread.id === passedOnFromId) ?? null,
+					},
+	}));
+}
 
 /**
  * One of a chat's threads, with what it is up to, where it stands, the entries of it the member
@@ -1745,6 +2011,7 @@ async function readChatThreads(
 			select: {id: true, title: true, parentCallId: true, subAgentOfId: true, jobs: openJobsSelect},
 			orderBy: {createdAt: 'asc'},
 		});
+		const passedOn = await withPassedOn(threads.flatMap(({entries}) => entries));
 		return threads.map(
 			({jobs, entries, waitingForMember, summary, summarySeq, archived, _count, ...thread}) => {
 				const shown = new Set(entries.map((entry) => entry.id));
@@ -1756,7 +2023,9 @@ async function readChatThreads(
 					state: threadState(jobs, now),
 					standing: {waitingForMember, summary, summarySeq, archived},
 					alerts: _count.alerts,
-					entries: entries.map((entry) => ({...entry, toolCalls: toToolCalls(entry.toolCalls)})),
+					entries: passedOn
+						.filter((entry) => shown.has(entry.id))
+						.map((entry) => ({...entry, toolCalls: toToolCalls(entry.toolCalls)})),
 					attachments: attachments.filter((attachment) => shown.has(attachment.entryId)),
 				};
 			},
@@ -1881,6 +2150,23 @@ export async function writeThreadStanding(
 	);
 }
 
+// Marks the thread done: it no longer waits for the member; with `cancelAlerts`, the alerts that
+// come to it are deleted too.
+async function markDone(
+	tx: Tx,
+	where: Prisma.AgentThreadWhereInput & {id: string},
+	cancelAlerts: boolean,
+): Promise<boolean> {
+	const {count} = await tx.agentThread.updateMany({where, data: {waitingForMember: false}});
+	if (count === 0) {
+		return false;
+	}
+	if (cancelAlerts) {
+		await tx.agentAlert.deleteMany({where: {threadId: where.id}});
+	}
+	return true;
+}
+
 /**
  * The member says the thread is done: it no longer waits for them; with `cancelAlerts`, the alerts
  * that come to it are deleted too, in the same transaction. `Ok(false)` for no such thread of the
@@ -1896,17 +2182,7 @@ export async function markThreadDone(
 			if (!(await isInApp(tx, chatId, threadId))) {
 				return false;
 			}
-			const {count} = await tx.agentThread.updateMany({
-				where: {id: threadId, parentThreadId: chatId},
-				data: {waitingForMember: false},
-			});
-			if (count === 0) {
-				return false;
-			}
-			if (cancelAlerts) {
-				await tx.agentAlert.deleteMany({where: {threadId}});
-			}
-			return true;
+			return markDone(tx, {id: threadId, parentThreadId: chatId}, cancelAlerts);
 		}),
 	);
 }
@@ -1940,6 +2216,71 @@ export async function archiveThread(
 				return false;
 			}
 			return archive(tx, {id: threadId, parentThreadId: chatId});
+		}),
+	);
+}
+
+/**
+ * What the member's Chat connection does to where one of their threads stands, as the Chat page
+ * does it: marked done, as markThreadDone, its alerts kept, so one they come to is watching;
+ * archived, as archiveThread; brought back, an archived one listed again, waiting for them, watching
+ * or done as it was.
+ */
+export type StandingChange = 'done' | 'archive' | 'unarchive';
+
+/**
+ * Changes where one of the member's threads stands (StandingChange), whichever persona's chat it
+ * is of and wherever it lives, in the app or in Slack, as their Chat connection does: only once it
+ * and its sub-agents have stopped, since one in progress has where it stands written as its turn
+ * ends; and not archived while alerts come to it, which archiving would cancel, since the member
+ * says what becomes of them, as the Chat page asks them. With the thread locked, as what wakes it
+ * is (wakeWith), so it is not taken up meanwhile. `Ok('in_progress')` for one it or a sub-agent of
+ * its is still at work on or asleep in, `Ok('watching')` for one with alerts not archived, and
+ * `Ok(null)` for no such thread of theirs, a sub-agent's among them.
+ */
+export async function changeMemberThreadStanding(
+	member: {orgId: string; userId: string},
+	threadId: string,
+	change: StandingChange,
+): Promise<Result<'changed' | 'in_progress' | 'watching' | null, ApiError>> {
+	return wrapDb(() =>
+		db.$transaction(async (tx) => {
+			const thread = await lockThread(tx, threadId);
+			if (
+				thread === null ||
+				thread.parentThreadId === null ||
+				thread.subAgentOfId !== null ||
+				thread.orgId !== member.orgId ||
+				thread.userId !== member.userId
+			) {
+				return null;
+			}
+			const open = await tx.agentJob.count({
+				where: {
+					status: {in: ['queued', 'running']},
+					OR: [{threadId}, {thread: {subAgentOfId: threadId}}],
+				},
+			});
+			if (open > 0) {
+				return 'in_progress';
+			}
+			if (change === 'done') {
+				await markDone(tx, {id: threadId}, false);
+				return 'changed';
+			}
+			if (change === 'unarchive') {
+				await tx.agentThread.update({
+					where: {id: threadId},
+					data: {archived: false},
+					select: {id: true},
+				});
+				return 'changed';
+			}
+			if ((await tx.agentAlert.count({where: {threadId}})) > 0) {
+				return 'watching';
+			}
+			await archive(tx, {id: threadId});
+			return 'changed';
 		}),
 	);
 }

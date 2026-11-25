@@ -37,6 +37,7 @@ import {
 	started,
 	subAgentStart,
 } from './thread-rules';
+import {withPassedOnLeads} from './passed-on';
 import type {HarnessStore} from './store';
 import {alertCall, BAD_SLEEP_ARGS, dismissText, error, NOT_JSON, noSuchTool, runGateTool, setText, type ToolAnswerStore} from './tool-answers';
 
@@ -225,13 +226,14 @@ function toHarnessTool(tool: ModelTool): HarnessTool {
 
 /** What running a call inline needs of the store: what answering one needs, the fenced writes beside the log, and what came into the thread meanwhile. */
 export type ToolSurfaceStore = ToolAnswerStore &
-	Pick<HarnessStore, 'setAlertInline' | 'scheduleWake' | 'dismissThreadInline' | 'listPendingMessages' | 'startSubAgentInline' | 'messageSubAgentInline' | 'tellParentInline'>;
+	Pick<HarnessStore, 'setAlertInline' | 'scheduleWake' | 'dismissThreadInline' | 'listPendingMessages' | 'listPassedOnThreads' | 'startSubAgentInline' | 'messageSubAgentInline' | 'tellParentInline'>;
 
 /** What each call run inline was answered with besides, by the call's id: the ids of what came into the thread meanwhile, in order. */
 export type Delivered = Map<string, string[]>;
 
-// What came into the thread as the model reads it: what the person said, or an event with its
-// lead-in, an alert's or a sub-agent's (@proxy/utils/harness-context eventLead).
+// What came into the thread as the model reads it: what the person said, led in where another of
+// their threads passed it on (withPassedOnLeads), or an event with its lead-in, an alert's or a
+// sub-agent's (@proxy/utils/harness-context eventLead).
 function asRead(entry: EntryRow): string {
 	return entry.kind === 'event' ? `${eventLead(entry)}\n\n${entry.text}` : entry.text;
 }
@@ -347,11 +349,15 @@ async function withMeanwhile(store: ToolSurfaceStore, thread: ThreadRow, callId:
 	if (fresh.length === 0) {
 		return answer;
 	}
+	const read = await withPassedOnLeads(store, fresh);
+	if (read.isErr()) {
+		return answer;
+	}
 	delivered.set(
 		callId,
 		fresh.map((entry) => entry.id),
 	);
-	return {...answer, meanwhile: fresh.map(asRead)};
+	return {...answer, meanwhile: read.value.map(asRead)};
 }
 
 /**

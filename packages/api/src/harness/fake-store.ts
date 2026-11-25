@@ -41,6 +41,7 @@ export function fakeStore(): FakeStore {
 		getMemberChat: mock<HarnessStore['getMemberChat']>(),
 		ensureMemberChat: mock<HarnessStore['ensureMemberChat']>(),
 		listAttachments: mock<HarnessStore['listAttachments']>(),
+		listPassedOnThreads: mock<HarnessStore['listPassedOnThreads']>(),
 		openThread: mock<HarnessStore['openThread']>(),
 		replyInThread: mock<HarnessStore['replyInThread']>(),
 		listChatThreads: mock<HarnessStore['listChatThreads']>(),
@@ -72,6 +73,9 @@ export function fakeStore(): FakeStore {
 		messageSubAgentInline: mock<HarnessStore['messageSubAgentInline']>(),
 		tellParentInline: mock<HarnessStore['tellParentInline']>(),
 		completeDismiss: mock<HarnessStore['completeDismiss']>(),
+		// A thread in the app, and no other threads of the member's, unless a test gives them.
+		isSlackThread: mock<HarnessStore['isSlackThread']>(async () => Ok(false)),
+		listRecentThreads: mock<HarnessStore['listRecentThreads']>(async () => Ok([])),
 		// No time zone set, unless a test gives one.
 		getUserTimeZone: mock<HarnessStore['getUserTimeZone']>(async () => Ok(null)),
 		deleteAlert: mock<HarnessStore['deleteAlert']>(),

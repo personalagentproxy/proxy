@@ -3,7 +3,7 @@ import type {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema, requirePresent} from '@proxy/utils';
 import {CREATE_SUBAGENT_TOOL, keepMarks, preview, SEND_TO_SUBAGENT_TOOL, toAvatarColor} from '@proxy/utils/harness';
-import type {ChatThreadRow, DraftAttachment, LastMessage, Persona, PersonaModel, PersonaRow, ThreadRow} from '@proxy/db/harness';
+import type {ChatThreadRow, DraftAttachment, LastMessage, PassedOn as PassedOnRow, Persona, PersonaModel, PersonaRow, ThreadRow} from '@proxy/db/harness';
 import {
 	type chatAnswersSchema,
 	type ChatHarness,
@@ -19,6 +19,7 @@ import {
 	postMessageBodySchema,
 	removeAttachmentBodySchema,
 	type openedThreadSchema,
+	type PassedOn,
 	type postedReplySchema,
 	saveDraftBodySchema,
 	saveThreadDraftBodySchema,
@@ -36,6 +37,7 @@ import {manages} from '../utils/manages';
 import type {AttachmentRef, ChatFiles} from './attachments';
 import {type OrgViewer, requireViewer} from '../utils/user-org';
 import {ensureChat} from './member-chat';
+import {slackThreadUrl} from '../slack/thread-link';
 import {SHOWN_CALLS, threadOpening} from './thread-rules';
 import {shownParts} from './thread-shown';
 import {STANDING_WITHIN_MS, standingOf} from './thread-standing';
@@ -449,9 +451,19 @@ const THREAD_CALLS = [...SHOWN_CALLS, CREATE_SUBAGENT_TOOL, SEND_TO_SUBAGENT_TOO
 // Something a thread shows, with the entry it comes from.
 type Shown = {entryId: string; message: ThreadMessage};
 
+// Where a message was passed on from, as the page links it: the thread where it lives, its page
+// in Chat or its thread in Slack, by its title as it is now; none where it is deleted since.
+function shownPassedOn({thread}: PassedOnRow): PassedOn {
+	if (thread === null) {
+		return {thread: null};
+	}
+	return {thread: {id: thread.id, personaId: thread.personaId, title: thread.title ?? '', slackUrl: thread.slack === null ? null : slackThreadUrl(thread.slack)}};
+}
+
 // What a thread shows (db/harness listChatThreads), as thread-shown.ts says, each message with the
-// files it went with, a sub-agent as a line that opens it, at work as the sub-agent is, the latest
-// line of each alone (lastLines).
+// files it went with, and, for what another of the member's threads passed on, where from; a
+// sub-agent as a line that opens it, at work as the sub-agent is, the latest line of each alone
+// (lastLines).
 function threadShown(thread: ChatThreadRow, files: RouteFiles): Shown[] {
 	const attachmentsOf = (entryId: string) => thread.attachments.filter((attachment) => attachment.entryId === entryId).map(files.shown);
 	const shown = thread.entries.flatMap((entry) =>
@@ -467,7 +479,8 @@ function threadShown(thread: ChatThreadRow, files: RouteFiles): Shown[] {
 			if (part.kind === 'event') {
 				return {entryId: part.entryId, message: {id: part.id, kind: 'event', text: part.text, line: part.line, isError: part.isError, at, attachments: attachmentsOf(part.entryId)}};
 			}
-			return {entryId: part.entryId, message: {id: part.id, kind: part.kind, text: part.text, isError: part.isError, at, attachments: part.ownWords ? attachmentsOf(part.entryId) : []}};
+			const passedOn = part.passedOn === null ? {} : {passedOn: shownPassedOn(part.passedOn)};
+			return {entryId: part.entryId, message: {id: part.id, kind: part.kind, text: part.text, isError: part.isError, at, attachments: part.ownWords ? attachmentsOf(part.entryId) : [], ...passedOn}};
 		}),
 	);
 	return lastLines(shown);

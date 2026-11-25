@@ -44,6 +44,7 @@ function toAlert(alert: MemberAlertRow, connections: Map<string, ConnectionRow>)
 		brief: alert.brief,
 		persona: {id: alert.persona.id, name: alert.persona.name, look: alert.persona.look, color: toAvatarColor(alert.persona.color)},
 		opens: alert.threadId === null ? 'new_thread' : 'this_thread',
+		opensInSlack: alert.threadId === null && alert.slackAppId !== null,
 		thread: toThread(alert.thread),
 		setIn: toThread(alert.setIn),
 		at: nextAt(alert)?.toISOString() ?? null,

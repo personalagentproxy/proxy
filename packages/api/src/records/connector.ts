@@ -35,7 +35,8 @@ export function requireFirstPage(query: ListQuery): Result<void, ApiError> {
  * The connection and collection a request is about, with the connection's encrypted credential,
  * and who it is for, where it may write: an agent for one of its tasks, or a member. A connector
  * that keeps a history of its writes, as Google Drive's (google-history.ts), logs them as `by`;
- * what only reads, as a watch's look, has none.
+ * Chat's reads the task to know which thread passes a message on (native/chat/connector.ts); what
+ * only reads, as a watch's look, has none.
  */
 export type RecordTarget = {
 	connection: ConnectionRow & {credential: string | null};
@@ -44,10 +45,12 @@ export type RecordTarget = {
 };
 
 /**
- * A command run on one record, such as archiving an email: the record as it is now, or null once it
- * has left the collection, as an archived email leaves the inbox.
+ * A command run on one record, such as archiving an email, with the values it takes beside the
+ * record's id, where it takes any, as sending a message to a thread takes its text (the catalog's
+ * `params`): the record as it is now, or null once it has left the collection, as an archived email
+ * leaves the inbox.
  */
-export type CommandRunner = (target: RecordTarget, recordId: string) => Promise<Result<DataRecord | null, ApiError>>;
+export type CommandRunner = (target: RecordTarget, recordId: string, values?: RecordValues) => Promise<Result<DataRecord | null, ApiError>>;
 
 /** A command on values typed in, such as sending a new email: the record it made, or null. */
 export type NewCommandRunner = (target: RecordTarget, values: RecordValues) => Promise<Result<DataRecord | null, ApiError>>;

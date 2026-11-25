@@ -70,12 +70,62 @@ function standingWhere(standing: ThreadStandingFilter | null): Prisma.AgentThrea
 	};
 }
 
+// What a list reads of each thread: its own row, its open jobs, how many alerts come to it and its
+// last entry, not what was said in it, so a long list is not read whole.
+const memberThreadSelect = {
+	id: true,
+	personaId: true,
+	title: true,
+	createdAt: true,
+	waitingForMember: true,
+	summary: true,
+	summarySeq: true,
+	archived: true,
+	persona: {select: {name: true}},
+	slackPlace: slackThreadSelect,
+	jobs: {where: OPEN_JOBS, select: {kind: true, runAt: true}},
+	_count: {select: {alerts: true}},
+	// What the member said, an event that came, or what the agent answered in words: the last of
+	// them is the last thing the thread shows.
+	entries: {
+		where: {OR: [{kind: {in: ['person', 'event']}}, {kind: 'assistant', text: {not: ''}}]},
+		orderBy: [{pending: 'desc'}, {seq: 'desc'}],
+		take: 1,
+		select: {seq: true, pending: true, createdAt: true},
+	},
+} satisfies Prisma.AgentThreadSelect;
+
+function toMemberThread(
+	{
+		persona,
+		slackPlace,
+		jobs,
+		entries,
+		waitingForMember,
+		summary,
+		summarySeq,
+		archived,
+		_count,
+		...thread
+	}: Prisma.AgentThreadGetPayload<{select: typeof memberThreadSelect}>,
+	now: Date,
+): MemberThreadRow {
+	return {
+		...thread,
+		personaName: persona.name,
+		slack: toSlackThread(slackPlace),
+		state: threadState(jobs, now),
+		standing: {waitingForMember, summary, summarySeq, archived},
+		alerts: _count.alerts,
+		last: entries[0] ?? null,
+	};
+}
+
 /**
  * The member's threads in the organization, with every persona, the one opened last first, `take`
  * of them from the `skip`th: those whose title or summary has `search`, in any case, and that stand
- * as `standing` says, where given. Each is read by its own row, its open jobs and its last entry,
- * not by what was said in it, so a long list is not read whole. With the organization's slug, for
- * their addresses; null for no such organization.
+ * as `standing` says, where given. With the organization's slug, for their addresses; null for no
+ * such organization.
  */
 export async function listMemberThreads(
 	orgId: string,
@@ -99,57 +149,49 @@ export async function listMemberThreads(
 				...standingWhere(standing),
 				...(has === null ? {} : {OR: [{title: has}, {summary: has}]}),
 			},
-			select: {
-				id: true,
-				personaId: true,
-				title: true,
-				createdAt: true,
-				waitingForMember: true,
-				summary: true,
-				summarySeq: true,
-				archived: true,
-				persona: {select: {name: true}},
-				slackPlace: slackThreadSelect,
-				jobs: {where: OPEN_JOBS, select: {kind: true, runAt: true}},
-				_count: {select: {alerts: true}},
-				// What the member said, an event that came, or what the agent answered in words: the
-				// last of them is the last thing the thread shows.
-				entries: {
-					where: {OR: [{kind: {in: ['person', 'event']}}, {kind: 'assistant', text: {not: ''}}]},
-					orderBy: [{pending: 'desc'}, {seq: 'desc'}],
-					take: 1,
-					select: {seq: true, pending: true, createdAt: true},
-				},
-			},
+			select: memberThreadSelect,
 			orderBy: [{createdAt: 'desc'}, {id: 'desc'}],
 			skip,
 			take,
 		});
-		return {
-			orgSlug: org.slug,
-			threads: threads.map(
-				({
-					persona,
-					slackPlace,
-					jobs,
-					entries,
-					waitingForMember,
-					summary,
-					summarySeq,
-					archived,
-					_count,
-					...thread
-				}) => ({
-					...thread,
-					personaName: persona.name,
-					slack: toSlackThread(slackPlace),
-					state: threadState(jobs, now),
-					standing: {waitingForMember, summary, summarySeq, archived},
-					alerts: _count.alerts,
-					last: entries[0] ?? null,
-				}),
-			),
-		};
+		return {orgSlug: org.slug, threads: threads.map((thread) => toMemberThread(thread, now))};
+	});
+}
+
+/**
+ * The member's `take` threads in the organization, with every persona, wherever each lives, that
+ * last had anything in them the member sees, the latest first, as a list has them: not `threadId`,
+ * nor those they archived, nor sub-agents'. What a thread's agent is told of the others (api
+ * harness/inference.ts). One with nothing in it yet counts from when it was opened.
+ */
+export async function listRecentMemberThreads(
+	member: {orgId: string; userId: string},
+	threadId: string,
+	take: number,
+	now = new Date(),
+): Promise<Result<MemberThreadRow[], ApiError>> {
+	return wrapDb(async () => {
+		const recent = await db.$queryRaw<Array<{id: string}>>`
+			SELECT t."id" FROM "AgentThread" AS t
+			WHERE t."orgId" = ${member.orgId} AND t."userId" = ${member.userId}
+				AND t."parentThreadId" IS NOT NULL AND t."subAgentOfId" IS NULL
+				AND NOT t."archived" AND t."id" <> ${threadId}
+			ORDER BY COALESCE(
+				(SELECT max(e."createdAt") FROM "AgentEntry" AS e
+					WHERE e."threadId" = t."id"
+						AND (e."kind" IN ('person', 'event') OR (e."kind" = 'assistant' AND e."text" <> ''))),
+				t."createdAt"
+			) DESC, t."id" DESC
+			LIMIT ${take}`;
+		const ids = recent.map(({id}) => id);
+		const threads = await db.agentThread.findMany({
+			where: {id: {in: ids}},
+			select: memberThreadSelect,
+		});
+		return ids.flatMap((id) => {
+			const thread = threads.find((candidate) => candidate.id === id);
+			return thread ? [toMemberThread(thread, now)] : [];
+		});
 	});
 }
 
@@ -182,6 +224,13 @@ export async function getThreadAddress(thread: {
 			slack: toSlackThread(found.slackPlace),
 		};
 	});
+}
+
+/** Whether the thread lives in Slack, having a place there, rather than in the app. */
+export async function isSlackThread(threadId: string): Promise<Result<boolean, ApiError>> {
+	return (await wrapDb(() => db.slackThreadPlace.count({where: {threadId}}))).map(
+		(count) => count > 0,
+	);
 }
 
 /** The organization's slug, which every address in it begins with; null for no such organization. */

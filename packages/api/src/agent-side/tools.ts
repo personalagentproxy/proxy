@@ -34,7 +34,7 @@ import {noteRejectedSignIn} from '../connections/rejected-sign-in';
 import {needsSignIn, signInNeededError, unavailableActions, unavailableError} from '../connections/unavailable';
 import {isRecordStore, type Connector, type DataRecord, type RecordStore, type RecordTarget, type RecordValues} from '../records/connector';
 import {connectorFor} from '../records/connectors';
-import {parseRecordValues} from '../records/record-values';
+import {parseFieldValues, parseRecordValues} from '../records/record-values';
 import {loadConnection} from '../records/target';
 import {log as serverLog} from '../observability/log';
 import {integrationOf} from '../utils/connection-actions';
@@ -528,7 +528,7 @@ function executeKind(run: ToolRun, params: Record<string, string>): Promise<Resu
 	if (kind === 'delete') {
 		return remove(stored, params.id ?? '');
 	}
-	return command(stored, params.id ?? '');
+	return command(stored, params);
 }
 
 // The params a write sets, without the record's id or the one a new record goes in.
@@ -619,12 +619,15 @@ function remove(run: StoreRun, recordId: string): Promise<Result<ToolResult, Api
 	});
 }
 
-function command(run: StoreRun, recordId: string): Promise<Result<ToolResult, ApiError>> {
+// A command on a record, with what it takes beside the record's id, where it takes anything, as
+// sending a message to a thread takes its text.
+function command(run: StoreRun, params: Record<string, string>): Promise<Result<ToolResult, ApiError>> {
 	return Do(async ($) => {
 		const runner = $(requirePresent(run.connector.commands?.[run.tool.operation], ApiErr.notFound('tool', run.tool.name)));
+		const recordId = params.id ?? '';
 		const before = $(await logFailure(run, await run.connector.get(run.target, recordId), null));
 		$(requireApplies(run.tool.where, before));
-		const record = $(await logFailure(run, await runner(run.target, recordId), recordTitle(run.target.collection, before.values)));
+		const record = $(await logFailure(run, await runner(run.target, recordId, fieldsOf(params)), recordTitle(run.target.collection, before.values)));
 		$(await log(run, 'allowed', recordTitle(run.target.collection, before.values)));
 		return {record};
 	});
@@ -633,7 +636,9 @@ function command(run: StoreRun, recordId: string): Promise<Result<ToolResult, Ap
 function newCommand(run: ToolRun, params: Record<string, string>): Promise<Result<ToolResult, ApiError>> {
 	return Do(async ($) => {
 		const runner = $(requirePresent(run.connector.newCommands?.[run.tool.operation], ApiErr.notFound('tool', run.tool.name)));
-		const values = $(parseRecordValues(run.target.collection, params));
+		// Its own values where it takes them, as opening a thread does, else the collection's fields.
+		const own = run.target.collection.commands?.find((candidate) => candidate.id === run.tool.operation)?.params;
+		const values = $(own ? parseFieldValues(own, params) : parseRecordValues(run.target.collection, params));
 		const record = $(await logFailure(run, await runner(run.target, values), recordTitle(run.target.collection, values)));
 		// Titled as it came back where it did, as an attachment read by its number is by its name.
 		$(await log(run, 'allowed', (record && recordTitle(run.target.collection, record.values)) ?? recordTitle(run.target.collection, values)));

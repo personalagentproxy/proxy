@@ -182,19 +182,90 @@ export function slackAppUrl(slackAppId: string, teamId: string): string {
 
 const postedSchema = z.object({ok: z.literal(true), ts: z.string()});
 
-/** A message to post: in Slack's own text format (`text`), or in standard Markdown (`markdown`), which Slack takes in `markdown_text` alone, at most 12,000 characters. */
-export type SlackPost = {channel: string; threadTs: string} & ({text: string} | {markdown: string});
+/**
+ * What a message carries for the app alone, as message metadata
+ * (https://docs.slack.dev/messaging/message-metadata): the root message of a thread opened in Slack
+ * names the thread's place, so it can be found in the DM again (findRootMessage).
+ */
+export const ROOT_EVENT = 'thread_opened';
 
 /**
- * `chat.postMessage` with the app's bot token: a message in the Slack thread under `threadTs` in
- * the DM `channel`, its links not unfurled (https://docs.slack.dev/reference/methods/chat.postMessage).
- * Its `ts`.
+ * A message to post: in Slack's own text format (`text`), or in standard Markdown (`markdown`),
+ * which Slack takes in `markdown_text` alone, at most 12,000 characters; in the Slack thread under
+ * `threadTs`, or at the top of the DM where it is null, as a thread's root message is, which names
+ * its place (`place`).
+ */
+export type SlackPost = {channel: string; threadTs: string | null; place?: string} & ({text: string} | {markdown: string});
+
+// What chat.postMessage answers where it won't take a message's metadata, which the message is
+// posted again without. Its reference page says metadata "can only be posted or updated using an
+// app-level token" (`metadata_must_be_sent_from_app`), while the message metadata guide posts it
+// with a bot token, which is what the app has; which holds isn't confirmed.
+const METADATA_REFUSED = ['metadata_must_be_sent_from_app', 'invalid_metadata_format', 'invalid_metadata_schema', 'metadata_too_large'];
+
+/**
+ * `chat.postMessage` with the app's bot token: a message in the DM `channel`, in the Slack thread
+ * under `threadTs` or at the top, its links not unfurled, naming its place in its metadata where it
+ * is given one (https://docs.slack.dev/reference/methods/chat.postMessage). Where Slack won't take
+ * the metadata, the message is posted without it. Its `ts`.
  */
 export async function postMessage(botToken: string, post: SlackPost): Promise<Result<{ts: string}, SlackError>> {
-	const body: Record<string, string> = 'markdown' in post ? {markdown_text: post.markdown} : {text: post.text};
-	return (await call('chat.postMessage', {channel: post.channel, thread_ts: post.threadTs, ...body, unfurl_links: 'false', unfurl_media: 'false'}, {token: botToken}, postedSchema)).map((answer) => ({
-		ts: answer.ts,
-	}));
+	const {place, ...rest} = post;
+	const said: Record<string, string> = 'markdown' in post ? {markdown_text: post.markdown} : {text: post.text};
+	const thread: Record<string, string> = post.threadTs === null ? {} : {thread_ts: post.threadTs};
+	const metadata: Record<string, string> = place === undefined ? {} : {metadata: JSON.stringify({event_type: ROOT_EVENT, event_payload: {place}})};
+	const posted = await call('chat.postMessage', {channel: post.channel, ...thread, ...said, ...metadata, unfurl_links: 'false', unfurl_media: 'false'}, {token: botToken}, postedSchema);
+	if (posted.isErr() && place !== undefined && posted.error.kind === 'refused' && METADATA_REFUSED.includes(posted.error.error)) {
+		return postMessage(botToken, rest);
+	}
+	return posted.map((answer) => ({ts: answer.ts}));
+}
+
+const openedSchema = z.object({ok: z.literal(true), channel: z.object({id: z.string().min(1)})});
+
+/**
+ * `conversations.open` with the app's bot token, which needs `im:write`: the app's DM with the
+ * Slack user, its channel, made where there is none
+ * (https://docs.slack.dev/reference/methods/conversations.open).
+ */
+export async function openDirectMessage(botToken: string, slackUserId: string): Promise<Result<string, SlackError>> {
+	return (await call('conversations.open', {users: slackUserId}, {token: botToken}, openedSchema)).map((answer) => answer.channel.id);
+}
+
+// A message as `conversations.history` reads it with its metadata: its `ts`, where it is in a
+// thread its root's, and the place a root message of ours names; any other metadata is none.
+const historySchema = z.object({
+	ok: z.literal(true),
+	messages: z
+		.array(
+			z.looseObject({
+				ts: z.string(),
+				thread_ts: z.string().optional(),
+				metadata: z
+					.object({event_type: z.literal(ROOT_EVENT), event_payload: z.object({place: z.string()})})
+					.optional()
+					.catch(undefined),
+			}),
+		)
+		.default([]),
+});
+
+// How far back from when a root message was first tried it is looked for, as Slack's clock and
+// ours may differ; and how many messages since are read, the DM being one member's with the app.
+const ROOT_LOOKBACK_SECONDS = 300;
+const ROOT_LOOK_LIMIT = 200;
+
+/**
+ * `conversations.history` with the app's bot token, which `im:history` allows, with every message's
+ * metadata (`include_all_metadata`, https://docs.slack.dev/reference/methods/conversations.history):
+ * the `ts` of the root message at the top of the DM `channel` naming the place `place`, posted
+ * since `since`, give or take Slack's clock; `Ok(null)` for none. For a root whose post's answer
+ * never came back, so it is posted once.
+ */
+export async function findRootMessage(botToken: string, at: {channel: string; place: string; since: Date}): Promise<Result<string | null, SlackError>> {
+	const oldest = (Math.floor(at.since.getTime() / 1000) - ROOT_LOOKBACK_SECONDS).toString();
+	const read = await call('conversations.history', {channel: at.channel, oldest, limit: String(ROOT_LOOK_LIMIT), include_all_metadata: 'true'}, {token: botToken}, historySchema);
+	return read.map(({messages}) => messages.find((message) => message.metadata?.event_payload.place === at.place && (message.thread_ts === undefined || message.thread_ts === message.ts))?.ts ?? null);
 }
 
 /** A Slack agent session's status: at work, waiting for the member, or ready for their next message. */

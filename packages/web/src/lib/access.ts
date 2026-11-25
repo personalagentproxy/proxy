@@ -12,7 +12,6 @@ import {
 	requiredAction,
 	type Action,
 	type Collection,
-	type Command,
 	type FieldType,
 	type OwnSettings,
 	TOOLS_COLLECTION_ID,
@@ -114,18 +113,6 @@ export function allows(collection: Collection, actions: string[], request: strin
 		actions.includes(needed) &&
 		(beside === undefined || actions.includes(beside))
 	);
-}
-
-// The commands on values typed in that the actions allow, such as Send for a new email.
-export function newCommands(collection: Collection, actions: string[]): Command[] {
-	return (collection.commands ?? []).filter(
-		(command) => command.on === 'new' && allows(collection, actions, command.id),
-	);
-}
-
-// Whether the agent can start a new record here: create one, or run a command such as Send.
-export function canStartNew(collection: Collection, actions: string[]): boolean {
-	return allows(collection, actions, 'create') || newCommands(collection, actions).length > 0;
 }
 
 /** The organization's built-in agent, which every persona of the Chat page acts through. */

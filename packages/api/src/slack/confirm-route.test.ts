@@ -66,7 +66,9 @@ const sessionPlace = {
 	app: {id: 'app-1', botToken: 'enc:xoxb-bot', removedAt: null, sessionsOffUntil: null},
 };
 const getSlackSessionPlace = mock(async (_threadId: string): Promise<Result<typeof sessionPlace | null, ApiError>> => Ok(sessionPlace));
-const readSlackSessionState = mock(async () => Ok({state: {kind: 'working' as const}, waitingForMember: false, alerts: 0, subAgentsAtWork: false, title: 'Book the train to Lyon', lastSeq: 1}));
+const readSlackSessionState = mock(async () =>
+	Ok({state: {kind: 'working' as const}, waitingForMember: false, archived: false, alerts: 0, subAgentsAtWork: false, title: 'Book the train to Lyon', lastSeq: 1}),
+);
 const noteSlackSessionSet = mock(async (): Promise<Result<void, ApiError>> => Ok(undefined));
 const noteSlackSessionRenamed = mock(async (): Promise<Result<void, ApiError>> => Ok(undefined));
 const noteSlackSessionFailed = mock(async (): Promise<Result<void, ApiError>> => Ok(undefined));

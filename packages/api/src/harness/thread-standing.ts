@@ -6,7 +6,7 @@ import {z} from 'zod';
 import {ApiErr, type ApiError, Do} from '@proxy/utils';
 import {ATTACHMENT_MARK, callArguments, cut, personMessageArgs, SEND_TO_PERSON_TOOL, type ThreadState} from '@proxy/utils/harness';
 import type {ThreadStanding} from '@proxy/contracts/harness';
-import type {ChatThreadRow} from '@proxy/db/harness';
+import type {ChatThreadRow, PassedOn} from '@proxy/db/harness';
 
 import type {JsonRequest} from '../llm/open-router';
 import {log, serializeError} from '../observability/log';
@@ -111,17 +111,30 @@ const jsonSchema = {
 	properties: {summary: {type: 'string'}, waitingForMember: {type: 'boolean'}},
 };
 
+// Who said what the member said: they, there or, passed on from another of their threads, there,
+// that thread named by its id and its title as it is now, or said to be deleted since.
+function personSpeaker(passedOn: PassedOn | null): string {
+	if (passedOn === null) {
+		return 'Person';
+	}
+	if (passedOn.thread === null) {
+		return 'Person (passed on from another thread, deleted since)';
+	}
+	return `Person (passed on from thread ${passedOn.threadId}, “${passedOn.thread.title ?? ''}”)`;
+}
+
 /**
  * What the member sees of the thread, each a line by who said it: what they said, with the names
- * of the files they attached; an alert that came into it; what the agent answered, and what it told
- * them as it went. Each cut to `max` characters.
+ * of the files they attached, and the thread it was passed on from, where another passed it on; an
+ * alert that came into it; what the agent answered, and what it told them as it went. Each cut to
+ * `max` characters.
  */
 export function threadLines(thread: ChatThreadRow, max: number): string[] {
 	return thread.entries.flatMap((entry) => {
 		if (entry.kind === 'person') {
 			const files = thread.attachments.filter((attachment) => attachment.entryId === entry.id).map((attachment) => attachment.name);
 			const text = entry.text.replaceAll(ATTACHMENT_MARK, ' ').trim();
-			return [`Person: ${cut(text, max)}${files.length === 0 ? '' : ` [attached: ${files.join(', ')}]`}`];
+			return [`${personSpeaker(entry.passedOn)}: ${cut(text, max)}${files.length === 0 ? '' : ` [attached: ${files.join(', ')}]`}`];
 		}
 		if (entry.kind === 'event') {
 			return [`Alert: ${cut(entry.text, max)}`];

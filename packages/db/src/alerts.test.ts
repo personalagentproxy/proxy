@@ -608,6 +608,114 @@ describe.skipIf(!databaseUrl)('the alerts, against the database', () => {
 		expect(unwrap(await markThreadDone(otherChat.id, thread.id, true))).toBe(false);
 	});
 
+	test('an alert set in a Slack thread that opens new threads opens them in Slack, in the same DM, with no root message yet; one set in the app, or coming to its thread, doesn’t; once its app is forgotten here, in the app', async () => {
+		// The turns earlier tests left queued, done, so the next claimed are this test's.
+		await db.agentJob.updateMany({
+			where: {status: 'queued', thread: {orgId}},
+			data: {status: 'done'},
+		});
+		const [first, second] = await toolJobs(['c-slack-1', 'c-slack-2']);
+		if (!first || !second) {
+			throw new Error('two tool jobs');
+		}
+		const workspace = await db.slackWorkspace.create({
+			data: {
+				orgId,
+				teamId: `T-alerts-${stamp}`,
+				name: 'Northwind',
+				slackUserId: 'U00',
+				credential: 'sealed',
+				expiresAt: new Date(),
+				rotateAt: new Date(),
+			},
+		});
+		const app = await db.slackApp.create({
+			data: {
+				orgId,
+				personaId: chat.personaId,
+				workspaceId: workspace.id,
+				manifestVersion: 1,
+				manifestName: 'General',
+			},
+		});
+		await db.slackThreadPlace.create({
+			data: {appId: app.id, channel: 'D07', rootTs: '1800000000.000100', threadId: thread.id},
+		});
+		const call = (job: JobRow) => ({
+			jobId: job.id,
+			workerId: 'worker-b',
+			threadId: thread.id,
+			callId: job.callId ?? '',
+		});
+		const at = new Date(Date.now() - 1000);
+		const weekly: NewAlert = {
+			kind: 'time',
+			opens: 'new_thread',
+			title: 'Weekly pricing check',
+			brief: 'Compare the prices.',
+			at,
+			every: null,
+		};
+		const followUp: NewAlert = {
+			kind: 'time',
+			opens: 'this_thread',
+			title: 'Follow up',
+			brief: 'Ask again.',
+			at,
+		};
+		unwrap(await completeSetAlert(call(first), weekly, () => 'Set.', readyForInference));
+		unwrap(await completeSetAlert(call(second), followUp, () => 'Set.', readyForInference));
+		const set = await db.agentAlert.findMany({
+			where: {setInThreadId: thread.id},
+			select: {title: true, slackAppId: true, slackChannel: true},
+			orderBy: {title: 'asc'},
+		});
+		expect(set).toEqual([
+			{title: 'Follow up', slackAppId: null, slackChannel: null},
+			{title: 'Weekly pricing check', slackAppId: app.id, slackChannel: 'D07'},
+		]);
+
+		// It fires: a new thread, its place in the same DM with no root, its first entry the alert's.
+		const made = await db.agentAlert.findFirstOrThrow({
+			where: {setInThreadId: thread.id, title: 'Weekly pricing check'},
+		});
+		const due = {
+			text: 'The alert “Weekly pricing check” is due now.',
+			opening: opening('Weekly pricing check'),
+		};
+		const before = new Set((await openedByAlerts()).map(({id}) => id));
+		expect(
+			unwrap(await fireAlert(made, due, new Date(Date.now() + 60_000), readyForInference)),
+		).toBe(true);
+		const opened = (await openedByAlerts()).find(({id}) => !before.has(id));
+		expect(
+			await db.slackThreadPlace.findUniqueOrThrow({where: {threadId: opened?.id ?? ''}}),
+		).toMatchObject({
+			appId: app.id,
+			channel: 'D07',
+			rootTs: null,
+			deliveredSeq: 0,
+		});
+		expect(unwrap(await listEntries(opened?.id ?? '')).map(({kind}) => kind)).toEqual(['event']);
+
+		// The thread it was set in gone, it still opens them in Slack; its app forgotten, in the app.
+		await db.slackThreadPlace.deleteMany({where: {threadId: thread.id}});
+		await db.agentThread.update({where: {id: thread.id}, data: {archived: true}});
+		expect(
+			await db.agentAlert.findUniqueOrThrow({where: {id: made.id}, select: {slackAppId: true}}),
+		).toEqual({slackAppId: app.id});
+		await db.slackApp.delete({where: {id: app.id}});
+		const forgotten = await db.agentAlert.findUniqueOrThrow({where: {id: made.id}});
+		expect(forgotten.slackAppId).toBeNull();
+		const seen = new Set((await openedByAlerts()).map(({id}) => id));
+		expect(
+			unwrap(await fireAlert({...made, slackAppId: app.id}, due, null, readyForInference)),
+		).toBe(true);
+		const inApp = (await openedByAlerts()).find(({id}) => !seen.has(id));
+		expect(await db.slackThreadPlace.count({where: {threadId: inApp?.id ?? ''}})).toBe(0);
+		await db.slackWorkspace.delete({where: {id: workspace.id}});
+	});
+
 	test('a poll goes with its connection', async () => {
 		await db.connection.delete({where: {id: connectionId}});
 		expect(await db.connectionPoll.count({where: {connectionId}})).toBe(0);

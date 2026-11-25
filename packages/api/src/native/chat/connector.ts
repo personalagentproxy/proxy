@@ -1,17 +1,36 @@
 import {Err, Ok, type Result} from 'ts-results-es';
 
 import {ApiErr, type ApiError, Do, requirePresent} from '@proxy/utils';
+import {readyForInference} from '@proxy/utils/harness';
+import {MAX_MESSAGE} from '@proxy/contracts/harness';
 import {CHAT_PLACES, CHAT_STANDINGS} from '@proxy/integrations';
 import {deleteAlert, listMemberAlerts, type MemberAlertRow} from '@proxy/db/alerts';
 import {getOrgSlug, getThreadAddress, listMemberThreads, type MemberThreadRow, type ThreadStandingFilter} from '@proxy/db/chat';
-import {getMemberThread, type SlackThreadRow} from '@proxy/db/harness';
+import {
+	changeMemberThreadStanding,
+	ensureMemberChat,
+	findMemberPersonas,
+	getMemberChat,
+	getMemberThread,
+	getPassingThread,
+	getPersona,
+	openPassedOnThread,
+	passOnToThread,
+	type PassOnRefusal,
+	type PersonaRow,
+	type SlackThreadRow,
+	type StandingChange,
+} from '@proxy/db/harness';
 
 import {alertComes} from '../../harness/alerts';
-import {SHOWN_CALLS} from '../../harness/thread-rules';
+import {ensureChat} from '../../harness/member-chat';
+import {SHOWN_CALLS, threadOpening} from '../../harness/thread-rules';
 import {standingOf, threadLines} from '../../harness/thread-standing';
 import {requireAppUrl} from '../../oauth/oauth-config';
+import {deliverNow} from '../../slack/delivery';
+import {slackOpening} from '../../slack/openings';
 import {slackThreadUrl} from '../../slack/thread-link';
-import {requireFirstPage, type DataRecord, type ListQuery, type RecordStore, type RecordTarget} from '../../records/connector';
+import {type CommandRunner, type NewCommandRunner, requireFirstPage, type DataRecord, type ListQuery, type RecordStore, type RecordTarget, type RecordValues} from '../../records/connector';
 
 /**
  * Chat's collections: a member's own threads with their agents, whichever persona each is with,
@@ -20,7 +39,15 @@ import {requireFirstPage, type DataRecord, type ListQuery, type RecordStore, typ
  * is its row: its title, whom it is with, where it lives, where it stands and, while current, the
  * sentence that says so; opened, it carries what was said in it too, as the member sees it. Its
  * url is where it lives, its page in Chat or its thread in Slack, which is where the person goes on
- * with it: nothing here writes to a thread.
+ * with it. Where it stands is changed by its commands, as the member changes it on the Chat page,
+ * on any of their threads wherever it lives; for one in Slack its session's status there follows,
+ * as the delivery sweep keeps it (slack/sessions.ts). A thread's agent sends another thread a
+ * message the member asked it to pass on, which lands there as theirs (db/harness passOnToThread),
+ * and is delivered to Slack for one that lives there (slack/delivery-rules.ts); or opens a new
+ * thread with it, with whichever of the member's personas and in Chat or in Slack
+ * (db/harness openPassedOnThread), where in Slack the app posts it as the thread's root message in
+ * the member's DM with the persona (slack/openings.ts, slack/delivery.ts). An alert that opens new
+ * threads says where it opens them, in Slack for one set in a thread there.
  */
 
 // How many threads a page of the list holds.
@@ -90,6 +117,21 @@ function summary({standing: {summary: sentence, summarySeq}, last}: Pick<MemberT
 	return sentence;
 }
 
+// Where the thread lives, as its record says it.
+function place(thread: Pick<MemberThreadRow, 'slack'>): string {
+	return thread.slack === null ? CHAT_PLACES.chat : CHAT_PLACES.slack;
+}
+
+/**
+ * The thread in a line, in its record's words, as a thread's agent is told of the person's other
+ * threads (harness/inference.ts): its id, title, whom it is with, where it lives, where it stands
+ * and, while current, its summary.
+ */
+export function threadLine(thread: MemberThreadRow): string {
+	const said = summary(thread);
+	return `${thread.id}: “${thread.title ?? ''}” with ${thread.personaName}, in ${place(thread)}, ${standing(thread)}${said === '' ? '' : `: ${said}`}`;
+}
+
 function threadRecord(thread: MemberThreadRow, messages: string, url: string): DataRecord {
 	const lastAt = (thread.last?.createdAt ?? thread.createdAt).toISOString();
 	return {
@@ -97,7 +139,7 @@ function threadRecord(thread: MemberThreadRow, messages: string, url: string): D
 		values: {
 			title: thread.title ?? '',
 			agent: thread.personaName,
-			place: thread.slack === null ? CHAT_PLACES.chat : CHAT_PLACES.slack,
+			place: place(thread),
 			standing: standing(thread),
 			summary: summary(thread),
 			lastMessageAt: lastAt,
@@ -107,6 +149,132 @@ function threadRecord(thread: MemberThreadRow, messages: string, url: string): D
 		url,
 	};
 }
+
+function getThread(target: RecordTarget, recordId: string): Promise<Result<DataRecord, ApiError>> {
+	return Do(async ($) => {
+		const appUrl = $(requireAppUrl());
+		const missing = ApiErr.notFound('record', recordId);
+		const thread = $(requirePresent($(await getMemberThread(memberOf(target), recordId, SHOWN_CALLS)), missing));
+		const address = $(requirePresent($(await getThreadAddress(thread)), missing));
+		const row: MemberThreadRow = {...thread, personaName: address.personaName, slack: address.slack, last: thread.entries.at(-1) ?? null};
+		return threadRecord(row, threadLines(thread, Number.POSITIVE_INFINITY).join('\n\n'), threadUrl(appUrl, address.orgSlug, row));
+	});
+}
+
+// Changes where the thread stands, and answers with it as it is then. One in progress, or watching
+// for one to archive, is refused here too, though the catalog's condition refused it as it was
+// read, since it may have been taken up since.
+function standingCommand(change: StandingChange): CommandRunner {
+	return (target, recordId) =>
+		Do(async ($) => {
+			const changed = $(await changeMemberThreadStanding(memberOf(target), recordId, change));
+			if (changed === null) {
+				return $(Err(ApiErr.notFound('record', recordId)));
+			}
+			if (changed === 'in_progress') {
+				return $(Err(ApiErr.validationError(`That thread is ${CHAT_STANDINGS.in_progress.toLowerCase()}, or its sub-agents are at work: where it stands is written as its turn ends`)));
+			}
+			if (changed === 'watching') {
+				return $(Err(ApiErr.validationError(`That thread is ${CHAT_STANDINGS.watching}: archiving it would cancel the alerts that come to it, so ask the person, and cancel them first`)));
+			}
+			return $(await getThread(target, recordId));
+		});
+}
+
+// Why a message isn't passed on, in words the agent can tell the person.
+const PASS_ON_REFUSALS: Record<PassOnRefusal | 'itself', string> = {
+	not_a_thread: 'Only the agent of one of your threads can send a message to another or open one: give the task of the thread it is sent from',
+	sub_agent: 'A sub-agent doesn’t send messages to the person’s threads or open them: tell the agent you work for, which can',
+	passed_on: 'Your latest message in this thread was passed on to it from another thread, so it can’t pass one on in turn until you write in it directly',
+	itself: 'That is this thread: a message is sent to another of your threads',
+};
+
+// The task of the thread passing a message on: the one an agent's call is made for, refused where
+// the call is a member's on a page, or none's.
+function passingTask(target: RecordTarget): Result<string, ApiError> {
+	const by = target.by;
+	if (by === undefined || !('taskId' in by)) {
+		return Err(ApiErr.validationError(PASS_ON_REFUSALS.not_a_thread));
+	}
+	return Ok(by.taskId);
+}
+
+// The message to pass on, as text, within what a message may be.
+function messageOf(values: RecordValues | undefined): Result<string, ApiError> {
+	const text = (values?.text ?? '').trim();
+	if (text === '') {
+		return Err(ApiErr.validationError('Give the message as text'));
+	}
+	if (text.length > MAX_MESSAGE) {
+		return Err(ApiErr.validationError(`A message is at most ${MAX_MESSAGE} characters`));
+	}
+	return Ok(text);
+}
+
+// Passes the message on to the thread, as the member's, from the thread whose task the call is
+// made for, and answers with the thread it went to, whose url is where the person reads it.
+const sendCommand: CommandRunner = (target, recordId, values) =>
+	Do(async ($) => {
+		const text = $(messageOf(values));
+		const taskId = $(passingTask(target));
+		const passed = $(await passOnToThread(memberOf(target), taskId, recordId, text, readyForInference));
+		if (passed === null) {
+			return $(Err(ApiErr.notFound('record', recordId)));
+		}
+		if ('refused' in passed) {
+			return $(Err(ApiErr.validationError(PASS_ON_REFUSALS[passed.refused])));
+		}
+		return $(await getThread(target, recordId));
+	});
+
+// The persona a new thread is with: the one named, by its id or its name as a thread's record has
+// it, among those the member talks to, their own and those shared with the organization; else that
+// of the thread opening it.
+function openedPersona(member: {orgId: string; userId: string}, named: string, otherwise: string): Promise<Result<PersonaRow, ApiError>> {
+	return Do(async ($) => {
+		if (named === '') {
+			const same = $(await getPersona(member.orgId, member.userId, otherwise));
+			return $(requirePresent(same, ApiErr.validationError('This thread’s agent is no longer one you talk to: name another of yours')));
+		}
+		const found = $(await findMemberPersonas(member.orgId, member.userId, named));
+		if (found.length > 1) {
+			return $(Err(ApiErr.validationError(`More than one of your agents is called “${named}”: name it by its id`)));
+		}
+		return $(requirePresent(found[0], ApiErr.validationError(`You have no agent called “${named}”: name one of yours, by its name or id`)));
+	});
+}
+
+// Opens a new thread with the message, as the member's, from the thread whose task the call is
+// made for: with its persona and in its place unless others are asked for. One in Slack is
+// delivered at once, so its root message is posted there while this agent is at work, and its
+// record's url is its Slack thread, else the DM it is to be in; and answers with the thread opened.
+const openCommand: NewCommandRunner = (target, values) =>
+	Do(async ($) => {
+		const appUrl = $(requireAppUrl());
+		const text = $(messageOf(values));
+		const taskId = $(passingTask(target));
+		const member = memberOf(target);
+		const passing = $(await getPassingThread(member, taskId));
+		if ('refused' in passing) {
+			return $(Err(ApiErr.validationError(PASS_ON_REFUSALS[passing.refused])));
+		}
+		const persona = $(await openedPersona(member, (values.agent ?? '').trim(), passing.thread.personaId));
+		const inSlack = values.place ? values.place === CHAT_PLACES.slack : passing.slack !== null;
+		const slack = inSlack ? $(await slackOpening(member, persona, passing.slack)) : null;
+		const chat = $(await ensureChat({getMemberChat, ensureMemberChat}, member, persona));
+		const opening = threadOpening(chat, {text, files: []});
+		const opened = $(await openPassedOnThread(member, taskId, {chatId: chat.id, text, opening, slack}, readyForInference));
+		if (opened === null) {
+			return $(Err(ApiErr.notFound('persona', persona.id)));
+		}
+		if ('refused' in opened) {
+			return $(Err(ApiErr.validationError(PASS_ON_REFUSALS[opened.refused])));
+		}
+		if (opened.opened.placeId !== null) {
+			await deliverNow(opened.opened.placeId, appUrl);
+		}
+		return $(await getThread(target, opened.opened.thread.id));
+	});
 
 export const threadsConnector = {
 	list: (target, query: ListQuery) =>
@@ -128,21 +296,21 @@ export const threadsConnector = {
 				nextPage: threads.length > PAGE_SIZE ? String(start + PAGE_SIZE) : null,
 			};
 		}),
-	get: (target, recordId) =>
-		Do(async ($) => {
-			const appUrl = $(requireAppUrl());
-			const missing = ApiErr.notFound('record', recordId);
-			const thread = $(requirePresent($(await getMemberThread(memberOf(target), recordId, SHOWN_CALLS)), missing));
-			const address = $(requirePresent($(await getThreadAddress(thread)), missing));
-			const row: MemberThreadRow = {...thread, personaName: address.personaName, slack: address.slack, last: thread.entries.at(-1) ?? null};
-			return threadRecord(row, threadLines(thread, Number.POSITIVE_INFINITY).join('\n\n'), threadUrl(appUrl, address.orgSlug, row));
-		}),
+	get: getThread,
+	commands: {markDone: standingCommand('done'), archive: standingCommand('archive'), unarchive: standingCommand('unarchive'), send: sendCommand},
+	newCommands: {open: openCommand},
 } satisfies RecordStore;
+
+// Where an alert that opens a new thread each time opens it: in Slack for one set in a thread
+// that lives there, in the member's DM with its agent's app; in Chat otherwise.
+function newThreads(alert: MemberAlertRow): string {
+	return alert.slackAppId === null ? 'A new thread each time' : `A new thread in ${CHAT_PLACES.slack} each time`;
+}
 
 function alertRecord(alert: MemberAlertRow, url: string): DataRecord {
 	return {
 		id: alert.id,
-		values: {title: alert.title, comes: alertComes(alert), note: alert.brief, thread: alert.thread?.title ?? 'A new thread each time', agent: alert.persona.name},
+		values: {title: alert.title, comes: alertComes(alert), note: alert.brief, thread: alert.thread?.title ?? newThreads(alert), agent: alert.persona.name},
 		updatedAt: alert.createdAt.toISOString(),
 		url,
 	};

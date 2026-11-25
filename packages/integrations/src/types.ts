@@ -51,11 +51,17 @@ export type Command = {
 	// The button: "Mark as read".
 	label: string;
 	// What an agent is told the tool does, where the label and the action don't say it, as
-	// reading an attachment needs the email and the attachment named.
+	// reading an attachment needs the email and the attachment named; for a `record` one, in place
+	// of the action's description, as archiving a thread says what that does to it.
 	description?: string;
 	action: string;
 	// The action it needs beside its own, as sending a reply needs Read, for the email it answers.
 	requires?: string;
+	// What it takes, where not the collection's fields: a `record` one beside the record's id, each
+	// required, as sending a message to a thread takes its text; a `new` one in place of the fields,
+	// each as a field is, left out where not given, as opening a thread takes its message, its agent
+	// and its place, which aren't a thread's fields as a list reads them.
+	params?: Field[];
 	// The records it applies to, when not every one.
 	where?: Condition;
 	// The activity log's line, `{}` standing for the record: "Marked {} as read", and what a refused
