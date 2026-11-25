@@ -23,7 +23,9 @@ export type DataMigration = {id: string; run: () => Promise<Result<void, ApiErro
 export const DATA_MIGRATIONS: DataMigration[] = [
 	{id: 'take-over-custom-connections', run: takeOverCustomConnections},
 	{id: 'convert-old-vault-records', run: convertOldVaultRecords},
-	{id: 'unify-mcp-credentials', run: unifyMcpCredentials},
+	// Run again under a new id: an instance from before it may have written the old shapes while the
+	// first run's deploy rolled over, and only the migration reads them now.
+	{id: 'unify-mcp-credentials-again', run: unifyMcpCredentials},
 ];
 
 function metaKey(id: string): string {

@@ -23,13 +23,3 @@ export const builtInCredentialSchema = z.discriminatedUnion('auth', [tokenAuthSc
 export type BuiltInCredential = z.infer<typeof builtInCredentialSchema>;
 
 export type OAuthCredential = z.infer<typeof oauthAuthSchema>;
-
-// Before every MCP credential said how it signs in, an integration built in stored a key as
-// `{auth: 'key', key}` and a sign-in's tokens bare. Read as they are now until the data migration
-// `unify-mcp-credentials` has rewritten them, on every instance; it, and these, can then go.
-const legacyKeySchema = z.object({auth: z.literal('key'), key: z.string()}).transform(({key}): BuiltInCredential => ({auth: 'token', token: key}));
-
-const legacyTokensSchema = mcpTokensSchema.transform((tokens): BuiltInCredential => ({auth: 'oauth', ...tokens}));
-
-/** A built-in integration's credential as stored, in the shape it has now or the one it had before. */
-export const storedBuiltInCredentialSchema = z.union([builtInCredentialSchema, legacyKeySchema, legacyTokensSchema]);
