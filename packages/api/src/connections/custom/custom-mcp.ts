@@ -8,7 +8,7 @@ import {readStoredJson} from '../../utils/stored-json';
 import {callMcpTool, listMcpTools} from '../mcp/mcp-client';
 import {noAuthSchema, oauthAuthSchema, tokenAuthSchema} from '../mcp/mcp-credential';
 import {mcpEndpointsSchema, type McpEndpoint, type McpServer} from '../mcp/mcp-oauth';
-import {withMcpSignIn} from '../mcp/mcp-session';
+import {withMcpCredential} from '../mcp/mcp-session';
 
 /**
  * A custom MCP server, by its address: connected with no sign-in where the server asks for none,
@@ -70,7 +70,7 @@ function withCustomServer<T>(connection: StoredConnection, use: (server: McpEndp
 			return $(await use(customEndpoint(credential.url), credential.token));
 		}
 		const server = customServer(credential);
-		return $(await withMcpSignIn(server, connection, customSignInSchema, (accessToken) => use(server, accessToken)));
+		return $(await withMcpCredential(server, connection, customSignInSchema, (accessToken) => use(server, accessToken)));
 	});
 }
 

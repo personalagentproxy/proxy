@@ -94,7 +94,7 @@ describe('callMcpToolFor', () => {
 	});
 
 	test('a custom server’s sign-in keeps its address beside the new tokens', async () => {
-		const {withMcpSignIn} = await import('./mcp-session');
+		const {withMcpCredential} = await import('./mcp-session');
 		const {oauthAuthSchema} = await import('./mcp-credential');
 		const credential = {
 			auth: 'oauth',
@@ -105,7 +105,7 @@ describe('callMcpToolFor', () => {
 			expiresAt: new Date(Date.now() + 10_000).toISOString(),
 		};
 		const connection = {id: 'conn-1', credential: `enc:${JSON.stringify(credential)}`};
-		await withMcpSignIn(SERVER, connection, oauthAuthSchema.extend({url: z.string()}), (accessToken) => callMcpTool(SERVER, accessToken, 'search', {}));
+		await withMcpCredential(SERVER, connection, oauthAuthSchema.extend({url: z.string()}), (accessToken) => callMcpTool(SERVER, accessToken, 'search', {}));
 
 		const saved = updateConnectionCredential.mock.calls[0]?.[0] as {credential: string};
 		expect(JSON.parse(saved.credential.replace(/^enc:/, ''))).toEqual({auth: 'oauth', url: 'https://mcp.example.com/mcp', ...fresh});

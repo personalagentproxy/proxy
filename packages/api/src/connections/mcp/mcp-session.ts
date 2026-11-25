@@ -40,10 +40,12 @@ function sent(credential: BuiltInCredential): string {
 }
 
 /**
- * Runs `use` with a custom server's sign-in, read with `schema`, which keeps its address and
- * endpoints beside the tokens when they are refreshed, as `withMcpToken` does (`custom/custom-mcp.ts`).
+ * Runs `use` with what a connection's credential, read with `schema`, sends: its token or key, or
+ * its sign-in's access token, refreshed as `withMcpToken` describes. Whatever else the credential
+ * holds, as a custom server's address and endpoints (`custom/custom-mcp.ts`), is kept beside the
+ * new tokens.
  */
-export function withMcpSignIn<T, C extends BuiltInCredential>(
+export function withMcpCredential<T, C extends BuiltInCredential>(
 	server: McpServer,
 	connection: StoredConnection,
 	schema: z.ZodType<C>,
@@ -59,7 +61,7 @@ export function withMcpSignIn<T, C extends BuiltInCredential>(
  * `credentials_rejected`, and has to be signed in to again or given a new key.
  */
 export function withMcpToken<T>(server: McpServer, connection: StoredConnection, use: (accessToken: string) => Promise<Result<T, ApiError>>): Promise<Result<T, ApiError>> {
-	return withMcpSignIn(server, connection, builtInCredentialSchema, use);
+	return withMcpCredential(server, connection, builtInCredentialSchema, use);
 }
 
 /** Calls one of a server's tools with a connection's token, refreshed as `withMcpToken` does. */
