@@ -76,9 +76,10 @@ type SignInAnswer<E> = {redirectUri: string; code: string; verifier: string; kep
  * it: a new connection's, or, for a custom server added again, the connection's new name; any other
  * connection renewed keeps its own. `anonymous` where the provider said nothing of who signed in,
  * as Exa and Parallel don't: the account is only a label, so no existing connection is the same
- * account's.
+ * account's. `fromConnection` where the connection it was begun from is the one to renew, whatever
+ * account it shows now, as moving a custom MCP server to another address does.
  */
-export type Connected<C> = {account: string; accountId?: string; credential: C; defaults: string[]; tools?: McpTool[]; name?: string; anonymous?: true};
+export type Connected<C> = {account: string; accountId?: string; credential: C; defaults: string[]; tools?: McpTool[]; name?: string; anonymous?: true; fromConnection?: true};
 
 // The one of the same account among those the viewer sees and may change, if there is one: a
 // sign-in to another account is a connection of its own, never one agents were given for the first,
@@ -88,15 +89,24 @@ export type Connected<C> = {account: string; accountId?: string; credential: C; 
 // only where its account can't be told apart from another's: the provider said nothing of who
 // signed in (`anonymous`), or the connection was never signed in to, as one moved over from a
 // custom MCP server without a sign-in of the integration's (`take-over-custom.ts`), and no other
-// connection is the account's already, so an account is never connected twice.
+// connection is the account's already, so an account is never connected twice. One moved to
+// another account on its page (`fromConnection`) renews that one, or nothing, should it be gone.
 function connectionToRenew(
 	viewer: ManagingViewer,
 	integrationId: IntegrationId,
-	connected: {account: string; providerAccountId: string | null; anonymous: boolean},
+	connected: {account: string; providerAccountId: string | null; anonymous: boolean; fromConnection: boolean},
 	connectionId: string | null,
 ): Promise<Result<ConnectionRow | null, ApiError>> {
 	return Do(async ($) => {
 		const {account, providerAccountId} = connected;
+		if (connected.fromConnection) {
+			const begunFrom = connectionId === null ? null : $(await getConnectionWithCredential(viewer, connectionId));
+			if (begunFrom?.integrationId !== integrationId || !manages(viewer, begunFrom)) {
+				return $(Err(ApiErr.notFound('connection', connectionId ?? '')));
+			}
+			const {credential: _credential, ...row} = begunFrom;
+			return row;
+		}
 		const sameAccount = connected.anonymous ? null : $(await findAccountConnection(viewer, {integrationId, account, providerAccountId}));
 		if (sameAccount && manages(viewer, sameAccount)) {
 			return sameAccount;
@@ -151,7 +161,14 @@ export function saveConnection<C>(
 		const encrypted = $(encryptSecret(JSON.stringify(connected.credential)));
 		const providerAccountId = connected.accountId ?? null;
 		const name = connected.name === undefined ? {} : {name: connected.name};
-		const existing = $(await connectionToRenew(viewer, integrationId, {account, providerAccountId, anonymous: connected.anonymous === true}, options.connectionId ?? null));
+		const existing = $(
+			await connectionToRenew(
+				viewer,
+				integrationId,
+				{account, providerAccountId, anonymous: connected.anonymous === true, fromConnection: connected.fromConnection === true},
+				options.connectionId ?? null,
+			),
+		);
 		if (!existing) {
 			return {row: $(await addConnection(viewer, integrationId, connected, encrypted, options.shared === true)), added: true};
 		}

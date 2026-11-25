@@ -48,7 +48,8 @@ function customServer(credential: Extract<CustomCredential, {auth: 'oauth'}>): M
 
 type StoredConnection = {id: string; credential: string | null};
 
-function readCredential(connection: StoredConnection): Result<CustomCredential, ApiError> {
+/** What a custom MCP connection signs in to its server with, decrypted. */
+export function readCustomCredential(connection: StoredConnection): Result<CustomCredential, ApiError> {
 	return Do<CustomCredential, ApiError>(($) => {
 		const stored = $(requirePresent(connection.credential, ApiErr.internalError(new Error('Custom MCP connection without a credential'))));
 		return $(readStoredJson(stored, customCredentialSchema));
@@ -59,7 +60,7 @@ function readCredential(connection: StoredConnection): Result<CustomCredential, 
 // typed in, or the access token, refreshed as it runs out.
 function withCustomServer<T>(connection: StoredConnection, use: (server: McpEndpoint, accessToken: string | null) => Promise<Result<T, ApiError>>): Promise<Result<T, ApiError>> {
 	return Do(async ($) => {
-		const credential = $(readCredential(connection));
+		const credential = $(readCustomCredential(connection));
 		if (credential.auth === 'none') {
 			return $(await use(customEndpoint(credential.url), null));
 		}

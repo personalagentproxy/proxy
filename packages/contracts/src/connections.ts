@@ -209,6 +209,36 @@ export const connectMcpSchema = z.discriminatedUnion('kind', [
 ]);
 
 /**
+ * `GET connections/:connectionId/server`: the custom MCP server a connection reaches, for whoever
+ * may change it: its address without the query, which may hold a key, and how it is signed in to.
+ */
+export const customMcpServerSchema = z.object({
+	url: z.string(),
+	auth: z.enum(['none', 'token', 'oauth']),
+});
+
+export type CustomMcpServer = z.infer<typeof customMcpServerSchema>;
+
+/**
+ * `PUT connections/:connectionId/server`: a custom MCP connection moved to another address, given
+ * another token, or both, its name, settings and activity kept. `url` left out keeps the address,
+ * its query too; `token` left out keeps the token while the server stays on the same origin, `null`
+ * drops it. Answered as connecting is: connected, or the sign-in the server asks for, begun.
+ */
+export const editMcpServerBodySchema = z.object({
+	url: z.string().optional(),
+	token: z
+		.string()
+		.trim()
+		.min(1, 'Enter the token, or remove it')
+		.regex(/^[^\r\n]*$/, 'The token can’t have line breaks')
+		.nullable()
+		.optional(),
+	/** Sent from the browser for the desktop app, as connecting is. */
+	desktop: z.boolean().optional(),
+});
+
+/**
  * `POST connections/<integration>` for one that takes an API key: a new connection, the person's
  * own or every member's, or the one given the key.
  */

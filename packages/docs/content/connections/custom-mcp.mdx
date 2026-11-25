@@ -52,6 +52,24 @@ on the connection's page or for one agent on the agent's page.
 
 </Steps>
 
+## Change the address or token
+
+The pencil on the connection's page opens **Edit the server**, where a server that moved gets its
+new address, and a token that changed or ran out is replaced. Personal Agent Proxy asks the server
+at the address for its tools before it keeps anything, so a wrong address or token changes nothing.
+The connection keeps its name, its activity, and the settings for every tool the server still
+lists. A server that asks for a sign-in opens its sign-in page, as connecting does, and comes back
+to the same connection.
+
+- The address left as it is keeps anything after its `?` it was connected with, which the dialog
+  doesn't show, as it may hold a key.
+- The token left empty keeps the current one, but only while the address stays on the same server:
+  a token is never sent to another server unless you enter it again. **Remove the token** connects
+  without one.
+- A connection you signed in to is signed in to again when saved without a token.
+- An address another of your connections has already, or a service's own server, such as Notion's,
+  is turned down: connect that from **Add connection**.
+
 ## What agents can do
 
 Each tool the server lists is an action of its own, allowed or not. An agent that may run a tool

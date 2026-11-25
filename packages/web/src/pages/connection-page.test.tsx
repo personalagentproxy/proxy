@@ -1,7 +1,7 @@
 /// <reference types="bun" />
 
 import type {AgentLogin} from '@proxy/contracts/agents';
-import type {Connection} from '@proxy/contracts/connections';
+import type {Connection, CustomMcpServer} from '@proxy/contracts/connections';
 import type {Member} from '@proxy/contracts/orgs';
 import type {DataRecord} from '@proxy/contracts/records';
 import type {DriveHistoryLoaded} from '@/components/drive-history';
@@ -82,6 +82,7 @@ function renderConnectionPage(
 	files: Drive | null = null,
 	history: DriveHistoryLoaded | null = null,
 	vaultSecrets: DataRecord[] | null = vaultEntries === null ? null : [],
+	mcpServer: CustomMcpServer | null = null,
 ) {
 	const loads = {count: 0};
 	const router = createMemoryRouter(
@@ -108,6 +109,7 @@ function renderConnectionPage(
 								github,
 								files,
 								history,
+								mcpServer,
 							};
 						}),
 						shouldRevalidate: shouldRevalidateTabs,
@@ -904,4 +906,116 @@ test('a custom MCP server’s All row saves the defaults of only the tools the s
 	} finally {
 		fetch.mockRestore();
 	}
+});
+
+describe('editing a custom MCP server', () => {
+	const connection: Connection = {
+		...mailbox,
+		integrationId: 'mcp',
+		account: 'mcp.example.com/mcp',
+		name: 'Example server',
+		defaults: [],
+		tools: [{name: 'read', inputSchema: {type: 'object'}}],
+	};
+	const server: CustomMcpServer = {url: 'https://mcp.example.com/mcp', auth: 'token'};
+
+	// The page's edit route, answering it was saved.
+	function answerSaved() {
+		return spyOn(globalThis, 'fetch').mockResolvedValue(
+			new Response(JSON.stringify({kind: 'connected', connection}), {
+				headers: {'content-type': 'application/json'},
+			}),
+		);
+	}
+
+	function edits(fetch: ReturnType<typeof answerSaved>): unknown[] {
+		return fetch.mock.calls
+			.filter(([url, options]) => String(url).endsWith('/server') && options?.method === 'PUT')
+			.map(([, options]) => JSON.parse(String(options?.body)));
+	}
+
+	test('only a custom MCP server the person may change can be edited', async () => {
+		renderConnectionPage('/acme/connections/conn-1');
+		await screen.findByRole('checkbox', {name: 'Read by default'});
+		expect(screen.queryByRole('button', {name: 'Edit the server'})).toBeNull();
+	});
+
+	test('sends only what changed: a new address keeps the token', async () => {
+		const fetch = answerSaved();
+		try {
+			renderConnectionPage(
+				'/acme/connections/conn-1',
+				connection,
+				[claude],
+				null,
+				null,
+				null,
+				null,
+				null,
+				null,
+				server,
+			);
+			fireEvent.click(await screen.findByRole('button', {name: 'Edit the server'}));
+			const address = await screen.findByLabelText('Server address');
+			expect(address).toHaveProperty('value', 'https://mcp.example.com/mcp');
+			fireEvent.change(address, {target: {value: 'https://mcp.example.com/v2/mcp'}});
+			fireEvent.click(screen.getByRole('button', {name: 'Save'}));
+			await waitFor(() => expect(edits(fetch)).toEqual([{url: 'https://mcp.example.com/v2/mcp'}]));
+		} finally {
+			fetch.mockRestore();
+		}
+	});
+
+	test('a new token alone leaves the address out', async () => {
+		const fetch = answerSaved();
+		try {
+			renderConnectionPage(
+				'/acme/connections/conn-1',
+				connection,
+				[claude],
+				null,
+				null,
+				null,
+				null,
+				null,
+				null,
+				server,
+			);
+			fireEvent.click(await screen.findByRole('button', {name: 'Edit the server'}));
+			fireEvent.change(await screen.findByLabelText('New access token'), {
+				target: {value: ' tok-2 '},
+			});
+			fireEvent.click(screen.getByRole('button', {name: 'Save'}));
+			await waitFor(() => expect(edits(fetch)).toEqual([{token: 'tok-2'}]));
+		} finally {
+			fetch.mockRestore();
+		}
+	});
+
+	test('removing the token sends none', async () => {
+		const fetch = answerSaved();
+		try {
+			renderConnectionPage(
+				'/acme/connections/conn-1',
+				connection,
+				[claude],
+				null,
+				null,
+				null,
+				null,
+				null,
+				null,
+				server,
+			);
+			fireEvent.click(await screen.findByRole('button', {name: 'Edit the server'}));
+			fireEvent.click(await screen.findByText('Remove the token'));
+			await waitFor(() =>
+				expect(screen.getByLabelText('New access token')).toHaveProperty('disabled', true),
+			);
+			fireEvent.click(screen.getByRole('button', {name: 'Save'}));
+			await waitFor(() => expect(edits(fetch)).toEqual([{token: null}]));
+		} finally {
+			fetch.mockRestore();
+		}
+	});
 });
