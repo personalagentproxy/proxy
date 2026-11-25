@@ -4,11 +4,11 @@ import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do, parseSchema} from '@proxy/utils';
 import {findAccountConnection} from '@proxy/db/connection';
-import {type Connection, connectMcpBodySchema, type connectMcpSchema, type CustomMcpServer, editMcpServerBodySchema} from '@proxy/contracts/connections';
+import {type Connection, connectMcpBodySchema, type connectMcpSchema, type CustomMcpServer, editMcpServerBodySchema, type ReturnTo} from '@proxy/contracts/connections';
 
 import type {AuthenticatedRequest} from '../../server/middleware/require-auth';
 import {sendResult} from '../../server/response';
-import {requireViewer} from '../../utils/user-org';
+import {requireViewer, type OrgViewer} from '../../utils/user-org';
 import {builtInForHost} from '../built-in-mcp';
 import {respond} from '../connection-response';
 import {saveConnection, signInFlow, type SignInRequest} from '../connect-flow';
@@ -66,7 +66,37 @@ const {beginSignIn, handleCallback: handleCustomMcpCallbackRoute} = signInFlow({
 
 export {handleCustomMcpCallbackRoute};
 
-function connectCustomMcp(request: AuthenticatedRequest, res: Response): Promise<Result<z.infer<typeof connectMcpSchema>, ApiError>> {
+type ConnectMcpAnswer = z.infer<typeof connectMcpSchema>;
+
+// Where a custom server connected at an address goes: a new connection, named and maybe shared, or
+// one moved to it on its page, which keeps its own name and is the one its sign-in renews
+// (`fromConnection` in connect-flow.ts).
+type Destination = {kind: 'new'; name: string; shared: boolean; returnTo: ReturnTo | undefined} | {kind: 'moved'; connectionId: string};
+
+// The server at `url` asked for its tools, with the token where there is one, and the connection
+// saved; or, where the server asks for a sign-in, the sign-in begun, which comes back to the
+// callback above.
+function connectServer(res: Response, viewer: OrgViewer, at: {url: URL; token: string | null; desktop: boolean}, destination: Destination): Promise<Result<ConnectMcpAnswer, ApiError>> {
+	return Do(async ($) => {
+		const {url, token, desktop} = at;
+		const probe = $(await probeMcpServer(url, token));
+		if (probe.kind === 'signIn') {
+			const server = $(await discoverMcpServer(url));
+			const kept = destination.kind === 'new' ? {name: destination.name} : {edit: true as const};
+			const start = (signIn: SignInRequest) => startMcpSignIn(server, signIn, {server: mcpEndpoints(server), ...kept});
+			const back = destination.kind === 'new' ? {returnTo: destination.returnTo, shared: destination.shared} : {returnTo: undefined, connectionId: destination.connectionId};
+			return {kind: 'signIn' as const, url: $(await beginSignIn(res, {viewer, desktop, account: null, start, ...back}))};
+		}
+		const credential: CustomCredential = token === null ? {auth: 'none', url: url.toString()} : {auth: 'token', url: url.toString(), token};
+		const found = {account: mcpAccount(url), credential, defaults: readOnlyToolNames(probe.tools), tools: probe.tools};
+		const connected = destination.kind === 'new' ? {...found, name: destination.name} : {...found, fromConnection: true as const};
+		const options = destination.kind === 'new' ? {shared: destination.shared} : {connectionId: destination.connectionId};
+		const {row} = $(await saveConnection(viewer, 'mcp', connected, options));
+		return {kind: 'connected' as const, connection: $(await respond({...row, credential: JSON.stringify(credential)}))};
+	});
+}
+
+function connectCustomMcp(request: AuthenticatedRequest, res: Response): Promise<Result<ConnectMcpAnswer, ApiError>> {
 	return Do(async ($) => {
 		const body = $(parseSchema(connectMcpBodySchema, request.body));
 		const url = $(await parseMcpServerUrl(body.url));
@@ -89,15 +119,7 @@ function connectCustomMcp(request: AuthenticatedRequest, res: Response): Promise
 		if (builtIn) {
 			return {kind: 'signIn' as const, url: $(await beginBuiltInSignIn(builtIn, res, {viewer, returnTo: body.returnTo, desktop, name: body.name, shared}))};
 		}
-		const probe = $(await probeMcpServer(url, token));
-		if (probe.kind === 'signIn') {
-			const server = $(await discoverMcpServer(url));
-			const start = (signIn: SignInRequest) => startMcpSignIn(server, signIn, {server: mcpEndpoints(server), name: body.name});
-			return {kind: 'signIn' as const, url: $(await beginSignIn(res, {viewer, returnTo: body.returnTo, desktop, account: null, shared, start}))};
-		}
-		const credential: CustomCredential = token === null ? {auth: 'none', url: url.toString()} : {auth: 'token', url: url.toString(), token};
-		const {row} = $(await saveConnection(viewer, 'mcp', {account: mcpAccount(url), credential, defaults: readOnlyToolNames(probe.tools), tools: probe.tools, name: body.name}, {shared}));
-		return {kind: 'connected' as const, connection: $(await respond({...row, credential: JSON.stringify(credential)}))};
+		return $(await connectServer(res, viewer, {url, token, desktop}, {kind: 'new', name: body.name, shared, returnTo: body.returnTo}));
 	});
 }
 
@@ -143,7 +165,7 @@ function keptToken(current: CustomCredential, url: URL): Result<string | null, A
 	return Ok(current.token);
 }
 
-function editCustomMcp(request: AuthenticatedRequest, res: Response): Promise<Result<z.infer<typeof connectMcpSchema>, ApiError>> {
+function editCustomMcp(request: AuthenticatedRequest, res: Response): Promise<Result<ConnectMcpAnswer, ApiError>> {
 	return Do(async ($) => {
 		const body = $(parseSchema(editMcpServerBodySchema, request.body));
 		const viewer = $(await requireViewer(request));
@@ -162,17 +184,7 @@ function editCustomMcp(request: AuthenticatedRequest, res: Response): Promise<Re
 			return $(Err(ApiErr.conflict(`${account} is connected already, as ${taken.name ?? taken.account}`)));
 		}
 		const token = body.token === undefined ? $(keptToken(current, url)) : body.token;
-		const probe = $(await probeMcpServer(url, token));
-		if (probe.kind === 'signIn') {
-			const server = $(await discoverMcpServer(url));
-			const start = (signIn: SignInRequest) => startMcpSignIn(server, signIn, {server: mcpEndpoints(server), edit: true as const});
-			const desktop = body.desktop ?? false;
-			return {kind: 'signIn' as const, url: $(await beginSignIn(res, {viewer, returnTo: undefined, desktop, account: null, connectionId: row.id, start}))};
-		}
-		const credential: CustomCredential = token === null ? {auth: 'none', url: url.toString()} : {auth: 'token', url: url.toString(), token};
-		const connected = {account, credential, defaults: readOnlyToolNames(probe.tools), tools: probe.tools, fromConnection: true as const};
-		const saved = $(await saveConnection(viewer, 'mcp', connected, {connectionId: row.id}));
-		return {kind: 'connected' as const, connection: $(await respond({...saved.row, credential: JSON.stringify(credential)}))};
+		return $(await connectServer(res, viewer, {url, token, desktop: body.desktop ?? false}, {kind: 'moved', connectionId: row.id}));
 	});
 }
 

@@ -1,4 +1,5 @@
 import {Err, Ok, type Result} from 'ts-results-es';
+import {z} from 'zod';
 
 import {ApiErr, type ApiError, Do} from '@proxy/utils';
 import {listIntegrationCredentials, rewriteConnectionCredential, type StoredCredentialRow} from '@proxy/db/connection';
@@ -8,18 +9,29 @@ import {log, serializeError} from '../../observability/log';
 import {encryptSecret} from '../../utils/secret-crypto';
 import {readStoredJson} from '../../utils/stored-json';
 import {builtInMcps} from '../built-in-mcp';
-import {builtInCredentialSchema, storedBuiltInCredentialSchema} from './mcp-credential';
+import {builtInCredentialSchema, type BuiltInCredential} from './mcp-credential';
+import {mcpTokensSchema} from './mcp-oauth';
 
 /**
- * The data migration `unify-mcp-credentials` (`data-migrations/run.ts`): every connection of an
+ * The data migration `unify-mcp-credentials-again` (`data-migrations/run.ts`): every connection of an
  * integration built on its MCP server given its credential in the shape every MCP credential has
  * now (`mcp-credential.ts`), a key as `{auth: 'token', token}` rather than `{auth: 'key', key}`, and
  * a sign-in's tokens under `{auth: 'oauth'}` rather than bare. A custom server's were in it already.
  * Each is rewritten only while it is still the one read, so tokens refreshed meanwhile are never
  * undone; one that changed meanwhile, or couldn't be saved, has the migration tried again on the
  * next start. One that can't be read at all, as after a change of `ENCRYPTION_KEY`, is logged and
- * passed over, as it was unusable before too.
+ * passed over, as it was unusable before too. Until it has run, a connection in the old shape can't
+ * be used: the api reads only the shape credentials have now.
  */
+
+// Before every MCP credential said how it signs in, an integration built in stored a key as
+// `{auth: 'key', key}` and a sign-in's tokens bare. Only this migration reads them now.
+const legacyKeySchema = z.object({auth: z.literal('key'), key: z.string()}).transform(({key}): BuiltInCredential => ({auth: 'token', token: key}));
+
+const legacyTokensSchema = mcpTokensSchema.transform((tokens): BuiltInCredential => ({auth: 'oauth', ...tokens}));
+
+// A built-in integration's credential as stored, in the shape it had before.
+const legacyCredentialSchema = z.union([legacyKeySchema, legacyTokensSchema]);
 
 // What became of one connection's credential.
 type Rewrite = 'rewritten' | 'current' | 'changed';
@@ -29,7 +41,7 @@ function rewrite(row: StoredCredentialRow): Promise<Result<Rewrite, ApiError>> {
 		if (readStoredJson(row.credential, builtInCredentialSchema).isOk()) {
 			return 'current' as const;
 		}
-		const credential = $(readStoredJson(row.credential, storedBuiltInCredentialSchema));
+		const credential = $(readStoredJson(row.credential, legacyCredentialSchema));
 		const encrypted = $(encryptSecret(JSON.stringify(credential)));
 		const saved = $(await rewriteConnectionCredential({connectionId: row.id, previous: row.credential, credential: encrypted}));
 		return saved ? ('rewritten' as const) : ('changed' as const);
