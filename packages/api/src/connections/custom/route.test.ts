@@ -303,7 +303,7 @@ describe('handleConnectCustomMcpRoute', () => {
 		] as const) {
 			const res = await connect({name: 'Web search', url, token: 'key-1234'});
 			expect(res.sent).toMatchObject({kind: 'connected', connection: {name: 'Web search', account}});
-			expect(createConnection.mock.calls.at(-1)?.[0]).toMatchObject({integrationId, name: 'Web search', credential: `enc:${JSON.stringify({auth: 'key', key: 'key-1234'})}`});
+			expect(createConnection.mock.calls.at(-1)?.[0]).toMatchObject({integrationId, name: 'Web search', credential: `enc:${JSON.stringify({auth: 'token', token: 'key-1234'})}`});
 		}
 		expect(probeMcpServer).not.toHaveBeenCalled();
 	});
@@ -314,7 +314,7 @@ describe('handleConnectCustomMcpRoute', () => {
 		const res = await connect({name: 'Linear test', url: 'https://mcp.linear.app/mcp', token: 'key-1234'});
 
 		expect(createConnection).not.toHaveBeenCalled();
-		expect(renewConnection.mock.calls[0]?.[0]).toMatchObject({connectionId: 'linear-1', credential: `enc:${JSON.stringify({auth: 'key', key: 'key-1234'})}`});
+		expect(renewConnection.mock.calls[0]?.[0]).toMatchObject({connectionId: 'linear-1', credential: `enc:${JSON.stringify({auth: 'token', token: 'key-1234'})}`});
 		expect(updateConnectionName).not.toHaveBeenCalled();
 		expect(res.sent).toMatchObject({kind: 'connected', connection: {id: 'linear-1', name: 'Work', account: 'alex@example.com · Acme'}});
 	});
@@ -324,7 +324,7 @@ describe('handleConnectCustomMcpRoute', () => {
 		const res = await connect({name: 'Web search', url: 'https://mcp.exa.ai/mcp?exaApiKey=key-5678'});
 
 		expect(res.sent).toMatchObject({kind: 'connected', connection: {name: 'Web search', account: 'API key ending 5678'}});
-		expect(createConnection.mock.calls.at(-1)?.[0]).toMatchObject({integrationId: 'exa', credential: `enc:${JSON.stringify({auth: 'key', key: 'key-5678'})}`});
+		expect(createConnection.mock.calls.at(-1)?.[0]).toMatchObject({integrationId: 'exa', credential: `enc:${JSON.stringify({auth: 'token', token: 'key-5678'})}`});
 	});
 
 	test('a token for a built-in integration that takes no key is refused, rather than dropped for a sign-in', async () => {

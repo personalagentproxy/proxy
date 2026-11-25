@@ -64,15 +64,15 @@ const TIMEOUT_MS = 15_000;
 // Refreshed a minute early, so a token doesn't run out between the check and the call.
 const EXPIRY_MARGIN_MS = 60_000;
 
-/** What a connection to an MCP server stores, encrypted: the client it signed in with and its tokens. */
-export const mcpCredentialSchema = z.object({
+/** What a sign-in to an MCP server leaves: the client it signed in with and its tokens, kept in the connection's credential (`mcp-credential.ts`). */
+export const mcpTokensSchema = z.object({
 	clientId: z.string(),
 	accessToken: z.string(),
 	refreshToken: z.string().nullable(),
 	expiresAt: z.string().nullable(),
 });
 
-export type McpCredential = z.infer<typeof mcpCredentialSchema>;
+export type McpTokens = z.infer<typeof mcpTokensSchema>;
 
 const registrationSchema = z.object({client_id: z.string().min(1)});
 
@@ -127,7 +127,7 @@ export function mcpAuthorizeUrl(server: McpServer, args: {clientId: string; redi
 	return url.toString();
 }
 
-async function requestTokens(server: McpServer, clientId: string, params: Record<string, string>, previousRefreshToken: string | null): Promise<Result<McpCredential, ApiError>> {
+async function requestTokens(server: McpServer, clientId: string, params: Record<string, string>, previousRefreshToken: string | null): Promise<Result<McpTokens, ApiError>> {
 	const tokens = await checkedRequest(
 		server.tokenUrl,
 		{
@@ -147,18 +147,18 @@ async function requestTokens(server: McpServer, clientId: string, params: Record
 }
 
 /** Trades the code the server sent back for the connection's first tokens. */
-export function exchangeMcpCode(server: McpServer, args: {clientId: string; redirectUri: string; code: string; verifier: string}): Promise<Result<McpCredential, ApiError>> {
+export function exchangeMcpCode(server: McpServer, args: {clientId: string; redirectUri: string; code: string; verifier: string}): Promise<Result<McpTokens, ApiError>> {
 	return requestTokens(server, args.clientId, {grant_type: 'authorization_code', code: args.code, redirect_uri: args.redirectUri, code_verifier: args.verifier}, null);
 }
 
 /** New tokens for a connection whose access token ran out; turned down once the server revoked it. */
-export async function refreshMcpTokens(server: McpServer, credential: McpCredential): Promise<Result<McpCredential, ApiError>> {
+export async function refreshMcpTokens(server: McpServer, credential: McpTokens): Promise<Result<McpTokens, ApiError>> {
 	if (!credential.refreshToken) {
 		return Err(ApiErr.credentialsRejected());
 	}
 	return requestTokens(server, credential.clientId, {grant_type: 'refresh_token', refresh_token: credential.refreshToken}, credential.refreshToken);
 }
 
-export function isExpiring(credential: McpCredential): boolean {
+export function isExpiring(credential: McpTokens): boolean {
 	return credential.expiresAt !== null && Date.parse(credential.expiresAt) - EXPIRY_MARGIN_MS < Date.now();
 }

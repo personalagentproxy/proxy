@@ -222,7 +222,7 @@ describe('keyConnectRoute', () => {
 		const created = createConnection.mock.calls[0]?.[0];
 		expect(created).toMatchObject({orgId: 'org-1', integrationId: 'parallel', account: 'API key ending 1234', defaults: ['search', 'fetch']});
 		expect(created.name).toBeUndefined();
-		expect(JSON.parse(String(created.credential).replace(/^enc:/, ''))).toEqual({auth: 'key', key: 'pk-1234'});
+		expect(JSON.parse(String(created.credential).replace(/^enc:/, ''))).toEqual({auth: 'token', token: 'pk-1234'});
 		expect(connection).toMatchObject({id: 'conn-1', name: null, unavailable: []});
 	});
 
@@ -238,7 +238,7 @@ describe('keyConnectRoute', () => {
 		const connection = (await connectWithKey({connection: 'conn-0', key: 'pk-5678'})).unwrap();
 
 		expect(createConnection).not.toHaveBeenCalled();
-		expect(renewConnection.mock.calls[0]?.[0]).toMatchObject({connectionId: 'conn-0', account: 'API key ending 5678', credential: `enc:${JSON.stringify({auth: 'key', key: 'pk-5678'})}`});
+		expect(renewConnection.mock.calls[0]?.[0]).toMatchObject({connectionId: 'conn-0', account: 'API key ending 5678', credential: `enc:${JSON.stringify({auth: 'token', token: 'pk-5678'})}`});
 		expect(updateConnectionName).not.toHaveBeenCalled();
 		expect(connection).toMatchObject({id: 'conn-0', name: 'Team Parallel'});
 	});

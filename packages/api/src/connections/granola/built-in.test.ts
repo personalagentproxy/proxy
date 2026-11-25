@@ -142,7 +142,7 @@ describe('handleGranolaCallbackRoute', () => {
 		).toBe(authorizeUrl.searchParams.get('code_challenge') ?? '');
 		const created = createConnection.mock.calls[0]?.[0];
 		expect(created).toMatchObject({orgId: 'org-1', integrationId: 'granola', account: 'alex@example.com', defaults: ['readNotes', 'readTranscripts']});
-		expect(JSON.parse(String(created.credential).replace(/^enc:/, ''))).toMatchObject({clientId: 'client-1', accessToken: 'access-1', refreshToken: 'refresh-1'});
+		expect(JSON.parse(String(created.credential).replace(/^enc:/, ''))).toMatchObject({auth: 'oauth', clientId: 'client-1', accessToken: 'access-1', refreshToken: 'refresh-1'});
 		expect(res.clearCookie).toHaveBeenCalled();
 		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/org-1/connections/conn-1?added');
 	});

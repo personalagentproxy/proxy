@@ -14,8 +14,8 @@ import {saveConnection, signInFlow, signInRoutes, type Connected, type SaveOptio
 import type {ApiIntegration} from '../integration';
 import {requireManaged, type ManagingViewer} from '../managed';
 import type {BuiltInMcp, ProviderAccount} from './built-in';
-import {exchangeMcpCode, mcpAuthorizeUrl, registerMcpClient, type McpCredential, type McpServer} from './mcp-oauth';
-import type {McpKeyCredential} from './mcp-session';
+import {exchangeMcpCode, mcpAuthorizeUrl, registerMcpClient, type McpServer} from './mcp-oauth';
+import type {BuiltInCredential} from './mcp-credential';
 
 /**
  * Connecting an integration built on its MCP server: by signing in to it, as Granola, Notion and
@@ -63,9 +63,10 @@ function builtInSignIn(builtIn: BuiltInMcp) {
 		keptSchema,
 		start: (request: SignInRequest) => startMcpSignIn(server, request, {}),
 		finish: ({redirectUri, code, verifier, kept}: {redirectUri: string; code: string; verifier: string; kept: Kept}) =>
-			Do<Connected<McpCredential>, ApiError>(async ($) => {
-				const credential = $(await exchangeMcpCode(server, {clientId: kept.clientId, redirectUri, code, verifier}));
-				const account = $(await accountOf(builtIn, credential.accessToken));
+			Do<Connected<BuiltInCredential>, ApiError>(async ($) => {
+				const tokens = $(await exchangeMcpCode(server, {clientId: kept.clientId, redirectUri, code, verifier}));
+				const credential: BuiltInCredential = {auth: 'oauth', ...tokens};
+				const account = $(await accountOf(builtIn, tokens.accessToken));
 				return {...account, credential, defaults: builtIn.defaults, ...anonymity(builtIn), ...(kept.name ? {name: kept.name} : {})};
 			}),
 	};
@@ -138,7 +139,7 @@ export function connectWithKey(builtIn: BuiltInMcp, viewer: ManagingViewer, args
 			return $(Err(ApiErr.validationError('An API key has no spaces')));
 		}
 		const account = $(await checkedKeyAccount(builtIn, args.key));
-		const credential: McpKeyCredential = {auth: 'key', key: args.key};
+		const credential: BuiltInCredential = {auth: 'token', token: args.key};
 		const connected = {...account, credential, defaults: builtIn.defaults, ...anonymity(builtIn), ...(args.name === undefined ? {} : {name: args.name})};
 		const {row} = $(await saveConnection(viewer, builtIn.integrationId, connected, {shared: args.shared, connectionId: args.connectionId}));
 		// A key opens all of the integration: how the response reads the credential, which never leaves the api.

@@ -157,7 +157,7 @@ describe('handleLinearCallbackRoute', () => {
 		]);
 		const created = createConnection.mock.calls[0]?.[0];
 		expect(created).toMatchObject({orgId: 'org-1', integrationId: 'linear', account: 'alex@example.com · Acme', defaults: ['read']});
-		expect(JSON.parse(String(created.credential).replace(/^enc:/, ''))).toMatchObject({clientId: 'client-1', accessToken: 'access-1', refreshToken: 'refresh-1'});
+		expect(JSON.parse(String(created.credential).replace(/^enc:/, ''))).toMatchObject({auth: 'oauth', clientId: 'client-1', accessToken: 'access-1', refreshToken: 'refresh-1'});
 		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/org-1/connections/conn-1?added');
 	});
 
@@ -296,7 +296,7 @@ describe('keyConnectRoute', () => {
 		});
 		const created = createConnection.mock.calls[0]?.[0];
 		expect(created).toMatchObject({integrationId: 'linear', account: 'alex@example.com · Acme', defaults: ['read']});
-		expect(JSON.parse(String(created.credential).replace(/^enc:/, ''))).toEqual({auth: 'key', key: 'lin_api_1234'});
+		expect(JSON.parse(String(created.credential).replace(/^enc:/, ''))).toEqual({auth: 'token', token: 'lin_api_1234'});
 		expect(connection).toMatchObject({id: 'conn-1', account: 'alex@example.com · Acme'});
 	});
 

@@ -1,6 +1,8 @@
 import {beforeEach, describe, expect, mock, test} from 'bun:test';
 import {Err, Ok, type Result} from 'ts-results-es';
 
+import {z} from 'zod';
+
 import {ApiErr, type ApiError} from '@proxy/utils';
 
 import type {McpServer} from './mcp-oauth';
@@ -42,7 +44,7 @@ const SERVER: McpServer = {
 const fresh = {clientId: 'client-1', accessToken: 'access-2', refreshToken: 'refresh-2', expiresAt: new Date(Date.now() + 3600_000).toISOString()};
 
 function connectionWith(expiresAt: string | null) {
-	const credential = {clientId: 'client-1', accessToken: 'access-1', refreshToken: 'refresh-1', expiresAt};
+	const credential = {auth: 'oauth', clientId: 'client-1', accessToken: 'access-1', refreshToken: 'refresh-1', expiresAt};
 	return {id: 'conn-1', credential: `enc:${JSON.stringify(credential)}`};
 }
 
@@ -69,7 +71,17 @@ describe('callMcpToolFor', () => {
 		await callMcpToolFor(SERVER, connection, 'list_meetings', {});
 
 		expect(callMcpTool).toHaveBeenCalledWith(SERVER, 'access-2', 'list_meetings', {});
-		expect(updateConnectionCredential).toHaveBeenCalledWith({connectionId: 'conn-1', credential: `enc:${JSON.stringify(fresh)}`, previous: connection.credential});
+		expect(updateConnectionCredential).toHaveBeenCalledWith({connectionId: 'conn-1', credential: `enc:${JSON.stringify({auth: 'oauth', ...fresh})}`, previous: connection.credential});
+	});
+
+	test('tokens stored bare, as before every MCP credential said how it signs in, are read, and saved in the shape they have now', async () => {
+		const {callMcpToolFor} = await import('./mcp-session');
+		const bare = {clientId: 'client-1', accessToken: 'access-1', refreshToken: 'refresh-1', expiresAt: new Date(Date.now() + 10_000).toISOString()};
+		const connection = {id: 'conn-1', credential: `enc:${JSON.stringify(bare)}`};
+		await callMcpToolFor(SERVER, connection, 'list_meetings', {});
+
+		expect(refreshMcpTokens).toHaveBeenCalledWith(SERVER, {auth: 'oauth', ...bare});
+		expect(updateConnectionCredential.mock.calls[0]?.[0]).toMatchObject({credential: `enc:${JSON.stringify({auth: 'oauth', ...fresh})}`});
 	});
 
 	test('calls at once on a running-out token share one refresh', async () => {
@@ -91,8 +103,9 @@ describe('callMcpToolFor', () => {
 		expect((await callMcpToolFor(SERVER, connectionWith(null), 'list_meetings', {})).unwrapErr().kind).toBe('credentials_rejected');
 	});
 
-	test('whatever else the credential holds, as a custom server’s address, is kept beside the new tokens', async () => {
-		const {callMcpToolFor} = await import('./mcp-session');
+	test('a custom server’s sign-in keeps its address beside the new tokens', async () => {
+		const {withMcpSignIn} = await import('./mcp-session');
+		const {oauthAuthSchema} = await import('./mcp-credential');
 		const credential = {
 			auth: 'oauth',
 			url: 'https://mcp.example.com/mcp',
@@ -102,7 +115,7 @@ describe('callMcpToolFor', () => {
 			expiresAt: new Date(Date.now() + 10_000).toISOString(),
 		};
 		const connection = {id: 'conn-1', credential: `enc:${JSON.stringify(credential)}`};
-		await callMcpToolFor(SERVER, connection, 'search', {});
+		await withMcpSignIn(SERVER, connection, oauthAuthSchema.extend({url: z.string()}), (accessToken) => callMcpTool(SERVER, accessToken, 'search', {}));
 
 		const saved = updateConnectionCredential.mock.calls[0]?.[0] as {credential: string};
 		expect(JSON.parse(saved.credential.replace(/^enc:/, ''))).toEqual({auth: 'oauth', url: 'https://mcp.example.com/mcp', ...fresh});
@@ -119,7 +132,14 @@ describe('callMcpToolFor', () => {
 });
 
 describe('callMcpToolFor with an API key', () => {
-	const connection = {id: 'conn-2', credential: `enc:${JSON.stringify({auth: 'key', key: 'exa-key-1'})}`};
+	const connection = {id: 'conn-2', credential: `enc:${JSON.stringify({auth: 'token', token: 'exa-key-1'})}`};
+
+	test('a key stored as before, `{auth: "key"}`, is sent as it is', async () => {
+		const {callMcpToolFor} = await import('./mcp-session');
+		const legacy = {id: 'conn-2', credential: `enc:${JSON.stringify({auth: 'key', key: 'exa-key-1'})}`};
+		expect((await callMcpToolFor(SERVER, legacy, 'web_search_exa', {})).unwrap()).toBe('answer');
+		expect(callMcpTool).toHaveBeenCalledWith(SERVER, 'exa-key-1', 'web_search_exa', {});
+	});
 
 	test('sends the key as the token, and never refreshes it', async () => {
 		const {callMcpToolFor} = await import('./mcp-session');

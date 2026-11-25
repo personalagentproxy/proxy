@@ -13,8 +13,8 @@ import {builtInForHost} from './built-in-mcp';
 import {customCredentialSchema, type CustomCredential} from './custom/custom-mcp';
 import {keyInAddress, toolParamsSchema, type BuiltInMcp, type ToolParams} from './mcp/built-in';
 import {accountOf, checkedKeyAccount} from './mcp/mcp-connect';
-import {isExpiring, refreshMcpTokens, type McpCredential} from './mcp/mcp-oauth';
-import type {McpKeyCredential} from './mcp/mcp-session';
+import {isExpiring, refreshMcpTokens, type McpTokens} from './mcp/mcp-oauth';
+import type {BuiltInCredential, OAuthCredential} from './mcp/mcp-credential';
 import {callWithRefresh} from './token-session';
 
 /**
@@ -77,9 +77,7 @@ function serverAddress(url: string): string | null {
 	return URL.canParse(url) ? `${new URL(url).origin}${new URL(url).pathname.replace(/\/$/, '')}` : null;
 }
 
-type Carried = McpCredential | McpKeyCredential;
-
-type MovedCredential = {kind: 'moved'; credential: Carried | null} | {kind: 'stays'};
+type MovedCredential = {kind: 'moved'; credential: BuiltInCredential | null} | {kind: 'stays'};
 
 /**
  * What a custom connection's credential becomes as the integration keeps one (`moved`): a sign-in
@@ -95,20 +93,20 @@ export function movedCredential(builtIn: BuiltInMcp, custom: CustomCredential | 
 	}
 	const inAddress = URL.canParse(custom.url) ? keyInAddress(builtIn, new URL(custom.url)) : null;
 	if (inAddress) {
-		return {kind: 'moved', credential: {auth: 'key', key: inAddress}};
+		return {kind: 'moved', credential: {auth: 'token', token: inAddress}};
 	}
 	if (custom.auth === 'none') {
 		return {kind: 'stays'};
 	}
 	if (custom.auth === 'token') {
 		const bare = builtIn.apiKey && !/\s/.test(custom.token);
-		return {kind: 'moved', credential: bare ? {auth: 'key', key: custom.token} : null};
+		return {kind: 'moved', credential: bare ? {auth: 'token', token: custom.token} : null};
 	}
 	if (serverAddress(custom.url) !== serverAddress(builtIn.server.url) || custom.server.tokenUrl !== builtIn.server.tokenUrl) {
 		return {kind: 'moved', credential: null};
 	}
 	const {clientId, accessToken, refreshToken, expiresAt} = custom;
-	return {kind: 'moved', credential: {clientId, accessToken, refreshToken, expiresAt}};
+	return {kind: 'moved', credential: {auth: 'oauth', clientId, accessToken, refreshToken, expiresAt}};
 }
 
 // Nothing carried over: the server's address as the account, until it is signed in to.
@@ -127,29 +125,29 @@ function unsignedIn(address: string): {account: string; credential: null} {
  */
 export function movedAccount(
 	builtIn: BuiltInMcp,
-	credential: Carried | null,
+	credential: BuiltInCredential | null,
 	address: string,
-	keep: (tokens: McpCredential) => Promise<Result<void, ApiError>>,
-): Promise<Result<{account: string; credential: Carried | null}, ApiError>> {
+	keep: (tokens: McpTokens) => Promise<Result<void, ApiError>>,
+): Promise<Result<{account: string; credential: BuiltInCredential | null}, ApiError>> {
 	return Do(async ($) => {
 		if (!credential) {
 			return unsignedIn(address);
 		}
-		const named: Result<{account: string; credential: Carried}, ApiError> =
-			'key' in credential
-				? (await checkedKeyAccount(builtIn, credential.key)).map(({account}) => ({account, credential}))
+		const named: Result<{account: string; credential: BuiltInCredential}, ApiError> =
+			credential.auth === 'token'
+				? (await checkedKeyAccount(builtIn, credential.token)).map(({account}) => ({account, credential}))
 				: await callWithRefresh(
 						{
 							isExpiring,
-							refresh: (tokens) =>
-								Do<McpCredential, ApiError>(async ($$) => {
-									const refreshed = $$(await refreshMcpTokens(builtIn.server, tokens));
+							refresh: (signIn) =>
+								Do<OAuthCredential, ApiError>(async ($$) => {
+									const refreshed = $$(await refreshMcpTokens(builtIn.server, signIn));
 									$$(await keep(refreshed));
-									return refreshed;
+									return {...signIn, ...refreshed};
 								}),
 						},
 						credential,
-						async (tokens) => (await accountOf(builtIn, tokens.accessToken)).map(({account}) => ({account, credential: tokens})),
+						async (signIn) => (await accountOf(builtIn, signIn.accessToken)).map(({account}) => ({account, credential: signIn})),
 					);
 		if (named.isErr() && named.error.kind === 'credentials_rejected') {
 			return unsignedIn(address);
@@ -182,7 +180,7 @@ export function takeOver(connection: CustomMcpConnectionRow, builtIn: BuiltInMcp
 					grants: locked.agentGrants,
 				});
 				const runs = locked.runs.flatMap((entry) => movedRun(builtIn, entry) ?? []);
-				const keep = (tokens: McpCredential) => Do<void, ApiError>(async ($k) => $k(await keepCredential($k(encryptSecret(JSON.stringify({...custom, ...tokens}))))));
+				const keep = (tokens: McpTokens) => Do<void, ApiError>(async ($k) => $k(await keepCredential($k(encryptSecret(JSON.stringify({...custom, ...tokens}))))));
 				const {account, credential} = $$(await movedAccount(builtIn, carried.credential, locked.account, keep));
 				const encrypted = credential ? $$(encryptSecret(JSON.stringify(credential))) : null;
 				return {integrationId: builtIn.integrationId, account, credential: encrypted, ...permissions, runs};

@@ -199,19 +199,19 @@ describe('movedCredential', () => {
 	test("keeps a sign-in to the integration's own server, whatever the query of the address", () => {
 		expect(movedCredential(EXA_MCP, {...EXA_SIGN_IN, url: 'https://mcp.exa.ai/mcp?tools=web_search_exa'})).toEqual({
 			kind: 'moved',
-			credential: {clientId: 'client-1', accessToken: 'access-1', refreshToken: 'refresh-1', expiresAt: null},
+			credential: {auth: 'oauth', clientId: 'client-1', accessToken: 'access-1', refreshToken: 'refresh-1', expiresAt: null},
 		});
 	});
 
 	test("a token typed in becomes the integration's API key, where it takes one and the token is a bare one", () => {
-		expect(movedCredential(EXA_MCP, {auth: 'token', url: 'https://mcp.exa.ai/mcp', token: 'key-1'})).toEqual({kind: 'moved', credential: {auth: 'key', key: 'key-1'}});
-		expect(movedCredential(PARALLEL_MCP, {auth: 'token', url: 'https://search.parallel.ai/mcp', token: 'pk_1'})).toEqual({kind: 'moved', credential: {auth: 'key', key: 'pk_1'}});
-		expect(movedCredential(LINEAR_MCP, {auth: 'token', url: 'https://mcp.linear.app/mcp', token: 'lin_api_1'})).toEqual({kind: 'moved', credential: {auth: 'key', key: 'lin_api_1'}});
+		expect(movedCredential(EXA_MCP, {auth: 'token', url: 'https://mcp.exa.ai/mcp', token: 'key-1'})).toEqual({kind: 'moved', credential: {auth: 'token', token: 'key-1'}});
+		expect(movedCredential(PARALLEL_MCP, {auth: 'token', url: 'https://search.parallel.ai/mcp', token: 'pk_1'})).toEqual({kind: 'moved', credential: {auth: 'token', token: 'pk_1'}});
+		expect(movedCredential(LINEAR_MCP, {auth: 'token', url: 'https://mcp.linear.app/mcp', token: 'lin_api_1'})).toEqual({kind: 'moved', credential: {auth: 'token', token: 'lin_api_1'}});
 		expect(movedCredential(EXA_MCP, {auth: 'token', url: 'https://mcp.exa.ai/mcp', token: 'Basic abc'})).toEqual({kind: 'moved', credential: null});
 	});
 
 	test("a key in the address, as Exa's own setup writes it, becomes the integration's API key", () => {
-		expect(movedCredential(EXA_MCP, {auth: 'none', url: 'https://mcp.exa.ai/mcp?exaApiKey=key-2'})).toEqual({kind: 'moved', credential: {auth: 'key', key: 'key-2'}});
+		expect(movedCredential(EXA_MCP, {auth: 'none', url: 'https://mcp.exa.ai/mcp?exaApiKey=key-2'})).toEqual({kind: 'moved', credential: {auth: 'token', token: 'key-2'}});
 	});
 
 	test('a server reached with nothing at all stays custom, rather than stop working', () => {
@@ -301,7 +301,7 @@ describe('takeOverCustomConnections', () => {
 				connectionId: 'mcp-exa',
 				integrationId: 'exa',
 				account: 'Signed in',
-				credential: stored({clientId: 'client-1', accessToken: 'access-1', refreshToken: 'refresh-1', expiresAt: null}),
+				credential: stored({auth: 'oauth', clientId: 'client-1', accessToken: 'access-1', refreshToken: 'refresh-1', expiresAt: null}),
 				defaults: ['search'],
 				grants: [],
 				runs: [{id: 'e-1', collectionId: 'searches', action: 'run', recordTitle: 'bun mocks', query: null}],
@@ -310,7 +310,7 @@ describe('takeOverCustomConnections', () => {
 				connectionId: 'mcp-parallel',
 				integrationId: 'parallel',
 				account: 'API key ending 5678',
-				credential: stored({auth: 'key', key: 'pk_5678'}),
+				credential: stored({auth: 'token', token: 'pk_5678'}),
 				defaults: ['search', 'fetch'],
 				grants: [],
 				runs: [],
@@ -410,7 +410,7 @@ describe('takeOverCustomConnections', () => {
 			connectionId: 'mcp-linear',
 			integrationId: 'linear',
 			account: 'alex@example.com · Acme',
-			credential: stored({auth: 'key', key: 'lin_api_1'}),
+			credential: stored({auth: 'token', token: 'lin_api_1'}),
 			defaults: ['read'],
 		});
 	});

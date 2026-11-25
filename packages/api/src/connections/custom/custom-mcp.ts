@@ -6,8 +6,9 @@ import {mcpToolReadsOnly, type McpTool} from '@proxy/integrations';
 
 import {readStoredJson} from '../../utils/stored-json';
 import {callMcpTool, listMcpTools} from '../mcp/mcp-client';
-import {mcpCredentialSchema, mcpEndpointsSchema, type McpEndpoint, type McpServer} from '../mcp/mcp-oauth';
-import {withMcpToken} from '../mcp/mcp-session';
+import {noAuthSchema, oauthAuthSchema, tokenAuthSchema} from '../mcp/mcp-credential';
+import {mcpEndpointsSchema, type McpEndpoint, type McpServer} from '../mcp/mcp-oauth';
+import {withMcpSignIn} from '../mcp/mcp-session';
 
 /**
  * A custom MCP server, by its address: connected with no sign-in where the server asks for none,
@@ -16,13 +17,14 @@ import {withMcpToken} from '../mcp/mcp-session';
  * the agent as the server wrote it (`mcp-discovery.ts` finds out how a server is signed in to).
  */
 
-/** What a custom MCP connection stores, encrypted: the server's address and how it is signed in to. */
-export const customCredentialSchema = z.discriminatedUnion('auth', [
-	z.object({auth: z.literal('none'), url: z.string()}),
-	z.object({auth: z.literal('token'), url: z.string(), token: z.string()}),
-	// Signed in: the server's endpoints beside the tokens, so refreshing needs nothing else.
-	z.object({auth: z.literal('oauth'), url: z.string(), server: mcpEndpointsSchema, ...mcpCredentialSchema.shape}),
-]);
+// Signed in: the server's endpoints beside the tokens, so refreshing needs nothing else.
+const customSignInSchema = oauthAuthSchema.extend({url: z.string(), server: mcpEndpointsSchema});
+
+/**
+ * What a custom MCP connection stores, encrypted: an MCP credential (`mcp-credential.ts`) with the
+ * server's address beside it.
+ */
+export const customCredentialSchema = z.discriminatedUnion('auth', [noAuthSchema.extend({url: z.string()}), tokenAuthSchema.extend({url: z.string()}), customSignInSchema]);
 
 export type CustomCredential = z.infer<typeof customCredentialSchema>;
 
@@ -68,7 +70,7 @@ function withCustomServer<T>(connection: StoredConnection, use: (server: McpEndp
 			return $(await use(customEndpoint(credential.url), credential.token));
 		}
 		const server = customServer(credential);
-		return $(await withMcpToken(server, connection, (accessToken) => use(server, accessToken)));
+		return $(await withMcpSignIn(server, connection, customSignInSchema, (accessToken) => use(server, accessToken)));
 	});
 }
 

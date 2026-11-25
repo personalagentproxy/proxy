@@ -163,7 +163,7 @@ describe('the sign-in', () => {
 		expect(toolCalls[0]?.headers.get('authorization')).toBe('Bearer access-1');
 		const created = createConnection.mock.calls[0]?.[0];
 		expect(created).toMatchObject({orgId: 'org-1', integrationId: 'cloudflare', account: 'alex@example.com', defaults: ['read']});
-		expect(JSON.parse(String(created.credential).replace(/^enc:/, ''))).toMatchObject({clientId: 'client-1', accessToken: 'access-1', refreshToken: 'refresh-1'});
+		expect(JSON.parse(String(created.credential).replace(/^enc:/, ''))).toMatchObject({auth: 'oauth', clientId: 'client-1', accessToken: 'access-1', refreshToken: 'refresh-1'});
 		expect(res.redirect).toHaveBeenCalledWith('https://app.example.com/org-1/connections/conn-1?added');
 	});
 });
@@ -200,7 +200,7 @@ describe('keyConnectRoute', () => {
 		expect(calls.map((call) => JSON.parse(call.body).method)).toEqual(['tools/list', 'tools/call']);
 		expect(findAccountConnection).toHaveBeenCalledWith(expect.objectContaining({orgId: 'org-1', userId: 'user-1'}), {integrationId: 'cloudflare', account: 'Acme', providerAccountId: 'account:acc-1'});
 		expect(createConnection.mock.calls[0]?.[0]).toMatchObject({account: 'Acme', providerAccountId: 'account:acc-1'});
-		expect(JSON.parse(String(createConnection.mock.calls[0]?.[0].credential).replace(/^enc:/, ''))).toEqual({auth: 'key', key: 'account-token'});
+		expect(JSON.parse(String(createConnection.mock.calls[0]?.[0].credential).replace(/^enc:/, ''))).toEqual({auth: 'token', token: 'account-token'});
 		expect(connection).toMatchObject({id: 'conn-1', account: 'Acme'});
 	});
 
